@@ -1,0 +1,307 @@
+# HybridOps.Core — Execution Architecture (Anti‑drift Note v1.1)
+
+This document is the authoritative **anti‑drift reference** for HybridOps.Core execution architecture (**v1.1**).
+If an implementation change conflicts with this note, treat it as drift and reconcile **before** proceeding.
+
+**Scope**
+- Applies to: `hyops` CLI, runtime layout, module resolution, driver execution, evidence/redaction, pack resolution, validators.
+- Non-goals: retention policy, cloud/provider permissions design, detailed Terraform/Terragrunt module authoring practices.
+
+---
+
+## 1. Core concepts
+
+HybridOps.Core uses four concepts to keep execution deterministic, replaceable, and tarball-safe:
+
+1) **Module** — declarative intent contract (“what”)
+2) **Driver** — execution engine (“how”)
+3) **Profile** — policy and defaults (“how, consistently”)
+4) **Pack** — tool plan/bundle executed by the driver (“what to run”)
+
+**Norms**
+- Module contracts are stable and tool-agnostic.
+- Drivers and packs may evolve independently without breaking module contracts.
+- Profiles carry opinionated policy; packs must not.
+
+---
+
+## 2. References and identifiers
+
+### 2.1 Timeless module_refs
+
+- `module_ref` **MUST** be stable and **MUST NOT** encode time/cohort labels (e.g., no `2026E`).
+- Recommended top-level namespaces:
+  - `org/` — org/tenancy primitives
+  - `core/` — foundation primitives (networking, routing, baseline infra)
+  - `platform/` — platform services (NetBox, PostgreSQL, registries, secrets services)
+  - `examples/` — demos/smoke tests (non-product)
+
+### 2.2 Dot notation (operator convenience)
+
+- The CLI **MAY** accept dot notation for convenience (e.g., `core.hetzner.edge-network`).
+- The runtime **MUST** normalize identifiers to a canonical internal form.
+- Canonical form (v1.1): **slash-separated** (`core/hetzner/edge-network`).
+
+### 2.3 Filesystem-safe identifiers
+
+- Evidence paths use a filesystem-safe `module_id` derived from `module_ref`:
+  - `module_id = module_ref.replace("/", "__")`
+
+---
+
+## 3. Module contract (intent)
+
+A module is declarative data describing intent, required credentials, and verification.
+
+### 3.1 Required fields
+
+A module **MUST** define:
+- `module_ref`
+- `inputs.defaults` (may be empty mapping)
+- `requirements.credentials` (identifiers only; no secret values)
+- `execution.driver`
+- `execution.profile`
+- `execution.pack_ref.id`
+
+### 3.2 Recommended fields
+
+A module **SHOULD** define:
+- `outputs.publish` (what to expose from normalized outputs)
+- `constraints` (semantic constraints not representable purely by type)
+- `probes` (verification steps/identifiers, where applicable)
+
+### 3.3 Forbidden content (must not leak implementation)
+
+A module **MUST NOT** embed tool implementation details, including:
+- Terraform/Terragrunt/Packer/Ansible sources or repo paths
+- backend/state/workspace wiring
+- CLI flags or tool invocation parameters
+- secrets or secret material
+- toolchain version pinning (belongs to profile/driver)
+- hooks/policy logic (belongs to profile/driver)
+
+---
+
+## 4. Profiles (policy + defaults)
+
+A profile is a versioned policy bundle interpreted by a driver.
+
+Profiles **SHOULD** govern:
+- runner model (local/remote)
+- backend/state selection and workspace naming
+- toolchain policy (allowed/pinned versions)
+- templates/hooks that are driver-owned (generated into the run workdir)
+- logging and redaction defaults
+- retry/timeouts and safety flags
+
+Profiles **MUST NOT** redefine module intent. Profiles may provide defaults only where consistent policy is required.
+
+---
+
+## 5. Packs (tool plan bundles)
+
+A pack is a tool-specific plan bundle executed by a driver (e.g., a Terragrunt stack tree).
+
+**Norms**
+- Packs **MUST** be immutable inputs to a run (drivers copy packs into an isolated workdir).
+- Packs **MUST** be tarball-safe and **MUST NOT** assume repo layout or `.git`.
+- Packs **MUST NOT** own backend/workspace naming rules (belongs to driver/profile).
+- Runtime-injected configuration must be provided via environment variables or generated files owned by driver/profile.
+
+---
+
+## 6. Runtime root & packaging (tarball-safe)
+
+### 6.1 Runtime root precedence
+
+Any command that writes runtime artifacts **MUST** resolve runtime root using:
+
+1) `--root <path>`
+2) `$HYOPS_RUNTIME_ROOT`
+3) `~/.hybridops`
+
+**Norms**
+- Commands **MUST NOT** infer a repo root for runtime outputs.
+- Packaged assets must be located relative to the installed package (“release root”), not Git.
+
+### 6.2 Runtime layout (minimum)
+
+Commands **MUST** create layout if missing:
+
+- `<root>/config/`
+- `<root>/credentials/`
+- `<root>/vault/`
+- `<root>/meta/`
+- `<root>/logs/`
+- `<root>/state/`
+- `<root>/work/`
+
+---
+
+## 7. Evidence, redaction, readiness, stamps
+
+### 7.1 Evidence paths (stable)
+
+Evidence **MUST** be written under the runtime root:
+
+- Init:   `<root>/logs/init/<target>/<run_id>/`
+- Module: `<root>/logs/module/<module_id>/<run_id>/`
+
+If `--out-dir` is supported, it is an override root only; structure remains stable:
+
+- Init (override):   `<out_dir>/init/<target>/<run_id>/`
+- Module (override): `<out_dir>/module/<module_id>/<run_id>/`
+
+### 7.2 Driver evidence placement (v1.1)
+
+Driver evidence is written **inside** the module command evidence directory (e.g., apply run evidence).
+A separate `<root>/logs/driver/<driver_id>/<run_id>/` tree is a future enhancement (not v1.1 behavior).
+
+### 7.3 Redaction
+
+- Evidence **MUST NOT** contain secrets.
+- Subprocess stdout/stderr captures **MUST** be redacted prior to persistence.
+- Redaction patterns may evolve without a version bump.
+
+### 7.4 Readiness markers
+
+- `<root>/meta/<target>.ready.json`
+
+Readiness markers **MUST** reflect truth and should only be written when the target is actually ready.
+
+### 7.5 Runtime stamp (best-effort)
+
+- `<root>/meta/runtime.json`
+- Non-secret
+- **MUST NOT** block execution if stamping fails
+
+---
+
+## 8. Workdir isolation (v1.1)
+
+Drivers **MUST** execute in an isolated workdir under runtime root:
+
+`<root>/work/<module_id>/<run_id>/stack/`
+
+- Packs are copied into the workdir (packs remain immutable).
+- Inputs are materialized as driver-owned generated files in the workdir.
+
+---
+
+## 9. Pack resolution (v1.1)
+
+### 9.1 Mapping rule
+
+Pack stack directory resolves as:
+
+`<packs_root>/<driver_ref>/<pack_id>/stack/`
+
+Where:
+- `packs_root` precedence:
+  1) `$HYOPS_PACKS_ROOT` if set (points to directory containing `packs/`)
+  2) release root fallback: `<release_root>/packs`
+- `driver_ref` comes from `execution.driver` (e.g., `iac/terragrunt`)
+- `pack_id` comes from `execution.pack_ref.id`
+
+Example:
+- driver_ref: `iac/terragrunt`
+- pack_id: `gcp/org/00-project-factory@v1.0`
+
+Resolves to:
+`packs/iac/terragrunt/gcp/org/00-project-factory@v1.0/stack`
+
+---
+
+## 10. Inputs precedence (v1.1)
+
+Inputs are resolved in this precedence order (highest wins):
+
+1) `HYOPS_INPUTS_JSON` (JSON object; merges into inputs)
+2) `HYOPS_INPUT_<key>` / `HYOPS_INPUT_<path__to__key>` (env overrides; supports nested keys via `__`)
+3) `--inputs <file.yml>` (operator inputs file)
+4) `spec.inputs.defaults`
+
+Notes:
+- `HYOPS_INPUT_*` values are JSON-decoded when possible (e.g., `true`, `3`, `{"a":1}`).
+- Nested override example: `HYOPS_INPUT_network__cidr='"10.10.0.0/24"'`.
+
+---
+
+## 11. Validators (module input validation)
+
+### 11.1 Responsibility
+
+- Validators enforce module-specific schema/constraints **after** inputs merge and **before** driver execution.
+- Validators are keyed by canonical `module_ref`.
+
+Validation **MUST NOT** live in:
+- profiles (policy bundles)
+- packs (implementation bundles)
+
+Rationale:
+- Validation defines the **module contract** and must travel with the module capability, not with policy or implementation.
+
+### 11.2 Registry model (plugin-ready)
+
+- A runtime registry maps `module_ref -> validator callable`.
+- Built-in validators are registered from a single built-in registration module.
+- A future plugin system may load third-party validators via Python entry points; this must not change module contracts.
+
+---
+
+## 12. Driver loading model (plugin-ready)
+
+- Core provides a driver registry (`ref -> callable`).
+- Built-in drivers are registered from a single built-in registration module (importable from installed package).
+- Plugin discovery may load third-party drivers via Python entry points.
+- Plugin loading **MUST NOT** change the module contract.
+
+---
+
+## 13. Operator command expectations (v1.1)
+
+### 13.1 `hyops apply` produces evidence + deterministic outputs
+
+`hyops apply` must:
+- resolve runtime root + ensure layout
+- resolve module spec + merge inputs + validate inputs
+- resolve pack + copy into isolated workdir
+- generate driver-owned input files (e.g., `inputs.auto.tfvars.json`)
+- run tool steps (driver-specific)
+- write evidence envelopes for tool steps
+- write deterministic driver meta + result payloads
+
+Minimum evidence artifacts (names are normative for v1.1):
+- `driver_meta.json`
+- `driver_result.json`
+- tool step evidence envelopes (e.g., `terragrunt_init.*`, `terragrunt_apply.*`, `terragrunt_output.*`)
+
+---
+
+## 14. Anti-drift checks (quick tests)
+
+- Running from a tarball without `.git` works.
+- Defaults write to `~/.hybridops`; `--root` overrides; `HYOPS_RUNTIME_ROOT` overrides.
+- Pack resolution does not depend on repo root; uses `HYOPS_PACKS_ROOT` or release root fallback.
+- Evidence paths match the stable structure; `--out-dir` preserves structure.
+- Evidence contains no secrets; subprocess stdout/stderr are redacted.
+- Module specs remain tool-agnostic (no backend/workspace/version glue).
+- Drivers can add new packs without changing module specs.
+- `hyops apply` produces:
+  - `driver_meta.json`, `driver_result.json`
+  - `inputs.auto.tfvars.json` in the workdir stack
+  - tool step evidence envelopes
+
+---
+
+## 15. Design guidance (non-normative)
+
+### 15.1 Generic infra + blueprint
+
+- Avoid shipping instance-specific “machines” as first-class modules (e.g., `ctrl-01`).
+- Prefer:
+  - generic building-block modules (compute, network, storage)
+  - higher-level capability modules (“blueprints”) that define what makes a role (hardening, Jenkins, GitOps, guardrails)
+
+This keeps packs composable and prevents product shape from becoming tied to one environment layout.
+

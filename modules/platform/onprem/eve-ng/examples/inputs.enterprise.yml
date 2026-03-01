@@ -1,0 +1,10 @@
+# Enterprise EVE-NG config example.
+# Secrets are supplied via env/vault:
+#   - EVENG_ROOT_PASSWORD
+#   - EVENG_ADMIN_PASSWORD
+
+target_host: "10.10.0.41"
+target_user: "opsadmin"
+ssh_private_key_file: "~/.ssh/id_ed25519"
+
+eveng_resource_profile: "performance"

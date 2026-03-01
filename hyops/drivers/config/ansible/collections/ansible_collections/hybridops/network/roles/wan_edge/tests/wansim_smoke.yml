@@ -1,0 +1,17 @@
+# purpose: WAN edge smoke test - three-site hub-and-spoke
+# maintainer: HybridOps.Studio
+
+- name: Configure WAN hub (responder)
+  hosts: wansim_gcp
+  roles:
+    - role: hybridops.network.wan_edge
+
+- name: Configure WAN spokes (initiators)
+  hosts: wansim_edge:wansim_azure
+  roles:
+    - role: hybridops.network.wan_edge
+
+- name: Validate all sites
+  hosts: wansim
+  roles:
+    - role: hybridops.network.wan_validate

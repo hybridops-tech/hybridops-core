@@ -1,0 +1,4 @@
+name_prefix: "platform"
+context_id: "dev"
+location: "uksouth"
+container_name: "objectrepo"

@@ -1,0 +1,8 @@
+---
+# purpose: Handlers for decision_service role
+# maintainer: HybridOps.Studio
+
+- name: Restart decision service
+  ansible.builtin.service:
+    name: "{{ decision_service_name }}"
+    state: restarted

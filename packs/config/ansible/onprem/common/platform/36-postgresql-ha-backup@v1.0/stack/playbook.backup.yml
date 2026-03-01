@@ -1,0 +1,164 @@
+---
+
+# On-demand backup entrypoint.
+# Assumes pgBackRest is already configured on the cluster.
+
+- name: platform/onprem/postgresql-ha-backup (run full backup on primary)
+  hosts: postgres_cluster
+  become: true
+  gather_facts: false
+
+  vars:
+    patroni_cluster_name: "{{ patroni_cluster_name | default('postgres-ha') }}"
+    secondary_enabled: "{{ secondary_enabled | default(false) | bool }}"
+    repo_mismatch_action: "{{ repo_mismatch_action | default('fail') | string | lower }}"
+
+  tasks:
+    - name: Ensure pgbackrest is installed
+      ansible.builtin.command: "command -v pgbackrest"
+      register: _hyops_pgbackrest_bin
+      changed_when: false
+
+    - name: Detect primary via pg_is_in_recovery()
+      become_user: postgres
+      ansible.builtin.command: "psql -tAXc 'select pg_is_in_recovery()'"
+      register: _hyops_recovery
+      changed_when: false
+
+    - name: Probe or initialize pgBackRest stanza (primary only)
+      become_user: postgres
+      ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} stanza-create"
+      register: _hyops_stanza_probe
+      changed_when: false
+      failed_when: false
+      when: (_hyops_recovery.stdout | default('') | trim) == 'f'
+
+    - name: Compute pgBackRest mismatch flag from check probe
+      ansible.builtin.set_fact:
+        _hyops_pgbackrest_repo1_mismatch: >-
+          {{
+            (_hyops_stanza_probe is defined)
+            and ((_hyops_stanza_probe.rc | default(0) | int) != 0)
+            and (
+              (
+                (_hyops_stanza_probe.stdout | default(''))
+                ~ ' '
+                ~ (_hyops_stanza_probe.stderr | default(''))
+              ) is search('backup and archive info files exist but do not match the database')
+            )
+          }}
+      changed_when: false
+      when: (_hyops_recovery.stdout | default('') | trim) == 'f'
+
+    - name: Fail fast on pgBackRest repository mismatch (backup mode)
+      ansible.builtin.fail:
+        msg: >-
+          pgBackRest repository metadata does not match this PostgreSQL cluster (system-id mismatch).
+          Re-run with inputs.repo_mismatch_action=reset to allow controlled stanza re-initialization,
+          or point repo_path to a clean repository path.
+      when:
+        - (_hyops_recovery.stdout | default('') | trim) == 'f'
+        - (_hyops_pgbackrest_repo1_mismatch | default(false))
+        - repo_mismatch_action != 'reset'
+
+    - name: Reset stale pgBackRest stanza metadata (repo1, opt-in)
+      become_user: postgres
+      ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} --repo=1 stanza-delete --force"
+      register: _hyops_pgbackrest_repo1_reset
+      changed_when: true
+      failed_when: false
+      when:
+        - (_hyops_recovery.stdout | default('') | trim) == 'f'
+        - (_hyops_pgbackrest_repo1_mismatch | default(false))
+        - repo_mismatch_action == 'reset'
+
+    - name: Re-create pgBackRest stanza after reset (repo1, opt-in)
+      become_user: postgres
+      ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} stanza-create"
+      register: _hyops_pgbackrest_repo1_recreate
+      changed_when: true
+      when:
+        - (_hyops_recovery.stdout | default('') | trim) == 'f'
+        - (_hyops_pgbackrest_repo1_mismatch | default(false))
+        - repo_mismatch_action == 'reset'
+
+    - name: Run pgBackRest check (primary only)
+      become_user: postgres
+      ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} check"
+      register: _hyops_check
+      changed_when: false
+      when: (_hyops_recovery.stdout | default('') | trim) == 'f'
+
+    - name: Run pgBackRest full backup (primary only)
+      become_user: postgres
+      ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} --repo=1 --type=full backup"
+      register: _hyops_backup
+      changed_when: true
+      when: (_hyops_recovery.stdout | default('') | trim) == 'f'
+
+    - name: Run pgBackRest full backup (secondary repo2, primary only)
+      become_user: postgres
+      ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} --repo=2 --type=full backup"
+      register: _hyops_backup_secondary
+      changed_when: true
+      when:
+        - (_hyops_recovery.stdout | default('') | trim) == 'f'
+        - secondary_enabled | default(false) | bool
+
+- name: platform/onprem/postgresql-ha-backup (publish outputs)
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  vars:
+    secondary_enabled: "{{ secondary_enabled | default(false) | bool }}"
+    secondary_backend: "{{ secondary_backend | default('') | string | lower }}"
+    secondary_repo_path: "{{ secondary_repo_path | default('') }}"
+    repo_path: "{{ repo_path | default('/pgbackrest') }}"
+    secondary_s3_bucket: "{{ secondary_s3_bucket | default('') }}"
+    secondary_gcs_bucket: "{{ secondary_gcs_bucket | default('') }}"
+    secondary_azure_storage_account: "{{ secondary_azure_storage_account | default('') }}"
+    secondary_azure_container: "{{ secondary_azure_container | default('') }}"
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set raw = (backend | default('s3') | string | lower) %}
+          {% set repo_type = 'gcs' if raw in ['gcs', 'gcp'] else 'azure' if raw in ['azure', 'azblob', 'blob'] else 's3' if raw in ['s3'] else raw %}
+          {% set bucket = (s3_bucket if repo_type == 's3' else gcs_bucket if repo_type == 'gcs' else azure_container if repo_type == 'azure' else '') | default('') | string %}
+          {% set ns = namespace(out={
+            'cap.db.postgresql_ha_backup': 'ready',
+            'pgbackrest_repo': {
+              'type': (repo_type | string),
+              'bucket': bucket,
+              'account': (azure_storage_account if repo_type == 'azure' else ''),
+              'endpoint': (s3_endpoint | default('') | string),
+              'region': (s3_region | default('') | string),
+              'uri_style': (s3_uri_style | default('') | string),
+              'path': (repo_path | string),
+              'stanza': (patroni_cluster_name | default('postgres-ha') | string),
+              'secondary': ({
+                'enabled': (secondary_enabled | default(false) | bool),
+                'type': (
+                  'gcs' if (secondary_backend | default('') | string | lower) in ['gcs', 'gcp']
+                  else 'azure' if (secondary_backend | default('') | string | lower) in ['azure', 'azblob', 'blob']
+                  else 's3' if (secondary_backend | default('') | string | lower) == 's3'
+                  else ''
+                ),
+                'bucket': (
+                  secondary_s3_bucket if (secondary_backend | default('') | string | lower) == 's3'
+                  else secondary_gcs_bucket if (secondary_backend | default('') | string | lower) in ['gcs', 'gcp']
+                  else secondary_azure_container if (secondary_backend | default('') | string | lower) in ['azure', 'azblob', 'blob']
+                  else ''
+                ),
+                'account': (secondary_azure_storage_account | default('') | string),
+                'path': (
+                  secondary_repo_path | default(repo_path | default('/pgbackrest'), true) | string
+                )
+              } if (secondary_enabled | default(false) | bool) else {'enabled': false})
+            }
+          }) %}
+          {{ ns.out | to_json }}

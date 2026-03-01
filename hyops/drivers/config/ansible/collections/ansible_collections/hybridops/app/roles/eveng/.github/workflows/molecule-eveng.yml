@@ -1,0 +1,31 @@
+---
+name: Molecule
+
+"on":
+  push:
+    branches: [main, develop]
+    paths:
+      - "roles/eveng/**"
+  pull_request:
+    paths:
+      - "roles/eveng/**"
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    name: Molecule Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Note
+        run: |
+          echo "Molecule test requires delegated infrastructure"
+          echo "See roles/eveng/molecule/default/README.md for manual testing"
+
+      - name: Syntax check
+        run: |
+          pip install ansible-core
+          ansible-playbook roles/eveng/molecule/default/converge.yml --syntax-check

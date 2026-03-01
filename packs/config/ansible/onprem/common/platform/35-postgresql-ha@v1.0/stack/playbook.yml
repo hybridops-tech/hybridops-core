@@ -1,0 +1,321 @@
+---
+
+# Thin wrapper around vitabaks.autobase playbooks.
+# We keep HyOps-level inputs stable and translate only the minimal pieces we own
+# (apps -> postgresql_users/databases/privs; allowed_clients -> pg_hba entries).
+
+- name: platform/onprem/postgresql-ha (seed patroni passwords)
+  hosts: postgres_cluster
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Seed Patroni passwords from environment
+      ansible.builtin.set_fact:
+        patroni_superuser_password: "{{ lookup('env', patroni_superuser_password_env | default('PATRONI_SUPERUSER_PASSWORD')) }}"
+        patroni_replication_password: "{{ lookup('env', patroni_replication_password_env | default('PATRONI_REPLICATION_PASSWORD')) }}"
+      no_log: true
+
+    - name: "Preflight: ensure patroni passwords are present in environment"
+      ansible.builtin.assert:
+        that:
+          - (patroni_superuser_password | default('') | length) > 0
+          - (patroni_replication_password | default('') | length) > 0
+        fail_msg: >-
+          Missing required Patroni secrets. Ensure vault/env provides:
+          PATRONI_SUPERUSER_PASSWORD and PATRONI_REPLICATION_PASSWORD.
+          Hint: hyops secrets ensure --env <env> PATRONI_SUPERUSER_PASSWORD PATRONI_REPLICATION_PASSWORD
+      no_log: true
+
+    # Autobase expects several complex vars (users/dbs/privs/pg_hba) as lists of
+    # dicts. Ansible/Jinja does not support Python list comprehensions inside
+    # `{{ ... }}`, so we build these lists explicitly with set_fact loops.
+    - name: Normalize app contract (inputs.apps or fallback netbox contract)
+      ansible.builtin.set_fact:
+        _hyops_pg_apps: >-
+          {{
+            (apps
+              if (apps is mapping and (apps | length) > 0)
+              else {
+                'netbox': {
+                  'db_name': (db_name | default('netbox')),
+                  'db_user': (db_user | default('netbox')),
+                  'db_password_env': (db_password_env | default('NETBOX_DB_PASSWORD'))
+                }
+              }
+            )
+          }}
+
+    - name: "Preflight: ensure required app passwords are present in environment"
+      ansible.builtin.assert:
+        that:
+          - (lookup('env', item.value.db_password_env | string) | length) > 0
+        fail_msg: >-
+          Missing required secret for app={{ item.key }}. Set env var
+          {{ item.value.db_password_env }} (hint: hyops secrets ensure --env <env> {{ item.value.db_password_env }}).
+      loop: "{{ _hyops_pg_apps | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      no_log: true
+
+    - name: Init derived PostgreSQL vars for Autobase
+      ansible.builtin.set_fact:
+        postgresql_databases: []
+        postgresql_users: []
+        postgresql_privs: []
+        postgresql_pg_hba:
+          - type: local
+            database: all
+            user: "{{ patroni_superuser_username | default('postgres') }}"
+            address: ""
+            method: trust
+          - type: local
+            database: all
+            user: all
+            address: ""
+            method: scram-sha-256
+          - type: host
+            database: all
+            user: all
+            address: 127.0.0.1/32
+            method: scram-sha-256
+          - type: host
+            database: all
+            user: all
+            address: ::1/128
+            method: scram-sha-256
+
+    - name: Derive postgresql_* vars from apps contract
+      ansible.builtin.set_fact:
+        postgresql_databases: >-
+          {{
+            postgresql_databases
+              + [
+                {
+                  'db': (item.value.db_name | string),
+                  'owner': (item.value.db_user | string),
+                  'encoding': (postgresql_encoding | default('UTF8') | string),
+                  'lc_collate': (postgresql_locale | default('en_US.UTF-8') | string),
+                  'lc_ctype': (postgresql_locale | default('en_US.UTF-8') | string)
+                }
+              ]
+            }}
+        postgresql_users: >-
+          {{
+            postgresql_users
+            + [
+              {
+                'name': (item.value.db_user | string),
+                'password': lookup('env', item.value.db_password_env | string)
+              }
+            ]
+          }}
+        postgresql_privs: >-
+          {{
+            postgresql_privs
+            + [
+              {
+                'role': (item.value.db_user | string),
+                'db': (item.value.db_name | string),
+                'type': 'database',
+                'objs': (item.value.db_name | string),
+                'privs': 'ALL'
+              },
+              {
+                'role': (item.value.db_user | string),
+                'db': (item.value.db_name | string),
+                'type': 'schema',
+                'objs': 'public',
+                'privs': 'USAGE,CREATE'
+              }
+            ]
+          }}
+      loop: "{{ _hyops_pg_apps | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      no_log: true
+
+    - name: "Preflight: validate allowed_clients entries"
+      ansible.builtin.assert:
+        that:
+          - item.cidr is defined
+          - (item.cidr | string | length) > 0
+        fail_msg: "allowed_clients entries must include cidr"
+      loop: "{{ allowed_clients | default([]) }}"
+      loop_control:
+        label: "{{ item.cidr | default('') }}"
+
+    - name: Add allowed_clients to postgresql_pg_hba
+      ansible.builtin.set_fact:
+        postgresql_pg_hba: >-
+          {{
+            postgresql_pg_hba
+            + [
+              {
+                'type': 'host',
+                'database': (item.database | default('all') | string),
+                'user': (item.user | default('all') | string),
+                'address': (item.cidr | string),
+                'method': 'scram-sha-256'
+              }
+            ]
+          }}
+      loop: "{{ allowed_clients | default([]) }}"
+      loop_control:
+        label: "{{ item.cidr | default('') }}"
+
+- name: platform/onprem/postgresql-ha (deploy)
+  ansible.builtin.import_playbook: vitabaks.autobase.deploy_pgcluster
+  vars:
+    # This module is intentionally on-prem only.
+    # Autobase conditionally runs cloud provisioning logic (cloud_resources) when
+    # `cloud_provider` is non-empty; ensure we never enable that implicitly.
+    cloud_provider: ""
+    provision: ""
+
+    patroni_cluster_name: "{{ patroni_cluster_name | default('postgres-ha') }}"
+    postgresql_version: "{{ postgresql_version | default(16) | int }}"
+    postgresql_port: "{{ postgresql_port | default(5432) | int }}"
+
+    dcs_type: "{{ dcs_type | default('etcd') }}"
+    dcs_exists: "{{ dcs_exists | default(false) | bool }}"
+
+    cluster_vip: "{{ cluster_vip | default('') }}"
+    with_haproxy_load_balancing: "{{ with_haproxy_load_balancing | default(false) | bool }}"
+
+    # Keep v1 simple: no pooler by default.
+    pgbouncer_install: "{{ pgbouncer_install | default(false) | bool }}"
+
+    # Secure-by-default host access (cluster nodes are always added separately by Autobase).
+    postgresql_password_encryption_algorithm: "scram-sha-256"
+
+- name: platform/onprem/postgresql-ha (ensure VIP is configured)
+  hosts: master
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_use_vip: >-
+      {{
+        (cluster_vip | default('') | string | length) > 0
+        and not (with_haproxy_load_balancing | default(false) | bool)
+      }}
+
+  tasks:
+    - name: Restart vip-manager (ensure DCS watch is fresh)
+      ansible.builtin.systemd:
+        daemon_reload: true
+        name: vip-manager
+        state: restarted
+        enabled: true
+      when: _hyops_use_vip | bool
+
+    - name: Wait for VIP to be present on the leader node
+      ansible.builtin.command: "ip -br addr"
+      register: _hyops_ip_addr
+      changed_when: false
+      until: (cluster_vip | string) in (_hyops_ip_addr.stdout | default(''))
+      retries: 15
+      delay: 2
+      when: _hyops_use_vip | bool
+
+    - name: "Preflight: assert VIP is configured"
+      ansible.builtin.assert:
+        that:
+          - (cluster_vip | string) in (_hyops_ip_addr.stdout | default(''))
+        fail_msg: >-
+          cluster_vip={{ cluster_vip }} is set, but vip-manager did not configure it.
+          Inspect logs: journalctl -u vip-manager (on the leader node: {{ inventory_hostname }}).
+      when: _hyops_use_vip | bool
+
+- name: platform/onprem/postgresql-ha (publish outputs)
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  vars:
+    pg_port: "{{ postgresql_port | default(5432) | int }}"
+    _hyops_inventory_publish_group_names:
+      - master
+      - replica
+      - postgres_cluster
+      - etcd_cluster
+    _hyops_pg_apps: >-
+      {{
+        (apps
+          if (apps is mapping and (apps | length) > 0)
+          else {
+            'netbox': {
+              'db_name': (db_name | default('netbox')),
+              'db_user': (db_user | default('netbox')),
+              'db_password_env': (db_password_env | default('NETBOX_DB_PASSWORD'))
+            }
+          }
+        )
+      }}
+    endpoint_host: >-
+      {{
+        (cluster_vip | string)
+        if (cluster_vip is string and (cluster_vip | length) > 0)
+        else (
+          hostvars[groups['master'][0]].ansible_host
+          if (groups.get('master', []) | length) > 0
+          else ''
+        )
+      }}
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set host = (endpoint_host | default('')) %}
+          {% set port = (pg_port | int) %}
+          {% set ns = namespace(out={
+            'pg_host': host,
+            'pg_port': port,
+            'cluster_vip': (cluster_vip | default('') | string),
+            'cap.db.postgresql_ha': 'ready'
+          }, apps={}, inventory={}) %}
+          {% for group_name in _hyops_inventory_publish_group_names %}
+          {% if (groups.get(group_name, []) | length) > 0 %}
+          {% set hosts = [] %}
+          {% for node in groups[group_name] %}
+          {% set _ = hosts.append({
+            'name': (node | string),
+            'host': (
+              hostvars[node].ansible_host
+              | default(hostvars[node].inventory_hostname | default(node), true)
+              | string
+            )
+          }) %}
+          {% endfor %}
+          {% set ns.inventory = ns.inventory | combine({ (group_name | string): hosts }) %}
+          {% endif %}
+          {% endfor %}
+          {% for item in (_hyops_pg_apps | dict2items) %}
+          {% set key = (item.key | string) %}
+          {% set ns.apps = ns.apps | combine({
+            key: {
+              'db_host': host,
+              'db_port': port,
+              'db_name': (item.value.db_name | string),
+              'db_user': (item.value.db_user | string),
+              'db_password_env': (item.value.db_password_env | string)
+            }
+          }) %}
+          {% endfor %}
+          {% set ns.out = ns.out | combine({'apps': ns.apps}) %}
+          {% set ns.out = ns.out | combine({'inventory_groups': ns.inventory}) %}
+          {# Backward-compat for NetBox consumption: publish db_* keys from apps.netbox if present #}
+          {% if (_hyops_pg_apps is mapping) and ('netbox' in _hyops_pg_apps) %}
+          {% set nb = _hyops_pg_apps['netbox'] %}
+          {% set ns.out = ns.out | combine({
+            'db_host': host,
+            'db_port': port,
+            'db_name': (nb.db_name | string),
+            'db_user': (nb.db_user | string),
+            'db_password_env': (nb.db_password_env | string)
+          }) %}
+          {% endif %}
+          {{ ns.out | to_json }}

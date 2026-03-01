@@ -1,0 +1,12 @@
+name_prefix: hyops
+context_id: shared
+registry_name: hyopssharedacr
+resource_group_name: rg-hyops-core
+location: uksouth
+sku: Standard
+admin_enabled: false
+public_network_access_enabled: true
+zone_redundancy_enabled: false
+tags:
+  project: hybridops
+  managed_by: hyops

@@ -1,0 +1,46 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/eve-ng"
+
+metadata:
+  title: "EVE-NG Service (On-Prem Linux)"
+  description: "Installs/configures EVE-NG on an existing Ubuntu 22.04 (Jammy) host via Ansible. Does not provision a VM."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # SSH target (existing VM or host)
+    target_host: ""
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    become: true
+    become_user: "root"
+
+    # Vault/env wiring
+    required_env:
+      - "EVENG_ROOT_PASSWORD"
+      - "EVENG_ADMIN_PASSWORD"
+    load_vault_env: false
+
+    # EVE-NG settings
+    eveng_resource_profile: "standard"  # minimal|standard|performance
+    eveng_root_password_env: "EVENG_ROOT_PASSWORD"
+    eveng_admin_password_env: "EVENG_ADMIN_PASSWORD"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/40-eve-ng@v1.0"
+
+outputs:
+  publish:
+    - eveng_url
+    - cap.lab.eveng
+
+probes: []
+constraints: []

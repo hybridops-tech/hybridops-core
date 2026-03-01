@@ -1,0 +1,44 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/onprem/template-image"
+
+metadata:
+  title: "Proxmox Template Image"
+  description: "Builds a Proxmox VM template image with Packer and publishes template IDs for downstream VM modules."
+
+requirements:
+  credentials: ["proxmox"]
+
+inputs:
+  defaults:
+    template_key: "ubuntu-24.04"
+    post_build_smoke:
+      enabled: true
+      required: false
+      timeout_s: 300
+    cpu_cores: 2
+    cpu_sockets: 1
+    memory_mb: 4096
+    disk_size_gb: 40
+    disk_format: "raw"
+    cpu_type: "host"
+    ssh_username: "opsadmin"
+    admin_user: "opsadmin"
+
+execution:
+  driver: "images/packer"
+  profile: "onprem-proxmox@v1.0"
+  pack_ref:
+    id: "onprem/proxmox/images/00-template-image@v1.0"
+
+outputs:
+  publish:
+    - template_key
+    - template_vm_id
+    - template_name
+    - template_vm_ids
+    - templates
+
+probes: []
+constraints: []

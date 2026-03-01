@@ -1,0 +1,63 @@
+---
+# purpose: Preflight checks for NetBox deployment (runtime availability, dependency reachability, and port conflicts)
+# adr: ADR-0002, ADR-0501, ADR-0502
+# maintainer: HybridOps.Studio
+
+- name: Require docker CLI
+  ansible.builtin.command: docker --version
+  register: _docker_cli
+  changed_when: false
+
+- name: Require docker compose plugin
+  ansible.builtin.command: docker compose version
+  register: _compose_version
+  changed_when: false
+
+- name: Preflight - DB TCP reachable (required)
+  block:
+    - name: Wait for PostgreSQL to be reachable
+      ansible.builtin.wait_for:
+        host: "{{ netbox_db_host }}"
+        port: "{{ netbox_db_port }}"
+        state: started
+        timeout: "{{ netbox_db_connect_timeout | default(3) }}"
+  rescue:
+    - name: Fail fast when DB is required but unreachable
+      ansible.builtin.fail:
+        msg: "NetBox requires PostgreSQL but {{ netbox_db_host }}:{{ netbox_db_port }} is not reachable."
+  when:
+    - netbox_require_db | bool
+    - not netbox_smoke_only | bool
+
+- name: Preflight - detect local HTTP port conflicts
+  ansible.builtin.command: >-
+    ss -ltnpH state listen sport = :{{ netbox_http_host_port }}
+  register: _nb_port_check
+  changed_when: false
+  failed_when: false
+  when:
+    - netbox_service_enabled | bool
+    - not netbox_smoke_only | bool
+    - netbox_preflight_port_conflict_policy != "ignore"
+
+- name: Preflight - report local HTTP port conflict
+  ansible.builtin.debug:
+    msg: >-
+      Port {{ netbox_http_host_port }} is already in use on this host:
+      {{ _nb_port_check.stdout | default('') }}
+  when:
+    - netbox_service_enabled | bool
+    - not netbox_smoke_only | bool
+    - netbox_preflight_port_conflict_policy != "ignore"
+    - (_nb_port_check.stdout | default('') | trim | length) > 0
+
+- name: Preflight - fail on local HTTP port conflict
+  ansible.builtin.fail:
+    msg: >-
+      Port {{ netbox_http_host_port }} is already in use. Set netbox_http_host_port to a free port or stop the
+      conflicting service.
+  when:
+    - netbox_service_enabled | bool
+    - not netbox_smoke_only | bool
+    - netbox_preflight_port_conflict_policy == "fail"
+    - (_nb_port_check.stdout | default('') | trim | length) > 0

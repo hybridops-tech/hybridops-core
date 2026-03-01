@@ -1,0 +1,50 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/azure/container-registry"
+
+metadata:
+  title: "Azure Container Registry"
+  description: "Creates or converges Azure Container Registry via the Terragrunt shared-services pack."
+
+requirements:
+  credentials: ["azure"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    registry_name: ""
+    resource_group_name: ""
+    location: "uksouth"
+    sku: "Standard"
+    admin_enabled: false
+    public_network_access_enabled: true
+    zone_redundancy_enabled: false
+    tags: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "azure@v1.0"
+  pack_ref:
+    id: "azure/core/10-shared-services-global/10-container-registry@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: false
+
+dependencies:
+  - module_ref: "core/azure/resource-group"
+    required: true
+    imports:
+      resource_group_name: "resource_group_name"
+      location: "location"
+
+outputs:
+  publish:
+    - registry_id
+    - registry_name
+    - login_server
+probes: []
+constraints: []

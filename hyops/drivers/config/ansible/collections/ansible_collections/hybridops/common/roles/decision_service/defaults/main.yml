@@ -1,0 +1,35 @@
+---
+# purpose: Defaults for decision_service role (edge decision loop service)
+# maintainer: HybridOps.Studio
+
+decision_state: present
+
+decision_root: /opt/hybridops/decision-service
+decision_config_dir: "{{ decision_root }}/config"
+decision_state_dir: "{{ decision_root }}/state"
+decision_logs_dir: "{{ decision_root }}/logs"
+decision_bin_path: "{{ decision_root }}/decision-service.py"
+decision_service_name: "hyops-decision-service"
+
+decision_run_as_user: "root"
+decision_run_as_group: "root"
+
+decision_thanos_query_url: "http://127.0.0.1:10902"
+decision_policy: {}
+decision_actions: {}
+decision_hyops_bin: "/usr/local/bin/hyops"
+decision_runtime_env: "dev"
+decision_action_timeout_s: 600
+decision_signal_query_timeout_s: 5
+decision_require_signal_readiness: true
+decision_require_fresh_signals: true
+decision_max_signal_age_s: 180
+decision_min_ready_checks: 1
+
+decision_dry_run: true
+decision_enable_actions: false
+decision_tick_seconds: 30
+decision_confirm_for_seconds: 120
+decision_stable_for_seconds: 300
+decision_cooldown_seconds: 600
+decision_log_level: "INFO"

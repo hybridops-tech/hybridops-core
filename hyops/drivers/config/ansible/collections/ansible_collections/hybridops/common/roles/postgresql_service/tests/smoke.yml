@@ -1,0 +1,22 @@
+---
+# purpose: Smoke test for postgresql_service role
+# adr: ADR-0606-ansible-collections-release-process
+# maintainer: HybridOps.Studio
+
+- name: postgresql_service smoke test
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Apply postgresql_service
+      ansible.builtin.include_role:
+        name: hybridops.common.postgresql_service
+
+    - name: Wait for PostgreSQL to accept connections on localhost
+      ansible.builtin.command: >-
+        pg_isready -h 127.0.0.1 -p {{ hybridops_postgres_port | default(5432) }}
+      register: _pg_isready
+      changed_when: false
+      retries: 10
+      delay: 2
+      until: _pg_isready.rc == 0

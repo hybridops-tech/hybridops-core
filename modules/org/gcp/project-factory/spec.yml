@@ -1,0 +1,41 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/project-factory"
+
+metadata:
+  title: "GCP Project Factory"
+  description: "Creates or converges a GCP project via Terragrunt project-factory pack."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    region: "europe-west2"
+    activate_apis: []
+    labels: {}
+    # project_id: required (operator inputs)
+    # billing_account_id (alias billing_account): required for create
+    # org_id | folder_id: optional (recommended for enterprise governance)
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/00-project-factory@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - project_id
+    - project_number
+    - service_account_email
+probes: []
+constraints: []

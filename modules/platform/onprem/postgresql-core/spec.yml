@@ -1,0 +1,71 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/postgresql-core"
+
+metadata:
+  title: "PostgreSQL Core Service (On-Prem Linux)"
+  description: "Configures PostgreSQL on an existing Linux host via Ansible. Does not provision a VM."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # SSH target (existing VM or host)
+    target_host: ""
+    # Optional: resolve target_host from a VM module state (e.g. platform/onprem/platform-vm).
+    target_state_ref: ""
+    target_vm_key: ""
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    become: true
+    become_user: "root"
+
+    # Vault/env wiring
+    required_env:
+      - "NETBOX_DB_PASSWORD"
+    load_vault_env: false
+
+    # PostgreSQL service
+    pg_port: 5432
+    listen_addresses:
+      - "127.0.0.1"
+    allowed_clients: []
+
+    # Initial app database bootstrap (NetBox by default).
+    # For multi-service shared DB tier, prefer inputs.apps.
+    db_name: "netbox"
+    db_user: "netbox"
+    db_password_env: "NETBOX_DB_PASSWORD"
+
+    # Optional multi-app contract (authoritative when set and non-empty).
+    # Example:
+    # apps:
+    #   netbox:
+    #     db_name: netbox
+    #     db_user: netbox
+    #     db_password_env: NETBOX_DB_PASSWORD
+    apps: {}
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/30-postgresql-core@v1.0"
+
+outputs:
+  publish:
+    - pg_host
+    - pg_port
+    - apps
+    - db_host
+    - db_port
+    - db_name
+    - db_user
+    - db_password_env
+    - cap.db.pgcore
+
+probes: []
+constraints: []

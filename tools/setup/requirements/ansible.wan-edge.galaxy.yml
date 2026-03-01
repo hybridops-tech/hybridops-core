@@ -1,0 +1,5 @@
+collections:
+  # WAN role uses ansible.utils filters (ipaddr, etc.).
+  # ansible.posix is already installed via common requirements.
+  - name: ansible.utils
+    version: ">=4.1.0"

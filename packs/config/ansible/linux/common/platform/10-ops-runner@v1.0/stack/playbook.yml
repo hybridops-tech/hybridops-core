@@ -1,0 +1,530 @@
+---
+- name: platform/linux/ops-runner (configure)
+  hosts: runner
+  any_errors_fatal: true
+  gather_facts: true
+
+  vars:
+    runner_release_archive_url_effective: "{{ runner_release_archive_url | default('', true) | string }}"
+    runner_release_archive_sha256_effective: "{{ runner_release_archive_sha256 | default('', true) | string }}"
+    runner_release_root_env: "{{ lookup('env', 'HYOPS_CORE_ROOT') | default('', true) }}"
+    runner_release_root_effective: >-
+      {{
+        (runner_release_root | string)
+        if (runner_release_root is string and (runner_release_root | length) > 0)
+        else runner_release_root_env
+      }}
+    runner_bin_dir_effective: >-
+      {{
+        (runner_bin_dir | string)
+        if (runner_bin_dir is string and (runner_bin_dir | length) > 0)
+        else ('/home/' ~ (target_user | default(ansible_user | default('opsadmin'))) ~ '/.local/bin')
+      }}
+    runner_stage_root_clean: "{{ runner_stage_root | regex_replace('/+$', '') }}"
+    runner_stage_release_dir: "{{ runner_stage_root_clean }}/release"
+    runner_archive_remote: "{{ runner_stage_root_clean }}/hybridops-release.tar.gz"
+    runner_vendor_python_dir: "{{ runner_stage_release_dir }}/vendor/python"
+    runner_vendor_python_archive_remote: "{{ runner_stage_root_clean }}/hyops-vendor-python.tar.gz"
+    runner_setup_root: "{{ runner_install_prefix | regex_replace('/+$', '') }}/app/tools/setup"
+    runner_install_root_clean: "{{ runner_install_prefix | regex_replace('/+$', '') }}"
+    runner_installed_hyops_path: "{{ runner_install_root_clean }}/venv/bin/hyops"
+    runner_installed_app_path: "{{ runner_install_root_clean }}/app"
+    runner_controller_python: >-
+      {{
+        ((lookup('env', 'VIRTUAL_ENV') | default('', true)) ~ '/bin/python')
+        if ((lookup('env', 'VIRTUAL_ENV') | default('', true) | length) > 0)
+        else (runner_release_root_effective ~ '/.venv/bin/python')
+      }}
+
+  pre_tasks:
+    - name: Assert resolved release root exists on controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.stat:
+        path: "{{ runner_release_root_effective }}"
+      register: _runner_release_root_stat
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Fail when release root is missing on controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.assert:
+        that:
+          - runner_release_root_effective | length > 0
+          - _runner_release_root_stat.stat.exists
+          - _runner_release_root_stat.stat.isdir
+        fail_msg: >-
+          HybridOps release root is not available on the controller. Set inputs.runner_release_root
+          explicitly or export HYOPS_CORE_ROOT before running platform/linux/ops-runner.
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Assert install.sh exists in release root
+      delegate_to: localhost
+      become: false
+      ansible.builtin.stat:
+        path: "{{ runner_release_root_effective }}/install.sh"
+      register: _runner_install_sh_stat
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Fail when install.sh is missing in release root
+      delegate_to: localhost
+      become: false
+      ansible.builtin.assert:
+        that:
+          - _runner_install_sh_stat.stat.exists
+        fail_msg: >-
+          runner_release_root={{ runner_release_root_effective }} does not look like an unpacked HybridOps release
+          (missing install.sh).
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Create temporary release archive path on controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.tempfile:
+        state: file
+        prefix: "hyops-runner-release-"
+        suffix: ".tar.gz"
+      register: _runner_release_archive_tmp
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Build release archive on controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command:
+        argv: >-
+          {{
+            ['tar']
+            + (runner_archive_excludes | default([]) | map('regex_replace', '^(.*)$', '--exclude=\\1') | list)
+            + ['-czf', _runner_release_archive_tmp.path, '-C', runner_release_root_effective, '.']
+          }}
+      changed_when: true
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Assert controller Python runtime exists for vendored deps
+      delegate_to: localhost
+      become: false
+      ansible.builtin.stat:
+        path: "{{ runner_controller_python }}"
+      register: _runner_controller_python_stat
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Fail when controller Python runtime is missing for vendored deps
+      delegate_to: localhost
+      become: false
+      ansible.builtin.assert:
+        that:
+          - _runner_controller_python_stat.stat.exists
+        fail_msg: >-
+          A controller Python runtime with installed HybridOps dependencies is required for local runner bootstrap.
+          Activate the source checkout virtualenv or ensure {{ runner_controller_python }} exists before running platform/linux/ops-runner.
+      changed_when: false
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Create temporary vendored Python dependency directory on controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: "hyops-runner-vendor-python-"
+      register: _runner_vendor_python_tmp
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Vendor Python runtime dependencies from controller environment
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command:
+        argv:
+          - "{{ runner_controller_python }}"
+          - -c
+          - |
+            import importlib.metadata as md
+            import pathlib
+            import shutil
+            import sys
+            import tomllib
+            try:
+                from packaging.markers import default_environment
+                from packaging.requirements import Requirement
+            except ModuleNotFoundError:
+                from pip._vendor.packaging.markers import default_environment
+                from pip._vendor.packaging.requirements import Requirement
+
+            release_root = pathlib.Path(sys.argv[1])
+            out_dir = pathlib.Path(sys.argv[2])
+            pyproject = tomllib.loads((release_root / "pyproject.toml").read_text(encoding="utf-8"))
+            pending = list(pyproject.get("project", {}).get("dependencies", []))
+            seen = set()
+            dists = []
+            marker_env = default_environment()
+            marker_env["extra"] = ""
+
+            def parse_req(spec: str):
+                req = Requirement(spec)
+                if req.marker and not req.marker.evaluate(marker_env):
+                    return None
+                return req
+
+            while pending:
+                raw = pending.pop(0)
+                req = parse_req(raw)
+                if req is None:
+                    continue
+                name = req.name
+                key = name.lower().replace("_", "-")
+                if key in seen:
+                    continue
+                dist = md.distribution(name)
+                seen.add(key)
+                dists.append(dist)
+                for child in dist.requires or []:
+                    pending.append(child)
+
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for dist in dists:
+                dist_info = pathlib.Path(dist._path)
+                site_packages = dist_info.parent
+                top_level = dist.read_text("top_level.txt") or ""
+                for entry in [line.strip() for line in top_level.splitlines() if line.strip()]:
+                    src = site_packages / entry
+                    dst = out_dir / entry
+                    if src.is_dir():
+                        if dst.exists():
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                    elif src.exists():
+                        shutil.copy2(src, dst)
+                dst_info = out_dir / dist_info.name
+                if dst_info.exists():
+                    shutil.rmtree(dst_info)
+                shutil.copytree(dist_info, dst_info)
+          - "{{ runner_release_root_effective }}"
+          - "{{ _runner_vendor_python_tmp.path }}"
+      changed_when: true
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Create temporary vendored Python archive path on controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.tempfile:
+        state: file
+        prefix: "hyops-runner-vendor-python-"
+        suffix: ".tar.gz"
+      register: _runner_vendor_python_archive_tmp
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Archive vendored Python runtime dependencies on controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command:
+        argv:
+          - tar
+          - -czf
+          - "{{ _runner_vendor_python_archive_tmp.path }}"
+          - -C
+          - "{{ _runner_vendor_python_tmp.path }}"
+          - .
+      changed_when: true
+      when: runner_release_archive_url_effective | length == 0
+
+  tasks:
+    - name: Ensure runner staging directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_stage_root_clean }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy release archive to runner
+      become: true
+      ansible.builtin.copy:
+        src: "{{ _runner_release_archive_tmp.path }}"
+        dest: "{{ runner_archive_remote }}"
+        mode: "0644"
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Download versioned release archive on runner
+      become: true
+      ansible.builtin.get_url:
+        url: "{{ runner_release_archive_url_effective }}"
+        dest: "{{ runner_archive_remote }}"
+        mode: "0644"
+        checksum: "{{ runner_release_archive_sha256_effective if (runner_release_archive_sha256_effective | length > 0) else omit }}"
+      when: runner_release_archive_url_effective | length > 0
+
+    - name: Recreate runner release staging directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_stage_release_dir }}"
+        state: absent
+
+    - name: Ensure runner release staging directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_stage_release_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Unarchive release on runner
+      become: true
+      ansible.builtin.unarchive:
+        src: "{{ runner_archive_remote }}"
+        dest: "{{ runner_stage_release_dir }}"
+        remote_src: true
+
+    - name: Ensure vendored Python directory exists in release staging
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_vendor_python_dir }}"
+        state: directory
+        mode: "0755"
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Copy vendored Python runtime archive to runner
+      become: true
+      ansible.builtin.copy:
+        src: "{{ _runner_vendor_python_archive_tmp.path }}"
+        dest: "{{ runner_vendor_python_archive_remote }}"
+        mode: "0644"
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Unarchive vendored Python runtime dependencies on runner
+      become: true
+      ansible.builtin.unarchive:
+        src: "{{ runner_vendor_python_archive_remote }}"
+        dest: "{{ runner_vendor_python_dir }}"
+        remote_src: true
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Check for existing HybridOps app directory on runner
+      become: true
+      ansible.builtin.stat:
+        path: "{{ runner_installed_app_path }}"
+      register: _runner_installed_app_stat
+
+    - name: Probe outbound HTTPS egress required for Debian-family runner bootstrap
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - "20"
+          - python3
+          - -c
+          - |
+            import socket
+            import sys
+
+            timeout_s = 5
+            for host in sys.argv[1:]:
+                with socket.create_connection((host, 443), timeout=timeout_s):
+                    pass
+          - archive.ubuntu.com
+          - releases.hashicorp.com
+          - dl.k8s.io
+      register: _runner_bootstrap_egress_probe
+      changed_when: false
+      failed_when: false
+      when:
+        - ansible_os_family == "Debian"
+        - (runner_setup_base | default(true)) or (runner_setup_cloud_gcp | default(false))
+
+    - name: Fail fast when outbound HTTPS egress is unavailable for runner bootstrap
+      ansible.builtin.assert:
+        that:
+          - (_runner_bootstrap_egress_probe.rc | int) == 0
+        fail_msg: >-
+          Private runner bootstrap requires outbound HTTPS egress for package and tool installation.
+          Configure Cloud NAT or another deliberate egress path for the runner subnet, or disable
+          runner_setup_base/runner_setup_cloud_gcp until an artifact-based bootstrap path is in place.
+      changed_when: false
+      when:
+        - ansible_os_family == "Debian"
+        - (runner_setup_base | default(true)) or (runner_setup_cloud_gcp | default(false))
+
+    - name: Ensure python3-venv is present on Debian-family runners
+      become: true
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Check for existing HybridOps executable on runner
+      become: true
+      ansible.builtin.stat:
+        path: "{{ runner_installed_hyops_path }}"
+      register: _runner_installed_hyops_stat
+
+    - name: Compute runner install action
+      ansible.builtin.set_fact:
+        _runner_install_needs_force: >-
+          {{
+            (runner_force_reinstall | default(false))
+            or (
+              (_runner_installed_app_stat.stat.exists | default(false))
+              and not (_runner_installed_hyops_stat.stat.exists | default(false))
+            )
+          }}
+        _runner_install_should_run: >-
+          {{
+            (runner_force_reinstall | default(false))
+            or not (_runner_installed_hyops_stat.stat.exists | default(false))
+          }}
+
+    - name: Install HybridOps release on runner
+      become: true
+      ansible.builtin.shell: >-
+        bash {{ runner_stage_release_dir | quote }}/install.sh
+        --prefix {{ runner_install_prefix | quote }}
+        --bin-dir {{ runner_bin_dir_effective | quote }}
+        {% if _runner_install_needs_force %} --force{% endif %}
+        {% if not (runner_system_link | default(true)) %} --no-system-link{% endif %}
+        --no-setup-all
+      args:
+        executable: /bin/bash
+      environment:
+        HYOPS_INSTALL_NO_DEPS: "{{ 'true' if (runner_release_archive_url_effective | length == 0) else 'false' }}"
+      changed_when: true
+      when: _runner_install_should_run
+
+    - name: Skip install when HybridOps is already present on runner
+      ansible.builtin.debug:
+        msg: >-
+          HybridOps is already installed on the runner at {{ runner_install_root_clean }};
+          skipping install.sh because runner_force_reinstall=false.
+      when: not _runner_install_should_run
+
+    - name: Ensure runner install parent directory is traversable
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_install_root_clean | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure runner install prefix is traversable
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_install_root_clean }}"
+        state: directory
+        mode: "0755"
+
+    - name: Normalize installed HybridOps tree permissions for runner user access
+      become: true
+      ansible.builtin.command:
+        argv:
+          - chmod
+          - -R
+          - a+rX
+          - "{{ runner_install_root_clean }}"
+      changed_when: true
+
+    - name: Re-harden shipped blueprint payload permissions after normalization
+      become: true
+      ansible.builtin.shell: >-
+        set -euo pipefail &&
+        find {{ (runner_installed_app_path ~ '/blueprints') | quote }} -type d -exec chmod 0755 {} + &&
+        find {{ (runner_installed_app_path ~ '/blueprints') | quote }} -type f \( -name '*.yml' -o -name '*.yaml' \) -exec chmod 0444 {} +
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when: runner_system_link | default(true)
+
+    - name: Run setup-base on runner
+      become: true
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ runner_setup_root }}/setup-base.sh"
+      when: runner_setup_base | default(true)
+      changed_when: true
+
+    - name: Run setup-cloud-gcp on runner
+      become: true
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ runner_setup_root }}/setup-cloud-gcp.sh"
+      when: runner_setup_cloud_gcp | default(false)
+      changed_when: true
+
+    - name: Run setup-cloud-azure on runner
+      become: true
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ runner_setup_root }}/setup-cloud-azure.sh"
+      when: runner_setup_cloud_azure | default(false)
+      changed_when: true
+
+    - name: Run setup-ansible on runner as target user
+      become: true
+      become_user: "{{ target_user | default(ansible_user | default('opsadmin')) }}"
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ runner_setup_root }}/setup-ansible.sh"
+      environment:
+        HOME: "/home/{{ target_user | default(ansible_user | default('opsadmin')) }}"
+      when: runner_setup_ansible | default(true)
+      changed_when: true
+
+    - name: Remove release staging archive from runner
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_archive_remote }}"
+        state: absent
+
+    - name: Remove vendored Python dependencies from release staging on runner
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_vendor_python_dir }}"
+        state: absent
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Remove vendored Python runtime archive from runner
+      become: true
+      ansible.builtin.file:
+        path: "{{ runner_vendor_python_archive_remote }}"
+        state: absent
+      when: runner_release_archive_url_effective | length == 0
+
+  post_tasks:
+    - name: Remove temporary release archive from controller
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: "{{ _runner_release_archive_tmp.path }}"
+        state: absent
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Remove temporary vendored Python archive from controller
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: "{{ _runner_vendor_python_archive_tmp.path }}"
+        state: absent
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Remove temporary vendored Python dependency directory from controller
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: "{{ _runner_vendor_python_tmp.path }}"
+        state: absent
+      when: runner_release_archive_url_effective | length == 0
+
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'runner_state': (runner_state | default('present') | string),
+            'runner_install_prefix': (runner_install_prefix | string),
+            'runner_bin_dir': (runner_bin_dir_effective | string),
+            'cap.ctrl.runner': 'ready'
+          } | to_json }}

@@ -1,0 +1,40 @@
+---
+- name: platform/network/wan-edge (destroy)
+  hosts: wan_edge
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Stop WAN services (best-effort)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      loop:
+        - strongswan
+        - strongswan-starter
+        - frr
+
+    - name: Remove WAN config files (best-effort)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      failed_when: false
+      loop:
+        - /etc/swanctl/swanctl.conf
+        - /etc/strongswan.d/charon/90-wan.conf
+        - /etc/frr/frr.conf
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.network.wan_edge': 'absent'
+          } | to_json }}

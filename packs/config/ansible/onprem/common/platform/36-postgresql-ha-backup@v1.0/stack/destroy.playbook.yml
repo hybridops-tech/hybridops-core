@@ -1,0 +1,19 @@
+---
+
+# Best-effort disablement of scheduled backups.
+# Intentionally does not attempt to remove archive_command from a running Patroni cluster.
+
+- name: platform/onprem/postgresql-ha-backup (disable cron)
+  hosts: postgres_cluster
+  become: true
+  gather_facts: false
+
+  vars:
+    patroni_cluster_name: "{{ patroni_cluster_name | default('postgres-ha') }}"
+
+  tasks:
+    - name: Remove pgBackRest cron file
+      ansible.builtin.file:
+        path: "/etc/cron.d/pgbackrest-{{ patroni_cluster_name }}"
+        state: absent
+

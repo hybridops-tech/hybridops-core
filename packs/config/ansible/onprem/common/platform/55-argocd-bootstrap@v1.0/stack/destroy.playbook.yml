@@ -1,0 +1,62 @@
+---
+- name: platform/onprem/argocd-bootstrap (destroy)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    argocd_namespace: "{{ argocd_namespace | default('argocd') }}"
+    root_app_name: "{{ root_app_name | default('hyops-workloads-root') }}"
+    root_app_namespace: "{{ root_app_namespace | default('argocd') }}"
+    remove_argocd_namespace: "{{ remove_argocd_namespace | default(false) }}"
+
+  tasks:
+    - name: Resolve kubeconfig path
+      ansible.builtin.set_fact:
+        _hyops_kubeconfig_path: >-
+          {{
+            (kubeconfig_path | string)
+            if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
+            else (hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml')
+          }}
+      changed_when: false
+
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ _hyops_kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Delete root Application (best effort)
+      when: _hyops_kubeconfig_stat.stat.exists
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} -n {{ root_app_namespace }} delete application {{ root_app_name }} --ignore-not-found=true
+      register: _hyops_root_delete
+      changed_when: >-
+        (_hyops_root_delete.stdout is defined and ('deleted' in _hyops_root_delete.stdout))
+      failed_when: false
+
+    - name: Delete Argo CD namespace (optional, best effort)
+      when:
+        - _hyops_kubeconfig_stat.stat.exists
+        - remove_argocd_namespace | bool
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} delete namespace {{ argocd_namespace }} --ignore-not-found=true
+      register: _hyops_ns_delete
+      changed_when: >-
+        (_hyops_ns_delete.stdout is defined and ('deleted' in _hyops_ns_delete.stdout))
+      failed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'kubeconfig_path': (_hyops_kubeconfig_path | string),
+            'argocd_namespace': (argocd_namespace | string),
+            'root_app_name': (root_app_name | string),
+            'root_app_namespace': (root_app_namespace | string),
+            'cap.gitops.argocd': 'absent'
+          } | to_json }}

@@ -1,0 +1,5 @@
+kubeconfig_path: "~/.hybridops/envs/dev/state/kubeconfigs/rke2-burst.yaml"
+
+workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
+workloads_revision: "v0.1.0-stage1"
+workloads_target_path: "clusters/burst"

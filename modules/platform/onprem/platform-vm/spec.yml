@@ -1,0 +1,67 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/platform-vm"
+
+metadata:
+  title: "Proxmox Platform VM (Generic)"
+  description: "Creates or converges one or more generic Proxmox VMs using explicit operator inputs."
+
+requirements:
+  credentials: ["proxmox"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    vm_role: "platform-vm"
+    template_state_ref: "core/onprem/template-image"
+    template_key: "ubuntu-24.04"
+    build_image: false
+    cpu_cores: 2
+    memory_mb: 4096
+    disk_size_gb: 40
+    cpu_type: "host"
+    os_type: "l26"
+    on_boot: true
+    dns_domain: "hybzone.local"
+    dns_servers: ["8.8.8.8"]
+    tags: ["platform", "onprem", "custom-vm"]
+    # Enforce authoritative IPAM by default.
+    # Set require_ipam=false only for day-0 bootstrap paths that must use static inputs.
+    require_ipam: true
+    # Safety rail: keep false by default to prevent accidental VM-set replacement.
+    allow_vm_set_replace: false
+    # Post-apply SSH readiness gate (best-effort/provisioning boundary check).
+    # Fails platform-vm apply if Linux VMs never become reachable, before downstream modules run.
+    post_apply_ssh_readiness:
+      enabled: true
+      required: true
+      connectivity_timeout_s: 5
+      connectivity_wait_s: 300
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "onprem-proxmox@v1.0"
+  pack_ref:
+    id: "onprem/proxmox/core/10-platform/00-platform-vm@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: true
+
+outputs:
+  publish:
+    - vms
+    - vm_ids
+    - vm_names
+    - node_name
+    - ipv4_addresses
+    - ipv4_addresses_all
+    - mac_addresses_primary
+    - mac_addresses_all
+    - tags
+
+probes: []
+constraints: []

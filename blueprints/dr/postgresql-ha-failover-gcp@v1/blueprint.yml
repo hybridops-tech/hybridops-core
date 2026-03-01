@@ -1,0 +1,119 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "dr/postgresql-ha-failover-gcp@v1"
+mode: "hybrid"
+
+metadata:
+  title: "PostgreSQL HA DR Failover to GCP (pgBackRest restore)"
+  description: "Provision GCP VMs, then restore a Patroni + etcd PostgreSQL cluster from pgBackRest (S3/GCS) backups. This blueprint does not modify the on-prem primary cluster; it assumes DR conditions and requires explicit restore confirmation."
+  outcome: "A new PostgreSQL primary is restored in GCP and publishes standard DB connection outputs."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: gcp_pg_vms
+    module_ref: "platform/gcp/platform-vm"
+    state_instance: "gcp_pg_vms"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "dev"
+      network_state_ref: "org/gcp/wan-hub-network"
+      subnetwork_output_key: "subnet_workloads_name"
+      zone: "europe-west2-a"
+      assign_public_ip: false
+      ssh_username: "opsadmin"
+      ssh_keys_from_init: true
+      vms:
+        pgdr-01:
+          role: "postgres"
+        pgdr-02:
+          role: "postgres"
+        pgdr-03:
+          role: "postgres"
+
+  - id: postgresql_restore
+    module_ref: "platform/onprem/postgresql-ha"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gcp_pg_vms
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      # Inventory from the GCP VM module state
+      execution_plane: "runner-local"
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_pg_vms"
+      inventory_requires_ipam: false
+      inventory_vm_groups:
+        etcd_cluster: ["pgdr-01", "pgdr-02", "pgdr-03"]
+        master: ["pgdr-01"]
+        replica: ["pgdr-02", "pgdr-03"]
+        postgres_cluster: ["pgdr-01", "pgdr-02", "pgdr-03"]
+
+      # Restore mode (guarded)
+      apply_mode: "restore"
+      restore_confirm: false
+      restore_target_time: ""
+      restore_delta: false
+
+      # pgBackRest repository source (state-driven, no bucket duplication)
+      repo_state_ref: "org/gcp/object-repo"
+      repo_path: "/pgbackrest"
+      gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+      gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+
+      # Ensure hyops preflight validates all required secrets are present.
+      required_env:
+        - "PATRONI_SUPERUSER_PASSWORD"
+        - "PATRONI_REPLICATION_PASSWORD"
+        - "NETBOX_DB_PASSWORD"
+        - "PG_BACKUP_GCS_SA_JSON"
+
+      load_vault_env: true
+
+  - id: postgresql_backup_config
+    module_ref: "platform/onprem/postgresql-ha-backup"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - postgresql_restore
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      execution_plane: "runner-local"
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_pg_vms"
+      inventory_requires_ipam: false
+      inventory_vm_groups:
+        etcd_cluster: ["pgdr-01", "pgdr-02", "pgdr-03"]
+        master: ["pgdr-01"]
+        replica: ["pgdr-02", "pgdr-03"]
+        postgres_cluster: ["pgdr-01", "pgdr-02", "pgdr-03"]
+
+      # Repository backend/location resolved from module state.
+      repo_state_ref: "org/gcp/object-repo"
+      repo_path: "/pgbackrest"
+      gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+      gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+      # Optional cross-cloud secondary backup copy (repo2).
+      # Keep disabled by default; enable based on decision policy.
+      secondary_enabled: false
+      secondary_repo_state_ref: ""
+      secondary_backend: ""
+      required_env:
+        - "PATRONI_SUPERUSER_PASSWORD"
+        - "PATRONI_REPLICATION_PASSWORD"
+        - "PG_BACKUP_GCS_SA_JSON"
+
+      load_vault_env: true

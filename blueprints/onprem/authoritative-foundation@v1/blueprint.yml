@@ -1,0 +1,99 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "onprem/authoritative-foundation@v1"
+mode: "authoritative"
+
+metadata:
+  title: "On-Prem Authoritative Foundation"
+  description: "Day-1+ chain where NetBox state gates IPAM-driven platform VM expansion. Non-foundation steps are optional until inputs are finalized."
+  outcome: "Subsequent platform services provision from authoritative NetBox-backed intent."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "netbox"
+
+steps:
+  - id: network_sdn
+    module_ref: "core/onprem/network-sdn"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      zone_name: "hybzone"
+      zone_bridge: "vmbr0"
+      uplink_interface: "vmbr0"
+      dns_domain: "hybridops.local"
+      vnets:
+        vnetmgmt:
+          vlan_id: 12
+          description: "Management network"
+          subnets:
+            submgmt:
+              cidr: "10.12.0.0/24"
+              gateway: "10.12.0.1"
+              dhcp_range_start: "10.12.0.120"
+              dhcp_range_end: "10.12.0.220"
+              dhcp_dns_server: "8.8.8.8"
+
+  - id: netbox_foundation
+    module_ref: "platform/onprem/netbox"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    requires:
+      - network_sdn
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      db_state_ref: "platform/onprem/postgresql-core"
+      allow_legacy_pgcore: true
+
+  - id: control_plane_vm
+    module_ref: "platform/onprem/control-node"
+    action: "deploy"
+    phase: "authoritative"
+    with_deps: true
+    optional: true
+    requires:
+      - netbox_foundation
+    contracts:
+      addressing_mode: "ipam"
+      requires_authority: "netbox"
+      requires_module_state_ok:
+        - "platform/onprem/netbox"
+
+  - id: postgres_core_vm
+    module_ref: "platform/onprem/postgresql-core"
+    action: "deploy"
+    phase: "authoritative"
+    with_deps: true
+    optional: true
+    requires:
+      - netbox_foundation
+    contracts:
+      addressing_mode: "ipam"
+      requires_authority: "netbox"
+      requires_module_state_ok:
+        - "platform/onprem/netbox"
+
+  - id: custom_platform_vm
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "custom_platform_vm"
+    action: "deploy"
+    phase: "authoritative"
+    optional: true
+    requires:
+      - netbox_foundation
+    contracts:
+      addressing_mode: "ipam"
+      requires_authority: "netbox"
+      requires_module_state_ok:
+        - "platform/onprem/netbox"
+    inputs:
+      require_ipam: true

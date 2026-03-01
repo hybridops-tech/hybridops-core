@@ -1,0 +1,55 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/onprem/network-sdn"
+
+metadata:
+  title: "Proxmox SDN Foundation"
+  description: "Creates or converges Proxmox SDN zone and VNet/subnet topology."
+
+requirements:
+  credentials: ["proxmox"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    # SDN is a shared foundation per Proxmox cluster/site. Non-shared env deploys are
+    # blocked by default to avoid per-env SDN drift/collisions (override only when intentional).
+    allow_non_shared_env: false
+    zone_name: "hybzone"
+    zone_conflict_strategy: "fail"
+    zone_bridge: "vmbr0"
+    uplink_interface: "vmbr0"
+    enable_snat: true
+    enable_host_l3: true
+    enable_dhcp: true
+    dns_domain: "hybridops.local"
+    dns_lease: "24h"
+    host_reconcile_nonce: ""
+    post_apply_sdn_readiness:
+      enabled: true
+      required: true
+      timeout_s: 10
+      settle_wait_s: 5
+    vnets: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "onprem-proxmox@v1.0"
+  pack_ref:
+    id: "onprem/proxmox/core/00-foundation/10-network-sdn@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: true
+
+outputs:
+  publish:
+    - zone_name
+    - vnets
+    - subnets
+
+probes: []
+constraints: []

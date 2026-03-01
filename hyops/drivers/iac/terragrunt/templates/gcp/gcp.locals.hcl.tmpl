@@ -1,0 +1,36 @@
+locals {
+  inputs_path = "${get_terragrunt_dir()}/hyops.inputs.json"
+  inputs_raw  = try(file(local.inputs_path), "{}")
+  inputs      = try(jsondecode(local.inputs_raw), {})
+
+  tfvars_path = get_env("HYOPS_GCP_TFVARS", "")
+  tfvars_raw  = try(file(local.tfvars_path), "")
+
+  input_project_id   = trimspace(try(tostring(local.inputs.project_id), ""))
+  input_region       = trimspace(try(tostring(local.inputs.region), ""))
+  input_impersonate  = trimspace(try(tostring(local.inputs.impersonate_service_account), ""))
+
+  tfvars_project_id  = try(regex("project_id\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_region      = try(regex("region\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_impersonate = try(regex("impersonate_service_account\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+
+  project_id = coalesce(
+    local.input_project_id != "" ? local.input_project_id : null,
+    local.tfvars_project_id != "" ? local.tfvars_project_id : null,
+    get_env("GCP_PROJECT_ID", "") != "" ? get_env("GCP_PROJECT_ID", "") : null,
+    "MISSING_PROJECT_ID"
+  )
+
+  region = coalesce(
+    local.input_region != "" ? local.input_region : null,
+    local.tfvars_region != "" ? local.tfvars_region : null,
+    get_env("GCP_REGION", "") != "" ? get_env("GCP_REGION", "") : null,
+    "europe-west2"
+  )
+
+  impersonate_service_account = (
+    local.input_impersonate != "" ? local.input_impersonate :
+    local.tfvars_impersonate != "" ? local.tfvars_impersonate :
+    ""
+  )
+}

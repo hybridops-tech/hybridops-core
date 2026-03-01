@@ -1,0 +1,60 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/azure/pgbackrest-repo"
+
+metadata:
+  title: "Azure pgBackRest Repository (Storage Account + Blob Container)"
+  description: "Provisions an Azure Storage Account and private Blob container for pgBackRest backups. Specialized wrapper over org/azure/object-repo defaults."
+
+requirements:
+  credentials: ["azure"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    resource_group_name: ""
+    location: "uksouth"
+
+    storage_account_name: ""
+    container_name: "pgbackrest"
+
+    account_tier: "Standard"
+    account_replication_type: "LRS"
+    access_tier: "Hot"
+
+    versioning_enabled: true
+    lifecycle_delete_age_days: 0
+
+    shared_access_key_enabled: true
+    public_network_access_enabled: true
+    min_tls_version: "TLS1_2"
+
+    tags: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "azure@v1.0"
+  pack_ref:
+    id: "azure/org/10-pgbackrest-repo@v1.0"
+
+outputs:
+  publish:
+    # Normalized cross-provider contract
+    - repo_backend
+    - repo_provider
+    - repo_bucket_name
+    - repo_region
+    - repo_principal_type
+    - repo_principal_name
+    - repo_credential_create_hint
+    # Azure aliases
+    - resource_group_name
+    - storage_account_name
+    - container_name
+    - account_key_hint
+
+probes: []
+constraints: []

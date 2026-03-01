@@ -1,0 +1,172 @@
+---
+- name: platform/onprem/argocd-bootstrap (bootstrap)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+
+    install_argocd: "{{ install_argocd | default(true) }}"
+    argocd_namespace: "{{ argocd_namespace | default('argocd') }}"
+    argocd_install_manifest_url: "{{ argocd_install_manifest_url | default('https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml') }}"
+    argocd_install_force_conflicts: "{{ argocd_install_force_conflicts | default(true) }}"
+    argocd_wait_ready: "{{ argocd_wait_ready | default(true) }}"
+    argocd_wait_timeout_s: "{{ argocd_wait_timeout_s | default(300) }}"
+
+    root_app_name: "{{ root_app_name | default('hyops-workloads-root') }}"
+    root_app_namespace: "{{ root_app_namespace | default('argocd') }}"
+    root_app_project: "{{ root_app_project | default('default') }}"
+    root_destination_namespace: "{{ root_destination_namespace | default('argocd') }}"
+    destination_server: "{{ destination_server | default('https://kubernetes.default.svc') }}"
+
+    workloads_repo_url: "{{ workloads_repo_url | default('') }}"
+    workloads_revision: "{{ workloads_revision | default('main') }}"
+    workloads_target_path: "{{ workloads_target_path | default('clusters/onprem') }}"
+
+    sync_automated_prune: "{{ sync_automated_prune | default(true) }}"
+    sync_automated_self_heal: "{{ sync_automated_self_heal | default(true) }}"
+    create_namespace: "{{ create_namespace | default(true) }}"
+
+  tasks:
+    - name: Resolve kubeconfig path
+      ansible.builtin.set_fact:
+        _hyops_kubeconfig_path: >-
+          {{
+            (kubeconfig_path | string)
+            if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
+            else (hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml')
+          }}
+      changed_when: false
+
+    - name: Assert required fields
+      ansible.builtin.assert:
+        that:
+          - _hyops_kubeconfig_path | length > 0
+          - workloads_repo_url | length > 0
+          - workloads_target_path | length > 0
+          - root_app_name | length > 0
+        fail_msg: "required inputs are missing for argocd bootstrap"
+
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ _hyops_kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Fail when kubeconfig is missing
+      ansible.builtin.fail:
+        msg: "kubeconfig not found: {{ _hyops_kubeconfig_path }}"
+      when: not _hyops_kubeconfig_stat.stat.exists
+
+    - name: Verify kubectl client is available
+      ansible.builtin.command:
+        cmd: kubectl version --client=true --output=yaml
+      changed_when: false
+
+    - name: Verify cluster access
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} cluster-info
+      changed_when: false
+
+    - name: Check Argo CD namespace exists
+      when: install_argocd | bool
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} get namespace {{ argocd_namespace }}
+      register: _hyops_argocd_ns
+      changed_when: false
+      failed_when: false
+
+    - name: Create Argo CD namespace
+      when:
+        - install_argocd | bool
+        - _hyops_argocd_ns.rc != 0
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} create namespace {{ argocd_namespace }}
+      register: _hyops_argocd_ns_create
+      changed_when: _hyops_argocd_ns_create.rc == 0
+
+    - name: Apply Argo CD install manifest
+      when: install_argocd | bool
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig {{ _hyops_kubeconfig_path }}
+          apply --server-side=true
+          {% if argocd_install_force_conflicts | bool %}--force-conflicts=true{% endif %}
+          -n {{ argocd_namespace }}
+          -f {{ argocd_install_manifest_url }}
+      register: _hyops_argocd_install
+      changed_when: >-
+        (_hyops_argocd_install.stdout is defined and (
+          'created' in _hyops_argocd_install.stdout or
+          'configured' in _hyops_argocd_install.stdout or
+          'serverside-applied' in _hyops_argocd_install.stdout
+        ))
+        or
+        (_hyops_argocd_install.stderr is defined and (
+          'created' in _hyops_argocd_install.stderr or
+          'configured' in _hyops_argocd_install.stderr or
+          'serverside-applied' in _hyops_argocd_install.stderr
+        ))
+
+    - name: Wait for Argo CD server rollout
+      when:
+        - install_argocd | bool
+        - argocd_wait_ready | bool
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} -n {{ argocd_namespace }} rollout status deploy/argocd-server --timeout={{ argocd_wait_timeout_s | int }}s
+      changed_when: false
+
+    - name: Render root Application manifest
+      ansible.builtin.copy:
+        dest: "{{ (hyops_outputs_file | dirname) ~ '/argocd-root-application.yaml' }}"
+        mode: "0600"
+        content: |
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: {{ root_app_name }}
+            namespace: {{ root_app_namespace }}
+            labels:
+              hyops.module: platform-onprem-argocd-bootstrap
+          spec:
+            project: {{ root_app_project }}
+            source:
+              repoURL: {{ workloads_repo_url }}
+              targetRevision: {{ workloads_revision }}
+              path: {{ workloads_target_path }}
+            destination:
+              server: {{ destination_server }}
+              namespace: {{ root_destination_namespace }}
+            syncPolicy:
+              automated:
+                prune: {{ (sync_automated_prune | bool) | ternary('true', 'false') }}
+                selfHeal: {{ (sync_automated_self_heal | bool) | ternary('true', 'false') }}
+              syncOptions:
+                - CreateNamespace={{ (create_namespace | bool) | ternary('true', 'false') }}
+
+    - name: Apply root Application
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} apply -f {{ (hyops_outputs_file | dirname) ~ '/argocd-root-application.yaml' }}
+      register: _hyops_root_apply
+      changed_when: >-
+        (_hyops_root_apply.stdout is defined and ('created' in _hyops_root_apply.stdout or 'configured' in _hyops_root_apply.stdout))
+        or
+        (_hyops_root_apply.stderr is defined and ('created' in _hyops_root_apply.stderr or 'configured' in _hyops_root_apply.stderr))
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'kubeconfig_path': (_hyops_kubeconfig_path | string),
+            'argocd_namespace': (argocd_namespace | string),
+            'root_app_name': (root_app_name | string),
+            'root_app_namespace': (root_app_namespace | string),
+            'root_app_project': (root_app_project | string),
+            'workloads_repo_url': (workloads_repo_url | string),
+            'workloads_revision': (workloads_revision | string),
+            'workloads_target_path': (workloads_target_path | string),
+            'cap.gitops.argocd': 'ready'
+          } | to_json }}

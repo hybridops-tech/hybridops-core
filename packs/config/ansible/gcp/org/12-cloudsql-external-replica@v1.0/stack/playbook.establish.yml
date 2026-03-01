@@ -1,0 +1,544 @@
+---
+- name: org/gcp/cloudsql-external-replica (establish or status)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    apply_mode: "{{ apply_mode | default('establish') }}"
+    replication_mode: "{{ replication_mode | default('logical') }}"
+    source_contract_version: "{{ source_contract_version | default(1) | int }}"
+    source_host: "{{ source_host | default('') }}"
+    source_port: "{{ source_port | default(5432) | int }}"
+    source_db_name: "{{ source_db_name | default('') }}"
+    source_leader_name: "{{ source_leader_name | default('') }}"
+    source_replication_candidate: "{{ source_replication_candidate | default(false) | bool }}"
+    source_replication_user: "{{ source_replication_user | default('') }}"
+    source_replication_password_env: "{{ source_replication_password_env | default('PG_REPLICATION_PASSWORD') }}"
+    source_ssl_type: "{{ source_ssl_type | default('NONE') }}"
+    source_ca_certificate_env: "{{ source_ca_certificate_env | default('') }}"
+    source_client_certificate_env: "{{ source_client_certificate_env | default('') }}"
+    source_private_key_env: "{{ source_private_key_env | default('') }}"
+
+    project_id: "{{ project_id | default('') }}"
+    region: "{{ region | default('') }}"
+    private_network: "{{ private_network | default('') }}"
+
+    source_connection_profile_name: "{{ source_connection_profile_name | default('') }}"
+    destination_connection_profile_name: "{{ destination_connection_profile_name | default('') }}"
+    migration_job_name: "{{ migration_job_name | default('') }}"
+    migration_job_type: "{{ migration_job_type | default('CONTINUOUS') }}"
+    start_migration_job: "{{ start_migration_job | default(true) | bool }}"
+    migration_objects_mode: "{{ migration_objects_mode | default('single-database') }}"
+    destination_database_version: "{{ destination_database_version | default('POSTGRES_16') }}"
+    destination_tier: "{{ destination_tier | default('db-custom-2-8192') }}"
+    destination_edition: "{{ destination_edition | default('ENTERPRISE') }}"
+    destination_availability_type: "{{ destination_availability_type | default('REGIONAL') }}"
+    destination_enable_ipv4: "{{ destination_enable_ipv4 | default(false) | bool }}"
+    destination_allocated_ip_range_name: "{{ destination_allocated_ip_range_name | default('') }}"
+    destination_root_password_env: "{{ destination_root_password_env | default('') }}"
+    connectivity_mode: "{{ connectivity_mode | default('static-ip') }}"
+    reverse_ssh_vm: "{{ reverse_ssh_vm | default('') }}"
+    reverse_ssh_vm_ip: "{{ reverse_ssh_vm_ip | default('') }}"
+    reverse_ssh_vm_port: "{{ reverse_ssh_vm_port | default(0) | int }}"
+    reverse_ssh_vpc: "{{ reverse_ssh_vpc | default('') }}"
+
+    gcloud_bin: "{{ gcloud_bin | default('gcloud') }}"
+    gcloud_copy_default_config: "{{ gcloud_copy_default_config | default(true) | bool }}"
+    gcloud_runtime_config_dir: "{{ gcloud_runtime_config_dir | default('') }}"
+    gcloud_active_account: "{{ gcloud_active_account | default('') }}"
+    _hyops_gcloud_config_dir: >-
+      {{
+        (gcloud_runtime_config_dir | string)
+        if (gcloud_runtime_config_dir is string and (gcloud_runtime_config_dir | length) > 0)
+        else (hyops_runtime_root ~ '/cache/gcloud')
+      }}
+    _hyops_default_gcloud_config_dir: "{{ lookup('env', 'HOME') ~ '/.config/gcloud' }}"
+
+  pre_tasks:
+    - name: Require supported apply mode
+      ansible.builtin.assert:
+        that:
+          - (apply_mode | string | lower) in ['establish', 'status']
+        fail_msg: "inputs.apply_mode must be establish or status for this playbook"
+
+    - name: Require logical replication mode
+      ansible.builtin.assert:
+        that:
+          - (replication_mode | string | lower) == 'logical'
+        fail_msg: "inputs.replication_mode must be logical (v1)"
+
+    - name: Require source replication candidate posture
+      ansible.builtin.assert:
+        that:
+          - source_replication_candidate | bool
+        fail_msg: >-
+          Source cluster is not ready for managed logical replication. Re-apply
+          platform/onprem/postgresql-dr-source and confirm source_replication_candidate=true.
+
+    - name: Require GCP project, region, and network
+      ansible.builtin.assert:
+        that:
+          - (project_id | string | length) > 0
+          - (region | string | length) > 0
+          - (private_network | string | length) > 0
+        fail_msg: "inputs.project_id, inputs.region, and inputs.private_network are required"
+
+    - name: Require DMS object names
+      ansible.builtin.assert:
+        that:
+          - (source_connection_profile_name | string | length) > 0
+          - (destination_connection_profile_name | string | length) > 0
+          - (migration_job_name | string | length) > 0
+        fail_msg: >-
+          inputs.source_connection_profile_name, inputs.destination_connection_profile_name,
+          and inputs.migration_job_name are required.
+
+    - name: Require source replication credentials for establish
+      ansible.builtin.assert:
+        that:
+          - (source_replication_user | string | length) > 0
+          - (source_replication_password_env | string | length) > 0
+        fail_msg: >-
+          inputs.source_replication_user and inputs.source_replication_password_env are required
+          for apply_mode=establish.
+      when: (apply_mode | string | lower) == 'establish'
+
+    - name: Require reverse SSH bastion details when selected
+      ansible.builtin.assert:
+        that:
+          - (reverse_ssh_vm | string | length) > 0
+          - (reverse_ssh_vm_ip | string | length) > 0
+          - (reverse_ssh_vm_port | int) > 0
+          - ((reverse_ssh_vpc | string | length) > 0) or ((private_network | string | length) > 0)
+        fail_msg: >-
+          inputs.reverse_ssh_vm, inputs.reverse_ssh_vm_ip, inputs.reverse_ssh_vm_port, and
+          inputs.reverse_ssh_vpc/private_network are required when inputs.connectivity_mode=reverse-ssh.
+      when: (connectivity_mode | string | lower) == 'reverse-ssh'
+
+    - name: Ensure runtime gcloud config directory exists
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check default gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_default_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_default_gcloud_cfg
+
+    - name: Check runtime gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_runtime_gcloud_cfg
+
+    - name: Copy default gcloud config into runtime cache (best effort)
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ _hyops_default_gcloud_config_dir }}/."
+          - "{{ _hyops_gcloud_config_dir }}/"
+      changed_when: true
+      when:
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+        - not _hyops_runtime_gcloud_cfg.stat.exists
+
+    - name: Require gcloud binary
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - version
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Resolve active gcloud account
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - auth
+          - list
+          - --filter=status:ACTIVE
+          - --format=value(account)
+      register: _hyops_gcloud_active_account
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Fail when no active gcloud account is available
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_active_account.stdout | trim | length) > 0
+        fail_msg: >-
+          No active gcloud account was found. Authenticate gcloud first, or rerun hyops init gcp
+          and ensure the controller has usable GCP CLI credentials.
+
+    - name: Fail on unexpected gcloud account
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_active_account.stdout | trim) == (gcloud_active_account | trim)
+        fail_msg: >-
+          The active gcloud account does not match inputs.gcloud_active_account.
+          Observed={{ _hyops_gcloud_active_account.stdout | trim }} expected={{ gcloud_active_account | trim }}
+      when: (gcloud_active_account | string | length) > 0
+
+    - name: Load replication and optional TLS secrets from environment
+      ansible.builtin.set_fact:
+        _hyops_source_replication_password: "{{ lookup('env', source_replication_password_env) | default('', true) }}"
+        _hyops_source_ca_certificate: >-
+          {{
+            (lookup('env', source_ca_certificate_env) | default('', true))
+            if (source_ca_certificate_env | string | length) > 0 else ''
+          }}
+        _hyops_source_client_certificate: >-
+          {{
+            (lookup('env', source_client_certificate_env) | default('', true))
+            if (source_client_certificate_env | string | length) > 0 else ''
+          }}
+        _hyops_source_private_key: >-
+          {{
+            (lookup('env', source_private_key_env) | default('', true))
+            if (source_private_key_env | string | length) > 0 else ''
+          }}
+        _hyops_destination_root_password: >-
+          {{
+            (lookup('env', destination_root_password_env) | default('', true))
+            if (destination_root_password_env | string | length) > 0 else ''
+          }}
+      no_log: true
+
+    - name: Require source replication password from environment for establish
+      ansible.builtin.assert:
+        that:
+          - (_hyops_source_replication_password | string | length) > 0
+        fail_msg: >-
+          Environment variable {{ source_replication_password_env }} is empty or not set.
+      no_log: true
+      when: (apply_mode | string | lower) == 'establish'
+
+  tasks:
+    - name: Describe source connection profile
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - connection-profiles
+          - describe
+          - "{{ source_connection_profile_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_source_cp_describe
+      changed_when: false
+      failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Build source connection profile create command
+      ansible.builtin.set_fact:
+        _hyops_source_cp_create_argv: >-
+          {{
+            [
+              gcloud_bin,
+              'database-migration', 'connection-profiles', 'create', 'postgresql',
+              source_connection_profile_name,
+              '--project=' ~ project_id,
+              '--region=' ~ region,
+              '--display-name=' ~ source_connection_profile_name,
+              '--role=SOURCE',
+              '--host=' ~ source_host,
+              '--port=' ~ (source_port | int | string),
+              '--database=' ~ source_db_name,
+              '--username=' ~ source_replication_user,
+              '--password=' ~ _hyops_source_replication_password,
+              '--ssl-type=' ~ (source_ssl_type | upper),
+              '--no-async'
+            ]
+            + (((connectivity_mode | string | lower) == 'static-ip') | ternary(['--static-ip-connectivity'], []))
+            + ((_hyops_source_ca_certificate | length > 0) | ternary(['--ca-certificate=' ~ _hyops_source_ca_certificate], []))
+            + ((_hyops_source_client_certificate | length > 0) | ternary(['--client-certificate=' ~ _hyops_source_client_certificate], []))
+            + ((_hyops_source_private_key | length > 0) | ternary(['--private-key=' ~ _hyops_source_private_key], []))
+          }}
+      no_log: true
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (_hyops_source_cp_describe.rc | int) != 0
+
+    - name: Create source connection profile
+      ansible.builtin.command:
+        argv: "{{ _hyops_source_cp_create_argv }}"
+      register: _hyops_source_cp_create
+      changed_when: true
+      no_log: true
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (_hyops_source_cp_describe.rc | int) != 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Describe destination connection profile
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - connection-profiles
+          - describe
+          - "{{ destination_connection_profile_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_destination_cp_describe
+      changed_when: false
+      failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Build destination connection profile create command
+      ansible.builtin.set_fact:
+        _hyops_destination_cp_create_argv: >-
+          {{
+            [
+              gcloud_bin,
+              'database-migration', 'connection-profiles', 'create', 'cloudsql',
+              destination_connection_profile_name,
+              '--project=' ~ project_id,
+              '--region=' ~ region,
+              '--display-name=' ~ destination_connection_profile_name,
+              '--role=DESTINATION',
+              '--source-id=' ~ source_connection_profile_name,
+              '--database-version=' ~ (destination_database_version | upper),
+              '--tier=' ~ destination_tier,
+              '--edition=' ~ (destination_edition | lower),
+              '--availability-type=' ~ (destination_availability_type | upper),
+              '--private-network=' ~ private_network,
+              '--provider=CLOUDSQL',
+              '--no-async'
+            ]
+            + ((destination_enable_ipv4 | bool) | ternary(['--enable-ip-v4'], ['--no-enable-ip-v4']))
+            + ((destination_allocated_ip_range_name | string | length > 0) | ternary(['--allocated-ip-range=' ~ destination_allocated_ip_range_name], []))
+            + ((_hyops_destination_root_password | length > 0) | ternary(['--root-password=' ~ _hyops_destination_root_password], []))
+          }}
+      no_log: true
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (_hyops_destination_cp_describe.rc | int) != 0
+
+    - name: Create destination connection profile (creates Cloud SQL replica)
+      ansible.builtin.command:
+        argv: "{{ _hyops_destination_cp_create_argv }}"
+      register: _hyops_destination_cp_create
+      changed_when: true
+      no_log: true
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (_hyops_destination_cp_describe.rc | int) != 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Describe migration job
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - describe
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_migration_job_describe
+      changed_when: false
+      failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Build migration job create command
+      ansible.builtin.set_fact:
+        _hyops_migration_job_create_argv: >-
+          {{
+            [
+              gcloud_bin,
+              'database-migration', 'migration-jobs', 'create',
+              migration_job_name,
+              '--project=' ~ project_id,
+              '--region=' ~ region,
+              '--source=' ~ source_connection_profile_name,
+              '--destination=' ~ destination_connection_profile_name,
+              '--type=' ~ (migration_job_type | upper),
+              '--no-async'
+            ]
+            + (((migration_objects_mode | string | lower) == 'all-databases') | ternary(['--all-databases'], ['--databases-filter=' ~ source_db_name]))
+            + (((connectivity_mode | string | lower) == 'static-ip') | ternary(['--static-ip'], []))
+            + (((connectivity_mode | string | lower) == 'peer-vpc') | ternary(['--peer-vpc=' ~ private_network], []))
+            + (((connectivity_mode | string | lower) == 'reverse-ssh') | ternary([
+                  '--vm=' ~ reverse_ssh_vm,
+                  '--vm-ip=' ~ reverse_ssh_vm_ip,
+                  '--vm-port=' ~ (reverse_ssh_vm_port | int | string),
+                  '--vpc=' ~ ((reverse_ssh_vpc | string) if (reverse_ssh_vpc | string | length) > 0 else private_network)
+                ], []))
+          }}
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (_hyops_migration_job_describe.rc | int) != 0
+
+    - name: Create migration job
+      ansible.builtin.command:
+        argv: "{{ _hyops_migration_job_create_argv }}"
+      register: _hyops_migration_job_create
+      changed_when: true
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (_hyops_migration_job_describe.rc | int) != 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Refresh migration job description after create
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - describe
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_migration_job_current
+      changed_when: false
+      failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Start migration job when requested and not already active
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - start
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+      register: _hyops_migration_job_start
+      changed_when: true
+      failed_when: >-
+        (_hyops_migration_job_start.rc | int) != 0
+        and ('already' not in ((_hyops_migration_job_start.stderr | default('')) | lower))
+        and ('state' not in ((_hyops_migration_job_start.stderr | default('')) | lower))
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - start_migration_job | bool
+        - (_hyops_migration_job_current.rc | int) == 0
+        - (((_hyops_migration_job_current.stdout | default('{}')) | from_json).state | default('') | upper) not in ['RUNNING', 'STARTING']
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Describe source connection profile (final)
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - connection-profiles
+          - describe
+          - "{{ source_connection_profile_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_source_cp_final
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Describe destination connection profile (final)
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - connection-profiles
+          - describe
+          - "{{ destination_connection_profile_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_destination_cp_final
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Describe migration job (final)
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - describe
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_migration_job_final
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Normalize final DMS objects
+      ansible.builtin.set_fact:
+        _hyops_destination_cp_json: "{{ _hyops_destination_cp_final.stdout | from_json }}"
+        _hyops_migration_job_json: "{{ _hyops_migration_job_final.stdout | from_json }}"
+      changed_when: false
+
+- name: org/gcp/cloudsql-external-replica (publish outputs)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set job_state = (_hyops_migration_job_json.state | default('UNKNOWN') | string) %}
+          {% set destination_cp = _hyops_destination_cp_json | default({}) %}
+          {% set target_host =
+               (destination_cp.cloudsql.privateIp | default(''))
+               if (destination_cp.cloudsql is defined)
+               else '' %}
+          {% set established = (job_state | upper) not in ['FAILED', 'STOPPED', 'UNKNOWN'] %}
+          {{
+            {
+              'target_project_id': (project_id | string),
+              'target_region': (region | string),
+              'target_instance_name': (destination_connection_profile_name | string),
+              'target_db_host': (target_host | string),
+              'target_connection_name': '',
+              'source_host': (source_host | string),
+              'source_port': (source_port | int),
+              'source_leader_name': (source_leader_name | string),
+              'source_replication_candidate': (source_replication_candidate | bool),
+              'source_connection_profile_name': (source_connection_profile_name | string),
+              'destination_connection_profile_name': (destination_connection_profile_name | string),
+              'migration_job_name': (migration_job_name | string),
+              'migration_job_state': job_state,
+              'connectivity_mode': (connectivity_mode | string),
+              'managed_replication_mode': (replication_mode | string),
+              'managed_replication_prereqs_ready': (source_replication_candidate | bool),
+              'managed_replication_established': established,
+              'cap.db.managed_external_replica': 'established'
+            } | to_json
+          }}

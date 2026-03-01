@@ -1,0 +1,85 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/decision-service"
+
+metadata:
+  title: "Edge Decision Service"
+  description: "Deploys a deterministic decision-loop service on edge Linux nodes for DR/burst control signaling."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Inventory. Prefer state-driven inventory from edge foundation.
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    # SSH defaults applied to every host in inventory.
+    target_user: "root"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    # Preflight/apply: ensure SSH is reachable before running Ansible.
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    # Vault/env wiring
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    # Role wiring
+    decision_role_fqcn: "hybridops.common.decision_service"
+    decision_state: "present"
+    decision_hyops_bin: "/usr/local/bin/hyops"
+    decision_runtime_env: "dev"
+    decision_action_timeout_s: 600
+    decision_signal_query_timeout_s: 5
+    decision_require_signal_readiness: true
+    decision_require_fresh_signals: true
+    decision_max_signal_age_s: 180
+    decision_min_ready_checks: 1
+
+    # Core decision contract
+    thanos_query_url: "http://127.0.0.1:10902"
+    policy: {}
+    actions:
+      cutover_module_ref: "platform/network/dns-routing"
+      failback_module_ref: "platform/network/dns-routing"
+      cutover_desired: "secondary"
+      failback_desired: "primary"
+      module_inputs: {}
+    dry_run: true
+    decision_enable_actions: false
+    tick_seconds: 30
+    confirm_for_seconds: 120
+    stable_for_seconds: 300
+    cooldown_seconds: 600
+    decision_log_level: "INFO"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/30-decision-service@v1.0"
+
+outputs:
+  publish:
+    - decision_service.status
+    - decision_service.last_tick
+    - decision_service.last_action
+    - decision_service.signal_ready
+    - cap.control.decision_service
+
+probes: []
+constraints: []

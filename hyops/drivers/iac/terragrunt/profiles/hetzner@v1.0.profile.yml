@@ -1,0 +1,51 @@
+api_version: hybridops/v1
+kind: DriverProfile
+profile_ref: hetzner@v1.0
+driver: iac/terragrunt
+description: Terragrunt profile for Hetzner stacks using runtime-injected credentials.
+policy:
+  workspace:
+    backend_mode: cloud
+  constraints:
+    credential_contracts:
+      hetzner:
+        required_tfvars:
+        - hcloud_token
+terragrunt:
+  bin: terragrunt
+  terraform_bin: terraform
+  init_args:
+  - init
+  - -no-color
+  apply_args:
+  - apply
+  - -auto-approve
+  - -input=false
+  - -no-color
+  output_args:
+  - output
+  - -json
+  - -no-color
+templates:
+- src: hetzner/root.hcl.tmpl
+  dst: root.hcl
+- src: hetzner/hetzner.locals.hcl.tmpl
+  dst: hetzner.locals.hcl
+env:
+  TFC_HOST: app.terraform.io
+  TFC_ORG: hybridops-tech
+  TFC_CREDENTIALS_FILE: ~/.terraform.d/credentials.tfrc.json
+  TG_LOG: ''
+workspace_policy:
+  enabled: true
+  provider: hetzner
+  mode: local
+  strict: false
+hooks:
+  export_infra:
+    command:
+    - hyops
+    - inventory
+    - export-infra
+    - --target
+    - '{target}'

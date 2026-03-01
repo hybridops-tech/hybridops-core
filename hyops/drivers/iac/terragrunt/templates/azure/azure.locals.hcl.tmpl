@@ -1,0 +1,44 @@
+locals {
+  tfvars_path = get_env("HYOPS_AZURE_TFVARS", "")
+  tfvars_raw  = try(file(local.tfvars_path), "")
+
+  tfvars_subscription_id = try(regex("subscription_id\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_tenant_id       = try(regex("tenant_id\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_client_id       = try(regex("client_id\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_client_secret   = try(regex("client_secret\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_location        = try(regex("location\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+
+  subscription_id = coalesce(
+    local.tfvars_subscription_id != "" ? local.tfvars_subscription_id : null,
+    get_env("AZ_SUBSCRIPTION_ID", "") != "" ? get_env("AZ_SUBSCRIPTION_ID", "") : null,
+    get_env("ARM_SUBSCRIPTION_ID", "") != "" ? get_env("ARM_SUBSCRIPTION_ID", "") : null,
+    "MISSING_SUBSCRIPTION_ID"
+  )
+
+  tenant_id = coalesce(
+    local.tfvars_tenant_id != "" ? local.tfvars_tenant_id : null,
+    get_env("AZ_TENANT_ID", "") != "" ? get_env("AZ_TENANT_ID", "") : null,
+    get_env("ARM_TENANT_ID", "") != "" ? get_env("ARM_TENANT_ID", "") : null,
+    "MISSING_TENANT_ID"
+  )
+
+  client_id = coalesce(
+    local.tfvars_client_id != "" ? local.tfvars_client_id : null,
+    get_env("AZ_CLIENT_ID", "") != "" ? get_env("AZ_CLIENT_ID", "") : null,
+    get_env("ARM_CLIENT_ID", "") != "" ? get_env("ARM_CLIENT_ID", "") : null,
+    ""
+  )
+
+  client_secret = coalesce(
+    local.tfvars_client_secret != "" ? local.tfvars_client_secret : null,
+    get_env("AZ_CLIENT_SECRET", "") != "" ? get_env("AZ_CLIENT_SECRET", "") : null,
+    get_env("ARM_CLIENT_SECRET", "") != "" ? get_env("ARM_CLIENT_SECRET", "") : null,
+    ""
+  )
+
+  location = coalesce(
+    local.tfvars_location != "" ? local.tfvars_location : null,
+    get_env("AZ_LOCATION", "") != "" ? get_env("AZ_LOCATION", "") : null,
+    "uksouth"
+  )
+}

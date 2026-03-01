@@ -1,0 +1,101 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/gcp-ops-runner@v1"
+mode: "hybrid"
+
+metadata:
+  title: "GCP Ops Runner"
+  description: "Provision a private GCP runner VM in the hub core subnet for runner-local DR and burst execution."
+  outcome: "A shared execution host exists inside the GCP hub VPC and can be used by CI or decision-driven DR workflows."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: gcp_ops_runner_egress
+    module_ref: "org/gcp/wan-cloud-nat"
+    state_instance: "gcp_ops_runner_egress"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    inputs:
+      router_state_ref: "org/gcp/wan-cloud-router"
+      network_state_ref: "org/gcp/wan-hub-network"
+      subnetwork_output_keys:
+        - "subnet_core_name"
+      nat_name: "runner-egress"
+      subnetwork_source_ip_ranges_to_nat: "ALL_IP_RANGES"
+      auto_allocate_external_ips: true
+      min_ports_per_vm: 64
+      enable_endpoint_independent_mapping: true
+      log_filter: "ERRORS_ONLY"
+
+  - id: gcp_ops_runner_vm
+    module_ref: "platform/gcp/platform-vm"
+    state_instance: "gcp_ops_runner"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - gcp_ops_runner_egress
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "shared"
+      network_state_ref: "org/gcp/wan-hub-network"
+      subnetwork_output_key: "subnet_core_name"
+      zone: "CHANGE_ME_GCP_ZONE"
+      machine_type: "e2-standard-2"
+      boot_disk_size_gb: 40
+      source_image_project: "ubuntu-os-cloud"
+      source_image_family: "ubuntu-2404-lts-amd64"
+      assign_public_ip: false
+      ssh_username: "opsadmin"
+      ssh_keys_from_init: true
+      tags:
+        - "platform"
+        - "gcp"
+        - "runner"
+        - "control-plane"
+        - "allow-iap-ssh"
+      labels:
+        role: "ops-runner"
+        execution-plane: "runner-local"
+      vms:
+        runner-01:
+          role: "ops-runner"
+
+  - id: gcp_ops_runner_bootstrap
+    module_ref: "platform/linux/ops-runner"
+    state_instance: "gcp_ops_runner_bootstrap"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - gcp_ops_runner_egress
+      - gcp_ops_runner_vm
+    with_deps: true
+    skip_if_state_ok: true
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_ops_runner"
+      inventory_vm_groups:
+        runner:
+          - "runner-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 60
+      runner_release_root: ""
+      runner_release_archive_url: ""
+      runner_release_archive_sha256: ""
+      runner_system_link: true
+      runner_setup_base: true
+      runner_setup_ansible: true
+      runner_setup_cloud_gcp: true
+      runner_setup_cloud_azure: false

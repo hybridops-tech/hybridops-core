@@ -1,0 +1,67 @@
+locals {
+  meta   = jsondecode(file("${get_terragrunt_dir()}/hyops.meta.json"))
+  inputs = jsondecode(file("${get_terragrunt_dir()}/hyops.inputs.json"))
+
+  # Import GCP-derived locals produced by the same profile.
+  gcp = read_terragrunt_config("${get_terragrunt_dir()}/gcp.locals.hcl").locals
+
+  tfc_org      = get_env("TFC_ORG", "hybridops-tech")
+  backend_mode = lower(trimspace(get_env("HYOPS_TERRAFORM_BACKEND_MODE", "cloud")))
+  runtime_root = trimspace(get_env("HYOPS_RUNTIME_ROOT", "."))
+  terraform_state_path = "${local.runtime_root}/state/terraform/${local.meta.module_id}.tfstate"
+
+  workspace_name = trimspace(try(tostring(local.meta.workspace_name), ""))
+
+  gcp_impersonate_expr = local.gcp.impersonate_service_account != "" ? "\"${local.gcp.impersonate_service_account}\"" : "null"
+
+  # Pass through all merged module inputs to Terraform.
+  tf_inputs = local.inputs
+}
+
+generate "backend_local" {
+  disable   = local.backend_mode != "local"
+  path      = "backend.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<-EOF_LOCAL
+terraform {
+  backend "local" {
+    path = "${local.terraform_state_path}"
+  }
+}
+EOF_LOCAL
+}
+
+generate "backend_cloud" {
+  disable   = local.backend_mode == "local"
+  path      = "backend.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<-EOF_CLOUD
+terraform {
+  cloud {
+    organization = "${local.tfc_org}"
+    workspaces {
+      name = "${local.workspace_name}"
+    }
+  }
+}
+EOF_CLOUD
+}
+
+generate "provider" {
+  path      = "provider.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<-EOF_PROVIDER
+provider "google" {
+  project                     = "${local.gcp.project_id}"
+  region                      = "${local.gcp.region}"
+  impersonate_service_account = ${local.gcp_impersonate_expr}
+}
+provider "google-beta" {
+  project                     = "${local.gcp.project_id}"
+  region                      = "${local.gcp.region}"
+  impersonate_service_account = ${local.gcp_impersonate_expr}
+}
+EOF_PROVIDER
+}
+
+inputs = local.tf_inputs

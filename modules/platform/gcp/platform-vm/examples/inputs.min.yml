@@ -1,0 +1,19 @@
+# MIN: Provision one VM in GCP for testing.
+
+name_prefix: platform
+context_id: dev
+project_id: "hybridops-pf-dev2"
+
+zone: europe-west2-a
+network: default
+subnetwork: ""
+
+assign_public_ip: false
+
+ssh_username: opsadmin
+ssh_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@example"
+
+vms:
+  pgdr-01:
+    role: postgres

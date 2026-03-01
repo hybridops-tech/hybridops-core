@@ -1,0 +1,22 @@
+# Typical NetBox config example (state-driven target).
+# Secrets are supplied via env/vault:
+#   - NETBOX_DB_PASSWORD
+#   - NETBOX_SECRET_KEY
+#   - NETBOX_SUPERUSER_PASSWORD
+#   - NETBOX_API_TOKEN
+#
+# If you provisioned your VM with platform/onprem/platform-vm, prefer target_state_ref
+# to avoid hardcoding IPs in multiple places.
+
+load_vault_env: true
+
+target_state_ref: "platform/onprem/platform-vm"
+target_vm_key: "netbox-01"
+
+netbox_http_host_port: 8000
+netbox_hostname: "netbox"
+netbox_domain: "hybzone.local"
+install_docker_engine: true
+
+# Prefer HA DB contract from module state.
+db_state_ref: "platform/onprem/postgresql-ha"

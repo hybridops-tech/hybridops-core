@@ -1,0 +1,26 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "examples/core/hello-world"
+
+metadata:
+  title: "Hello World"
+  description: "Minimal module to validate apply flow end-to-end."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    message: "hello"
+
+execution:
+  driver: iac/terragrunt
+  profile: local@v1.0
+  pack_ref:
+    id: hello-world
+
+outputs:
+  publish: []
+probes: []
+constraints: []

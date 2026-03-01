@@ -1,0 +1,42 @@
+---
+- name: platform/network/dns-routing (configure)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+
+  vars:
+    dns_role_fqcn: "{{ dns_role_fqcn | default('hybridops.common.dns_routing') }}"
+
+  tasks:
+    - name: Run DNS routing role
+      ansible.builtin.include_role:
+        name: "{{ dns_role_fqcn }}"
+
+  post_tasks:
+    - name: Compute effective targets for outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.set_fact:
+        _dns_targets_effective: "{{ ((desired | lower) == 'primary') | ternary((primary_targets | default([])), (secondary_targets | default([]))) }}"
+      changed_when: false
+
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'dns.status': (((dry_run | default(true) | bool) or not (dns_apply | default(false) | bool)) | ternary('intent-only', 'applied')),
+            'dns.provider': (provider | string),
+            'dns.zone': (zone | string),
+            'dns.record_fqdn': (record_fqdn | string),
+            'dns.record_type': (record_type | upper | string),
+            'dns.desired': (desired | lower | string),
+            'dns.targets': (_dns_targets_effective | default([])),
+            'cap.network.dns_routing': 'ready'
+          } | to_json }}

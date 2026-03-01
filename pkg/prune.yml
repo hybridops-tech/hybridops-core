@@ -1,0 +1,9 @@
+# Purpose: Prune rules to exclude non-shippable content.
+# Architecture Decision: ADR-0622
+# Maintainer: HybridOps.Studio
+
+exclude_globs:
+  - "**/__pycache__/**"
+  - "**/*.pyc"
+  - "**/.DS_Store"
+  - "output/**"

@@ -1,0 +1,31 @@
+template_state_ref: "core/onprem/template-image"
+template_key: "ubuntu-24.04"
+require_ipam: true
+# Built-in post-apply SSH readiness gate is enabled by default.
+# post_apply_ssh_readiness:
+#   connectivity_wait_s: 300
+addressing:
+  mode: "ipam"
+  ipam:
+    provider: "netbox"
+cpu_cores: 4
+memory_mb: 8192
+disk_size_gb: 120
+dns_domain: "hybzone.local"
+dns_servers:
+  - "8.8.8.8"
+  - "1.1.1.1"
+tags:
+  - "platform"
+  - "onprem"
+  - "custom-vm"
+  - "app"
+vms:
+  app-01:
+    role: "app"
+    interfaces:
+      - bridge: "vnetmgmt"
+  app-02:
+    role: "app"
+    interfaces:
+      - bridge: "vnetmgmt"

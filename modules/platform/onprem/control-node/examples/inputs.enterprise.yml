@@ -1,0 +1,29 @@
+name_prefix: "corp"
+context_id: "prod-a"
+node_name: "pve01"
+datastore_id: "fast-lvm"
+snippets_datastore_id: "local"
+ssh_username: "opsadmin"
+ssh_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEKEY opsadmin@example.com"
+vm_name: "ctrl-01"
+template_vm_id: 9002
+cpu_cores: 6
+memory_mb: 16384
+disk_size_gb: 128
+interfaces:
+  - bridge: "vmbr0"
+    mac_address: "BC:24:11:00:00:11"
+    ipv4:
+      address: "10.10.0.11/24"
+      gateway: "10.10.0.1"
+dns_domain: "corp.example"
+dns_servers:
+  - "10.10.0.53"
+  - "10.10.0.54"
+tags:
+  - "platform"
+  - "onprem"
+  - "control-plane"
+  - "critical"
+  - "enterprise"

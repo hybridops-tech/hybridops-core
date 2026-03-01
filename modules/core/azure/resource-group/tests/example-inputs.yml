@@ -1,0 +1,7 @@
+name_prefix: hyops
+context_id: core
+resource_group_name: rg-hyops-core
+location: uksouth
+tags:
+  project: hybridops
+  managed_by: hyops

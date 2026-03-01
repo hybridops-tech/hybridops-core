@@ -1,0 +1,25 @@
+zone_name: "hybzone"
+zone_bridge: "vmbr0"
+uplink_interface: "vmbr0"
+dns_domain: "hybridops.local"
+vnets:
+  vnetmgmt:
+    vlan_id: 10
+    description: "Management network"
+    subnets:
+      submgmt:
+        cidr: "10.10.0.0/24"
+        gateway: "10.10.0.1"
+        dhcp_range_start: "10.10.0.120"
+        dhcp_range_end: "10.10.0.220"
+        dhcp_dns_server: "8.8.8.8"
+  vnetobs:
+    vlan_id: 11
+    description: "Observability network"
+    subnets:
+      subobs:
+        cidr: "10.11.0.0/24"
+        gateway: "10.11.0.1"
+        dhcp_range_start: "10.11.0.120"
+        dhcp_range_end: "10.11.0.220"
+        dhcp_dns_server: "8.8.8.8"

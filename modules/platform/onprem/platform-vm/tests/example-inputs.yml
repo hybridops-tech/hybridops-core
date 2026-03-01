@@ -1,0 +1,8 @@
+vm_name: "netbox-app-01"
+vm_id: 1302
+vm_ipv4_cidr: "10.12.0.51/24"
+vm_gateway: "10.12.0.1"
+vm_mac: "BC:24:11:00:05:21"
+require_ipam: false
+name_prefix: "hyops"
+context_id: "lab"

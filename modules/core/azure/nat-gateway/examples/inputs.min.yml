@@ -1,0 +1,11 @@
+name_prefix: hyops
+context_id: core
+nat_gateway_name: natgw-hyops-core
+resource_group_name: rg-hyops-core
+location: uksouth
+sku_name: Standard
+idle_timeout_in_minutes: 4
+zones: []
+tags:
+  project: hybridops
+  managed_by: hyops

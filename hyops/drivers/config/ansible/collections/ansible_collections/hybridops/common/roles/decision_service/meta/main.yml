@@ -1,0 +1,24 @@
+---
+# purpose: Role metadata for decision_service
+# maintainer: HybridOps.Studio
+
+galaxy_info:
+  author: HybridOps.Studio
+  description: Deploy a deterministic edge decision loop service.
+  company: HybridOps.Studio
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+    - name: EL
+      versions:
+        - "9"
+  galaxy_tags:
+    - decision
+    - edge
+    - dr
+    - burst
+
+dependencies: []

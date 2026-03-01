@@ -1,0 +1,54 @@
+# Configure pgBackRest with:
+# - repo1: GCS (primary backup repository)
+# - repo2: Azure Blob (secondary cross-cloud copy)
+#
+# This keeps a single active DB topology while adding multi-cloud backup durability.
+
+inventory_state_ref: platform/onprem/platform-vm
+inventory_vm_groups:
+  etcd_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+  master:
+    - pgha-01
+  replica:
+    - pgha-02
+    - pgha-03
+  postgres_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+
+patroni_cluster_name: postgres-ha
+# Safe default; set to reset only when intentionally re-initializing stale stanza metadata.
+repo_mismatch_action: fail
+
+# Primary repository
+backend: gcs
+# Optional state-driven source (recommended):
+# repo_state_ref: org/gcp/object-repo
+gcs_bucket: "hyops-pgbackrest-dev"
+gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+
+# Secondary repository (repo2)
+secondary_enabled: true
+secondary_backend: azure
+# Optional state-driven source (recommended):
+# secondary_repo_state_ref: org/azure/object-repo
+secondary_repo_path: "/pgbackrest-secondary"
+secondary_azure_storage_account: "hyopspgbackrestdr"
+secondary_azure_container: "pgbackrest-secondary"
+secondary_azure_account_key_env: "PG_BACKUP_SECONDARY_AZURE_ACCOUNT_KEY"
+
+required_env:
+  - PATRONI_SUPERUSER_PASSWORD
+  - PATRONI_REPLICATION_PASSWORD
+  - PG_BACKUP_GCS_SA_JSON
+  - PG_BACKUP_SECONDARY_AZURE_ACCOUNT_KEY
+
+# SSH
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_proxy_jump_auto: true
+load_vault_env: true

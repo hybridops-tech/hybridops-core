@@ -1,0 +1,69 @@
+api_version: hybridops/v1
+kind: DriverProfile
+
+profile_ref: "azure@v1.0"
+driver: "iac/terragrunt"
+description: "Terragrunt profile for Azure stacks using runtime-injected credentials."
+
+policy:
+  workspace:
+    # State backend. Execution mode is managed separately by workspace_policy.
+    backend_mode: cloud
+  constraints:
+    credential_contracts:
+      azure:
+        required_tfvars:
+          - subscription_id
+          - tenant_id
+          - location
+
+terragrunt:
+  bin: terragrunt
+  terraform_bin: terraform
+  init_args: ["init", "-no-color"]
+  apply_args: ["apply", "-auto-approve", "-input=false", "-no-color"]
+  output_args: ["output", "-json", "-no-color"]
+
+templates:
+  - src: azure/root.hcl.tmpl
+    dst: root.hcl
+  - src: azure/azure.locals.hcl.tmpl
+    dst: azure.locals.hcl
+
+env:
+  TFC_HOST: "app.terraform.io"
+  TFC_ORG: "hybridops-tech"
+  TFC_CREDENTIALS_FILE: "~/.terraform.d/credentials.tfrc.json"
+  TG_LOG: ""
+
+workspace_policy:
+  enabled: true
+  provider: azure
+  mode: local
+  strict: false
+
+hooks:
+  export_infra:
+    command:
+      - hyops
+      - inventory
+      - export-infra
+      - --target
+      - "{target}"
+      - --terragrunt-root
+      - "{hook_root}"
+      - --only-module
+      - .
+      - --changed-only
+    netbox_sync_command:
+      - hyops
+      - inventory
+      - sync-netbox
+      - --dataset
+      - "{netbox_dataset_json}"
+    hook_root_env: HYOPS_EXPORT_HOOK_ROOT
+    hook_root_default: "."
+    strict: false
+    redact: true
+    timeout_s: 120
+    netbox_sync_timeout_s: 120

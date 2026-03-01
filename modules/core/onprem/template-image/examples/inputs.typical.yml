@@ -1,0 +1,16 @@
+template_key: "ubuntu-24.04"
+# Optional: pin a reserved template VMID (templates are global on the Proxmox cluster).
+# vmid: 9001
+# Set to true to purge and rebuild if the template already exists.
+# rebuild_if_exists: true
+# Post-build smoke validation runs automatically by default (warn-only).
+# post_build_smoke:
+#   required: true
+# Optional: override the default template name (<template_key>-template).
+# name: "<your-template-name>"
+description: "Ubuntu 24.04 base image"
+# Optional Proxmox pool (must already exist and be allowed for your token).
+# pool: "templates"
+cpu_cores: 2
+memory_mb: 4096
+disk_size_gb: 40

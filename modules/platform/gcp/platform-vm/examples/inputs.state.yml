@@ -1,0 +1,19 @@
+# STATE: consume project and network coordinates from upstream state.
+
+name_prefix: platform
+context_id: dev
+
+project_state_ref: org/gcp/project-factory
+network_state_ref: org/gcp/wan-hub-network
+subnetwork_output_key: subnet_workloads_name
+
+zone: europe-west2-a
+
+assign_public_ip: false
+
+ssh_username: opsadmin
+ssh_keys_from_init: true
+
+vms:
+  app-01:
+    role: app

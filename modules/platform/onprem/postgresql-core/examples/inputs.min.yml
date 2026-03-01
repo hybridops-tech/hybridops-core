@@ -1,0 +1,13 @@
+# Minimal (but functional) pgcore config example.
+# Secrets are supplied via env/vault: NETBOX_DB_PASSWORD.
+
+target_host: "10.12.0.10"
+
+listen_addresses:
+  - "127.0.0.1"
+  - "10.12.0.10"
+
+allowed_clients:
+  - database: "netbox"
+    user: "netbox"
+    cidr: "10.12.0.11/32"

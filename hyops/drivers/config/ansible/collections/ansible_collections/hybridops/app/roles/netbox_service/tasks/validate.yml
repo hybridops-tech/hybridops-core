@@ -1,0 +1,38 @@
+---
+# purpose: Validate inputs for NetBox deployment
+# adr: ADR-0002, ADR-0501, ADR-0502
+# maintainer: HybridOps.Studio
+
+- name: Validate DB host
+  ansible.builtin.assert:
+    that:
+      - netbox_db_host | length > 0
+    fail_msg: "netbox_db_host is required."
+  when: not netbox_smoke_only | bool
+
+- name: Validate DB password
+  ansible.builtin.assert:
+    that:
+      - netbox_db_password | length > 0
+    fail_msg: "netbox_db_password is required."
+  when: not netbox_smoke_only | bool
+
+- name: Validate NetBox secret key
+  ansible.builtin.assert:
+    that:
+      - netbox_secret_key | length >= 50
+    fail_msg: "netbox_secret_key is required and must be at least 50 characters."
+  when: not netbox_smoke_only | bool
+
+- name: Validate NetBox API token key (when provided)
+  ansible.builtin.assert:
+    that:
+      - (netbox_api_token_key | length == 0) or (netbox_api_token_key | length <= 40)
+    fail_msg: "netbox_api_token_key is too long; expected <= 40 characters (DRF token max_length=40)."
+  when: not netbox_smoke_only | bool
+
+- name: Validate docker compose availability
+  ansible.builtin.command: docker compose version
+  register: _compose_version
+  changed_when: false
+  when: not netbox_smoke_only | bool

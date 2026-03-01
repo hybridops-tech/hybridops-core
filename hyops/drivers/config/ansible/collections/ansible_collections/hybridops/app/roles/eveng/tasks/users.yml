@@ -1,0 +1,39 @@
+---
+# EVE-NG user management tasks
+
+- name: Create user directories
+  ansible.builtin.file:
+    path: "/opt/unetlab/labs/{{ item.username }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+  loop: "{{ eveng_users }}"
+  tags:
+    - users
+    - user_dirs
+
+- name: Create EVE-NG user accounts
+  community.mysql.mysql_query:
+    login_db: eve_ng
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    query: |
+      INSERT INTO users (username, name, email, password, role, pod, expiration)
+      VALUES (
+        '{{ item.username }}',
+        '{{ item.name | default(item.username) }}',
+        '{{ item.email }}',
+        MD5('{{ item.password }}'),
+        '{{ item.role | default("user") }}',
+        {{ item.pod | default(0) }},
+        '{{ item.expiration | default("2999-12-31") }}'
+      )
+      ON DUPLICATE KEY UPDATE
+        password = MD5('{{ item.password }}'),
+        role = '{{ item.role | default("user") }}',
+        expiration = '{{ item.expiration | default("2999-12-31") }}';
+  loop: "{{ eveng_users }}"
+  no_log: true
+  tags:
+    - users
+    - user_accounts

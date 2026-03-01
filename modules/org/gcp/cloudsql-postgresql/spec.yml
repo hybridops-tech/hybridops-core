@@ -1,0 +1,67 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/cloudsql-postgresql"
+
+metadata:
+  title: "GCP Cloud SQL PostgreSQL"
+  description: "Provision a managed PostgreSQL instance in GCP Cloud SQL with private networking and normalized endpoint outputs."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    project_state_ref: ""
+    project_id: ""
+
+    network_state_ref: ""
+    private_network: ""
+    network_project_id: ""
+    manage_shared_vpc_attachment: false
+
+    region: "europe-west2"
+    instance_name: ""
+    database_version: "POSTGRES_16"
+    edition: "ENTERPRISE"
+    availability_type: "REGIONAL"
+    tier: "db-custom-2-8192"
+
+    disk_size_gb: 100
+    disk_type: "PD_SSD"
+
+    backup_enabled: true
+    point_in_time_recovery_enabled: true
+    deletion_protection: true
+
+    ipv4_enabled: false
+    create_private_service_connection: true
+    allocated_ip_range_name: ""
+
+    labels: {}
+    database_flags: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/11-cloudsql-postgresql@v1.0"
+
+outputs:
+  publish:
+    - project_id
+    - region
+    - instance_name
+    - connection_name
+    - private_ip_address
+    - public_ip_address
+    - availability_type
+    - database_version
+    - db_provider
+    - db_engine
+    - db_host
+    - db_port
+    - cap_db_managed_postgresql
+
+probes: []
+constraints: []

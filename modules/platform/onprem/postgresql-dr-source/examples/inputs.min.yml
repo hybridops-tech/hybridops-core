@@ -1,0 +1,8 @@
+# Preferred state-driven composition:
+# inventory_state_ref: "platform/onprem/postgresql-ha"
+# db_state_ref: "platform/onprem/postgresql-ha"
+
+apply_mode: "assess"
+dr_mode: "managed-cloudsql"
+
+allowed_consumer_cidrs: []

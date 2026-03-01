@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hybridops-core"
+version = "0.0.0.dev0"
+description = "HybridOps.Core runtime scaffold"
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0,<7",
+  "requests>=2.31,<3",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hyops*"]
+
+[tool.setuptools.package-data]
+"hyops.assets.init.proxmox" = ["*.sh"]
+"hyops.drivers.iac.terragrunt" = ["profiles/*.yml", "templates/*/*.tmpl"]
+"hyops.drivers.config.ansible" = [
+  "profiles/*.yml",
+  "collections/**/*.yml",
+  "collections/**/*.yaml",
+  "collections/**/*.j2",
+  "collections/**/*.json",
+  "collections/**/*.cfg",
+  "collections/**/*.ini",
+  "collections/**/*.md",
+  "collections/**/*.txt",
+]
+"hyops.drivers.images.packer" = ["profiles/*.yml", "README.md"]
+
+[project.scripts]
+hyops = "hyops.cli:main"

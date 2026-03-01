@@ -1,0 +1,333 @@
+# purpose: Configure route-based IPsec (strongSwan) and eBGP (FRR) for WAN simulation/edge nodes.
+# adr: N/A
+# owner: HybridOps.Studio
+# scope: Configures networking, IPsec, and BGP; may change host routes and interfaces.
+
+- name: Preflight | assert required variables
+  ansible.builtin.assert:
+    that:
+      - (wan_public_local_ip | default('') | length) > 0
+      - (wan_public_peer_ip | default('') | length) > 0
+      - ((wan_ipsec.psk | default('') | length) > 0) or ((wan_ipsec_psk_map | default({}) | length) > 0)
+      - (wan_tunnels | default([]) | length) > 0
+      - (wan_bgp.router_id | default('') | length) > 0
+      - ((wan_bgp.neighbors | default([]) | length) > 0) or ((wan_bgp.peer_groups | default([]) | length) > 0)
+      - (wan_bgp.advertise | default([]) | length) > 0
+      - (wan_bgp.import_allow | default([]) | length) > 0
+      - (wan_bgp.export_allow | default([]) | length) > 0
+    fail_msg: "Missing required WAN variables"
+
+- name: Packages | refresh apt cache (Debian family)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Packages | install
+  ansible.builtin.package:
+    name: "{{ wan_packages }}"
+    state: present
+  become: true
+
+- name: Sysctl | base settings
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop: "{{ wan_sysctls }}"
+  become: true
+
+- name: Sysctl | disable ICMP redirects (hub/transit)
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "0"
+    state: present
+    reload: true
+  loop:
+    - net.ipv4.conf.all.send_redirects
+    - net.ipv4.conf.default.send_redirects
+  become: true
+  when: wan_bgp_transit | default(false) | bool
+
+- name: Preflight | derive wan_pub_if from wan_public_local_ip when unset
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ip -o -4 addr show | awk '$4 ~ /^{{ wan_public_local_ip }}\// {print $2; exit}'
+  args:
+    executable: /bin/bash
+  register: _pub_if
+  changed_when: false
+  become: true
+  when: (wan_pub_if | default('') | length) == 0
+
+- name: Preflight | set wan_pub_if (derived)
+  ansible.builtin.set_fact:
+    wan_pub_if: "{{ _pub_if.stdout }}"
+  when:
+    - (wan_pub_if | default('') | length) == 0
+    - (_pub_if.stdout | default('') | length) > 0
+
+- name: Preflight | derive wan_pub_if from default route when still unset
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ip -o -4 route show default | awk '{print $5; exit}'
+  args:
+    executable: /bin/bash
+  register: _default_if
+  changed_when: false
+  become: true
+  when: (wan_pub_if | default('') | length) == 0
+
+- name: Preflight | set wan_pub_if (default-route derived)
+  ansible.builtin.set_fact:
+    wan_pub_if: "{{ _default_if.stdout | trim }}"
+  when:
+    - (wan_pub_if | default('') | length) == 0
+    - (_default_if.stdout | default('') | length) > 0
+
+- name: Preflight | default wan_pub_if to default route interface when still unset
+  ansible.builtin.set_fact:
+    wan_pub_if: "{{ ansible_default_ipv4.interface | default((ansible_interfaces | default([]) | reject('equalto', 'lo') | list | first), true) | default('') }}"
+  when: (wan_pub_if | default('') | length) == 0
+
+- name: Preflight | assert wan_pub_if resolved and exists
+  block:
+    - name: Preflight | assert wan_pub_if resolved
+      ansible.builtin.assert:
+        that:
+          - (wan_pub_if | default('') | length) > 0
+        fail_msg: "wan_pub_if could not be derived. Set wan_pub_if explicitly or ensure wan_public_local_ip is assigned on a host interface."
+
+    - name: Preflight | assert wan_pub_if exists
+      ansible.builtin.command: ip link show "{{ wan_pub_if }}"
+      changed_when: false
+  become: true
+
+- name: Networking | ensure public aliases
+  ansible.builtin.command: ip address replace {{ item }} dev {{ wan_pub_if }}
+  loop: "{{ wan_public_aliases | default([]) }}"
+  become: true
+  changed_when: true
+  when: (wan_public_aliases | default([]) | length) > 0
+
+- name: Preflight | collect global IPv4 CIDRs
+  ansible.builtin.command: ip -o -4 addr show scope global
+  register: _global_addrs
+  changed_when: false
+  become: true
+
+- name: Preflight | parse global IPv4 CIDRs
+  ansible.builtin.set_fact:
+    _global_ipv4_cidrs: >-
+      {{ _global_addrs.stdout_lines
+         | map('regex_search', 'inet\s+([0-9.]+/[0-9]+)', '\1')
+         | select('string') | list }}
+  changed_when: false
+
+- name: Preflight | assert loopbacks do not overlap global CIDRs
+  ansible.builtin.assert:
+    that:
+      - ((wan_loopbacks | default([]))
+         | map('ansible.utils.ipaddr', 'network/prefix')
+         | intersect(_global_ipv4_cidrs | map('ansible.utils.ipaddr', 'network/prefix') | list)
+         | length) == 0
+    fail_msg: "wan_loopbacks overlaps a global interface subnet"
+  when: (wan_loopbacks | default([]) | length) > 0
+
+- name: Networking | ensure loopback addresses
+  ansible.builtin.command: ip address replace {{ item }} dev lo
+  loop: "{{ wan_loopbacks | default([]) }}"
+  become: true
+  changed_when: true
+  when: (wan_loopbacks | default([]) | length) > 0
+
+- name: Networking | ensure VTI interfaces
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ifname="{{ item.ifname }}"
+    want_local="{{ item.local_public_ip | default(wan_public_local_ip) }}"
+    want_remote="{{ item.peer_public_ip | default(wan_public_peer_ip) }}"
+    want_key="{{ item.key }}"
+
+    if ip link show "$ifname" &>/dev/null; then
+      cur="$(ip -d link show "$ifname")"
+      if echo "$cur" | grep -q "vti local ${want_local} remote ${want_remote} key ${want_key}"; then
+        ip link set "$ifname" up
+        exit 0
+      fi
+      ip link set "$ifname" down 2>/dev/null || true
+      ip route flush dev "$ifname" 2>/dev/null || true
+      ip link del "$ifname" 2>/dev/null || true
+      sleep 0.5
+    fi
+
+    ip link add "$ifname" type vti local "$want_local" remote "$want_remote" key "$want_key"
+    ip link set "$ifname" up
+  args:
+    executable: /bin/bash
+  loop: "{{ wan_tunnels }}"
+  become: true
+  changed_when: true
+
+- name: Networking | ensure VTI inside addresses
+  ansible.builtin.command: ip address replace {{ item.inside_local }} dev {{ item.ifname }}
+  loop: "{{ wan_tunnels }}"
+  become: true
+  changed_when: true
+
+- name: Routing | ensure host routes to inside peers via VTI (policy-table aware)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    peer="{{ item.inside_peer }}"
+    dev="{{ item.ifname }}"
+
+    tbl="$(ip route get "$peer" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="table") {print $(i+1); exit}}' || true)"
+
+    if [ -n "$tbl" ]; then
+      ip route replace table "$tbl" "$peer/32" dev "$dev"
+    else
+      ip route replace "$peer/32" dev "$dev"
+    fi
+  args:
+    executable: /bin/bash
+  loop: "{{ wan_tunnels }}"
+  become: true
+  changed_when: true
+
+- name: Sysctl | per-VTI settings
+  ansible.builtin.shell: |
+    sysctl -qw net.ipv4.conf.{{ item.ifname }}.disable_policy=1
+    sysctl -qw net.ipv4.conf.{{ item.ifname }}.rp_filter=0
+  args:
+    executable: /bin/bash
+  loop: "{{ wan_tunnels }}"
+  become: true
+  changed_when: false
+
+- name: strongSwan | charon baseline config
+  ansible.builtin.copy:
+    dest: "{{ wan_charon_conf_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      charon {
+        install_routes = no
+        install_virtual_ip = no
+      }
+  become: true
+  notify: Restart strongswan
+
+- name: strongSwan | swanctl config
+  ansible.builtin.template:
+    src: swanctl.conf.j2
+    dest: "{{ wan_swanctl_conf_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  notify: Restart strongswan
+
+- name: FRR | enable bgpd daemon
+  ansible.builtin.lineinfile:
+    path: "{{ wan_frr_daemons_path }}"
+    regexp: '^bgpd='
+    line: 'bgpd=yes'
+    create: true
+  become: true
+  notify: Restart frr
+
+- name: FRR | config
+  ansible.builtin.template:
+    src: frr.conf.j2
+    dest: "{{ wan_frr_conf_path }}"
+    owner: frr
+    group: frr
+    mode: "0640"
+  become: true
+  register: _frr_config
+
+- name: FRR | restart to apply config
+  ansible.builtin.service:
+    name: frr
+    state: restarted
+  become: true
+  when: _frr_config.changed
+
+- name: Services | detect strongSwan unit
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for unit in strongswan strongswan-starter; do
+      if systemctl list-unit-files "${unit}.service" --no-legend 2>/dev/null | grep -q .; then
+        echo "$unit"
+        exit 0
+      fi
+    done
+    exit 2
+  args:
+    executable: /bin/bash
+  register: _strongswan_detect
+  changed_when: false
+
+- name: Services | set strongSwan unit fact
+  ansible.builtin.set_fact:
+    _strongswan_unit: "{{ _strongswan_detect.stdout }}"
+  changed_when: false
+
+- name: Services | ensure enabled and started
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - "{{ _strongswan_unit }}"
+    - frr
+  become: true
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: strongSwan | load swanctl configuration
+  ansible.builtin.command: swanctl --load-all
+  become: true
+  changed_when: false
+
+- name: strongSwan | wait for config to settle
+  ansible.builtin.pause:
+    seconds: 2
+
+- name: strongSwan | initiate tunnels with retry
+  ansible.builtin.shell: |
+    set -euo pipefail
+    child="wan_{{ item.name }}"
+    for attempt in $(seq 1 {{ wan_initiate_retries }}); do
+      if swanctl --initiate --child "$child" >/dev/null 2>&1; then
+        exit 0
+      fi
+      sleep {{ wan_initiate_delay }}
+    done
+    swanctl --initiate --child "$child" || true
+  args:
+    executable: /bin/bash
+  loop: "{{ wan_tunnels }}"
+  become: true
+  changed_when: false
+  when: wan_ipsec.start_action | default('start') == 'start'
+
+- name: strongSwan | wait for CHILD_SAs installed
+  ansible.builtin.command: swanctl --list-sas
+  register: _sas_wait
+  changed_when: false
+  become: true
+  retries: "{{ wan_wait_ipsec_retries | default(15) }}"
+  delay: "{{ wan_wait_ipsec_delay | default(2) }}"
+  until: (_sas_wait.stdout | regex_findall('INSTALLED,\\s+TUNNEL') | length) >= (wan_tunnels | length)
+  when: wan_wait_for_tunnels | default(true) | bool
+
+- name: Networking | re-apply VTI inside addresses
+  ansible.builtin.command: ip address replace {{ item.inside_local }} dev {{ item.ifname }}
+  loop: "{{ wan_tunnels }}"
+  become: true
+  changed_when: true

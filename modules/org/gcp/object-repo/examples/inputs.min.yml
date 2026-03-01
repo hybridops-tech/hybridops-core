@@ -1,0 +1,17 @@
+#
+# Preferred when HyOps already manages the GCP project in this env:
+# project_state_ref: "org/gcp/project-factory"
+#
+# For an external/pre-existing project, leave project_state_ref empty
+# and set project_id explicitly.
+#
+# Recommended bucket naming:
+#   hyops-<env>-objectrepo-<suffix>
+# Example:
+#   hyops-dev-objectrepo-a1
+# Keep it lowercase and globally unique within GCS.
+project_state_ref: ""
+project_id: ""
+bucket_name: ""
+location: "EU"
+service_account_id: "objectrepo"

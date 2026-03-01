@@ -1,0 +1,5 @@
+# purpose: Role smoke entrypoint for harness (imports scenario playbook)
+# adr: ADR-0606-ansible-collections-release-process
+# maintainer: HybridOps.Studio
+
+- import_playbook: wansim_smoke.yml

@@ -1,0 +1,32 @@
+api_version: hybridops/v1
+kind: DriverProfile
+
+profile_ref: "onprem-proxmox@v1.0"
+driver: "images/packer"
+description: "Packer profile for Proxmox image template builds."
+
+policy:
+  defaults:
+    command_timeout_s: 5400
+    retries: 0
+    redact: true
+  constraints:
+    credential_contracts:
+      proxmox:
+        required_tfvars:
+          - proxmox_url
+          - proxmox_token_id
+          - proxmox_token_secret
+          - proxmox_node
+          - storage_pool
+          - storage_iso
+          - network_bridge
+          - http_bind_address
+          - http_port
+          - ssh_public_key
+
+packer:
+  bin: packer
+  init_args: ["init"]
+  validate_args: ["validate"]
+  build_args: ["build", "-color=false"]

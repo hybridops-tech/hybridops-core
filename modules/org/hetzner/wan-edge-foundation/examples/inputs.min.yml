@@ -1,0 +1,19 @@
+location: "nbg1"
+home_location: "nbg1"
+network_zone: "eu-central"
+
+edge01_name: "edge-a"
+edge02_name: "edge-b"
+
+ssh_key_name: "hyops-wan-edge"
+# Sample value for local preflight. Replace with your real public key before apply.
+ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMm2jv0h4QeU0vDk3v7w4Zs2Wf8y5p8s0G8x7w2Q9n5m hyops-sample@local"
+
+firewall_name: "fw-hyops-edge"
+floating_ip_name: "fip-hyops-edge"
+private_network_name: "net-hyops-edge"
+private_network_cidr: "10.80.0.0/24"
+edge01_private_ip: "10.80.0.11"
+edge02_private_ip: "10.80.0.12"
+
+assign_floating_to: "edge01"

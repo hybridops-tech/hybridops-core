@@ -1,0 +1,31 @@
+---
+- name: platform/onprem/eve-ng (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    eveng_resource_profile: "{{ eveng_resource_profile | default('standard') }}"
+
+    eveng_root_password_env: "{{ eveng_root_password_env | default('EVENG_ROOT_PASSWORD') }}"
+    eveng_admin_password_env: "{{ eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD') }}"
+
+  roles:
+    - role: hybridops.app.eveng
+      vars:
+        eveng_resource_profile: "{{ eveng_resource_profile }}"
+        eveng_root_password: "{{ lookup('env', eveng_root_password_env) }}"
+        eveng_admin_password: "{{ lookup('env', eveng_admin_password_env) }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'eveng_url': ('https://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ '/'),
+            'cap.lab.eveng': 'ready'
+          } | to_json }}

@@ -1,0 +1,38 @@
+collections:
+  # NOTE: This dependency set is installed into an isolated collections path to
+  # avoid Galaxy dependency conflicts with other module sets (e.g. RKE2).
+  - name: vitabaks.autobase
+    version: "2.5.2"
+
+  # Autobase includes Windows task files (even for Linux-only clusters). Ansible
+  # needs these collections present at parse time.
+  - name: ansible.windows
+  - name: community.windows
+
+  # Autobase upstream requirements.yml (kept aligned to avoid runtime module-not-found errors).
+  - name: amazon.aws
+    version: ">=10.1.2"
+  - name: community.aws
+    version: ">=10.0.0"
+  - name: google.cloud
+    version: ">=1.10.2"
+  - name: azure.azcollection
+    version: ">=3.10.1"
+  - name: community.digitalocean
+    version: ">=1.27.0"
+  - name: hetzner.hcloud
+    version: ">=5.4.0"
+  - name: community.postgresql
+    version: ">=4.1.0"
+  - name: community.docker
+    version: ">=4.8.2"
+  - name: community.general
+    version: ">=11.4.1"
+  - name: ansible.posix
+    version: ">=2.1.0"
+  - name: ansible.utils
+    version: ">=6.0.0"
+
+  # Autobase uses community.crypto for TLS cert/key generation.
+  - name: community.crypto
+    version: ">=2.0.0"

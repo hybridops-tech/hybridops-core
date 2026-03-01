@@ -1,0 +1,145 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "onprem/bootstrap-netbox@v1"
+mode: "bootstrap"
+
+metadata:
+  title: "On-Prem Bootstrap: SDN + NetBox"
+  description: "Bootstrap SDN, build a base template image, provision pgcore/netbox VMs, then configure PostgreSQL and NetBox."
+  outcome: "NetBox is online and ready to become authoritative IPAM/inventory."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: network_sdn
+    module_ref: "core/onprem/network-sdn"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      zone_name: "hybzone"
+      zone_bridge: "vmbr0"
+      uplink_interface: "vmbr0"
+      dns_domain: "hybridops.local"
+      vnets:
+        vnetmgmt:
+          vlan_id: 10
+          description: "Management network"
+          subnets:
+            submgmt:
+              cidr: "10.10.0.0/24"
+              gateway: "10.10.0.1"
+              dhcp_range_start: "10.10.0.120"
+              dhcp_range_end: "10.10.0.220"
+              dhcp_dns_server: "8.8.8.8"
+        vnetdata:
+          vlan_id: 12
+          description: "Shared services/data network"
+          subnets:
+            subdata:
+              cidr: "10.12.0.0/24"
+              gateway: "10.12.0.1"
+              dhcp_range_start: "10.12.0.120"
+              dhcp_range_end: "10.12.0.220"
+              dhcp_dns_server: "8.8.8.8"
+
+  - id: template_image_ubuntu
+    module_ref: "core/onprem/template-image"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_key: "ubuntu-24.04"
+
+  - id: platform_vms
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "platform_vms"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - network_sdn
+      - template_image_ubuntu
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      require_ipam: false
+      template_state_ref: "core/onprem/template-image"
+      template_key: "ubuntu-24.04"
+      ssh_username: "opsadmin"
+      vms:
+        pgcore-01:
+          role: "pgcore"
+          interfaces:
+            - bridge: "vnetdata"
+              ipv4:
+                address: "10.12.0.10/24"
+                gateway: "10.12.0.1"
+        netbox-01:
+          role: "netbox"
+          interfaces:
+            - bridge: "vnetmgmt"
+              ipv4:
+                address: "10.10.0.11/24"
+                gateway: "10.10.0.1"
+            - bridge: "vnetdata"
+              ipv4:
+                address: "10.12.0.11/24"
+
+  - id: pgcore
+    module_ref: "platform/onprem/postgresql-core"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    requires:
+      - platform_vms
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      target_state_ref: "platform/onprem/platform-vm#platform_vms"
+      target_vm_key: "pgcore-01"
+      ssh_proxy_jump_auto: true
+      # Fresh template clones can need a couple of minutes before SSH is reachable.
+      connectivity_timeout_s: 5
+      connectivity_wait_s: 180
+      load_vault_env: true
+      listen_addresses:
+        - "127.0.0.1"
+        - "10.12.0.10"
+      allowed_clients:
+        - database: "netbox"
+          user: "netbox"
+          cidr: "10.12.0.11/32"
+
+  - id: netbox
+    module_ref: "platform/onprem/netbox"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    requires:
+      - pgcore
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      target_state_ref: "platform/onprem/platform-vm#platform_vms"
+      target_vm_key: "netbox-01"
+      ssh_proxy_jump_auto: true
+      # NetBox host is also a fresh clone during bootstrap; wait for SSH readiness.
+      connectivity_timeout_s: 5
+      connectivity_wait_s: 180
+      load_vault_env: true
+      db_state_ref: "platform/onprem/postgresql-core"
+      allow_legacy_pgcore: true
+      # Sync-only seed: after NetBox is online, import already-exported shared
+      # foundation datasets (IPAM prefixes + bootstrap VMs) into NetBox.
+      seed_foundation_netbox_sync: true
+      seed_foundation_netbox_wait_s: 120

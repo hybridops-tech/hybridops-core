@@ -1,0 +1,88 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/wan-vpn-to-edge"
+
+metadata:
+  title: "GCP WAN HA VPN to Edge"
+  description: "Provision HA VPN + BGP peers from GCP hub to external WAN edge peers (e.g. Hetzner edge nodes)."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    project_id: ""
+    region: ""
+
+    network_self_link: ""
+    router_name: ""
+
+    ha_vpn_gateway_name: "hybridops-hub-havpn"
+    external_vpn_gateway_name: "hybridops-edge-extgw"
+
+    peer_ip_a: ""
+    peer_ip_b: ""
+    peer_asn: 65010
+
+    tunnel_a_inside_cidr: "169.254.10.0/30"
+    tunnel_b_inside_cidr: "169.254.10.4/30"
+
+    advertised_prefixes:
+      - "10.70.0.0/20"
+    advertised_route_priority: 100
+
+    shared_secret_a: ""
+    shared_secret_b: ""
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/22-wan-vpn-to-edge@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-gcp"
+      strict: false
+      push_to_netbox: false
+
+dependencies:
+  - module_ref: "org/gcp/wan-hub-network"
+    required: false
+    imports:
+      project_id: "project_id"
+      region: "region"
+      network_self_link: "network_self_link"
+
+  - module_ref: "org/gcp/wan-cloud-router"
+    required: false
+    imports:
+      router_name: "router_name"
+
+  - module_ref: "org/hetzner/wan-edge-foundation"
+    required: false
+    imports:
+      edge01_public_ip: "peer_ip_a"
+      edge02_public_ip: "peer_ip_b"
+
+outputs:
+  publish:
+    - ha_vpn_gateway_self_link
+    - ha_vpn_gateway_ip_a
+    - ha_vpn_gateway_ip_b
+    - peer_ip_a
+    - peer_ip_b
+    - router_name
+    - tunnel_a_name
+    - tunnel_b_name
+    - bgp_a_gcp_ip
+    - bgp_a_peer_ip
+    - bgp_b_gcp_ip
+    - bgp_b_peer_ip
+
+probes: []
+constraints: []

@@ -1,0 +1,29 @@
+---
+- name: platform/network/edge-observability (destroy)
+  hosts: edge
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+
+  vars:
+    edge_obs_role_fqcn: "{{ edge_obs_role_fqcn | default('hybridops.common.edge_observability') }}"
+    edge_obs_state: "absent"
+
+  tasks:
+    - name: Run edge observability role (absent)
+      ansible.builtin.include_role:
+        name: "{{ edge_obs_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'edge_obs_state': 'absent',
+            'cap.obs.edge': 'absent'
+          } | to_json }}

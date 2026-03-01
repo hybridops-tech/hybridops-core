@@ -1,0 +1,79 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/argocd-bootstrap"
+
+metadata:
+  title: "Argo CD Bootstrap (On-Prem RKE2)"
+  description: "Bootstraps Argo CD on an existing Kubernetes cluster and applies a root workloads Application."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Local execution inventory (controller-side kubectl operations).
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    # Kubernetes access
+    # Prefer dependency import from platform/onprem/rke2-cluster state.
+    kubeconfig_path: ""
+
+    # Argo CD bootstrap behavior
+    install_argocd: true
+    argocd_namespace: "argocd"
+    argocd_install_manifest_url: "https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+    argocd_wait_ready: true
+    argocd_wait_timeout_s: 300
+
+    # Root Application wiring
+    root_app_name: "hyops-workloads-root"
+    root_app_namespace: "argocd"
+    root_app_project: "default"
+    root_destination_namespace: "argocd"
+    destination_server: "https://kubernetes.default.svc"
+
+    workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
+    workloads_revision: "v0.1.0-stage1"
+    workloads_target_path: "clusters/onprem-stage1"
+
+    sync_automated_prune: true
+    sync_automated_self_heal: true
+    create_namespace: true
+
+    # Destroy behavior
+    remove_argocd_namespace: false
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/55-argocd-bootstrap@v1.0"
+
+dependencies:
+  - module_ref: "platform/onprem/rke2-cluster"
+    required: false
+    imports:
+      kubeconfig_path: "kubeconfig_path"
+
+outputs:
+  publish:
+    - kubeconfig_path
+    - argocd_namespace
+    - root_app_name
+    - root_app_namespace
+    - root_app_project
+    - workloads_repo_url
+    - workloads_revision
+    - workloads_target_path
+    - cap.gitops.argocd
+
+probes: []
+constraints: []

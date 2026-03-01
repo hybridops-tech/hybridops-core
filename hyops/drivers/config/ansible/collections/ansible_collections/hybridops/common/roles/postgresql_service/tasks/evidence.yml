@@ -1,0 +1,73 @@
+---
+# purpose: Capture evidence for PostgreSQL deployment and health
+# adr: ADR-0000 (evidence strategy), ADR-0103
+# maintainer: HybridOps.Studio
+
+- name: Ensure evidence directory exists
+  ansible.builtin.file:
+    path: "{{ hybridops_evidence_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Capture service status
+  ansible.builtin.command: "systemctl --no-pager -l status {{ item }}"
+  loop: >-
+    {{
+      ['postgresql']
+      + (
+          ['postgresql-' ~ hybridops_postgres_version]
+          if (hybridops_postgres_version is string and (hybridops_postgres_version | length) > 0)
+          else []
+        )
+    }}
+  register: _pg_status
+  changed_when: false
+  failed_when: false
+
+- name: Write service status
+  ansible.builtin.copy:
+    dest: "{{ hybridops_evidence_dir }}/systemctl-status.txt"
+    content: |
+      {% for r in _pg_status.results | default([]) %}
+      === {{ r.item }} ===
+      {{ r.stdout | default('') }}
+      {{ r.stderr | default('') }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Check pg_isready availability
+  ansible.builtin.command: "command -v pg_isready"
+  register: _pg_isready_bin
+  changed_when: false
+  failed_when: false
+
+- name: Capture readiness
+  ansible.builtin.command: "pg_isready -p {{ hybridops_postgres_port }}"
+  register: _pg_ready
+  changed_when: false
+  failed_when: false
+  when: (_pg_isready_bin.rc | default(1)) == 0
+
+- name: Write readiness
+  ansible.builtin.copy:
+    dest: "{{ hybridops_evidence_dir }}/pg_isready.txt"
+    content: |-
+      {{ _pg_ready.stdout | default('') }}
+
+      {{ _pg_ready.stderr | default('') }}
+    owner: root
+    group: root
+    mode: "0640"
+  when: (_pg_isready_bin.rc | default(1)) == 0
+
+- name: Write evidence timestamp
+  ansible.builtin.copy:
+    dest: "{{ hybridops_evidence_dir }}/timestamp.txt"
+    content: "{{ ansible_date_time.iso8601 }}\n"
+    owner: root
+    group: root
+    mode: "0640"

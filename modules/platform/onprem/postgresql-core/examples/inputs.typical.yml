@@ -1,0 +1,21 @@
+# Typical pgcore config example (state-driven target).
+# Secrets are supplied via env/vault: NETBOX_DB_PASSWORD.
+#
+# If you provisioned your VM with platform/onprem/platform-vm, prefer target_state_ref
+# to avoid hardcoding IPs in multiple places.
+
+target_state_ref: "platform/onprem/platform-vm"
+target_vm_key: "pgcore-01"
+target_user: "opsadmin"
+
+pg_port: 5432
+
+listen_addresses:
+  - "127.0.0.1"
+  - "10.12.0.10"
+
+# Allow only the NetBox host to connect.
+allowed_clients:
+  - database: "netbox"
+    user: "netbox"
+    cidr: "10.12.0.11/32"

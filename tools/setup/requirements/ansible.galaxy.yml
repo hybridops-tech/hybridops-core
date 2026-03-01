@@ -1,0 +1,14 @@
+collections:
+  - name: ansible.posix
+    version: "1.6.2"
+
+  # EVE-NG module dependency
+  - name: community.mysql
+
+  # PostgreSQL modules dependency (Ansible >= 2.10)
+  - name: community.postgresql
+  - name: community.general
+
+roles:
+  # postgresql_service role dependency
+  - name: geerlingguy.postgresql

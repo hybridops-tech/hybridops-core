@@ -1,0 +1,15 @@
+template_state_ref: "core/onprem/template-image"
+template_key: "ubuntu-24.04"
+require_ipam: true
+# Built-in post-apply SSH readiness gate is enabled by default.
+# post_apply_ssh_readiness:
+#   connectivity_wait_s: 300
+addressing:
+  mode: "ipam"
+  ipam:
+    provider: "netbox"
+vms:
+  app-01:
+    role: "app"
+    interfaces:
+      - bridge: "vnetmgmt"

@@ -1,0 +1,90 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/rke2-cluster"
+
+metadata:
+  title: "RKE2 Cluster (On-Prem Linux)"
+  description: "Installs/configures an RKE2 cluster across one or more existing Linux hosts via Ansible. Does not provision VMs."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Inventory. Prefer state-driven inventory from a VM module (e.g. platform/onprem/platform-vm).
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    # Enforce that state-driven inventory comes from a NetBox-IPAM-managed
+    # platform/onprem/platform-vm state snapshot.
+    inventory_requires_ipam: true
+
+    # SSH defaults applied to every host in the inventory.
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: true
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    # Preflight/apply: ensure SSH is reachable before running Ansible.
+    # Default is fail-fast; set connectivity_wait_s explicitly when delayed boot is expected.
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    # Vault/env wiring
+    required_env:
+      - "RKE2_TOKEN"
+    required_env_destroy: []
+    load_vault_env: false
+    # Preflight: validate remote registry availability for image tags referenced
+    # by the selected RKE2 package before long-running install steps.
+    rke2_image_preflight: true
+    rke2_image_preflight_timeout_s: 60
+
+    # RKE2 role wiring
+    # Backward compatible override key:
+    #   rke2_role_fqcn (legacy) still maps to server role in playbook.
+    rke2_server_role_fqcn: "rancherfederal.rke2_ansible.rke2_server"
+    rke2_agent_role_fqcn: "rancherfederal.rke2_ansible.rke2_agent"
+    rke2_manifest_role_fqcn: "rancherfederal.rke2_ansible.cluster_manifest"
+    # Role-aligned default: do not auto-inject image tarball URLs.
+    # Rancher role expects either:
+    #   1) online install (runtime image pulls), or
+    #   2) explicit airgap inputs (tarball_install files / rke2_images_urls / registry mirror).
+    rke2_auto_image_tarballs: false
+    # Optional explicit override for image tarball URLs (takes precedence over auto).
+    rke2_image_tarball_urls: []
+    # Download image tarballs on controller then copy to nodes.
+    # Default false so node-side download works even when the operator workstation
+    # has restricted egress.
+    rke2_stage_images_from_controller: false
+    # Per-file timeout for controller-side tarball download.
+    rke2_image_download_timeout_s: 120
+    rke2_role_vars: {}
+    rke2_token_env: "RKE2_TOKEN"
+
+    # Optional: write kubeconfig to this path on the control node.
+    # Default: $HYOPS_RUNTIME_ROOT/state/kubeconfigs/rke2.yaml
+    rke2_kubeconfig_out: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/50-rke2-cluster@v1.0"
+
+outputs:
+  publish:
+    - kubeconfig_path
+    - rke2_servers
+    - rke2_agents
+    - cap.k8s.rke2
+
+probes: []
+constraints: []

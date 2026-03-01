@@ -1,0 +1,86 @@
+locals {
+  tfvars_path = get_env("HYOPS_PROXMOX_TFVARS", "")
+  tfvars_raw  = try(file(local.tfvars_path), "")
+
+  tfvars_proxmox_url          = try(regex("proxmox_url\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_proxmox_token_id     = try(regex("proxmox_token_id\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_proxmox_token_secret = try(regex("proxmox_token_secret\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_proxmox_node         = try(regex("proxmox_node\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_proxmox_skip_tls     = lower(try(regex("proxmox_skip_tls\\s*=\\s*(true|false)", local.tfvars_raw)[0], ""))
+  tfvars_proxmox_ssh_username = try(regex("proxmox_ssh_username\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_proxmox_ssh_key      = try(regex("proxmox_ssh_key\\s*=\\s*\"([^\"]*)\"", local.tfvars_raw)[0], "")
+
+  tfvars_storage_pool     = try(regex("storage_pool\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_storage_iso      = try(regex("storage_iso\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_storage_snippets = try(regex("storage_snippets\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_network_bridge   = try(regex("network_bridge\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_ssh_public_key   = try(regex("ssh_public_key\\s*=\\s*\"([^\"]*)\"", local.tfvars_raw)[0], "")
+
+  proxmox_url = coalesce(
+    local.tfvars_proxmox_url != "" ? local.tfvars_proxmox_url : null,
+    get_env("PROXMOX_URL", "") != "" ? get_env("PROXMOX_URL", "") : null,
+    "MISSING_PROXMOX_URL"
+  )
+
+  proxmox_token_id = coalesce(
+    local.tfvars_proxmox_token_id != "" ? local.tfvars_proxmox_token_id : null,
+    get_env("PROXMOX_TOKEN_ID", "") != "" ? get_env("PROXMOX_TOKEN_ID", "") : null,
+    "MISSING_PROXMOX_TOKEN_ID"
+  )
+
+  proxmox_token_secret = coalesce(
+    local.tfvars_proxmox_token_secret != "" ? local.tfvars_proxmox_token_secret : null,
+    get_env("PROXMOX_TOKEN_SECRET", "") != "" ? get_env("PROXMOX_TOKEN_SECRET", "") : null,
+    "MISSING_PROXMOX_TOKEN_SECRET"
+  )
+
+  proxmox_node = coalesce(
+    local.tfvars_proxmox_node != "" ? local.tfvars_proxmox_node : null,
+    get_env("PROXMOX_NODE", "") != "" ? get_env("PROXMOX_NODE", "") : null,
+    "MISSING_PROXMOX_NODE"
+  )
+
+  proxmox_skip_tls_raw = coalesce(
+    local.tfvars_proxmox_skip_tls != "" ? local.tfvars_proxmox_skip_tls : null,
+    get_env("PROXMOX_SKIP_TLS", "") != "" ? lower(get_env("PROXMOX_SKIP_TLS", "")) : null,
+    "true"
+  )
+  proxmox_skip_tls = contains(["1", "true", "yes", "on"], local.proxmox_skip_tls_raw)
+
+  proxmox_ssh_username = coalesce(
+    local.tfvars_proxmox_ssh_username != "" ? local.tfvars_proxmox_ssh_username : null,
+    get_env("PROXMOX_SSH_USERNAME", "") != "" ? get_env("PROXMOX_SSH_USERNAME", "") : null,
+    "root"
+  )
+
+  proxmox_ssh_key = local.tfvars_proxmox_ssh_key != "" ? local.tfvars_proxmox_ssh_key : get_env("PROXMOX_SSH_KEY", "")
+
+  storage_pool = coalesce(
+    local.tfvars_storage_pool != "" ? local.tfvars_storage_pool : null,
+    get_env("PROXMOX_STORAGE_POOL", "") != "" ? get_env("PROXMOX_STORAGE_POOL", "") : null,
+    "local-lvm"
+  )
+
+  storage_iso = coalesce(
+    local.tfvars_storage_iso != "" ? local.tfvars_storage_iso : null,
+    get_env("PROXMOX_STORAGE_ISO", "") != "" ? get_env("PROXMOX_STORAGE_ISO", "") : null,
+    "local"
+  )
+
+  storage_snippets = coalesce(
+    local.tfvars_storage_snippets != "" ? local.tfvars_storage_snippets : null,
+    get_env("PROXMOX_STORAGE_SNIPPETS", "") != "" ? get_env("PROXMOX_STORAGE_SNIPPETS", "") : null,
+    local.storage_iso
+  )
+
+  network_bridge = coalesce(
+    local.tfvars_network_bridge != "" ? local.tfvars_network_bridge : null,
+    get_env("PROXMOX_NETWORK_BRIDGE", "") != "" ? get_env("PROXMOX_NETWORK_BRIDGE", "") : null,
+    "vmbr0"
+  )
+
+  ssh_public_key = local.tfvars_ssh_public_key != "" ? local.tfvars_ssh_public_key : get_env("PROXMOX_SSH_PUBLIC_KEY", "")
+
+  proxmox_host  = try(regex("https?://([^:/]+)", local.proxmox_url)[0], local.proxmox_url)
+  proxmox_token = "${local.proxmox_token_id}=${local.proxmox_token_secret}"
+}

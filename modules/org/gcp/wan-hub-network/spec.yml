@@ -1,0 +1,64 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/wan-hub-network"
+
+metadata:
+  title: "GCP WAN Hub Network"
+  description: "Provision the WAN hub VPC baseline in GCP (network, subnets, firewall baseline)."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    project_id: ""
+    region: ""
+
+    network_name: "hybridops-hub"
+    routing_mode: "GLOBAL"
+
+    subnet_core_name: "hub-core"
+    subnet_core_cidr: "10.70.0.0/20"
+
+    subnet_workloads_name: "hub-workloads"
+    subnet_workloads_cidr: "10.70.16.0/20"
+
+    enable_iap_ssh: true
+    internal_allow_cidrs:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+
+    labels: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/20-wan-hub-network@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-gcp"
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - project_id
+    - region
+    - network_name
+    - network_self_link
+    - subnet_core_name
+    - subnet_core_self_link
+    - subnet_core_cidr
+    - subnet_workloads_name
+    - subnet_workloads_self_link
+    - subnet_workloads_cidr
+
+probes: []
+constraints: []

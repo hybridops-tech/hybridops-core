@@ -1,0 +1,24 @@
+# FULL: 3 Postgres/Patroni nodes + 3 dedicated etcd nodes.
+
+inventory_state_ref: platform/onprem/platform-vm
+inventory_vm_groups:
+  etcd_cluster:
+    - etcd-01
+    - etcd-02
+    - etcd-03
+  master:
+    - pgha-01
+  replica:
+    - pgha-02
+    - pgha-03
+  postgres_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+
+cluster_vip: 10.12.0.15
+allowed_clients: []
+
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_proxy_jump_auto: true
+load_vault_env: true

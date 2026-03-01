@@ -1,0 +1,60 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/wan-cloud-nat"
+
+metadata:
+  title: "GCP WAN Cloud NAT"
+  description: "Provision Cloud NAT for explicit private-subnet egress in the GCP hub VPC."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    project_id: ""
+    region: ""
+
+    router_state_ref: ""
+    router_name: ""
+
+    network_state_ref: ""
+    network_self_link: ""
+    subnetwork_output_keys: []
+    subnetwork_self_links: []
+
+    nat_name: "hybridops-hub-nat"
+    subnetwork_source_ip_ranges_to_nat: "ALL_IP_RANGES"
+    auto_allocate_external_ips: true
+    nat_ip_self_links: []
+    min_ports_per_vm: 64
+    enable_endpoint_independent_mapping: true
+    log_filter: "ERRORS_ONLY"
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/23-wan-cloud-nat@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-gcp"
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - project_id
+    - region
+    - network_self_link
+    - router_name
+    - nat_name
+    - nat_self_link
+    - subnetwork_self_links
+
+probes: []
+constraints: []

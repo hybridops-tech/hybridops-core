@@ -1,0 +1,73 @@
+---
+- name: platform/network/edge-observability (configure)
+  hosts: edge
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+
+  vars:
+    edge_obs_role_fqcn: "{{ edge_obs_role_fqcn | default('hybridops.common.edge_observability') }}"
+    edge_obs_objstore_config_env: "{{ edge_obs_objstore_config_env | default('EDGE_OBS_OBJSTORE_CONFIG') }}"
+    edge_obs_grafana_admin_password_env: "{{ edge_obs_grafana_admin_password_env | default('EDGE_OBS_GRAFANA_ADMIN_PASSWORD') }}"
+
+  pre_tasks:
+    - name: Resolve objstore config (input override or env)
+      ansible.builtin.set_fact:
+        _hyops_edge_obs_objstore_config_effective: >-
+          {{
+            (edge_obs_objstore_config | string)
+            if (edge_obs_objstore_config is string and (edge_obs_objstore_config | length) > 0)
+            else (lookup('env', edge_obs_objstore_config_env) | default('', true))
+          }}
+      no_log: true
+
+    - name: Resolve Grafana admin password (input override or env)
+      ansible.builtin.set_fact:
+        _hyops_edge_obs_grafana_admin_password_effective: >-
+          {{
+            (edge_obs_grafana_admin_password | string)
+            if (edge_obs_grafana_admin_password is string and (edge_obs_grafana_admin_password | length) > 0)
+            else (lookup('env', edge_obs_grafana_admin_password_env) | default('', true))
+          }}
+      no_log: true
+
+    - name: Assert required resolved secrets for present state
+      ansible.builtin.assert:
+        that:
+          - _hyops_edge_obs_objstore_config_effective | length > 0
+          - _hyops_edge_obs_grafana_admin_password_effective | length > 0
+        fail_msg: >-
+          Missing edge observability secrets. Provide inputs.edge_obs_objstore_config /
+          inputs.edge_obs_grafana_admin_password, or set env vars
+          {{ edge_obs_objstore_config_env }} and {{ edge_obs_grafana_admin_password_env }}.
+      when: (edge_obs_state | default('present')) == "present"
+      no_log: true
+
+    - name: Promote resolved secrets into role vars
+      ansible.builtin.set_fact:
+        edge_obs_objstore_config: "{{ _hyops_edge_obs_objstore_config_effective }}"
+        edge_obs_grafana_admin_password: "{{ _hyops_edge_obs_grafana_admin_password_effective }}"
+      no_log: true
+
+  tasks:
+    - name: Run edge observability role
+      ansible.builtin.include_role:
+        name: "{{ edge_obs_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'edge_obs_state': (edge_obs_state | default('present') | string),
+            'edge_obs_root': (edge_obs_root | default('/opt/hybridops/edge-observability') | string),
+            'edge_obs_query_http_port': (edge_obs_query_http_port | default(10902) | int),
+            'edge_obs_grafana_http_port': (edge_obs_grafana_http_port | default(3000) | int),
+            'edge_obs_alertmanager_http_port': (edge_obs_alertmanager_http_port | default(9093) | int),
+            'cap.obs.edge': 'ready'
+          } | to_json }}

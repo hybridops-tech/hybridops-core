@@ -1,0 +1,221 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+blueprint_ref: networking/edge-control-plane@v1
+mode: hybrid
+metadata:
+  title: Edge Control Plane (WAN + Observability + Decisions)
+  description: Provision edge WAN foundations, configure edge routing, bootstrap observability,
+    and deploy decision control loop.
+  outcome: Edge control plane is ready for deterministic DR/burst signaling.
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: none
+steps:
+- id: hetzner_edge_foundation
+  module_ref: org/hetzner/wan-edge-foundation
+  action: deploy
+  phase: bootstrap
+  with_deps: true
+  skip_if_state_ok: true
+  contracts:
+    addressing_mode: static
+  inputs:
+    name_prefix: platform
+    context_id: dev
+    location: nbg1
+    home_location: nbg1
+    network_zone: eu-central
+    edge01_name: edge-a
+    edge02_name: edge-b
+    ssh_key_name: hyops-wan-edge
+    ssh_public_key: ssh-ed25519 CHANGE_ME
+    firewall_name: fw-hyops-edge
+    floating_ip_name: fip-hyops-edge
+    private_network_name: net-hyops-edge
+    private_network_cidr: 10.80.0.0/24
+    edge01_private_ip: 10.80.0.11
+    edge02_private_ip: 10.80.0.12
+    assign_floating_to: edge01
+- id: gcp_wan_hub_network
+  module_ref: org/gcp/wan-hub-network
+  action: deploy
+  phase: bootstrap
+  with_deps: true
+  skip_if_state_ok: true
+  contracts:
+    addressing_mode: static
+  inputs:
+    name_prefix: platform
+    context_id: dev
+    project_id: change-me-gcp-project
+    region: europe-west2
+    network_name: hub
+    subnet_core_name: hub-core
+    subnet_core_cidr: 10.70.0.0/20
+    subnet_workloads_name: hub-workloads
+    subnet_workloads_cidr: 10.70.16.0/20
+- id: gcp_wan_cloud_router
+  module_ref: org/gcp/wan-cloud-router
+  action: deploy
+  phase: bootstrap
+  with_deps: true
+  skip_if_state_ok: true
+  requires:
+  - gcp_wan_hub_network
+  contracts:
+    addressing_mode: static
+  inputs:
+    name_prefix: platform
+    context_id: dev
+    router_name: hub-router-europe-west2
+    bgp_asn: 64514
+- id: gcp_wan_vpn_to_edge
+  module_ref: org/gcp/wan-vpn-to-edge
+  action: deploy
+  phase: bootstrap
+  with_deps: true
+  skip_if_state_ok: true
+  requires:
+  - hetzner_edge_foundation
+  - gcp_wan_hub_network
+  - gcp_wan_cloud_router
+  contracts:
+    addressing_mode: static
+  inputs:
+    name_prefix: platform
+    context_id: dev
+    ha_vpn_gateway_name: hub-havpn-europe-west2
+    external_vpn_gateway_name: edge-extgw
+    peer_asn: 65010
+    tunnel_a_inside_cidr: 169.254.10.0/30
+    tunnel_b_inside_cidr: 169.254.10.4/30
+    advertised_prefixes:
+    - 10.70.0.0/20
+    advertised_route_priority: 100
+    shared_secret_a: CHANGE_ME_PSK_A
+    shared_secret_b: CHANGE_ME_PSK_B
+- id: wan_edge_config
+  module_ref: platform/network/wan-edge
+  action: deploy
+  phase: operations
+  with_deps: true
+  requires:
+  - hetzner_edge_foundation
+  - gcp_wan_vpn_to_edge
+  contracts:
+    addressing_mode: static
+  inputs:
+    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_vm_groups:
+      wan_edge:
+      - edge01
+      - edge02
+    edge01_vm_key: edge01
+    edge02_vm_key: edge02
+    required_env:
+    - WAN_IPSEC_PSK
+    wan_pub_if: eth0
+    wan_bgp_local_as: 65010
+    wan_bgp_peer_as: 64514
+    advertise_prefixes:
+    - 10.80.0.0/24
+    import_allow_prefixes:
+    - 10.70.0.0/20
+    export_allow_prefixes:
+    - 10.80.0.0/24
+- id: edge_observability
+  module_ref: platform/network/edge-observability
+  action: deploy
+  phase: operations
+  with_deps: true
+  requires:
+  - hetzner_edge_foundation
+  contracts:
+    addressing_mode: static
+  inputs:
+    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_vm_groups:
+      edge:
+      - edge01
+    required_env:
+    - EDGE_OBS_GRAFANA_ADMIN_PASSWORD
+    edge_obs_enable_receive: false
+    edge_obs_enable_store_gateway: false
+    edge_obs_enable_ruler: false
+    edge_obs_hashring_endpoints:
+    - edge01.internal:10907
+- id: dns_routing_intent
+  module_ref: platform/network/dns-routing
+  action: deploy
+  phase: operations
+  with_deps: true
+  requires:
+  - hetzner_edge_foundation
+  contracts:
+    addressing_mode: static
+  inputs:
+    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_vm_groups:
+      edge_control:
+      - edge01
+    provider: manual-command
+    zone: example.com
+    record_fqdn: app.example.com
+    record_type: A
+    ttl: 60
+    primary_targets:
+    - 203.0.113.10
+    secondary_targets:
+    - 198.51.100.20
+    desired: primary
+    dry_run: true
+    dns_apply: false
+- id: decision_service
+  module_ref: platform/network/decision-service
+  action: deploy
+  phase: operations
+  with_deps: true
+  requires:
+  - edge_observability
+  - dns_routing_intent
+  contracts:
+    addressing_mode: static
+  inputs:
+    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_vm_groups:
+      edge_control:
+      - edge01
+    thanos_query_url: http://127.0.0.1:10902
+    policy:
+      version: v1
+      mode: PRIMARY
+      signals:
+        primary_up_query: vector(1)
+        error_rate_query: vector(0.0)
+      thresholds:
+        primary_up_min: 1
+        error_rate_ratio: 0.02
+    actions:
+      cutover_module_ref: platform/network/dns-routing
+      failback_module_ref: platform/network/dns-routing
+      cutover_desired: secondary
+      failback_desired: primary
+      module_inputs:
+        provider: manual-command
+        zone: example.com
+        record_fqdn: app.example.com
+        record_type: A
+        ttl: 60
+        primary_targets:
+        - 203.0.113.10
+        secondary_targets:
+        - 198.51.100.20
+        dry_run: true
+        dns_apply: false
+        inventory_state_ref: org/hetzner/wan-edge-foundation
+        inventory_vm_groups:
+          edge_control:
+          - edge01
+    dry_run: true
+    decision_enable_actions: false

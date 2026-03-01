@@ -1,0 +1,42 @@
+inventory_groups:
+  edge_control:
+  - name: edge01
+    host: 198.51.100.10
+connectivity_check: false
+thanos_query_url: http://127.0.0.1:10902
+policy:
+  version: v1
+  mode: PRIMARY
+  signals:
+    primary_up_query: vector(1)
+    error_rate_query: vector(0.0)
+  thresholds:
+    primary_up_min: 1
+    error_rate_ratio: 0.02
+actions:
+  cutover_module_ref: platform/network/dns-routing
+  failback_module_ref: platform/network/dns-routing
+  cutover_desired: secondary
+  failback_desired: primary
+  module_inputs:
+    provider: manual-command
+    zone: example.com
+    record_fqdn: app.example.com
+    record_type: A
+    ttl: 60
+    primary_targets:
+    - 203.0.113.10
+    secondary_targets:
+    - 198.51.100.20
+    dry_run: true
+    dns_apply: false
+    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_vm_groups:
+      edge_control:
+      - edge01
+dry_run: true
+decision_enable_actions: false
+decision_require_signal_readiness: true
+decision_require_fresh_signals: true
+decision_max_signal_age_s: 180
+decision_min_ready_checks: 2

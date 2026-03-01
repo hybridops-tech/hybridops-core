@@ -1,0 +1,38 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/azure/resource-group"
+
+metadata:
+  title: "Azure Resource Group"
+  description: "Creates or converges an Azure resource group via the Terragrunt Azure foundation pack."
+
+requirements:
+  credentials: ["azure"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    resource_group_name: ""
+    location: "uksouth"
+    tags: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "azure@v1.0"
+  pack_ref:
+    id: "azure/core/00-foundation-global/10-resource-group@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - resource_group_id
+    - resource_group_name
+    - location
+probes: []
+constraints: []

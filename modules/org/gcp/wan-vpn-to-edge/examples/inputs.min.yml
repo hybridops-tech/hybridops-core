@@ -1,0 +1,14 @@
+project_id: "change-me-gcp-project"
+region: "europe-west2"
+network_self_link: "projects/change-me/global/networks/hybridops-hub"
+router_name: "hybridops-hub-router-europe-west2"
+
+ha_vpn_gateway_name: "hybridops-hub-havpn-europe-west2"
+external_vpn_gateway_name: "hybridops-edge-extgw"
+
+peer_ip_a: "198.51.100.10"
+peer_ip_b: "198.51.100.11"
+peer_asn: 65010
+
+shared_secret_a: "CHANGE_ME_PSK_A"
+shared_secret_b: "CHANGE_ME_PSK_B"

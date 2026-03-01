@@ -1,0 +1,9 @@
+---
+- name: platform/onprem/postgresql-dr-source (destroy)
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: No destructive action for source assessment module
+      ansible.builtin.debug:
+        msg: "platform/onprem/postgresql-dr-source has no destroy-time infrastructure changes."

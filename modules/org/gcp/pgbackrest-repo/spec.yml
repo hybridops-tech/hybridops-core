@@ -1,0 +1,53 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/pgbackrest-repo"
+
+metadata:
+  title: "GCP pgBackRest Repository (GCS Bucket + Service Account)"
+  description: "Provisions a GCS bucket and dedicated service account for pgBackRest backups. Specialized wrapper over org/gcp/object-repo defaults."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    # Preferred when the GCP project was provisioned by HyOps:
+    # consume outputs.project_id from org/gcp/project-factory state in the same env.
+    project_state_ref: ""
+    project_id: ""
+    bucket_name: ""
+    location: "EU"
+    storage_class: "STANDARD"
+    uniform_bucket_level_access: true
+    versioning_enabled: false
+    lifecycle_delete_age_days: 0
+
+    # Service account that should own object-level access to the repo.
+    # NOTE: This module intentionally does not create keys (avoid secrets in Terraform state).
+    service_account_id: "pgbackrest"
+    service_account_display_name: "pgBackRest Repo"
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/10-pgbackrest-repo@v1.0"
+
+outputs:
+  publish:
+    # Normalized cross-provider contract
+    - repo_backend
+    - repo_provider
+    - repo_bucket_name
+    - repo_region
+    - repo_principal_type
+    - repo_principal_name
+    - repo_credential_create_hint
+    # Legacy aliases retained for compatibility
+    - bucket_name
+    - service_account_email
+    - gcloud_sa_key_hint
+
+probes: []
+constraints: []

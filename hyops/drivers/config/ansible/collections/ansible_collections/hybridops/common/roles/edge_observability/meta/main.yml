@@ -1,0 +1,32 @@
+---
+# purpose: Role metadata and dependencies for edge_observability
+# maintainer: HybridOps.Studio
+
+galaxy_info:
+  author: HybridOps.Studio
+  description: >-
+    Install and manage edge observability services (Thanos, Grafana,
+    Alertmanager) via Docker Compose on edge VPS nodes.
+  company: HybridOps.Studio
+  license: MIT
+  min_ansible_version: "2.15"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+    - name: EL
+      versions:
+        - "9"
+
+  galaxy_tags:
+    - observability
+    - thanos
+    - grafana
+    - alertmanager
+    - edge
+
+# Ensure Docker Engine baseline is present
+
+dependencies:
+  - role: docker_engine

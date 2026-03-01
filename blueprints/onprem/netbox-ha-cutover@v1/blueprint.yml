@@ -1,0 +1,35 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "onprem/netbox-ha-cutover@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem NetBox DB Cutover to PostgreSQL HA"
+  description: "Re-apply NetBox so it consumes the PostgreSQL HA DB contract from state."
+  outcome: "NetBox uses platform/onprem/postgresql-ha outputs (apps.netbox.db_*) instead of bootstrap pgcore."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "netbox"
+  netbox_live_api_check: false
+
+steps:
+  - id: netbox_cutover
+    module_ref: "platform/onprem/netbox"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    contracts:
+      addressing_mode: "static"
+      requires_authority: "netbox"
+      requires_module_state_ok:
+        - "platform/onprem/netbox"
+        - "platform/onprem/postgresql-ha"
+    inputs:
+      target_state_ref: "platform/onprem/platform-vm#platform_vms"
+      target_vm_key: "netbox-01"
+      ssh_proxy_jump_auto: true
+      load_vault_env: true
+      db_state_ref: "platform/onprem/postgresql-ha"

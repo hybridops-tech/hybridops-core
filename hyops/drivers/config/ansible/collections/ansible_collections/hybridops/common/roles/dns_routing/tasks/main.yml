@@ -1,0 +1,75 @@
+---
+# purpose: Publish DNS routing intent and optional manual execution
+# maintainer: HybridOps.Studio
+
+- name: Preflight | assert state value
+  ansible.builtin.assert:
+    that:
+      - dns_state in ["present", "absent"]
+    fail_msg: "dns_state must be 'present' or 'absent'"
+
+- name: Remove DNS routing state directory (absent)
+  ansible.builtin.file:
+    path: "{{ dns_state_dir }}"
+    state: absent
+  when: dns_state == "absent"
+
+- name: Ensure DNS state dir
+  ansible.builtin.file:
+    path: "{{ dns_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: dns_state == "present"
+
+- name: Build effective targets from desired mode
+  ansible.builtin.set_fact:
+    _dns_targets_effective: "{{ ((desired | lower) == 'primary') | ternary((primary_targets | default([])), (secondary_targets | default([]))) }}"
+  when: dns_state == "present"
+  changed_when: false
+
+- name: Write DNS routing intent
+  ansible.builtin.copy:
+    dest: "{{ dns_state_dir }}/{{ dns_intent_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+    content: |
+      {{
+        {
+          'timestamp_utc': (ansible_date_time.iso8601 | string),
+          'provider': (provider | string),
+          'zone': (zone | string),
+          'record_fqdn': (record_fqdn | string),
+          'record_type': (record_type | upper | string),
+          'ttl': (ttl | int),
+          'desired': (desired | lower | string),
+          'primary_targets': (primary_targets | default([])),
+          'secondary_targets': (secondary_targets | default([])),
+          'effective_targets': (_dns_targets_effective | default([])),
+          'dry_run': (dry_run | bool),
+          'dns_apply': (dns_apply | bool),
+          'status': (((dry_run | bool) or not (dns_apply | bool)) | ternary('intent-only', 'apply-requested'))
+        } | to_nice_json
+      }}
+  when: dns_state == "present"
+
+- name: Run provider command (manual-command only)
+  ansible.builtin.shell: "{{ provider_command }}"
+  args:
+    executable: /bin/bash
+  environment:
+    HYOPS_DNS_ZONE: "{{ zone }}"
+    HYOPS_DNS_RECORD_FQDN: "{{ record_fqdn }}"
+    HYOPS_DNS_RECORD_TYPE: "{{ record_type | upper }}"
+    HYOPS_DNS_TTL: "{{ ttl | string }}"
+    HYOPS_DNS_DESIRED: "{{ desired | lower }}"
+    HYOPS_DNS_TARGETS_JSON: "{{ (_dns_targets_effective | default([])) | to_json }}"
+  register: _dns_apply_cmd
+  changed_when: true
+  when:
+    - dns_state == "present"
+    - dns_apply | bool
+    - not (dry_run | bool)
+    - provider == "manual-command"

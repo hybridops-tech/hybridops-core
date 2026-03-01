@@ -1,0 +1,17 @@
+# Minimal: single-node control-plane.
+# Prereq: platform/onprem/platform-vm has provisioned rke2-cp-01 and published its state.
+
+inventory_state_ref: platform/onprem/platform-vm
+inventory_vm_groups:
+  rke2_servers:
+    - rke2-cp-01
+
+# SSH
+ssh_private_key_file: "~/.ssh/id_ed25519"
+# Auto-proxy via proxmox init metadata when direct L3 access is unavailable.
+ssh_proxy_jump_auto: true
+load_vault_env: true
+
+# Pin version for deterministic installs.
+rke2_role_vars:
+  install_rke2_version: "v1.34.3+rke2r1"

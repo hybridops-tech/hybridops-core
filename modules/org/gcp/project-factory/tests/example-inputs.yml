@@ -1,0 +1,15 @@
+name_prefix: platform
+context_id: dev
+project_id: hybridops-pf-dev
+region: europe-west2
+billing_account_id: "01B1FD-FAC417-423408"
+# Optional (enterprise): set exactly one of org_id or folder_id.
+# Consumer/trial accounts without an Organization can omit both (project lands under "No organization").
+org_id: "123456789012"      # OR folder_id: "123456789012"
+activate_apis:
+  - cloudresourcemanager.googleapis.com
+  - iam.googleapis.com
+  - secretmanager.googleapis.com
+labels:
+  owner: hybridops
+  context: dev

@@ -1,0 +1,11 @@
+# Explicit confirmations are required for migration workflows.
+maintenance_confirm: true
+migration_confirm: true
+
+# Optional: if the target DB already contains tables, set to true to replace
+# target contents (drops/recreates the public schema before restore).
+# target_replace_confirm: true
+
+# Optional cross-env references (default is same-env resolution for both):
+# source_db_state_env: "shared"
+# target_db_state_env: "shared"

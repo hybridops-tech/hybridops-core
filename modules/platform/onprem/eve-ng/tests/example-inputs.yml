@@ -1,0 +1,7 @@
+post_config:
+  enabled: true
+  profile: "eve-ng@v1"
+  images:
+    - "cisco-iosv.qcow2"
+  labs:
+    - "wan-core-lab.unl"

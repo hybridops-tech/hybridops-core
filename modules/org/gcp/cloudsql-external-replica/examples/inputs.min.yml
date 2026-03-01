@@ -1,0 +1,21 @@
+apply_mode: "assess"
+replication_mode: "logical"
+
+source_state_ref: "platform/onprem/postgresql-dr-source"
+managed_target_state_ref: "org/gcp/cloudsql-postgresql"
+
+# Optional for assess:
+# gcloud_active_account: "operator@example.com"
+
+# Required later for apply_mode=establish:
+# project_state_ref: "org/gcp/project-factory"
+# network_state_ref: "org/gcp/wan-hub-network"
+# source_connection_profile_name: "hyops-dev-pg-src1"
+# destination_connection_profile_name: "hyops-dev-pg-dr1"
+# migration_job_name: "hyops-dev-pg-job1"
+# source_replication_user: "replicator"
+# source_replication_password_env: "PG_REPLICATION_PASSWORD"
+# connectivity_mode: "reverse-ssh"
+# reverse_ssh_vm: "dms-bastion-01"
+# reverse_ssh_vm_ip: "203.0.113.10"
+# reverse_ssh_vm_port: 2200

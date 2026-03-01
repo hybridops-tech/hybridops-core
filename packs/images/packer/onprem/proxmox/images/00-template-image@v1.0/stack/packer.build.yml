@@ -1,0 +1,34 @@
+api_version: hybridops/v1
+kind: PackerBuildPack
+
+default_template_key: "ubuntu-24.04"
+
+templates:
+  ubuntu-22.04:
+    working_dir: "linux/ubuntu"
+    var_file: "ubuntu-22.04.pkrvars.hcl"
+    build_only: "linux.proxmox-iso.vm"
+  ubuntu-24.04:
+    working_dir: "linux/ubuntu"
+    var_file: "ubuntu-24.04.pkrvars.hcl"
+    build_only: "linux.proxmox-iso.vm"
+  rocky-9:
+    working_dir: "linux/rocky"
+    var_file: "rocky-9.pkrvars.hcl"
+    build_only: "linux.proxmox-iso.vm"
+  rocky-10:
+    working_dir: "linux/rocky"
+    var_file: "rocky-10.pkrvars.hcl"
+    build_only: "linux.proxmox-iso.vm"
+  windows-server-2022:
+    working_dir: "windows/server"
+    var_file: "windows-server-2022.pkrvars.hcl"
+    build_only: "windows.proxmox-iso.vm"
+  windows-server-2025:
+    working_dir: "windows/server"
+    var_file: "windows-server-2025.pkrvars.hcl"
+    build_only: "windows.proxmox-iso.vm"
+  windows-11-enterprise:
+    working_dir: "windows/client"
+    var_file: "windows-11-enterprise.pkrvars.hcl"
+    build_only: "windows.proxmox-iso.vm"

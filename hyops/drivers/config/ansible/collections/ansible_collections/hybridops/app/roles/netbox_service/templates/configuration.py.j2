@@ -1,0 +1,47 @@
+# purpose: NetBox configuration override
+# adr: ADR-0002, ADR-0501, ADR-0502
+# maintainer: HybridOps.Studio
+
+import os
+
+
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
+
+
+_raw_hosts = _env("ALLOWED_HOSTS", "")
+ALLOWED_HOSTS = [h for h in _raw_hosts.split() if h]
+
+# NetBox expects BASE_PATH without a trailing slash (or empty for root).
+_raw_base_path = _env("BASE_PATH", "")
+BASE_PATH = "/" + _raw_base_path.strip("/") if _raw_base_path.strip("/") else ""
+
+DATABASE = {
+    "NAME": _env("DB_NAME", "netbox"),
+    "USER": _env("DB_USER", "netbox"),
+    "PASSWORD": _env("DB_PASSWORD", ""),
+    "HOST": _env("DB_HOST", ""),
+    "PORT": _env("DB_PORT", "5432"),
+    "CONN_MAX_AGE": 300,
+}
+
+REDIS = {
+    "tasks": {
+        "HOST": _env("REDIS_HOST", "redis"),
+        "PORT": int(_env("REDIS_PORT", "6379")),
+        "PASSWORD": _env("REDIS_PASSWORD", ""),
+        "DATABASE": 0,
+        "SSL": False,
+    },
+    "caching": {
+        "HOST": _env("REDIS_HOST", "redis"),
+        "PORT": int(_env("REDIS_PORT", "6379")),
+        "PASSWORD": _env("REDIS_PASSWORD", ""),
+        "DATABASE": 1,
+        "SSL": False,
+    },
+}
+
+SECRET_KEY = _env("SECRET_KEY", "")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY is required (set SECRET_KEY in netbox.env).")

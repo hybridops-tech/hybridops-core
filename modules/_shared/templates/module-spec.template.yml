@@ -1,0 +1,69 @@
+# Purpose: Timeless ModuleSpec template for HybridOps.Core modules.
+# Architecture Decision: ADR-0622
+# Maintainer: HybridOps.Studio
+
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "<namespace>/<provider>/<capability>"
+
+metadata:
+  title: "<human title>"
+  description: "<concise capability description>"
+
+requirements:
+  credentials: []
+# Example:
+# requirements:
+#   credentials: ["azure"]
+
+inputs:
+  defaults: {}
+  # Optional preset catalog for controlled input bundles.
+  # Recommended usage: capability modules own the presets; operators usually set only preset_ref.
+  # defaults:
+  #   preset_ref: "control-node"
+  # presets:
+  #   control-node:
+  #     vm_name: "ctrl-01"
+  #     vm_id: 102
+  #     vm_ipv4_cidr: "10.10.0.11/24"
+  #   netbox:
+  #     vm_name: "netbox"
+  #     vm_id: 302
+  # Optional for modules that support host addressing policy:
+  # defaults:
+  #   addressing:
+  #     mode: "static"   # static | ipam
+  #     ipam:
+  #       provider: "netbox"  # required when mode=ipam
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "local@v1.0"
+  pack_ref:
+    id: "<provider>/<stack>@v1.0"
+  hooks:
+    export_infra:
+      enabled: false
+      # target: "cloud-azure"
+      strict: false
+      push_to_netbox: false
+
+dependencies: []
+# Example:
+# dependencies:
+#   - module_ref: "core/azure/resource-group"
+#     required: true
+#     imports:
+#       resource_group_name: "resource_group_name"
+#       location: "location"
+
+outputs:
+  publish: []
+# Example:
+# outputs:
+#   publish: ["resource_group_name", "location"]
+
+probes: []
+constraints: []

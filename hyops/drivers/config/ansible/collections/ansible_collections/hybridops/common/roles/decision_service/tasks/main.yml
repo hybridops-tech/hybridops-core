@@ -1,0 +1,121 @@
+---
+# purpose: Install and manage edge decision loop service
+# maintainer: HybridOps.Studio
+
+- name: Preflight | assert state value
+  ansible.builtin.assert:
+    that:
+      - decision_state in ["present", "absent"]
+    fail_msg: "decision_state must be 'present' or 'absent'"
+
+- name: Stop decision service (absent)
+  ansible.builtin.service:
+    name: "{{ decision_service_name }}"
+    state: stopped
+    enabled: false
+  when: decision_state == "absent"
+  failed_when: false
+
+- name: Remove decision service files (absent)
+  ansible.builtin.file:
+    path: "{{ decision_root }}"
+    state: absent
+  when: decision_state == "absent"
+
+- name: Remove decision service unit (absent)
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ decision_service_name }}.service"
+    state: absent
+  when: decision_state == "absent"
+
+- name: Systemd | reload (absent)
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: decision_state == "absent"
+
+- name: Ensure decision directories (present)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ decision_run_as_user }}"
+    group: "{{ decision_run_as_group }}"
+    mode: "0750"
+  loop:
+    - "{{ decision_root }}"
+    - "{{ decision_config_dir }}"
+    - "{{ decision_state_dir }}"
+    - "{{ decision_logs_dir }}"
+  when: decision_state == "present"
+
+- name: Write decision policy
+  ansible.builtin.copy:
+    dest: "{{ decision_config_dir }}/policy.json"
+    owner: "{{ decision_run_as_user }}"
+    group: "{{ decision_run_as_group }}"
+    mode: "0640"
+    content: "{{ (decision_policy | default({})) | to_nice_json }}"
+  when: decision_state == "present"
+  notify: Restart decision service
+
+- name: Write decision runtime config
+  ansible.builtin.copy:
+    dest: "{{ decision_config_dir }}/config.json"
+    owner: "{{ decision_run_as_user }}"
+    group: "{{ decision_run_as_group }}"
+    mode: "0640"
+    content: |
+      {{
+        {
+          'thanos_query_url': (decision_thanos_query_url | string),
+          'hyops_bin': (decision_hyops_bin | string),
+          'runtime_env': (decision_runtime_env | string),
+          'action_timeout_s': (decision_action_timeout_s | int),
+          'signal_query_timeout_s': (decision_signal_query_timeout_s | int),
+          'require_signal_readiness': (decision_require_signal_readiness | bool),
+          'require_fresh_signals': (decision_require_fresh_signals | bool),
+          'max_signal_age_s': (decision_max_signal_age_s | int),
+          'min_ready_checks': (decision_min_ready_checks | int),
+          'dry_run': (decision_dry_run | bool),
+          'enable_actions': (decision_enable_actions | bool),
+          'tick_seconds': (decision_tick_seconds | int),
+          'confirm_for_seconds': (decision_confirm_for_seconds | int),
+          'stable_for_seconds': (decision_stable_for_seconds | int),
+          'cooldown_seconds': (decision_cooldown_seconds | int),
+          'log_level': (decision_log_level | string),
+          'actions': (decision_actions | default({}))
+        } | to_nice_json
+      }}
+  when: decision_state == "present"
+  notify: Restart decision service
+
+- name: Render decision service script
+  ansible.builtin.template:
+    src: decision-service.py.j2
+    dest: "{{ decision_bin_path }}"
+    owner: "{{ decision_run_as_user }}"
+    group: "{{ decision_run_as_group }}"
+    mode: "0750"
+  when: decision_state == "present"
+  notify: Restart decision service
+
+- name: Render systemd unit
+  ansible.builtin.template:
+    src: decision-service.service.j2
+    dest: "/etc/systemd/system/{{ decision_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  when: decision_state == "present"
+  notify: Restart decision service
+
+- name: Systemd | reload (present)
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: decision_state == "present"
+
+- name: Ensure decision service started
+  ansible.builtin.service:
+    name: "{{ decision_service_name }}"
+    state: started
+    enabled: true
+  when: decision_state == "present"

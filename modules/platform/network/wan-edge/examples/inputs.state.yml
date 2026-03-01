@@ -1,0 +1,26 @@
+# State-driven example (recommended for blueprint/automation workflows)
+# Assumes upstream module states exist in this env:
+#   - org/hetzner/wan-edge-foundation
+#   - org/gcp/wan-vpn-to-edge
+
+inventory_state_ref: org/hetzner/wan-edge-foundation
+inventory_vm_groups:
+  wan_edge:
+    - edge01
+    - edge02
+
+required_env:
+  - WAN_IPSEC_PSK
+
+edge01_vm_key: edge01
+edge02_vm_key: edge02
+
+wan_bgp_local_as: 65010
+wan_bgp_peer_as: 64514
+
+advertise_prefixes:
+  - 10.80.0.0/24
+import_allow_prefixes:
+  - 10.70.0.0/20
+export_allow_prefixes:
+  - 10.80.0.0/24

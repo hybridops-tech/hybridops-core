@@ -1,0 +1,62 @@
+# purpose: NetBox docker-compose stack (web + worker + housekeeping + redis)
+# adr: ADR-0002, ADR-0501, ADR-0502
+# maintainer: HybridOps.Studio
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - "{{ netbox_data_root }}/redis:/data"
+    restart: unless-stopped
+
+  netbox:
+    image: "netboxcommunity/netbox:{{ netbox_version }}"
+    env_file:
+      - ./netbox.env
+    environment:
+      NETBOX_CONFIGURATION: "netbox.configuration"
+    volumes:
+      - "{{ netbox_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
+      - "{{ netbox_data_root }}/media:/opt/netbox/netbox/media"
+      - "{{ netbox_data_root }}/reports:/opt/netbox/netbox/reports"
+      - "{{ netbox_data_root }}/scripts:/opt/netbox/netbox/scripts"
+    ports:
+      - "{{ netbox_http_host_port }}:8080"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  netbox-worker:
+    image: "netboxcommunity/netbox:{{ netbox_version }}"
+    env_file:
+      - ./netbox.env
+    environment:
+      NETBOX_CONFIGURATION: "netbox.configuration"
+    volumes:
+      - "{{ netbox_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
+      - "{{ netbox_data_root }}/media:/opt/netbox/netbox/media"
+      - "{{ netbox_data_root }}/reports:/opt/netbox/netbox/reports"
+      - "{{ netbox_data_root }}/scripts:/opt/netbox/netbox/scripts"
+    depends_on:
+      - netbox
+      - redis
+    command: ["python", "/opt/netbox/netbox/manage.py", "rqworker"]
+    restart: unless-stopped
+
+  netbox-housekeeping:
+    image: "netboxcommunity/netbox:{{ netbox_version }}"
+    env_file:
+      - ./netbox.env
+    environment:
+      NETBOX_CONFIGURATION: "netbox.configuration"
+    volumes:
+      - "{{ netbox_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
+      - "{{ netbox_data_root }}/media:/opt/netbox/netbox/media"
+      - "{{ netbox_data_root }}/reports:/opt/netbox/netbox/reports"
+      - "{{ netbox_data_root }}/scripts:/opt/netbox/netbox/scripts"
+    depends_on:
+      - netbox
+      - redis
+    command: ["python", "/opt/netbox/netbox/manage.py", "housekeeping"]
+    restart: unless-stopped

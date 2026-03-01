@@ -1,0 +1,3 @@
+aws_region: "us-east-1"
+bucket_name: "change-me-object-repo-bucket"
+iam_user_name: "objectrepo"

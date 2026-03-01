@@ -1,0 +1,6 @@
+template_key: "ubuntu-24.04"
+# Set to true to purge and rebuild if the template already exists.
+# rebuild_if_exists: true
+# Post-build smoke validation runs automatically by default (warn-only).
+# post_build_smoke:
+#   required: true

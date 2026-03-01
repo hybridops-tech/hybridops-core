@@ -1,0 +1,19 @@
+# Purpose: Package manifest for HybridOps.Core releases.
+# Architecture Decision: ADR-0622
+# Maintainer: HybridOps.Studio
+
+include:
+  - Makefile
+  - install.sh
+  - LICENSE.txt
+  - README.md
+  - GUIDE.md
+  - bin/
+  - ci/
+  - drivers/
+  - modules/
+  - runbooks/
+  - toolchain/
+exclude:
+  - output/
+  - .git/

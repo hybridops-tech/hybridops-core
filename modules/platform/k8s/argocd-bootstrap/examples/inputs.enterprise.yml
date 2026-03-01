@@ -1,0 +1,23 @@
+kubeconfig_path: "~/.hybridops/envs/dev/state/kubeconfigs/rke2.yaml"
+
+install_argocd: true
+argocd_namespace: "argocd"
+argocd_install_manifest_url: "https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+argocd_wait_ready: true
+argocd_wait_timeout_s: 600
+
+root_app_name: "platform-workloads-root"
+root_app_namespace: "argocd"
+root_app_project: "default"
+root_destination_namespace: "argocd"
+destination_server: "https://kubernetes.default.svc"
+
+workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
+workloads_revision: "v0.1.0-stage1"
+workloads_target_path: "clusters/onprem-stage1"
+
+sync_automated_prune: true
+sync_automated_self_heal: true
+create_namespace: true
+
+remove_argocd_namespace: false

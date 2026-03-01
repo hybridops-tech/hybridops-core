@@ -1,0 +1,19 @@
+locals {
+  tfvars_path = get_env("HYOPS_HETZNER_TFVARS", "")
+  tfvars_raw  = try(file(local.tfvars_path), "")
+
+  tfvars_hcloud_token = try(regex("hcloud_token\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_hcloud_api   = try(regex("hcloud_api\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+
+  hcloud_token = coalesce(
+    local.tfvars_hcloud_token != "" ? local.tfvars_hcloud_token : null,
+    get_env("HCLOUD_TOKEN", "") != "" ? get_env("HCLOUD_TOKEN", "") : null,
+    "MISSING_HCLOUD_TOKEN"
+  )
+
+  hcloud_api = coalesce(
+    local.tfvars_hcloud_api != "" ? local.tfvars_hcloud_api : null,
+    get_env("HCLOUD_API", "") != "" ? get_env("HCLOUD_API", "") : null,
+    "https://api.hetzner.cloud"
+  )
+}

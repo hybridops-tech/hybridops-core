@@ -1,0 +1,218 @@
+---
+- name: org/gcp/cloudsql-external-replica (assess managed DR target)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    apply_mode: "{{ apply_mode | default('assess') }}"
+    replication_mode: "{{ replication_mode | default('logical') }}"
+    source_contract_version: "{{ source_contract_version | default(1) | int }}"
+    source_contract: "{{ source_contract | default({}) }}"
+    source_host: "{{ source_host | default('') }}"
+    source_port: "{{ source_port | default(5432) | int }}"
+    source_leader_name: "{{ source_leader_name | default('') }}"
+    source_replication_candidate: "{{ source_replication_candidate | default(false) | bool }}"
+    target_project_id: "{{ target_project_id | default('') }}"
+    target_region: "{{ target_region | default('') }}"
+    target_instance_name: "{{ target_instance_name | default('') }}"
+    target_db_host: "{{ target_db_host | default('') }}"
+    target_connection_name: "{{ target_connection_name | default('') }}"
+    gcloud_bin: "{{ gcloud_bin | default('gcloud') }}"
+    gcloud_copy_default_config: "{{ gcloud_copy_default_config | default(true) | bool }}"
+    gcloud_runtime_config_dir: "{{ gcloud_runtime_config_dir | default('') }}"
+    gcloud_active_account: "{{ gcloud_active_account | default('') }}"
+    _hyops_gcloud_config_dir: >-
+      {{
+        (gcloud_runtime_config_dir | string)
+        if (gcloud_runtime_config_dir is string and (gcloud_runtime_config_dir | length) > 0)
+        else (hyops_runtime_root ~ '/cache/gcloud')
+      }}
+    _hyops_default_gcloud_config_dir: "{{ lookup('env', 'HOME') ~ '/.config/gcloud' }}"
+
+  pre_tasks:
+    - name: Require supported apply mode
+      ansible.builtin.assert:
+        that:
+          - (apply_mode | string | lower) in ['assess', 'status']
+        fail_msg: "inputs.apply_mode must be one of: assess, status"
+
+    - name: Require logical replication mode
+      ansible.builtin.assert:
+        that:
+          - (replication_mode | string | lower) == 'logical'
+        fail_msg: "inputs.replication_mode must be logical (v1)"
+
+    - name: Require supported source contract version
+      ansible.builtin.assert:
+        that:
+          - (source_contract_version | int) == 1
+        fail_msg: "inputs.source_contract_version must be 1"
+
+    - name: Require source contract or explicit source host
+      ansible.builtin.assert:
+        that:
+          - (source_host | string | length) > 0 or (source_contract | length) > 0
+        fail_msg: "source contract inputs were not resolved; re-apply platform/onprem/postgresql-dr-source"
+
+    - name: Require target Cloud SQL coordinates
+      ansible.builtin.assert:
+        that:
+          - (target_project_id | string | length) > 0
+          - (target_region | string | length) > 0
+          - (target_instance_name | string | length) > 0
+        fail_msg: "target Cloud SQL state was not resolved; re-apply org/gcp/cloudsql-postgresql"
+
+    - name: Ensure runtime gcloud config directory exists
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check default gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_default_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_default_gcloud_cfg
+
+    - name: Check runtime gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_runtime_gcloud_cfg
+
+    - name: Copy default gcloud config into runtime cache (best effort)
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ _hyops_default_gcloud_config_dir }}/."
+          - "{{ _hyops_gcloud_config_dir }}/"
+      changed_when: true
+      when:
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+        - not _hyops_runtime_gcloud_cfg.stat.exists
+
+    - name: Require gcloud binary
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - version
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Resolve active gcloud account
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - auth
+          - list
+          - --filter=status:ACTIVE
+          - --format=value(account)
+      register: _hyops_gcloud_active_account
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Fail when no active gcloud account is available
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_active_account.stdout | trim | length) > 0
+        fail_msg: >-
+          No active gcloud account was found. Authenticate gcloud first, or rerun hyops init gcp
+          and ensure the controller has usable GCP CLI credentials.
+
+    - name: Fail on unexpected gcloud account
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_active_account.stdout | trim) == (gcloud_active_account | trim)
+        fail_msg: >-
+          The active gcloud account does not match inputs.gcloud_active_account.
+          Observed={{ _hyops_gcloud_active_account.stdout | trim }} expected={{ gcloud_active_account | trim }}
+      when: (gcloud_active_account | string | length) > 0
+
+  tasks:
+    - name: Describe target Cloud SQL instance
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - sql
+          - instances
+          - describe
+          - "{{ target_instance_name }}"
+          - --project={{ target_project_id }}
+          - --format=json
+      register: _hyops_cloudsql_describe
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Normalize target Cloud SQL description
+      ansible.builtin.set_fact:
+        _hyops_cloudsql_target: "{{ _hyops_cloudsql_describe.stdout | from_json }}"
+      changed_when: false
+
+    - name: Resolve target private ip
+      ansible.builtin.set_fact:
+        _hyops_cloudsql_private_ip: >-
+          {{
+            (
+              (_hyops_cloudsql_target.ipAddresses | default([]))
+              | selectattr('type', 'equalto', 'PRIVATE')
+              | map(attribute='ipAddress')
+              | list
+              | first
+            )
+            | default(target_db_host | string, true)
+          }}
+      changed_when: false
+
+    - name: Assert target Cloud SQL instance is runnable
+      ansible.builtin.assert:
+        that:
+          - (_hyops_cloudsql_target.region | default('') | string) == (target_region | string)
+          - (_hyops_cloudsql_target.state | default('') | string) == 'RUNNABLE'
+        fail_msg: >-
+          Target Cloud SQL instance is not ready. Observed region={{ _hyops_cloudsql_target.region | default('') }},
+          state={{ _hyops_cloudsql_target.state | default('') }}.
+
+    - name: Assert target private IP matches published target state
+      ansible.builtin.assert:
+        that:
+          - (_hyops_cloudsql_private_ip | string | length) > 0
+          - (target_db_host | string | length) == 0 or (_hyops_cloudsql_private_ip | string) == (target_db_host | string)
+        fail_msg: >-
+          Target Cloud SQL private IP does not match published state.
+          observed={{ _hyops_cloudsql_private_ip | default('') }} expected={{ target_db_host | default('') }}
+
+- name: org/gcp/cloudsql-external-replica (publish outputs)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set ready = (source_replication_candidate | bool) and ((_hyops_cloudsql_target.state | default('') | string) == 'RUNNABLE') %}
+          {{
+            {
+              'target_project_id': (target_project_id | string),
+              'target_region': (target_region | string),
+              'target_instance_name': (target_instance_name | string),
+              'target_db_host': (_hyops_cloudsql_private_ip | string),
+              'target_connection_name': (_hyops_cloudsql_target.connectionName | default(target_connection_name) | string),
+              'source_host': (source_host | string),
+              'source_port': (source_port | int),
+              'source_leader_name': (source_leader_name | string),
+              'source_replication_candidate': (source_replication_candidate | bool),
+              'managed_replication_mode': (replication_mode | string),
+              'managed_replication_prereqs_ready': ready,
+              'cap.db.managed_external_replica': 'assessed'
+            } | to_json
+          }}

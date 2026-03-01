@@ -1,0 +1,21 @@
+# State-driven inventory from Hetzner WAN edge foundation module.
+
+inventory_state_ref: org/hetzner/wan-edge-foundation
+inventory_vm_groups:
+  edge_control:
+    - edge01
+
+provider: manual-command
+zone: example.com
+record_fqdn: app.example.com
+record_type: A
+ttl: 60
+
+primary_targets:
+  - 203.0.113.10
+secondary_targets:
+  - 198.51.100.20
+
+desired: secondary
+dry_run: true
+dns_apply: false

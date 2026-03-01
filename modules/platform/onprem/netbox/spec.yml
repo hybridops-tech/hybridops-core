@@ -1,0 +1,94 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/netbox"
+
+metadata:
+  title: "NetBox Service (On-Prem Linux)"
+  description: "Configures NetBox on an existing Linux host via Ansible. Does not provision a VM."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # SSH target (existing VM or host)
+    target_host: ""
+    # Optional: resolve target_host from a VM module state (e.g. platform/onprem/platform-vm).
+    target_state_ref: ""
+    target_vm_key: ""
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    become: true
+    become_user: "root"
+
+    # Vault/env wiring
+    required_env:
+      - "NETBOX_DB_PASSWORD"
+      - "NETBOX_SECRET_KEY"
+      - "NETBOX_SUPERUSER_PASSWORD"
+      - "NETBOX_API_TOKEN"
+    load_vault_env: false
+
+    # NetBox settings
+    netbox_version: "v4.1.7"
+    netbox_http_host_port: 8000
+    netbox_hostname: "netbox"
+    netbox_domain: "hybzone.local"
+    install_docker_engine: true
+
+    # PostgreSQL (required)
+    # Prefer db_state_ref for stable, state-driven DB contract consumption in blueprints.
+    db_state_ref: ""
+    # Optional: resolve db_state_ref from another HyOps env state root (for example
+    # shared NetBox consuming dev PostgreSQL-HA state during cutover).
+    db_state_env: ""
+    # Temporary rollback switch: only valid with db_state_ref=platform/onprem/postgresql-core.
+    allow_legacy_pgcore: false
+    db_app_key: "netbox"
+    db_host: ""
+    db_port: 5432
+    db_name: "netbox"
+    db_user: "netbox"
+    db_password_env: "NETBOX_DB_PASSWORD"
+
+    # Secrets (required for real deploy)
+    secret_key_env: "NETBOX_SECRET_KEY"
+
+    # Superuser bootstrap (required for HyOps NetBox integration)
+    superuser_password_env: "NETBOX_SUPERUSER_PASSWORD"
+
+    # API token bootstrap (required for HyOps NetBox integration)
+    api_token_env: "NETBOX_API_TOKEN"
+
+    # Optional bootstrap seed pass (sync-only): import previously exported
+    # SDN IPAM prefixes + bootstrap VM inventory into NetBox after NetBox is up.
+    seed_foundation_netbox_sync: false
+    seed_foundation_netbox_wait_s: 60
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/20-netbox@v1.0"
+
+dependencies: []
+
+outputs:
+  publish:
+    - netbox_url
+    - netbox_api_url
+    - netbox_http_host_port
+    - db_host
+    - db_port
+    - db_name
+    - db_user
+    - db_password_env
+    - secret_key_env
+    - superuser_password_env
+    - api_token_env
+    - cap.ipam.netbox
+
+probes: []
+constraints: []

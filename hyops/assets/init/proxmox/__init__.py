@@ -1,0 +1,1 @@
+"""Proxmox init assets."""

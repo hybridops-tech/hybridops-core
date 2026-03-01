@@ -1,0 +1,46 @@
+---
+# purpose: Wait for NetBox API readiness (migrations complete)
+# adr: ADR-0002
+# maintainer: HybridOps.Studio
+
+- name: Wait for NetBox API readiness
+  block:
+    - name: Wait for NetBox API readiness
+      ansible.builtin.uri:
+        url: "{{ netbox_readiness_url }}"
+        method: GET
+        status_code: [200, 302, 401, 403]
+        return_content: false
+      register: _netbox_ready
+      retries: "{{ netbox_readiness_retries }}"
+      delay: "{{ netbox_readiness_delay }}"
+      until: _netbox_ready.status in [200, 302, 401, 403]
+      changed_when: false
+  rescue:
+    - name: Collect docker compose ps (best effort)
+      ansible.builtin.command: "docker compose -p {{ netbox_compose_project }} ps --all"
+      args:
+        chdir: "{{ netbox_install_root }}/compose"
+      register: _netbox_compose_ps
+      changed_when: false
+      failed_when: false
+
+    - name: Collect docker compose logs (best effort)
+      ansible.builtin.command: "docker compose -p {{ netbox_compose_project }} logs --no-color --tail 200"
+      args:
+        chdir: "{{ netbox_install_root }}/compose"
+      register: _netbox_compose_logs
+      changed_when: false
+      failed_when: false
+
+    - name: Show docker compose ps
+      ansible.builtin.debug:
+        var: _netbox_compose_ps.stdout_lines
+
+    - name: Show docker compose logs
+      ansible.builtin.debug:
+        var: _netbox_compose_logs.stdout_lines
+
+    - name: Fail readiness
+      ansible.builtin.fail:
+        msg: "NetBox readiness failed; see docker compose ps/logs in task output."

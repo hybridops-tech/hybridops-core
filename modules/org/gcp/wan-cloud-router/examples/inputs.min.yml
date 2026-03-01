@@ -1,0 +1,5 @@
+project_id: "change-me-gcp-project"
+region: "europe-west2"
+network_self_link: "projects/change-me/global/networks/hybridops-hub"
+router_name: "hybridops-hub-router-europe-west2"
+bgp_asn: 64514

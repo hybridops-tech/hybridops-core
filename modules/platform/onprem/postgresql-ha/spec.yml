@@ -1,0 +1,147 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/postgresql-ha"
+
+metadata:
+  title: "PostgreSQL HA (Patroni + etcd)"
+  description: "Deploys a highly available PostgreSQL cluster using Patroni and etcd via Ansible (Autobase). Does not provision VMs."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Apply behavior:
+    # - bootstrap: initial cluster deployment (deploy_pgcluster)
+    # - maintenance: day-2 reconcile/config (config_pgcluster)
+    # - restore: bootstrap from pgBackRest backups (DR/failback; guarded by restore_confirm)
+    # - auto: uses maintenance when previous module state is ok, otherwise bootstrap
+    apply_mode: "auto"
+
+    # Inventory. Prefer state-driven inventory from a VM module (e.g. platform/onprem/platform-vm).
+    # You must define Autobase groups (example): master, replica, postgres_cluster, etcd_cluster.
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    # Enforce that state-driven inventory comes from a NetBox-IPAM-managed
+    # platform/onprem/platform-vm state snapshot.
+    inventory_requires_ipam: true
+
+    # SSH defaults applied to every host in the inventory.
+    # Execution plane declares where HyOps is expected to run from:
+    # - workstation-direct: operator shell/laptop with direct network access
+    # - runner-local: shared runner in or near the target environment
+    execution_plane: "workstation-direct"
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    # Auto-proxy via proxmox init metadata when direct L3 access is unavailable.
+    ssh_proxy_jump_auto: true
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    # Preflight/apply: ensure SSH is reachable before running Ansible.
+    # Default is fail-fast; set connectivity_wait_s explicitly when delayed boot is expected.
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    # Vault/env wiring
+    required_env:
+      - "PATRONI_SUPERUSER_PASSWORD"
+      - "PATRONI_REPLICATION_PASSWORD"
+      - "NETBOX_DB_PASSWORD"
+    required_env_destroy: []
+    load_vault_env: false
+
+    # Autobase essentials
+    patroni_cluster_name: "postgres-ha"
+    postgresql_version: 16
+    postgresql_port: 5432
+    dcs_type: "etcd"
+    dcs_exists: false
+
+    # Restore / DR bootstrap (only used when inputs.apply_mode=restore).
+    # This uses Patroni custom bootstrap method "pgbackrest" and requires a
+    # pgBackRest repository (S3-compatible or GCS) that contains the cluster backups.
+    restore_confirm: false
+    restore_target_time: "" # Optional PITR: "YYYY-MM-DD HH:MM:SS+00"
+    restore_delta: false # WARNING: if true, enables pgbackrest --delta restore (can overwrite existing data).
+
+    # pgBackRest repository (BYO bucket; this module does not create cloud resources).
+    backend: "gcs" # s3|gcs
+    repo_path: "/pgbackrest"
+
+    # S3 repository settings (AWS S3 or S3-compatible endpoints, e.g. MinIO)
+    s3_bucket: ""
+    s3_endpoint: ""
+    s3_region: ""
+    s3_uri_style: ""
+    s3_access_key_env: "PG_BACKUP_S3_ACCESS_KEY_ID"
+    s3_secret_key_env: "PG_BACKUP_S3_SECRET_ACCESS_KEY"
+
+    # GCS repository settings (repo1-type=gcs)
+    gcs_bucket: ""
+    gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+    gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+
+    # Autobase supports cloud provisioning/backups when cloud_provider is set.
+    # This module is intentionally on-prem only; keep these empty.
+    # (Also prevents Autobase from accidentally running cloud_resources when its
+    # defaults include templated values.)
+    cloud_provider: ""
+    provision: ""
+
+    # Stable client endpoint (recommended)
+    cluster_vip: ""
+    with_haproxy_load_balancing: false
+    pgbouncer_install: false
+
+    # Security posture: explicitly allowlist clients (pg_hba).
+    # Schema: [{database: "netbox", user: "netbox", cidr: "10.12.0.11/32"}, ...]
+    allowed_clients: []
+
+    # Secrets env var keys
+    patroni_superuser_password_env: "PATRONI_SUPERUSER_PASSWORD"
+    patroni_replication_password_env: "PATRONI_REPLICATION_PASSWORD"
+
+    # Optional multi-app contract (authoritative when set and non-empty).
+    # Example:
+    # apps:
+    #   netbox:
+    #     db_name: netbox
+    #     db_user: netbox
+    #     db_password_env: NETBOX_DB_PASSWORD
+    apps: {}
+
+    # Legacy single-app contract
+    db_name: "netbox"
+    db_user: "netbox"
+    db_password_env: "NETBOX_DB_PASSWORD"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/35-postgresql-ha@v1.0"
+
+outputs:
+  publish:
+    - pg_host
+    - pg_port
+    - cluster_vip
+    - inventory_groups
+    - apps
+    - db_host
+    - db_port
+    - db_name
+    - db_user
+    - db_password_env
+    - cap.db.postgresql_ha
+
+probes: []
+constraints: []

@@ -1,0 +1,22 @@
+api_version: hybridops/v1
+kind: DriverProfile
+
+profile_ref: "onprem-linux@v1.0"
+driver: "config/ansible"
+description: "Ansible profile for on-prem Linux service configuration modules."
+
+policy:
+  defaults:
+    command_timeout_s: 3600
+    retries: 0
+    redact: true
+
+ansible:
+  bin: ansible-playbook
+  apply_args: []
+  plan_args: ["--check"]
+  validate_args: ["--syntax-check"]
+  destroy_args: []
+  inventory_file: "inventory.ini"
+  playbook_file: "playbook.yml"
+  destroy_playbook_file: "destroy.playbook.yml"

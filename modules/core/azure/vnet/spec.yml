@@ -1,0 +1,49 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/azure/vnet"
+
+metadata:
+  title: "Azure Virtual Network"
+  description: "Creates or converges an Azure virtual network via the Terragrunt Azure foundation pack."
+
+requirements:
+  credentials: ["azure"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    vnet_name: ""
+    resource_group_name: ""
+    location: "uksouth"
+    address_space: ["10.60.0.0/16"]
+    dns_servers: []
+    tags: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "azure@v1.0"
+  pack_ref:
+    id: "azure/core/00-foundation-global/20-vnet@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: false
+
+dependencies:
+  - module_ref: "core/azure/resource-group"
+    required: true
+    imports:
+      resource_group_name: "resource_group_name"
+      location: "location"
+
+outputs:
+  publish:
+    - vnet_id
+    - vnet_name
+    - resource_group_name
+    - location
+probes: []
+constraints: []

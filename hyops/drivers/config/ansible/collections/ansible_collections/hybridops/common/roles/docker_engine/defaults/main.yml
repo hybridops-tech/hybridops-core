@@ -1,0 +1,10 @@
+# purpose: Default variables for Docker Engine baseline
+# adr: ADR-0602-docker-engine-baseline
+# maintainer: HybridOps.Studio
+
+docker_engine_state: present        # present|absent
+docker_engine_enable: true          # start/enable service when present
+docker_engine_users: []             # extra users to add to 'docker' group
+
+# For EL, this role assumes the Docker CE repository is already configured.
+# For Ubuntu/Debian, it uses distro packages docker.io + docker-compose-plugin.

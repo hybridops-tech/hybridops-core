@@ -1,0 +1,30 @@
+# Preferred when the env already has GCP project/network state:
+# project_state_ref: "org/gcp/project-factory"
+# network_state_ref: "org/gcp/wan-hub-network"
+
+# Fallback for external/pre-existing project/network:
+project_id: ""
+private_network: ""
+network_project_id: ""
+manage_shared_vpc_attachment: false
+
+region: "europe-west2"
+instance_name: ""
+database_version: "POSTGRES_16"
+edition: "ENTERPRISE"
+availability_type: "REGIONAL"
+tier: "db-custom-2-8192"
+
+disk_size_gb: 100
+disk_type: "PD_SSD"
+
+backup_enabled: true
+point_in_time_recovery_enabled: true
+deletion_protection: true
+
+ipv4_enabled: false
+create_private_service_connection: true
+allocated_ip_range_name: ""
+
+labels: {}
+database_flags: {}

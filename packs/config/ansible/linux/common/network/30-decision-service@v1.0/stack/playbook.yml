@@ -1,0 +1,63 @@
+---
+- name: platform/network/decision-service (configure)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+
+  vars:
+    decision_role_fqcn: "{{ decision_role_fqcn | default('hybridops.common.decision_service') }}"
+
+  pre_tasks:
+    - name: Assert required decision policy and actions
+      ansible.builtin.assert:
+        that:
+          - policy is mapping
+          - (policy | length) > 0
+          - actions is mapping
+          - (actions.cutover_module_ref | default('') | length) > 0
+          - (actions.failback_module_ref | default('') | length) > 0
+          - (decision_enable_actions | default(false) | bool) | ternary((actions.module_inputs is mapping and (actions.module_inputs | length) > 0), true)
+        fail_msg: "decision-service requires non-empty policy and actions module refs"
+
+  tasks:
+    - name: Run decision service role
+      ansible.builtin.include_role:
+        name: "{{ decision_role_fqcn }}"
+      vars:
+        decision_state: "{{ decision_state | default('present') }}"
+        decision_thanos_query_url: "{{ thanos_query_url }}"
+        decision_policy: "{{ policy }}"
+        decision_actions: "{{ actions }}"
+        decision_hyops_bin: "{{ decision_hyops_bin | default('/usr/local/bin/hyops') }}"
+        decision_runtime_env: "{{ decision_runtime_env | default('dev') }}"
+        decision_action_timeout_s: "{{ decision_action_timeout_s | default(600) | int }}"
+        decision_signal_query_timeout_s: "{{ decision_signal_query_timeout_s | default(5) | int }}"
+        decision_require_signal_readiness: "{{ decision_require_signal_readiness | default(true) | bool }}"
+        decision_require_fresh_signals: "{{ decision_require_fresh_signals | default(true) | bool }}"
+        decision_max_signal_age_s: "{{ decision_max_signal_age_s | default(180) | int }}"
+        decision_min_ready_checks: "{{ decision_min_ready_checks | default(1) | int }}"
+        decision_dry_run: "{{ dry_run | default(true) | bool }}"
+        decision_enable_actions: "{{ decision_enable_actions | default(false) | bool }}"
+        decision_tick_seconds: "{{ tick_seconds | default(30) | int }}"
+        decision_confirm_for_seconds: "{{ confirm_for_seconds | default(120) | int }}"
+        decision_stable_for_seconds: "{{ stable_for_seconds | default(300) | int }}"
+        decision_cooldown_seconds: "{{ cooldown_seconds | default(600) | int }}"
+        decision_log_level: "{{ decision_log_level | default('INFO') }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'decision_service.status': 'ready',
+            'decision_service.last_tick': '',
+            'decision_service.last_action': 'none',
+            'decision_service.signal_ready': '',
+            'cap.control.decision_service': 'ready'
+          } | to_json }}

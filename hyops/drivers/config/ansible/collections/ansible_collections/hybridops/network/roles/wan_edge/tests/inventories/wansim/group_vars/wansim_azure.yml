@@ -1,0 +1,59 @@
+wan_pub_if: "eth1"
+
+wan_public_local_ip: "10.50.0.132"
+wan_public_peer_ip: "10.50.0.151"
+
+wan_public_aliases:
+  - "10.50.0.133/24"
+
+wan_loopbacks:
+  - "10.80.0.1/24"
+
+wan_tunnels:
+  - name: tunnel_a
+    ifname: vti10
+    key: 20
+    mark: 20
+    inside_local: "169.254.20.2/30"
+    inside_peer: "169.254.20.1"
+    local_public_ip: "10.50.0.132"
+
+  - name: tunnel_b
+    ifname: vti11
+    key: 21
+    mark: 21
+    inside_local: "169.254.20.6/30"
+    inside_peer: "169.254.20.5"
+    local_public_ip: "10.50.0.133"
+    peer_public_ip: "10.50.0.152"
+
+wan_ipsec:
+  psk: "CHANGEME_AZURE_PSK"
+  start_action: "start"
+  proposals: "aes256-sha256-modp2048"
+  esp_proposals: "aes256-sha256"
+  dpd_delay: "30s"
+  dpd_timeout: "120s"
+
+wan_bgp:
+  local_as: 65020
+  peer_as: 64514
+  router_id: "10.80.0.1"
+  neighbors:
+    - "169.254.20.1"
+    - "169.254.20.5"
+  advertise:
+    - "10.80.0.0/24"
+  import_allow:
+    - "10.70.0.0/20"
+    - "10.110.0.0/24"
+  export_allow:
+    - "10.80.0.0/24"
+
+wan_validate_ping_targets:
+  - "10.70.0.1"
+  - "10.110.0.1"
+
+wan_validate_expect_routes:
+  - "10.70.0.0/20"
+  - "10.110.0.0/24"

@@ -1,0 +1,78 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/ops-runner"
+
+metadata:
+  title: "Linux Ops Runner Bootstrap"
+  description: "Install the HybridOps release and required runner toolchain on a Linux execution host."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    runner_release_root: ""
+    runner_release_archive_url: ""
+    runner_release_archive_sha256: ""
+    runner_stage_root: "/tmp/hybridops-runner-bootstrap"
+    runner_install_prefix: "/opt/hybridops/core"
+    runner_bin_dir: ""
+    runner_system_link: true
+    runner_force_reinstall: false
+    runner_setup_base: true
+    runner_setup_ansible: true
+    runner_setup_cloud_gcp: false
+    runner_setup_cloud_azure: false
+    runner_state: "present"
+    runner_archive_excludes:
+      - ".git"
+      - ".venv"
+      - "build"
+      - "dist"
+      - "__pycache__"
+      - ".pytest_cache"
+      - ".mypy_cache"
+      - ".ruff_cache"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/10-ops-runner@v1.0"
+
+outputs:
+  publish:
+    - runner_state
+    - runner_install_prefix
+    - runner_bin_dir
+    - cap.ctrl.runner
+
+probes: []
+constraints: []

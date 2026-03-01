@@ -1,0 +1,146 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/postgresql-ha-backup"
+
+metadata:
+  title: "PostgreSQL HA Backup (pgBackRest)"
+  description: "Configures pgBackRest backups (S3, GCS, or Azure Blob repo) for an existing Patroni PostgreSQL HA cluster via Ansible (Autobase). Does not provision VMs."
+
+requirements:
+  credentials: []
+
+dependencies:
+  # Ensure the HA cluster exists and published a readiness capability.
+  - module_ref: "platform/onprem/postgresql-ha"
+    required: true
+    imports:
+      cap.db.postgresql_ha: upstream.cap_db_postgresql_ha
+
+inputs:
+  defaults:
+    # Backup backend.
+    # - s3: AWS S3 or S3-compatible (MinIO/Hetzner/etc)
+    # - gcs: Google Cloud Storage (repo1-type=gcs)
+    # - azure: Azure Blob Storage (repo1-type=azure)
+    # When repo_state_ref is set, backend + backend-specific repository fields
+    # are derived from module state and treated as authoritative.
+    backend: "s3"
+    repo_state_ref: ""
+    # Optional secondary repository (repo2) for cross-cloud durability.
+    # Disabled by default to keep operations simple and cost-controlled.
+    secondary_enabled: false
+    secondary_repo_state_ref: ""
+    secondary_backend: ""
+    secondary_repo_path: ""
+
+    # Multi-entrypoint packs: playbook.yml (configure) and playbook.backup.yml (on-demand backup).
+    apply_mode: ""
+
+    # Inventory. Prefer state-driven inventory from a VM module (e.g. platform/onprem/platform-vm).
+    # You must define Autobase groups (example): master, replica, postgres_cluster, etcd_cluster.
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    # Enforce that state-driven inventory comes from a NetBox-IPAM-managed
+    # platform/onprem/platform-vm state snapshot.
+    inventory_requires_ipam: true
+
+    # SSH defaults applied to every host in the inventory.
+    # Execution plane declares where HyOps is expected to run from:
+    # - workstation-direct: operator shell/laptop with direct network access
+    # - runner-local: shared runner in or near the target environment
+    execution_plane: "workstation-direct"
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    # Auto-proxy via proxmox init metadata when direct L3 access is unavailable.
+    ssh_proxy_jump_auto: true
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    # Preflight/apply: ensure SSH is reachable before running Ansible.
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    # Vault/env wiring
+    required_env:
+      - "PATRONI_SUPERUSER_PASSWORD"
+      - "PATRONI_REPLICATION_PASSWORD"
+      - "PG_BACKUP_S3_ACCESS_KEY_ID"
+      - "PG_BACKUP_S3_SECRET_ACCESS_KEY"
+    required_env_destroy: []
+    load_vault_env: true
+
+    # Cluster identity (must match platform/onprem/postgresql-ha)
+    patroni_cluster_name: "postgres-ha"
+    postgresql_version: 16
+    postgresql_port: 5432
+    dcs_type: "etcd"
+    dcs_exists: false
+
+    # Common repository path
+    repo_path: "/pgbackrest"
+    # How to handle stale pgBackRest metadata that points to a different
+    # PostgreSQL system-id:
+    # - fail: stop with clear remediation (safe default)
+    # - reset: run stanza-delete --force and re-create stanza
+    repo_mismatch_action: "fail"
+
+    # S3 repository settings (works with AWS S3 and S3-compatible endpoints, e.g. MinIO).
+    # Auto-derived when repo_state_ref points to org/aws/pgbackrest-repo.
+    s3_bucket: ""
+    s3_endpoint: ""
+    s3_region: ""
+    s3_uri_style: ""
+
+    # Secrets env var keys (defaults are HyOps-specific; avoid accidental reuse of AWS_* env vars)
+    s3_access_key_env: "PG_BACKUP_S3_ACCESS_KEY_ID"
+    s3_secret_key_env: "PG_BACKUP_S3_SECRET_ACCESS_KEY"
+    secondary_s3_bucket: ""
+    secondary_s3_endpoint: ""
+    secondary_s3_region: ""
+    secondary_s3_uri_style: ""
+    secondary_s3_access_key_env: "PG_BACKUP_SECONDARY_S3_ACCESS_KEY_ID"
+    secondary_s3_secret_key_env: "PG_BACKUP_SECONDARY_S3_SECRET_ACCESS_KEY"
+
+    # GCS repository settings (repo1-type=gcs).
+    # Auto-derived when repo_state_ref points to org/gcp/pgbackrest-repo.
+    gcs_bucket: ""
+    gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+    gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+    secondary_gcs_bucket: ""
+    secondary_gcs_sa_json_env: "PG_BACKUP_SECONDARY_GCS_SA_JSON"
+    secondary_gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa-secondary.json"
+
+    # Azure Blob repository settings (repo1-type=azure).
+    # Auto-derived when repo_state_ref points to org/azure/pgbackrest-repo.
+    azure_storage_account: ""
+    azure_container: ""
+    azure_account_key_env: "PG_BACKUP_AZURE_ACCOUNT_KEY"
+    secondary_azure_storage_account: ""
+    secondary_azure_container: ""
+    secondary_azure_account_key_env: "PG_BACKUP_SECONDARY_AZURE_ACCOUNT_KEY"
+
+    # Retention / scheduling (cron is installed by Autobase)
+    retention_full: 30
+    retention_full_type: "time" # time|count (pgBackRest)
+    backup_hour: 3
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/36-postgresql-ha-backup@v1.0"
+
+outputs:
+  publish:
+    - cap.db.postgresql_ha_backup
+    - pgbackrest_repo
+
+probes: []
+constraints: []

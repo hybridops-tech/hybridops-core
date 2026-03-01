@@ -1,0 +1,23 @@
+---
+- name: platform/onprem/postgresql-ha (destroy)
+  ansible.builtin.import_playbook: vitabaks.autobase.remove_cluster
+  vars:
+    dcs_type: "{{ dcs_type | default('etcd') }}"
+    dcs_exists: "{{ dcs_exists | default(false) | bool }}"
+
+    remove_postgres: true
+    remove_etcd: "{{ (dcs_type | default('etcd')) == 'etcd' and not (dcs_exists | default(false) | bool) }}"
+    remove_consul: "{{ (dcs_type | default('etcd')) == 'consul' and not (dcs_exists | default(false) | bool) }}"
+
+- name: platform/onprem/postgresql-ha (publish outputs)
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {'cap.db.postgresql_ha': 'absent'} | to_json }}

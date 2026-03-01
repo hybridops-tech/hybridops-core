@@ -1,0 +1,50 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/azure/nat-gateway"
+
+metadata:
+  title: "Azure NAT Gateway"
+  description: "Creates or converges an Azure NAT gateway and public IP via the Terragrunt Azure foundation pack."
+
+requirements:
+  credentials: ["azure"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    nat_gateway_name: ""
+    resource_group_name: ""
+    location: "uksouth"
+    sku_name: "Standard"
+    idle_timeout_in_minutes: 4
+    zones: []
+    tags: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "azure@v1.0"
+  pack_ref:
+    id: "azure/core/00-foundation-global/30-nat-gateway@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: false
+
+dependencies:
+  - module_ref: "core/azure/resource-group"
+    required: true
+    imports:
+      resource_group_name: "resource_group_name"
+      location: "location"
+
+outputs:
+  publish:
+    - nat_gateway_id
+    - nat_gateway_name
+    - public_ip_id
+    - public_ip_address
+probes: []
+constraints: []

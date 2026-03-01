@@ -1,0 +1,17 @@
+---
+- name: Configure performance PHP limits
+  ansible.builtin.lineinfile:
+    path: >-
+      /etc/php/{{ ansible_distribution_major_version | int >= 22 | ternary('8.1', '7.4') }}/apache2/php.ini
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - regexp: '^upload_max_filesize'
+      line: "upload_max_filesize = 10G"
+    - regexp: '^post_max_size'
+      line: "post_max_size = 10G"
+    - regexp: '^max_execution_time'
+      line: "max_execution_time = 1800"
+    - regexp: '^memory_limit'
+      line: "memory_limit = 2G"
+  notify: restart apache2

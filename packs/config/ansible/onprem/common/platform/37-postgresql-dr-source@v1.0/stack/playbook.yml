@@ -1,0 +1,173 @@
+---
+- name: platform/onprem/postgresql-dr-source (assess source leader)
+  hosts: master
+  become: true
+  gather_facts: false
+
+  vars:
+    apply_mode: "{{ apply_mode | default('assess') }}"
+    dr_mode: "{{ dr_mode | default('managed-cloudsql') }}"
+    source_contract_version: "{{ source_contract_version | default(1) | int }}"
+    db_host: "{{ db_host | default('') }}"
+    db_port: "{{ db_port | default(5432) | int }}"
+    db_name: "{{ db_name | default('netbox') }}"
+    db_user: "{{ db_user | default('netbox') }}"
+    db_password_env: "{{ db_password_env | default('NETBOX_DB_PASSWORD') }}"
+    allowed_consumer_cidrs: "{{ allowed_consumer_cidrs | default([]) }}"
+
+  pre_tasks:
+    - name: Require supported apply mode
+      ansible.builtin.assert:
+        that:
+          - (apply_mode | string | lower) == 'assess'
+        fail_msg: "inputs.apply_mode must be assess (v1)"
+
+    - name: Require supported DR mode
+      ansible.builtin.assert:
+        that:
+          - (dr_mode | string | lower) in ['managed-cloudsql', 'export']
+        fail_msg: "inputs.dr_mode must be one of: managed-cloudsql, export"
+
+    - name: "Preflight: source DB endpoint reachable from leader"
+      ansible.builtin.wait_for:
+        host: "{{ db_host }}"
+        port: "{{ db_port | int }}"
+        timeout: 10
+
+  tasks:
+    - name: Collect source PostgreSQL posture from leader
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -F
+          - "|"
+          - -d
+          - postgres
+          - -c
+          - >-
+            SELECT
+            current_setting('server_version'),
+            current_setting('wal_level'),
+            current_setting('max_wal_senders'),
+            current_setting('max_replication_slots'),
+            current_setting('ssl'),
+            pg_is_in_recovery();
+      become_user: postgres
+      register: _hyops_pg_source_assessment
+      changed_when: false
+
+    - name: Normalize source PostgreSQL posture
+      ansible.builtin.set_fact:
+        _hyops_pg_source_parts: "{{ (_hyops_pg_source_assessment.stdout | trim).split('|') }}"
+      changed_when: false
+
+    - name: Assert assessment query returned expected fields
+      ansible.builtin.assert:
+        that:
+          - (_hyops_pg_source_parts | length) == 6
+        fail_msg: "Unable to normalize source PostgreSQL posture from psql output."
+
+    - name: Set normalized source posture facts
+      ansible.builtin.set_fact:
+        _hyops_pg_source_server_version: "{{ _hyops_pg_source_parts[0] | string }}"
+        _hyops_pg_source_wal_level: "{{ _hyops_pg_source_parts[1] | string }}"
+        _hyops_pg_source_max_wal_senders: "{{ _hyops_pg_source_parts[2] | int }}"
+        _hyops_pg_source_max_replication_slots: "{{ _hyops_pg_source_parts[3] | int }}"
+        _hyops_pg_source_ssl: "{{ (_hyops_pg_source_parts[4] | string | lower) in ['on', 'true', 't', '1'] }}"
+        _hyops_pg_source_in_recovery: "{{ (_hyops_pg_source_parts[5] | string | lower) in ['true', 't', '1'] }}"
+      changed_when: false
+
+    - name: "Assert master group points to writable primary"
+      ansible.builtin.assert:
+        that:
+          - not (_hyops_pg_source_in_recovery | bool)
+        fail_msg: >-
+          The source leader candidate {{ inventory_hostname }} is in recovery. Reconcile the upstream
+          platform/onprem/postgresql-ha state and ensure groups.master points to the writable primary.
+
+    - name: Compute source posture flags
+      ansible.builtin.set_fact:
+        _hyops_source_export_ready: true
+        _hyops_source_replication_candidate: >-
+          {{
+            (not (_hyops_pg_source_in_recovery | bool))
+            and ((_hyops_pg_source_wal_level | string) in ['replica', 'logical'])
+            and ((_hyops_pg_source_max_wal_senders | int) > 0)
+          }}
+      changed_when: false
+
+    - name: "Fail when managed Cloud SQL mode lacks minimum replication posture"
+      ansible.builtin.assert:
+        that:
+          - _hyops_source_replication_candidate | bool
+        fail_msg: >-
+          Source cluster leader {{ inventory_hostname }} does not meet the minimum managed DR replication posture.
+          Expected wal_level in [replica, logical] and max_wal_senders > 0. Observed:
+          wal_level={{ _hyops_pg_source_wal_level }}, max_wal_senders={{ _hyops_pg_source_max_wal_senders }}.
+      when: (dr_mode | string | lower) == 'managed-cloudsql'
+
+- name: platform/onprem/postgresql-dr-source (publish outputs)
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    _hyops_source_leader_name: "{{ groups['master'][0] }}"
+    _hyops_source_leader_host: >-
+      {{
+        hostvars[_hyops_source_leader_name].ansible_host
+        | default(hostvars[_hyops_source_leader_name].inventory_hostname | default(_hyops_source_leader_name), true)
+        | string
+      }}
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set leader = _hyops_source_leader_name | string %}
+          {% set leader_host = _hyops_source_leader_host | string %}
+          {% set host = (db_host | string) %}
+          {% set port = (db_port | int) %}
+          {% set source = {
+            'contract_version': (source_contract_version | int),
+            'dr_mode': (dr_mode | string),
+            'provider': 'onprem',
+            'engine': 'postgresql',
+            'leader_name': leader,
+            'leader_host': leader_host,
+            'db_host': host,
+            'db_port': port,
+            'db_name': (db_name | string),
+            'db_user': (db_user | string),
+            'db_password_env': (db_password_env | string),
+            'allowed_consumer_cidrs': (allowed_consumer_cidrs | list),
+            'inventory_state_ref': (inventory_state_ref | default('') | string),
+            'db_state_ref': (db_state_ref | default('') | string),
+            'export_ready': (hostvars[leader]._hyops_source_export_ready | default(false) | bool),
+            'replication_candidate': (hostvars[leader]._hyops_source_replication_candidate | default(false) | bool),
+            'posture': {
+              'server_version': (hostvars[leader]._hyops_pg_source_server_version | default('') | string),
+              'wal_level': (hostvars[leader]._hyops_pg_source_wal_level | default('') | string),
+              'max_wal_senders': (hostvars[leader]._hyops_pg_source_max_wal_senders | default(0) | int),
+              'max_replication_slots': (hostvars[leader]._hyops_pg_source_max_replication_slots | default(0) | int),
+              'ssl_enabled': (hostvars[leader]._hyops_pg_source_ssl | default(false) | bool),
+              'in_recovery': (hostvars[leader]._hyops_pg_source_in_recovery | default(false) | bool)
+            }
+          } %}
+          {{
+            {
+              'source': source,
+              'source_host': host,
+              'source_port': port,
+              'source_leader_name': leader,
+              'source_leader_host': leader_host,
+              'source_export_ready': source.export_ready,
+              'source_replication_candidate': source.replication_candidate,
+              'db_name': (db_name | string),
+              'db_user': (db_user | string),
+              'db_password_env': (db_password_env | string),
+              'cap.db.postgresql_dr_source': 'ready'
+            } | to_json
+          }}

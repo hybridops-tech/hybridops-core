@@ -1,0 +1,85 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/dns-routing"
+
+metadata:
+  title: "DNS Routing Control"
+  description: "Publishes and optionally applies DNS routing intent for primary/secondary cutover control."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Inventory. Prefer state-driven inventory from edge foundation.
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    # SSH defaults applied to every host in inventory.
+    target_user: "root"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    # Preflight/apply: ensure SSH is reachable before running Ansible.
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    # Vault/env wiring
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    # Role wiring
+    dns_role_fqcn: "hybridops.common.dns_routing"
+    dns_state: "present"
+    dns_state_dir: "/opt/hybridops/dns-routing/state"
+    dns_intent_file: "latest.json"
+
+    # Routing contract
+    provider: "manual-command"
+    zone: ""
+    record_fqdn: ""
+    record_type: "A"
+    ttl: 60
+    primary_targets: []
+    secondary_targets: []
+    desired: "primary" # primary|secondary
+
+    # Execution policy
+    dry_run: true
+    dns_apply: false
+
+    # Optional manual provider command (used only when dns_apply=true).
+    # It is executed via shell on the target control host.
+    # Available env vars: HYOPS_DNS_ZONE, HYOPS_DNS_RECORD_FQDN, HYOPS_DNS_RECORD_TYPE,
+    # HYOPS_DNS_TTL, HYOPS_DNS_DESIRED, HYOPS_DNS_TARGETS_JSON.
+    provider_command: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/40-dns-routing@v1.0"
+
+outputs:
+  publish:
+    - dns.status
+    - dns.provider
+    - dns.zone
+    - dns.record_fqdn
+    - dns.record_type
+    - dns.desired
+    - dns.targets
+    - cap.network.dns_routing
+
+probes: []
+constraints: []

@@ -1,0 +1,58 @@
+---
+# EVE-NG installation verification tasks
+
+- name: Check Apache is responding
+  ansible.builtin.uri:
+    url: "http://{{ ansible_default_ipv4.address }}"
+    status_code: 200
+    timeout: 10
+  register: apache_check
+
+- name: Verify database tables exist
+  ansible.builtin.command: >-
+    mysql eve_ng_db -e
+    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='eve_ng_db';"
+  register: table_count
+  failed_when: table_count.stdout_lines[1] | int < 3
+  changed_when: false
+
+- name: Verify admin user exists
+  ansible.builtin.command: >-
+    mysql eve_ng_db -e
+    "SELECT username FROM users WHERE username='admin';"
+  register: admin_verify
+  failed_when: "'admin' not in admin_verify.stdout"
+  changed_when: false
+
+- name: Check KVM module status
+  ansible.builtin.command: lsmod
+  register: lsmod_output
+  failed_when: false
+  changed_when: false
+
+- name: Warn if KVM not available
+  ansible.builtin.debug:
+    msg: "KVM module not loaded - nested virtualization unavailable"
+  when: "'kvm' not in lsmod_output.stdout"
+
+- name: Verify qemu directory exists
+  ansible.builtin.stat:
+    path: /opt/unetlab/addons/qemu
+  register: qemu_dir
+  failed_when: not qemu_dir.stat.exists
+
+- name: Test API authentication
+  ansible.builtin.uri:
+    url: "http://{{ ansible_default_ipv4.address }}/api/auth/login"
+    method: POST
+    body_format: json
+    body:
+      username: admin
+      password: "{{ eveng_admin_password | default('eve') }}"
+    status_code: 200
+    return_content: true
+    validate_certs: false
+  register: api_test
+  failed_when: api_test.json.status | default('fail') != 'success'
+  retries: 3
+  delay: 5

@@ -1,0 +1,67 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "dr/postgresql-ha-backup-gcp@v1"
+mode: "hybrid"
+
+metadata:
+  title: "PostgreSQL HA Backup to GCP (GCS Object Repo)"
+  description: "Provision a GCS object repository and configure pgBackRest backups for an existing on-prem PostgreSQL HA cluster by consuming module state contracts rather than duplicating bucket or host IP details."
+  outcome: "The on-prem PostgreSQL HA cluster is wired to a GCS-backed pgBackRest repository and publishes backup readiness outputs."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "netbox"
+
+steps:
+  - id: gcp_backup_repo
+    module_ref: "org/gcp/object-repo"
+    state_instance: "postgresql_ha_backup_repo"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    inputs:
+      # Preferred when the env already has org/gcp/project-factory state.
+      # For an external/pre-existing project, leave this empty and set project_id.
+      project_state_ref: ""
+      project_id: ""
+      # Recommended: hyops-<env>-pgbackrest-<suffix>
+      # Example: hyops-dev-pgbackrest-a1
+      bucket_name: ""
+      location: "EU"
+      storage_class: "STANDARD"
+      uniform_bucket_level_access: true
+      versioning_enabled: true
+      lifecycle_delete_age_days: 0
+      service_account_id: "pgbackrest"
+      service_account_display_name: "PostgreSQL HA Backup Repo"
+
+  - id: postgresql_ha_backup
+    module_ref: "platform/onprem/postgresql-ha-backup"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gcp_backup_repo
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/postgresql-ha"
+      inventory_requires_ipam: true
+
+      repo_state_ref: "org/gcp/object-repo#postgresql_ha_backup_repo"
+      repo_path: "/pgbackrest"
+      repo_mismatch_action: "fail"
+
+      gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+      gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+
+      ssh_proxy_jump_auto: true
+      load_vault_env: true
+
+      required_env:
+        - "PATRONI_SUPERUSER_PASSWORD"
+        - "PATRONI_REPLICATION_PASSWORD"
+        - "PG_BACKUP_GCS_SA_JSON"

@@ -1,0 +1,82 @@
+---
+- name: platform/onprem/rke2-cluster (destroy)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Stop RKE2 services (best effort)
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - rke2-server
+        - rke2-agent
+      ignore_errors: true
+
+    - name: Run uninstall scripts if present (best effort)
+      ansible.builtin.shell: |
+        set -e
+        if [ -x /usr/local/bin/rke2-uninstall.sh ]; then /usr/local/bin/rke2-uninstall.sh; fi
+        if [ -x /usr/local/bin/rke2-agent-uninstall.sh ]; then /usr/local/bin/rke2-agent-uninstall.sh; fi
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Kill lingering RKE2 processes (best effort)
+      ansible.builtin.shell: |
+        set -e
+        pkill -9 -f '/usr/local/bin/rke2|/usr/bin/rke2|/var/lib/rancher/rke2|/run/k3s' || true
+        pkill -9 -f 'kubelet.*rke2|kube-apiserver|kube-controller-manager|kube-scheduler|etcd' || true
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Remove RKE2 directories (best effort)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher/rke2
+        - /var/lib/rancher/rke2
+        - /run/k3s
+        - /var/lib/kubelet
+        - /var/lib/cni
+        - /etc/cni/net.d
+      ignore_errors: true
+
+    - name: Remove RKE2 RPM packages (best effort)
+      ansible.builtin.package:
+        name:
+          - rke2-server
+          - rke2-agent
+        state: absent
+      ignore_errors: true
+
+    - name: Reload systemd daemon (best effort)
+      ansible.builtin.systemd:
+        daemon_reload: true
+      ignore_errors: true
+
+- name: platform/onprem/rke2-cluster (cleanup local)
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  vars:
+    rke2_kubeconfig_out: "{{ rke2_kubeconfig_out | default('') }}"
+
+  tasks:
+    - name: Remove kubeconfig file (best effort)
+      ansible.builtin.file:
+        path: "{{ (rke2_kubeconfig_out | length > 0) | ternary(rke2_kubeconfig_out, hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml') }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {'cap.k8s.rke2': 'absent'} | to_json }}

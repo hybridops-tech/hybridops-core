@@ -1,0 +1,509 @@
+#!/usr/bin/env python3
+"""
+purpose: Local edge decision loop runtime.
+maintainer: HybridOps.Studio
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import shutil
+import subprocess
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+ROOT = Path("{{ decision_root }}")
+CONFIG_PATH = ROOT / "config" / "config.json"
+POLICY_PATH = ROOT / "config" / "policy.json"
+STATE_PATH = ROOT / "state" / "state.json"
+LOG_PATH = ROOT / "logs" / "decision.log"
+ACTIONS_DIR = ROOT / "state" / "actions"
+
+
+def _utc_now() -> str:
+    return datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat()
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, sort_keys=True, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _append_log(payload: dict) -> None:
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _to_float(value: object) -> float | None:
+    try:
+        if isinstance(value, bool):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _query_scalar(base_url: str, promql: str, timeout_s: int) -> tuple[float | None, float | None, str]:
+    url = str(base_url or "").rstrip("/")
+    if not url:
+        return None, None, "missing_thanos_query_url"
+    query = str(promql or "").strip()
+    if not query:
+        return None, None, "missing_query"
+    endpoint = f"{url}/api/v1/query?{urllib.parse.urlencode({'query': query})}"
+    try:
+        with urllib.request.urlopen(endpoint, timeout=timeout_s) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        return None, None, f"url_error:{exc}"
+    except Exception as exc:
+        return None, None, f"request_error:{exc}"
+
+    if not isinstance(payload, dict) or payload.get("status") != "success":
+        return None, None, "query_failed"
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None, None, "invalid_data"
+    result = data.get("result")
+    if not isinstance(result, list) or not result:
+        return None, None, "empty_result"
+    first = result[0]
+    if not isinstance(first, dict):
+        return None, None, "invalid_result_item"
+    value = first.get("value")
+    if not isinstance(value, list) or len(value) < 2:
+        return None, None, "invalid_value_payload"
+
+    sample_epoch = _to_float(value[0])
+    numeric = _to_float(value[1])
+    if sample_epoch is None:
+        return None, None, "non_numeric_sample_timestamp"
+    if numeric is None:
+        return None, None, "non_numeric_value"
+    return numeric, sample_epoch, ""
+
+
+def _evaluate_signals(policy: dict, config: dict) -> dict:
+    signals = policy.get("signals")
+    thresholds = policy.get("thresholds")
+    if not isinstance(signals, dict):
+        signals = {}
+    if not isinstance(thresholds, dict):
+        thresholds = {}
+
+    query_timeout_s = int(config.get("signal_query_timeout_s", 5) or 5)
+    if query_timeout_s < 1:
+        query_timeout_s = 1
+
+    require_fresh_signals = bool(config.get("require_fresh_signals", True))
+    max_signal_age_s = int(config.get("max_signal_age_s", 180) or 180)
+    if max_signal_age_s < 5:
+        max_signal_age_s = 5
+
+    min_ready_checks = int(config.get("min_ready_checks", 1) or 1)
+    if min_ready_checks < 1:
+        min_ready_checks = 1
+
+    now_epoch = float(time.time())
+
+    contracts = [
+        ("primary_up_min", "primary_up_query", "gte"),
+        ("error_rate_ratio", "error_rate_query", "lte"),
+        ("edge_reachability_min", "edge_reachability_query", "gte"),
+        ("primary_latency_p95_ms", "primary_latency_p95_query", "lte"),
+    ]
+
+    checks: list[dict] = []
+    missing_queries: list[str] = []
+    query_errors: list[str] = []
+    stale_signal_queries: list[str] = []
+    degraded = False
+    evaluated = False
+
+    for threshold_key, query_key, comparator in contracts:
+        if threshold_key not in thresholds:
+            continue
+        evaluated = True
+        threshold = _to_float(thresholds.get(threshold_key))
+        if threshold is None:
+            query_errors.append(f"{threshold_key}:invalid_threshold")
+            continue
+        query = str(signals.get(query_key) or "").strip()
+        if not query:
+            missing_queries.append(query_key)
+            continue
+
+        value, sample_epoch, err = _query_scalar(
+            base_url=str(config.get("thanos_query_url") or ""),
+            promql=query,
+            timeout_s=query_timeout_s,
+        )
+        if err:
+            query_errors.append(f"{query_key}:{err}")
+            continue
+
+        sample_age_s = max(0.0, now_epoch - float(sample_epoch or 0.0))
+        fresh = True
+        if require_fresh_signals:
+            fresh = sample_age_s <= float(max_signal_age_s)
+            if not fresh:
+                stale_signal_queries.append(query_key)
+
+        ok = (value >= threshold) if comparator == "gte" else (value <= threshold)
+        if not ok:
+            degraded = True
+
+        checks.append(
+            {
+                "metric": threshold_key,
+                "query_key": query_key,
+                "query": query,
+                "value": value,
+                "threshold": threshold,
+                "comparator": comparator,
+                "ok": ok,
+                "sample_epoch": sample_epoch,
+                "sample_age_s": sample_age_s,
+                "fresh": fresh,
+            }
+        )
+
+    if not evaluated:
+        return {
+            "degraded": None,
+            "reason": "no_thresholds",
+            "checks": checks,
+            "signal_ready": False,
+            "ready_reason": "no_thresholds",
+        }
+
+    if missing_queries:
+        return {
+            "degraded": None,
+            "reason": "missing_signal_queries",
+            "checks": checks,
+            "missing_signal_queries": missing_queries,
+            "signal_ready": False,
+            "ready_reason": "missing_signal_queries",
+        }
+
+    if query_errors:
+        return {
+            "degraded": None,
+            "reason": "signal_query_error",
+            "checks": checks,
+            "query_errors": query_errors,
+            "signal_ready": False,
+            "ready_reason": "signal_query_error",
+        }
+
+    if len(checks) < min_ready_checks:
+        return {
+            "degraded": None,
+            "reason": "insufficient_ready_checks",
+            "checks": checks,
+            "signal_ready": False,
+            "ready_reason": "insufficient_ready_checks",
+        }
+
+    if require_fresh_signals and stale_signal_queries:
+        return {
+            "degraded": None,
+            "reason": "stale_signals",
+            "checks": checks,
+            "stale_signal_queries": stale_signal_queries,
+            "signal_ready": False,
+            "ready_reason": "stale_signals",
+        }
+
+    return {
+        "degraded": degraded,
+        "reason": "signal_eval_ok",
+        "checks": checks,
+        "signal_ready": True,
+        "ready_reason": "signal_ready",
+    }
+
+
+def _run_action(action_name: str, module_ref: str, desired: str, config: dict, actions: dict) -> dict:
+    hyops_bin = str(config.get("hyops_bin") or "").strip()
+    runtime_env = str(config.get("runtime_env") or "").strip()
+    action_timeout_s = int(config.get("action_timeout_s", 600) or 600)
+    if action_timeout_s < 30:
+        action_timeout_s = 30
+
+    if not hyops_bin:
+        return {"ok": False, "error": "missing_hyops_bin"}
+    if not runtime_env:
+        return {"ok": False, "error": "missing_runtime_env"}
+    if not module_ref:
+        return {"ok": False, "error": "missing_module_ref"}
+
+    resolved_bin = hyops_bin if Path(hyops_bin).is_absolute() else (shutil.which(hyops_bin) or "")
+    if not resolved_bin:
+        return {"ok": False, "error": f"hyops_bin_not_found:{hyops_bin}"}
+
+    module_inputs = actions.get("module_inputs")
+    if not isinstance(module_inputs, dict) or not module_inputs:
+        return {"ok": False, "error": "missing_actions_module_inputs"}
+
+    ACTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    inputs_path = ACTIONS_DIR / f"{action_name}.{ts}.inputs.json"
+    result_path = ACTIONS_DIR / f"{action_name}.{ts}.result.json"
+    _write_json(inputs_path, module_inputs)
+
+    cmd = [
+        str(resolved_bin),
+        "apply",
+        "--env",
+        runtime_env,
+        "--module",
+        module_ref,
+        "--inputs",
+        str(inputs_path),
+    ]
+    env = dict(os.environ)
+    env["HYOPS_INPUT_desired"] = str(desired)
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=action_timeout_s,
+            check=False,
+        )
+        rc = int(proc.returncode)
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+    except subprocess.TimeoutExpired as exc:
+        rc = 124
+        stdout = str(exc.stdout or "")
+        stderr = str(exc.stderr or "") + "\naction_timeout"
+    except Exception as exc:
+        rc = 1
+        stdout = ""
+        stderr = f"action_exec_error:{exc}"
+
+    result_payload = {
+        "timestamp_utc": _utc_now(),
+        "action": action_name,
+        "module_ref": module_ref,
+        "desired": desired,
+        "command": cmd,
+        "rc": rc,
+        "inputs_path": str(inputs_path),
+        "stdout_tail": stdout[-4000:],
+        "stderr_tail": stderr[-4000:],
+    }
+    _write_json(result_path, result_payload)
+
+    return {
+        "ok": rc == 0,
+        "rc": rc,
+        "result_file": str(result_path),
+        "stdout_tail": stdout[-400:],
+        "stderr_tail": stderr[-400:],
+    }
+
+
+def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
+    now_epoch = float(time.time())
+    mode = str(prior.get("mode") or policy.get("mode") or "PRIMARY").strip().upper()
+    if mode not in {"PRIMARY", "SECONDARY"}:
+        mode = "PRIMARY"
+
+    dry_run = bool(config.get("dry_run", True))
+    enable_actions = bool(config.get("enable_actions", False))
+    require_signal_readiness = bool(config.get("require_signal_readiness", True))
+    require_fresh_signals = bool(config.get("require_fresh_signals", True))
+    max_signal_age_s = int(config.get("max_signal_age_s", 180) or 180)
+    if max_signal_age_s < 5:
+        max_signal_age_s = 5
+    min_ready_checks = int(config.get("min_ready_checks", 1) or 1)
+    if min_ready_checks < 1:
+        min_ready_checks = 1
+
+    confirm_for_seconds = int(config.get("confirm_for_seconds", 120) or 120)
+    stable_for_seconds = int(config.get("stable_for_seconds", 300) or 300)
+    cooldown_seconds = int(config.get("cooldown_seconds", 600) or 600)
+    if confirm_for_seconds < 0:
+        confirm_for_seconds = 0
+    if stable_for_seconds < 0:
+        stable_for_seconds = 0
+    if cooldown_seconds < 0:
+        cooldown_seconds = 0
+
+    degraded_since = _to_float(prior.get("degraded_since_epoch"))
+    healthy_since = _to_float(prior.get("healthy_since_epoch"))
+    last_action_epoch = _to_float(prior.get("last_action_epoch")) or 0.0
+    last_action = str(prior.get("last_action") or "none")
+    last_action_rc = int(prior.get("last_action_rc") or 0)
+    last_action_result_file = str(prior.get("last_action_result_file") or "")
+
+    signal_eval = _evaluate_signals(policy=policy, config=config)
+    degraded = signal_eval.get("degraded")
+    reason = str(signal_eval.get("reason") or "")
+    checks = signal_eval.get("checks")
+    signal_ready = bool(signal_eval.get("signal_ready", False))
+    signal_ready_reason = str(signal_eval.get("ready_reason") or "")
+    if not isinstance(checks, list):
+        checks = []
+
+    recommended_action = "none"
+    action_executed = "none"
+    action_result = {}
+    actions = policy.get("actions")
+    if not isinstance(actions, dict):
+        actions = {}
+    actions_cfg = config.get("actions")
+    if not isinstance(actions_cfg, dict):
+        actions_cfg = {}
+    # Runtime actions override policy actions when present.
+    actions_effective = dict(actions)
+    actions_effective.update(actions_cfg)
+
+    if degraded is True:
+        healthy_since = None
+        if degraded_since is None:
+            degraded_since = now_epoch
+    elif degraded is False:
+        degraded_since = None
+        if healthy_since is None:
+            healthy_since = now_epoch
+
+    trigger: str | None = None
+    if degraded is True and mode == "PRIMARY":
+        elapsed = int(max(0.0, now_epoch - float(degraded_since or now_epoch)))
+        reason = f"primary_degraded_elapsed={elapsed}s"
+        if elapsed >= confirm_for_seconds:
+            trigger = "cutover"
+    elif degraded is False and mode == "SECONDARY":
+        elapsed = int(max(0.0, now_epoch - float(healthy_since or now_epoch)))
+        reason = f"secondary_healthy_elapsed={elapsed}s"
+        if elapsed >= stable_for_seconds:
+            trigger = "failback"
+    elif degraded is False and mode == "PRIMARY":
+        reason = "primary_healthy"
+    elif degraded is True and mode == "SECONDARY":
+        reason = "secondary_still_degraded"
+
+    if trigger:
+        recommended_action = trigger
+        cooldown_remaining = 0
+        if last_action_epoch > 0 and cooldown_seconds > 0:
+            elapsed_since_last = int(max(0.0, now_epoch - last_action_epoch))
+            cooldown_remaining = max(0, cooldown_seconds - elapsed_since_last)
+
+        if dry_run:
+            reason = f"trigger={trigger} blocked: dry_run=true"
+        elif not enable_actions:
+            reason = f"trigger={trigger} blocked: enable_actions=false"
+        elif require_signal_readiness and not signal_ready:
+            reason = f"trigger={trigger} blocked: signal_not_ready ({signal_ready_reason})"
+        elif cooldown_remaining > 0:
+            reason = f"trigger={trigger} blocked: cooldown_active={cooldown_remaining}s"
+        else:
+            if trigger == "cutover":
+                module_ref = str(actions_effective.get("cutover_module_ref") or "")
+                desired = str(actions_effective.get("cutover_desired") or "secondary").strip().lower()
+                target_mode = "SECONDARY"
+            else:
+                module_ref = str(actions_effective.get("failback_module_ref") or "")
+                desired = str(actions_effective.get("failback_desired") or "primary").strip().lower()
+                target_mode = "PRIMARY"
+
+            action_result = _run_action(
+                action_name=trigger,
+                module_ref=module_ref,
+                desired=desired,
+                config=config,
+                actions=actions_effective,
+            )
+            action_executed = trigger
+            last_action = trigger
+            last_action_epoch = now_epoch
+            last_action_rc = int(action_result.get("rc") or 1)
+            last_action_result_file = str(action_result.get("result_file") or "")
+            if action_result.get("ok"):
+                reason = f"trigger={trigger} applied"
+                mode = target_mode
+                degraded_since = None
+                healthy_since = None
+            else:
+                reason = (
+                    f"trigger={trigger} failed rc={last_action_rc} "
+                    f"err={str(action_result.get('stderr_tail') or '')[:180]}"
+                )
+
+    payload = {
+        "timestamp_utc": _utc_now(),
+        "status": "running",
+        "mode": mode,
+        "recommended_action": recommended_action,
+        "action": action_executed,
+        "reason": reason,
+        "thanos_query_url": str(config.get("thanos_query_url") or ""),
+        "dry_run": dry_run,
+        "enable_actions": enable_actions,
+        "signal_ready": signal_ready,
+        "signal_ready_reason": signal_ready_reason,
+        "require_signal_readiness": require_signal_readiness,
+        "require_fresh_signals": require_fresh_signals,
+        "max_signal_age_s": max_signal_age_s,
+        "min_ready_checks": min_ready_checks,
+        "degraded": degraded,
+        "checks": checks,
+        "degraded_since_epoch": degraded_since,
+        "healthy_since_epoch": healthy_since,
+        "last_action": last_action,
+        "last_action_epoch": last_action_epoch,
+        "last_action_rc": last_action_rc,
+        "last_action_result_file": last_action_result_file,
+    }
+    if isinstance(signal_eval.get("missing_signal_queries"), list):
+        payload["missing_signal_queries"] = signal_eval.get("missing_signal_queries")
+    if isinstance(signal_eval.get("query_errors"), list):
+        payload["query_errors"] = signal_eval.get("query_errors")
+    if isinstance(signal_eval.get("stale_signal_queries"), list):
+        payload["stale_signal_queries"] = signal_eval.get("stale_signal_queries")
+    if action_result:
+        payload["action_result"] = action_result
+    return payload
+
+
+def main() -> int:
+    prior = _read_json(STATE_PATH)
+    while True:
+        config = _read_json(CONFIG_PATH)
+        policy = _read_json(POLICY_PATH)
+
+        tick_seconds = int(config.get("tick_seconds", 30) or 30)
+        if tick_seconds < 5:
+            tick_seconds = 5
+
+        payload = _evaluate(policy=policy, config=config, prior=prior)
+        _write_json(STATE_PATH, payload)
+        _append_log(payload)
+        prior = payload
+        time.sleep(tick_seconds)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

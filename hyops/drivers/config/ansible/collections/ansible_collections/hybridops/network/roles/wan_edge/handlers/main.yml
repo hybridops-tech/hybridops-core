@@ -1,0 +1,22 @@
+# purpose: Handlers for wan_edge role
+# adr: ADR-XXXX-wan-local-sim
+# maintainer: HybridOps.Studio
+
+- name: Restart strongswan
+  ansible.builtin.service:
+    name: "{{ _strongswan_unit | default('strongswan-starter') }}"
+    state: restarted
+  become: true
+
+- name: Restart frr
+  ansible.builtin.command: systemctl reset-failed frr.service
+  become: true
+  changed_when: false
+  failed_when: false
+  notify: Restart frr now
+
+- name: Restart frr now
+  ansible.builtin.service:
+    name: frr
+    state: restarted
+  become: true

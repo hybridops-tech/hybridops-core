@@ -1,0 +1,20 @@
+# Enterprise pgcore config example.
+# Secrets are supplied via env/vault: NETBOX_DB_PASSWORD.
+
+target_host: "10.12.0.10"
+target_user: "opsadmin"
+ssh_private_key_file: "~/.ssh/id_ed25519"
+
+pg_port: 5432
+
+listen_addresses:
+  - "127.0.0.1"
+  - "10.12.0.10"
+
+allowed_clients:
+  - database: "netbox"
+    user: "netbox"
+    cidr: "10.12.0.11/32"
+  - database: "all"
+    user: "all"
+    cidr: "10.20.0.0/24"

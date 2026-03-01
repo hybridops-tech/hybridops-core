@@ -1,0 +1,164 @@
+---
+- name: platform/onprem/postgresql-core (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    pg_port: "{{ pg_port | default(5432) }}"
+    listen_addresses: "{{ listen_addresses | default(['127.0.0.1']) }}"
+    allowed_clients: "{{ allowed_clients | default([]) }}"
+
+    db_name: "{{ db_name | default('netbox') }}"
+    db_user: "{{ db_user | default('netbox') }}"
+    db_password_env: "{{ db_password_env | default('NETBOX_DB_PASSWORD') }}"
+
+    # Optional multi-app contract (authoritative when set and non-empty).
+    apps: "{{ apps | default({}) }}"
+
+  pre_tasks:
+    - name: Normalize app database definitions
+      ansible.builtin.set_fact:
+        _hyops_pg_apps: >-
+          {{
+            (apps
+              if (apps is mapping and (apps | length) > 0)
+              else {
+                'netbox': {
+                  'db_name': db_name,
+                  'db_user': db_user,
+                  'db_password_env': db_password_env
+                }
+              }
+            )
+          }}
+      changed_when: false
+
+    - name: Initialize PostgreSQL app-derived facts
+      ansible.builtin.set_fact:
+        _hyops_pg_databases: []
+        _hyops_pg_users: []
+      changed_when: false
+
+    - name: Build PostgreSQL databases from app definitions
+      ansible.builtin.set_fact:
+        _hyops_pg_databases: >-
+          {{
+            _hyops_pg_databases
+            + [
+              {
+                'name': item.value.db_name,
+                'owner': item.value.db_user
+              }
+            ]
+          }}
+      loop: "{{ _hyops_pg_apps | dict2items }}"
+      changed_when: false
+
+    - name: Ensure required DB password env vars are present
+      ansible.builtin.assert:
+        that:
+          - "(lookup('env', item.value.db_password_env) | default('', true) | string | length) > 0"
+        fail_msg: "missing required env var: {{ item.value.db_password_env }}"
+      loop: "{{ _hyops_pg_apps | dict2items }}"
+      changed_when: false
+
+    - name: Build PostgreSQL users from app definitions
+      no_log: true
+      ansible.builtin.set_fact:
+        _hyops_pg_users: >-
+          {{
+            _hyops_pg_users
+            + [
+              {
+                'name': item.value.db_user,
+                'password': lookup('env', item.value.db_password_env)
+              }
+            ]
+          }}
+      loop: "{{ _hyops_pg_apps | dict2items }}"
+      changed_when: false
+
+    - name: Build PostgreSQL privileges from app definitions
+      ansible.builtin.set_fact:
+        _hyops_pg_privs: >-
+          {{
+            (_hyops_pg_privs | default([]))
+            + [
+              {
+                'db': item.value.db_name,
+                'roles': item.value.db_user,
+                'privs': 'ALL',
+                'type': 'database'
+              },
+              {
+                'db': item.value.db_name,
+                'roles': item.value.db_user,
+                'privs': 'USAGE,CREATE',
+                'type': 'schema',
+                'objs': 'public'
+              }
+            ]
+          }}
+      loop: "{{ _hyops_pg_apps | dict2items }}"
+      changed_when: false
+
+  roles:
+    - role: hybridops.common.postgresql_service
+      vars:
+        hybridops_postgres_port: "{{ pg_port }}"
+        hybridops_postgres_listen_addresses: "{{ listen_addresses }}"
+        hybridops_postgres_allowed_clients: "{{ allowed_clients }}"
+
+        hybridops_postgres_databases: "{{ _hyops_pg_databases }}"
+        hybridops_postgres_users: "{{ _hyops_pg_users }}"
+        hybridops_postgres_privs: "{{ _hyops_pg_privs }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set host = (hostvars[inventory_hostname].ansible_host | default('')) %}
+          {% set port = (pg_port | int) %}
+          {% set ns = namespace(out={
+            'pg_host': host,
+            'pg_port': port,
+            'cap.db.pgcore': 'ready'
+          }, apps={}) %}
+          {% for item in (_hyops_pg_apps | dict2items) %}
+          {% set key = (item.key | string) %}
+          {% set ns.apps = ns.apps | combine({
+            key: {
+              'db_host': host,
+              'db_port': port,
+              'db_name': (item.value.db_name | string),
+              'db_user': (item.value.db_user | string),
+              'db_password_env': (item.value.db_password_env | string)
+            }
+          }) %}
+          {% endfor %}
+          {% set ns.out = ns.out | combine({'apps': ns.apps}) %}
+          {# Backward-compat for existing NetBox consumption: publish db_* keys from apps.netbox if present, otherwise legacy vars. #}
+          {% if (_hyops_pg_apps is mapping) and ('netbox' in _hyops_pg_apps) %}
+          {% set nb = _hyops_pg_apps['netbox'] %}
+          {% set ns.out = ns.out | combine({
+            'db_host': host,
+            'db_port': port,
+            'db_name': (nb.db_name | string),
+            'db_user': (nb.db_user | string),
+            'db_password_env': (nb.db_password_env | string)
+          }) %}
+          {% else %}
+          {% set ns.out = ns.out | combine({
+            'db_host': host,
+            'db_port': port,
+            'db_name': (db_name | string),
+            'db_user': (db_user | string),
+            'db_password_env': (db_password_env | string)
+          }) %}
+          {% endif %}
+          {{ ns.out | to_json }}

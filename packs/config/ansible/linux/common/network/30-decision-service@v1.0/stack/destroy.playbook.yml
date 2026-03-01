@@ -1,0 +1,32 @@
+---
+- name: platform/network/decision-service (destroy)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: true
+  gather_facts: false
+
+  vars:
+    decision_role_fqcn: "{{ decision_role_fqcn | default('hybridops.common.decision_service') }}"
+
+  tasks:
+    - name: Run decision service role (absent)
+      ansible.builtin.include_role:
+        name: "{{ decision_role_fqcn }}"
+      vars:
+        decision_state: "absent"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'decision_service.status': 'absent',
+            'decision_service.last_tick': '',
+            'decision_service.last_action': 'none',
+            'cap.control.decision_service': 'absent'
+          } | to_json }}

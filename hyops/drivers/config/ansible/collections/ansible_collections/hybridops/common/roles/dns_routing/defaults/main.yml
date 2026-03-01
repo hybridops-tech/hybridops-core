@@ -1,0 +1,20 @@
+---
+# purpose: Defaults for dns_routing role (routing intent + optional manual command apply)
+# maintainer: HybridOps.Studio
+
+dns_state: present
+dns_state_dir: /opt/hybridops/dns-routing/state
+dns_intent_file: latest.json
+
+provider: manual-command
+zone: ""
+record_fqdn: ""
+record_type: "A"
+ttl: 60
+primary_targets: []
+secondary_targets: []
+desired: primary
+
+dry_run: true
+dns_apply: false
+provider_command: ""

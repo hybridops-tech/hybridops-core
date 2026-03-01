@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hybridops.studio/schemas/blueprint-spec.schema.json",
+  "title": "BlueprintSpec",
+  "description": "Product-level orchestration manifest for ordered module execution.",
+  "type": "object",
+  "required": [
+    "api_version",
+    "kind",
+    "blueprint_ref",
+    "mode",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "type": "string",
+      "const": "BlueprintSpec"
+    },
+    "blueprint_ref": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9/_-]*@[a-z0-9][a-z0-9._-]*$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "bootstrap",
+        "authoritative",
+        "hybrid"
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fail_fast": {
+          "type": "boolean"
+        },
+        "evidence_required": {
+          "type": "boolean"
+        },
+        "ipam_authority": {
+          "type": "string",
+          "enum": [
+            "none",
+            "netbox"
+          ]
+        },
+        "netbox_live_api_check": {
+          "type": "boolean"
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "required": [
+        "id",
+        "module_ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "module_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9._/-]*[a-z0-9])?$"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "apply",
+            "deploy",
+            "plan",
+            "validate"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "bootstrap",
+            "authoritative",
+            "operations"
+          ]
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "uniqueItems": true
+        },
+        "with_deps": {
+          "type": "boolean"
+        },
+        "skip_if_state_ok": {
+          "type": "boolean"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "inputs_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contracts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "addressing_mode": {
+              "type": "string",
+              "enum": [
+                "static",
+                "dhcp",
+                "ipam"
+              ]
+            },
+            "requires_module_state_ok": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9](?:[a-z0-9._/-]*[a-z0-9])?$"
+              },
+              "uniqueItems": true
+            },
+            "requires_authority": {
+              "type": "string",
+              "enum": [
+                "none",
+                "netbox"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

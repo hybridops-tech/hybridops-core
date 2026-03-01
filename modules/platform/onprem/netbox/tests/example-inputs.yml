@@ -1,0 +1,4 @@
+load_vault_env: true
+
+target_host: "10.12.0.11"
+db_host: "10.12.0.10"

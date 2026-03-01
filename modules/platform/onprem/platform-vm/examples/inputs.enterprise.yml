@@ -1,0 +1,40 @@
+name_prefix: "corp"
+context_id: "prod-a"
+node_name: "pve02"
+datastore_id: "fast-lvm"
+snippets_datastore_id: "local"
+ssh_username: "opsadmin"
+ssh_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEKEY opsadmin@example.com"
+template_state_ref: "core/onprem/template-image"
+template_key: "ubuntu-24.04"
+require_ipam: true
+# Built-in post-apply SSH readiness gate is enabled by default.
+# post_apply_ssh_readiness:
+#   connectivity_wait_s: 300
+addressing:
+  mode: "ipam"
+  ipam:
+    provider: "netbox"
+cpu_cores: 8
+memory_mb: 16384
+disk_size_gb: 300
+dns_domain: "corp.example"
+dns_servers:
+  - "10.20.0.53"
+  - "10.20.0.54"
+tags:
+  - "platform"
+  - "onprem"
+  - "custom-vm"
+  - "gitops"
+  - "enterprise"
+vms:
+  apps-gitops-01:
+    role: "gitops"
+    interfaces:
+      - bridge: "vnetmgmt"
+  apps-gitops-02:
+    role: "gitops"
+    interfaces:
+      - bridge: "vnetmgmt"

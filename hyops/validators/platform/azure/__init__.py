@@ -1,0 +1,1 @@
+"""Azure platform module validators."""

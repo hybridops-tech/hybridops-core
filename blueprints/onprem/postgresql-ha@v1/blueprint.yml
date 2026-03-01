@@ -1,0 +1,95 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "onprem/postgresql-ha@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem PostgreSQL HA (Patroni + etcd)"
+  description: "Consume shared SDN/NetBox authority, ensure a Rocky 9 template exists, provision Postgres nodes, then deploy Patroni + etcd. Cloud DR replica is out-of-scope for this blueprint."
+  outcome: "HA PostgreSQL cluster is deployed and publishes connection outputs for downstream services."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "netbox"
+
+steps:
+  - id: template_image_rocky9
+    module_ref: "core/onprem/template-image"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_key: "rocky-9"
+
+  - id: postgres_ha_vms
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "postgres_ha_vms"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - template_image_rocky9
+    contracts:
+      addressing_mode: "ipam"
+      requires_authority: "netbox"
+    inputs:
+      require_ipam: true
+      template_state_ref: "core/onprem/template-image"
+      template_key: "rocky-9"
+      ssh_username: "opsadmin"
+      addressing:
+        mode: "ipam"
+        ipam:
+          provider: "netbox"
+          network_state_ref: "core/onprem/network-sdn"
+      vms:
+        pgha-01:
+          role: "postgres"
+          interfaces:
+            - bridge: "vnetenvdata"
+        pgha-02:
+          role: "postgres"
+          interfaces:
+            - bridge: "vnetenvdata"
+        pgha-03:
+          role: "postgres"
+          interfaces:
+            - bridge: "vnetenvdata"
+
+  - id: postgresql_ha
+    module_ref: "platform/onprem/postgresql-ha"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - postgres_ha_vms
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#postgres_ha_vms"
+      ssh_proxy_jump_auto: true
+      connectivity_wait_s: 120
+      allowed_clients:
+        # Shared NetBox authority VM (dual-homed) reaches the shared PGHA DB via vnetdata.
+        - database: "netbox"
+          user: "netbox"
+          cidr: "10.12.0.11/32"
+      inventory_vm_groups:
+        etcd_cluster:
+          - pgha-01
+          - pgha-02
+          - pgha-03
+        master:
+          - pgha-01
+        replica:
+          - pgha-02
+          - pgha-03
+        postgres_cluster:
+          - pgha-01
+          - pgha-02
+          - pgha-03
+      load_vault_env: true

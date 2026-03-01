@@ -1,0 +1,59 @@
+---
+# purpose: Input validation for PostgreSQL service wrapper
+# adr: ADR-0101, ADR-0103
+# maintainer: HybridOps.Studio
+
+- name: Validate listen addresses
+  ansible.builtin.assert:
+    that:
+      - hybridops_postgres_listen_addresses is iterable
+      - (hybridops_postgres_listen_addresses | length) > 0
+    fail_msg: "hybridops_postgres_listen_addresses must be a non-empty list."
+
+- name: Validate port
+  ansible.builtin.assert:
+    that:
+      - hybridops_postgres_port is number
+      - hybridops_postgres_port > 0
+      - hybridops_postgres_port < 65536
+    fail_msg: "hybridops_postgres_port must be a valid TCP port."
+
+- name: Validate allowed client list schema
+  ansible.builtin.assert:
+    that:
+      - hybridops_postgres_allowed_clients is iterable
+      - >-
+        (hybridops_postgres_allowed_clients | selectattr('cidr', 'defined') | list | length)
+        == (hybridops_postgres_allowed_clients | length)
+      - >-
+        (hybridops_postgres_allowed_clients | selectattr('database', 'defined') | list | length)
+        == (hybridops_postgres_allowed_clients | length)
+      - >-
+        (hybridops_postgres_allowed_clients | selectattr('user', 'defined') | list | length)
+        == (hybridops_postgres_allowed_clients | length)
+    fail_msg: "Each hybridops_postgres_allowed_clients item must define: database, user, cidr."
+
+- name: Guardrail - remote listen requires explicit allowed clients
+  ansible.builtin.assert:
+    that:
+      - >-
+        (hybridops_postgres_listen_addresses | difference(['127.0.0.1', 'localhost']) | length) == 0
+        or (hybridops_postgres_allowed_clients | length) > 0
+    fail_msg: >-
+      Remote listen_addresses set but no allowed clients provided. Define
+      hybridops_postgres_allowed_clients with permitted client CIDRs.
+
+- name: Guardrail - passwords required when creating users
+  ansible.builtin.assert:
+    that:
+      - >-
+        (hybridops_postgres_users
+         | selectattr('password', 'defined')
+         | map(attribute='password')
+         | map('string')
+         | map('trim')
+         | reject('equalto', '')
+         | list
+         | length) == (hybridops_postgres_users | length)
+    fail_msg: "Each hybridops_postgres_users item must provide a non-empty password."
+  when: (hybridops_postgres_users | length) > 0

@@ -1,0 +1,59 @@
+---
+- name: platform/onprem/netbox (destroy)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    # Defaults; extra-vars can override these.
+    netbox_compose_project: "netbox"
+    netbox_install_root: "/opt/netbox"
+    netbox_data_root: "/var/lib/netbox"
+
+  tasks:
+    - name: Check docker CLI
+      ansible.builtin.command: docker --version
+      register: _docker_cli
+      changed_when: false
+      failed_when: false
+
+    - name: Check NetBox compose file exists
+      ansible.builtin.stat:
+        path: "{{ netbox_install_root }}/compose/docker-compose.yml"
+      register: _nb_compose
+
+    - name: Stop NetBox stack (docker compose down)
+      ansible.builtin.command:
+        cmd: >-
+          docker compose
+          --project-name "{{ netbox_compose_project }}"
+          --env-file "{{ netbox_install_root }}/compose/netbox.env"
+          -f "{{ netbox_install_root }}/compose/docker-compose.yml"
+          down -v --remove-orphans
+        chdir: "{{ netbox_install_root }}/compose"
+      when:
+        - _docker_cli.rc == 0
+        - _nb_compose.stat.exists
+      changed_when: true
+      failed_when: false
+
+    - name: Remove NetBox directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ netbox_install_root }}"
+        - "{{ netbox_data_root }}"
+      failed_when: false
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.ipam.netbox': 'absent'
+          } | to_json }}

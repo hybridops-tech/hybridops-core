@@ -1,0 +1,104 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "onprem/rke2-workloads@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem RKE2 + Workloads Bootstrap"
+  description: "Consume shared SDN/NetBox authority, build template image, provision RKE2 VMs, install RKE2, then bootstrap Argo CD root workloads app."
+  outcome: "RKE2 is ready and Argo CD root application points to workloads repo."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "netbox"
+
+steps:
+  - id: template_image_rocky9
+    module_ref: "core/onprem/template-image"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_key: "rocky-9"
+
+  - id: rke2_vms
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "rke2_vms"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - template_image_rocky9
+    contracts:
+      addressing_mode: "ipam"
+      requires_authority: "netbox"
+    inputs:
+      require_ipam: true
+      template_state_ref: "core/onprem/template-image"
+      template_key: "rocky-9"
+      ssh_username: "opsadmin"
+      addressing:
+        mode: "ipam"
+        ipam:
+          provider: "netbox"
+          network_state_ref: "core/onprem/network-sdn"
+      vms:
+        rke2-cp-01:
+          role: "rke2-control-plane"
+          interfaces:
+            - bridge: "vnetmgmt"
+        rke2-cp-02:
+          role: "rke2-control-plane"
+          interfaces:
+            - bridge: "vnetmgmt"
+        rke2-cp-03:
+          role: "rke2-control-plane"
+          interfaces:
+            - bridge: "vnetmgmt"
+        rke2-wkr-01:
+          role: "rke2-worker"
+          interfaces:
+            - bridge: "vnetmgmt"
+        rke2-wkr-02:
+          role: "rke2-worker"
+          interfaces:
+            - bridge: "vnetmgmt"
+
+  - id: rke2_cluster
+    module_ref: "platform/onprem/rke2-cluster"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - rke2_vms
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#rke2_vms"
+      ssh_proxy_jump_auto: true
+      inventory_vm_groups:
+        rke2_servers:
+          - rke2-cp-01
+          - rke2-cp-02
+          - rke2-cp-03
+        rke2_agents:
+          - rke2-wkr-01
+          - rke2-wkr-02
+
+  - id: gitops_workloads
+    module_ref: "platform/k8s/argocd-bootstrap"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - rke2_cluster
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      workloads_repo_url: "https://github.com/hybridops-studio/hybridops-workloads.git"
+      workloads_revision: "main"
+      workloads_target_path: "clusters/onprem"

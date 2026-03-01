@@ -1,0 +1,1 @@
+"""Init-time packaged assets."""

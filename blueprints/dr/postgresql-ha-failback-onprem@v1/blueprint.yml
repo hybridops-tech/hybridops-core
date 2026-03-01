@@ -1,0 +1,131 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "dr/postgresql-ha-failback-onprem@v1"
+mode: "hybrid"
+
+metadata:
+  title: "PostgreSQL HA DR Failback to On-Prem (pgBackRest restore)"
+  description: "Rebuild an on-prem Patroni + etcd PostgreSQL HA cluster on a shared SDN foundation and restore from a pgBackRest repository. This blueprint is intended for controlled failback after a cloud failover."
+  outcome: "On-prem PostgreSQL HA is restored from backups and publishes standard DB connection outputs."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: template_image_rocky9
+    module_ref: "core/onprem/template-image"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_key: "rocky-9"
+
+  - id: postgres_ha_vms
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "postgres_ha_vms"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - template_image_rocky9
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      require_ipam: false
+      template_state_ref: "core/onprem/template-image"
+      template_key: "rocky-9"
+      ssh_username: "opsadmin"
+      vms:
+        pg-01:
+          role: "postgres"
+          interfaces:
+            - bridge: "vnetmgmt"
+              ipv4:
+                address: "CHANGE_ME_PG01_IP_CIDR"   # e.g. 10.12.0.31/24
+                gateway: "CHANGE_ME_PG_GATEWAY"     # e.g. 10.12.0.1
+        pg-02:
+          role: "postgres"
+          interfaces:
+            - bridge: "vnetmgmt"
+              ipv4:
+                address: "CHANGE_ME_PG02_IP_CIDR"
+                gateway: "CHANGE_ME_PG_GATEWAY"
+        pg-03:
+          role: "postgres"
+          interfaces:
+            - bridge: "vnetmgmt"
+              ipv4:
+                address: "CHANGE_ME_PG03_IP_CIDR"
+                gateway: "CHANGE_ME_PG_GATEWAY"
+
+  - id: postgresql_restore
+    module_ref: "platform/onprem/postgresql-ha"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - postgres_ha_vms
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_requires_ipam: false
+      inventory_state_ref: "platform/onprem/platform-vm#postgres_ha_vms"
+      inventory_vm_groups:
+        etcd_cluster: ["pg-01", "pg-02", "pg-03"]
+        master: ["pg-01"]
+        replica: ["pg-02", "pg-03"]
+        postgres_cluster: ["pg-01", "pg-02", "pg-03"]
+
+      # Restore mode (guarded)
+      apply_mode: "restore"
+      restore_confirm: false
+      restore_target_time: ""
+      restore_delta: false
+
+      # pgBackRest repository source (state-driven, no bucket duplication)
+      repo_state_ref: "org/gcp/object-repo"
+      repo_path: "/pgbackrest"
+      gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+      gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+
+      required_env:
+        - "PATRONI_SUPERUSER_PASSWORD"
+        - "PATRONI_REPLICATION_PASSWORD"
+        - "NETBOX_DB_PASSWORD"
+        - "PG_BACKUP_GCS_SA_JSON"
+      load_vault_env: true
+
+  - id: postgresql_backup_config
+    module_ref: "platform/onprem/postgresql-ha-backup"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - postgresql_restore
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_requires_ipam: false
+      inventory_state_ref: "platform/onprem/platform-vm#postgres_ha_vms"
+      inventory_vm_groups:
+        etcd_cluster: ["pg-01", "pg-02", "pg-03"]
+        master: ["pg-01"]
+        replica: ["pg-02", "pg-03"]
+        postgres_cluster: ["pg-01", "pg-02", "pg-03"]
+
+      # Repository backend/location resolved from module state.
+      repo_state_ref: "org/gcp/object-repo"
+      repo_path: "/pgbackrest"
+      gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+      gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+      # Optional cross-cloud secondary backup copy (repo2).
+      # Keep disabled by default; enable based on decision policy.
+      secondary_enabled: false
+      secondary_repo_state_ref: ""
+      secondary_backend: ""
+      load_vault_env: true

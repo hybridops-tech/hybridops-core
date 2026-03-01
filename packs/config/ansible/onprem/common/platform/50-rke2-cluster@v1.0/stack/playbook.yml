@@ -1,0 +1,339 @@
+---
+- name: platform/onprem/rke2-cluster (validate inventory)
+  hosts: localhost
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Assert control-plane group exists
+      ansible.builtin.assert:
+        that:
+          - groups.get('rke2_servers', []) | length > 0
+        fail_msg: "inventory must define group 'rke2_servers' with at least one host"
+
+- name: platform/onprem/rke2-cluster (server play)
+  hosts: rke2_servers
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+  serial: 5
+
+  vars:
+    rke2_server_role_fqcn: "{{ rke2_server_role_fqcn | default(rke2_role_fqcn | default('rancherfederal.rke2_ansible.rke2_server')) }}"
+    rke2_role_vars: "{{ rke2_role_vars | default({}) }}"
+    rke2_token_env: "{{ rke2_token_env | default('RKE2_TOKEN') }}"
+    rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
+    rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
+
+  pre_tasks:
+    - name: Build role vars
+      no_log: true
+      vars:
+        _base_role_vars: "{{ (rke2_role_vars if (rke2_role_vars is mapping) else {}) }}"
+        _install_rke2_version_raw: "{{ (_base_role_vars.get('install_rke2_version', '') | string) }}"
+        _install_rke2_version_enc: "{{ _install_rke2_version_raw | regex_replace('\\+', '%2B') }}"
+        _base_rke2_images_urls: "{{ (_base_role_vars.get('rke2_images_urls', []) if (_base_role_vars.get('rke2_images_urls', []) is sequence and (_base_role_vars.get('rke2_images_urls', []) is not string)) else []) }}"
+        _custom_rke2_images_urls: "{{ (rke2_image_tarball_urls if (rke2_image_tarball_urls is sequence and (rke2_image_tarball_urls is not string)) else []) }}"
+        _auto_rke2_images_urls: >-
+          {{
+            [
+              'https://github.com/rancher/rke2/releases/download/' ~ _install_rke2_version_enc ~ '/rke2-images-core.linux-amd64.tar.zst',
+              'https://github.com/rancher/rke2/releases/download/' ~ _install_rke2_version_enc ~ '/rke2-images-canal.linux-amd64.tar.zst'
+            ]
+            if ((rke2_auto_image_tarballs | bool) and (_install_rke2_version_raw | length > 0))
+            else []
+          }}
+        _effective_rke2_images_urls: >-
+          {{
+            _custom_rke2_images_urls
+            if (_custom_rke2_images_urls | length > 0)
+            else (
+              _base_rke2_images_urls
+              if (_base_rke2_images_urls | length > 0)
+              else _auto_rke2_images_urls
+            )
+          }}
+      ansible.builtin.set_fact:
+        _hyops_rke2_role_vars: >-
+          {{
+            ({
+              'rke2_token': lookup('env', rke2_token_env),
+              'kubernetes_api_server_host': (
+                hostvars[(groups.get('rke2_servers', []) | first)].ansible_host
+                | default((groups.get('rke2_servers', []) | first))
+              )
+            }
+              | combine(_base_role_vars, recursive=True)
+              | combine(({'rke2_images_urls': _effective_rke2_images_urls} if (_effective_rke2_images_urls | length > 0) else {}), recursive=True))
+          }}
+      changed_when: false
+
+    - name: Ensure target image directory exists with executable perms
+      when:
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.file:
+        path: /var/lib/rancher/rke2/agent/images
+        state: directory
+        mode: "0755"
+
+    - name: Ensure local RKE2 image cache directory exists
+      run_once: true
+      delegate_to: localhost
+      become: false
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.file:
+        path: "{{ (hyops_outputs_file | dirname) ~ '/rke2-images' }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download RKE2 image tarballs on control node
+      run_once: true
+      delegate_to: localhost
+      become: false
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.get_url:
+        url: "{{ item }}"
+        dest: "{{ (hyops_outputs_file | dirname) ~ '/rke2-images/' ~ (item | regex_replace('^.*/', '')) }}"
+        mode: "0644"
+        force: false
+        timeout: "{{ (rke2_image_download_timeout_s | default(120)) | int }}"
+      loop: "{{ _hyops_rke2_role_vars.get('rke2_images_urls', []) }}"
+
+    - name: Copy staged RKE2 image tarballs to target hosts
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.copy:
+        src: "{{ (hyops_outputs_file | dirname) ~ '/rke2-images/' ~ (item | regex_replace('^.*/', '')) }}"
+        dest: "/var/lib/rancher/rke2/agent/images/{{ item | regex_replace('^.*/', '') }}"
+        mode: "0644"
+      loop: "{{ _hyops_rke2_role_vars.get('rke2_images_urls', []) }}"
+
+    - name: Disable role-side URL image downloads when staged from control node
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.set_fact:
+        _hyops_rke2_role_vars: "{{ _hyops_rke2_role_vars | combine({'rke2_images_urls': []}, recursive=True) }}"
+      changed_when: false
+
+    - name: Promote merged RKE2 vars into host vars
+      no_log: true
+      ansible.builtin.set_fact:
+        "{{ item.key }}": "{{ item.value }}"
+      loop: "{{ (_hyops_rke2_role_vars if (_hyops_rke2_role_vars is mapping) else {}) | dict2items }}"
+      changed_when: false
+
+  tasks:
+    - name: Run RKE2 server role
+      ansible.builtin.include_role:
+        name: "{{ rke2_server_role_fqcn }}"
+
+- name: platform/onprem/rke2-cluster (agent play)
+  hosts: rke2_agents
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+  serial: 10
+
+  vars:
+    rke2_agent_role_fqcn: "{{ rke2_agent_role_fqcn | default('rancherfederal.rke2_ansible.rke2_agent') }}"
+    rke2_role_vars: "{{ rke2_role_vars | default({}) }}"
+    rke2_token_env: "{{ rke2_token_env | default('RKE2_TOKEN') }}"
+    rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
+    rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
+
+  pre_tasks:
+    - name: Build role vars
+      no_log: true
+      vars:
+        _base_role_vars: "{{ (rke2_role_vars if (rke2_role_vars is mapping) else {}) }}"
+        _install_rke2_version_raw: "{{ (_base_role_vars.get('install_rke2_version', '') | string) }}"
+        _install_rke2_version_enc: "{{ _install_rke2_version_raw | regex_replace('\\+', '%2B') }}"
+        _base_rke2_images_urls: "{{ (_base_role_vars.get('rke2_images_urls', []) if (_base_role_vars.get('rke2_images_urls', []) is sequence and (_base_role_vars.get('rke2_images_urls', []) is not string)) else []) }}"
+        _custom_rke2_images_urls: "{{ (rke2_image_tarball_urls if (rke2_image_tarball_urls is sequence and (rke2_image_tarball_urls is not string)) else []) }}"
+        _auto_rke2_images_urls: >-
+          {{
+            [
+              'https://github.com/rancher/rke2/releases/download/' ~ _install_rke2_version_enc ~ '/rke2-images-core.linux-amd64.tar.zst',
+              'https://github.com/rancher/rke2/releases/download/' ~ _install_rke2_version_enc ~ '/rke2-images-canal.linux-amd64.tar.zst'
+            ]
+            if ((rke2_auto_image_tarballs | bool) and (_install_rke2_version_raw | length > 0))
+            else []
+          }}
+        _effective_rke2_images_urls: >-
+          {{
+            _custom_rke2_images_urls
+            if (_custom_rke2_images_urls | length > 0)
+            else (
+              _base_rke2_images_urls
+              if (_base_rke2_images_urls | length > 0)
+              else _auto_rke2_images_urls
+            )
+          }}
+      ansible.builtin.set_fact:
+        _hyops_rke2_role_vars: >-
+          {{
+            ({
+              'rke2_token': lookup('env', rke2_token_env),
+              'kubernetes_api_server_host': (
+                hostvars[(groups.get('rke2_servers', []) | first)].ansible_host
+                | default((groups.get('rke2_servers', []) | first))
+              )
+            }
+              | combine(_base_role_vars, recursive=True)
+              | combine(({'rke2_images_urls': _effective_rke2_images_urls} if (_effective_rke2_images_urls | length > 0) else {}), recursive=True))
+          }}
+      changed_when: false
+
+    - name: Ensure target image directory exists with executable perms
+      when:
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.file:
+        path: /var/lib/rancher/rke2/agent/images
+        state: directory
+        mode: "0755"
+
+    - name: Ensure local RKE2 image cache directory exists
+      run_once: true
+      delegate_to: localhost
+      become: false
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.file:
+        path: "{{ (hyops_outputs_file | dirname) ~ '/rke2-images' }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download RKE2 image tarballs on control node
+      run_once: true
+      delegate_to: localhost
+      become: false
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.get_url:
+        url: "{{ item }}"
+        dest: "{{ (hyops_outputs_file | dirname) ~ '/rke2-images/' ~ (item | regex_replace('^.*/', '')) }}"
+        mode: "0644"
+        force: false
+        timeout: "{{ (rke2_image_download_timeout_s | default(120)) | int }}"
+      loop: "{{ _hyops_rke2_role_vars.get('rke2_images_urls', []) }}"
+
+    - name: Copy staged RKE2 image tarballs to target hosts
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.copy:
+        src: "{{ (hyops_outputs_file | dirname) ~ '/rke2-images/' ~ (item | regex_replace('^.*/', '')) }}"
+        dest: "/var/lib/rancher/rke2/agent/images/{{ item | regex_replace('^.*/', '') }}"
+        mode: "0644"
+      loop: "{{ _hyops_rke2_role_vars.get('rke2_images_urls', []) }}"
+
+    - name: Disable role-side URL image downloads when staged from control node
+      when:
+        - (rke2_stage_images_from_controller | default(false)) | bool
+        - (_hyops_rke2_role_vars.get('rke2_images_urls', []) | length) > 0
+      ansible.builtin.set_fact:
+        _hyops_rke2_role_vars: "{{ _hyops_rke2_role_vars | combine({'rke2_images_urls': []}, recursive=True) }}"
+      changed_when: false
+
+    - name: Promote merged RKE2 vars into host vars
+      no_log: true
+      ansible.builtin.set_fact:
+        "{{ item.key }}": "{{ item.value }}"
+      loop: "{{ (_hyops_rke2_role_vars if (_hyops_rke2_role_vars is mapping) else {}) | dict2items }}"
+      changed_when: false
+
+  tasks:
+    - name: Run RKE2 agent role
+      ansible.builtin.include_role:
+        name: "{{ rke2_agent_role_fqcn }}"
+
+- name: platform/onprem/rke2-cluster (manifest play)
+  hosts: rke2_servers
+  any_errors_fatal: true
+  become: true
+  gather_facts: false
+  serial: 5
+
+  vars:
+    rke2_manifest_role_fqcn: "{{ rke2_manifest_role_fqcn | default('rancherfederal.rke2_ansible.cluster_manifest') }}"
+    rke2_role_vars: "{{ rke2_role_vars | default({}) }}"
+
+  pre_tasks:
+    - name: Promote merged RKE2 vars into host vars
+      no_log: true
+      ansible.builtin.set_fact:
+        "{{ item.key }}": "{{ item.value }}"
+      loop: "{{ ((rke2_role_vars if (rke2_role_vars is mapping) else {})) | dict2items }}"
+      changed_when: false
+
+  tasks:
+    - name: Run RKE2 cluster manifest role
+      ansible.builtin.include_role:
+        name: "{{ rke2_manifest_role_fqcn }}"
+
+- name: platform/onprem/rke2-cluster (publish outputs)
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  vars:
+    rke2_kubeconfig_out: "{{ rke2_kubeconfig_out | default('') }}"
+
+  tasks:
+    - name: Decide kubeconfig output path
+      ansible.builtin.set_fact:
+        _hyops_kubeconfig_out: >-
+          {{
+            (rke2_kubeconfig_out | string)
+            if (rke2_kubeconfig_out is string and (rke2_kubeconfig_out | length) > 0)
+            else (hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml')
+          }}
+      changed_when: false
+
+    - name: Fetch kubeconfig from primary server
+      delegate_to: "{{ (groups['rke2_servers'] | first) }}"
+      become: true
+      ansible.builtin.slurp:
+        src: /etc/rancher/rke2/rke2.yaml
+      register: _hyops_kubeconfig_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Ensure kubeconfig output directory exists
+      ansible.builtin.file:
+        path: "{{ _hyops_kubeconfig_out | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write kubeconfig locally
+      when: _hyops_kubeconfig_raw is defined and (_hyops_kubeconfig_raw.content | default('')) | length > 0
+      vars:
+        _primary: "{{ (groups['rke2_servers'] | first) }}"
+        _primary_ip: "{{ hostvars[_primary].ansible_host | default(_primary) }}"
+        _raw: "{{ (_hyops_kubeconfig_raw.content | b64decode) }}"
+      ansible.builtin.copy:
+        dest: "{{ _hyops_kubeconfig_out }}"
+        mode: "0600"
+        content: "{{ _raw | regex_replace('127\\.0\\.0\\.1', _primary_ip) }}"
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set servers = groups.get('rke2_servers', []) %}
+          {% set agents = groups.get('rke2_agents', []) %}
+          {% set kube = (_hyops_kubeconfig_out | default(hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml')) %}
+          {{ {
+            'kubeconfig_path': (kube | string),
+            'rke2_servers': (servers | list),
+            'rke2_agents': (agents | list),
+            'cap.k8s.rke2': 'ready'
+          } | to_json }}

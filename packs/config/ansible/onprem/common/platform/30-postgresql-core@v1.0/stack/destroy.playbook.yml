@@ -1,0 +1,71 @@
+---
+- name: platform/onprem/postgresql-core (destroy)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    db_name: "{{ db_name | default('netbox') }}"
+    db_user: "{{ db_user | default('netbox') }}"
+    apps: "{{ apps | default({}) }}"
+
+  tasks:
+    - name: Check psql CLI
+      ansible.builtin.command: psql --version
+      register: _psql_cli
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize app database definitions
+      ansible.builtin.set_fact:
+        _hyops_pg_apps: >-
+          {{
+            (apps
+              if (apps is mapping and (apps | length) > 0)
+              else {
+                'netbox': {
+                  'db_name': db_name,
+                  'db_user': db_user
+                }
+              }
+            )
+          }}
+        _hyops_pg_roles: "{{ (_hyops_pg_apps | dict2items | map(attribute='value.db_user') | list) | unique }}"
+      changed_when: false
+
+    - name: Drop databases (best-effort)
+      ansible.builtin.command: >-
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c
+        "DROP DATABASE IF EXISTS \"{{ item.value.db_name }}\";"
+      when: _psql_cli.rc == 0
+      loop: "{{ _hyops_pg_apps | dict2items }}"
+      changed_when: true
+      failed_when: false
+
+    - name: Drop users (best-effort)
+      ansible.builtin.command: >-
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c
+        "DROP ROLE IF EXISTS \"{{ item }}\";"
+      when: _psql_cli.rc == 0
+      loop: "{{ _hyops_pg_roles }}"
+      changed_when: true
+      failed_when: false
+
+    - name: Stop PostgreSQL service (best-effort)
+      ansible.builtin.systemd:
+        name: postgresql
+        state: stopped
+        enabled: false
+      failed_when: false
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.db.pgcore': 'absent'
+          } | to_json }}

@@ -1,0 +1,80 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/hetzner/wan-edge-foundation"
+
+metadata:
+  title: "Hetzner WAN Edge Foundation"
+  description: "Provision two Linux edge nodes, private network, firewall policy, and floating IPv4 for WAN edge operations."
+
+requirements:
+  credentials: ["hetzner"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    location: "nbg1"
+    home_location: "nbg1"
+    network_zone: "eu-central"
+
+    server_type: "cx23"
+    image: "ubuntu-24.04"
+
+    edge01_name: "edge-01"
+    edge02_name: "edge-02"
+
+    ssh_key_name: "ssh-edge-wan"
+    ssh_public_key: ""
+
+    firewall_name: "fw-edge-wan"
+    floating_ip_name: "fip-edge-wan"
+    floating_ip_type: "ipv4"
+
+    private_network_name: "net-edge-wan"
+    private_network_cidr: "10.80.0.0/24"
+    edge01_private_ip: "10.80.0.11"
+    edge02_private_ip: "10.80.0.12"
+
+    assign_floating_to: "edge01"
+
+    ssh_source_cidrs:
+      - "0.0.0.0/0"
+    ipsec_source_cidrs:
+      - "0.0.0.0/0"
+
+    labels: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "hetzner@v1.0"
+  pack_ref:
+    id: "hetzner/org/20-wan-edge-foundation@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-hetzner"
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - edge01_name
+    - edge02_name
+    - edge01_id
+    - edge02_id
+    - edge01_public_ip
+    - edge02_public_ip
+    - edge01_private_ip
+    - edge02_private_ip
+    - floating_ipv4
+    - floating_target
+    - private_network_id
+    - private_network_cidr
+    - vms
+    - ipv4_configured_primary
+    - ipv4_addresses_all
+
+probes: []
+constraints: []

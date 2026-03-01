@@ -1,0 +1,60 @@
+---
+# purpose: Install and configure PostgreSQL via upstream role
+# adr: ADR-0101, ADR-0103
+# maintainer: HybridOps.Studio
+
+- name: Validate inputs
+  ansible.builtin.include_tasks: validate.yml
+
+- name: Build upstream postgresql.conf options
+  ansible.builtin.set_fact:
+    _hybridops_postgres_conf:
+      - option: port
+        value: "{{ hybridops_postgres_port }}"
+      - option: listen_addresses
+        value: "{{ hybridops_postgres_listen_addresses | join(',') }}"
+      - option: log_directory
+        value: "{{ hybridops_postgres_log_dir }}"
+  changed_when: false
+
+- name: Build HBA host rules from allowed clients
+  ansible.builtin.set_fact:
+    _hybridops_postgres_hba_host_rules: >-
+      {{
+        (_hybridops_postgres_hba_host_rules | default([]))
+        + [{
+          'type': 'host',
+          'database': item.database,
+          'user': item.user,
+          'address': item.cidr,
+          'auth_method': hybridops_postgres_auth_method
+        }]
+      }}
+  loop: "{{ hybridops_postgres_allowed_clients }}"
+  when: (hybridops_postgres_allowed_clients | length) > 0
+  changed_when: false
+
+- name: Assemble final HBA entries
+  ansible.builtin.set_fact:
+    _hybridops_postgres_hba_entries: >-
+      {{ hybridops_postgres_hba_local_defaults + (_hybridops_postgres_hba_host_rules | default([])) }}
+  changed_when: false
+
+- name: Run upstream PostgreSQL role
+  ansible.builtin.include_role:
+    name: geerlingguy.postgresql
+  vars:
+    postgresql_version: "{{ hybridops_postgres_version | default(omit) }}"
+    postgresql_service_state: "{{ hybridops_postgres_service_state }}"
+    postgresql_service_enabled: "{{ hybridops_postgres_service_enabled }}"
+    postgresql_log_dir: "{{ hybridops_postgres_log_dir }}"
+    postgresql_global_config_options: "{{ _hybridops_postgres_conf + hybridops_postgres_extra_conf }}"
+    postgresql_hba_entries: "{{ _hybridops_postgres_hba_entries }}"
+    postgresql_databases: "{{ hybridops_postgres_databases }}"
+    postgresql_users: "{{ hybridops_postgres_users }}"
+    postgresql_privs: "{{ hybridops_postgres_privs }}"
+    postgres_users_no_log: "{{ hybridops_postgres_users_no_log }}"
+
+- name: Evidence
+  ansible.builtin.include_tasks: evidence.yml
+  when: hybridops_evidence_enabled | bool

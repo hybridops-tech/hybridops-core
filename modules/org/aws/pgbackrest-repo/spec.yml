@@ -1,0 +1,56 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/aws/pgbackrest-repo"
+
+metadata:
+  title: "AWS pgBackRest Repository (S3 Bucket + IAM User)"
+  description: "Provisions an S3 bucket and a dedicated IAM user for pgBackRest backups. Specialized wrapper over org/aws/object-repo defaults."
+
+requirements:
+  credentials: ["aws"]
+
+inputs:
+  defaults:
+    aws_region: "us-east-1"
+    bucket_name: ""
+
+    # Bucket hardening / lifecycle
+    force_destroy: false
+    versioning_enabled: true
+    lifecycle_delete_age_days: 0
+
+    # Server-side encryption: AES256 (default) or aws:kms
+    sse_algorithm: "AES256"
+    kms_key_arn: ""
+
+    # IAM principal used by pgBackRest clients.
+    # NOTE: access keys are intentionally created out-of-band.
+    iam_user_name: "pgbackrest"
+
+    tags: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "aws@v1.0"
+  pack_ref:
+    id: "aws/org/10-pgbackrest-repo@v1.0"
+
+outputs:
+  publish:
+    # Normalized cross-provider contract
+    - repo_backend
+    - repo_provider
+    - repo_bucket_name
+    - repo_region
+    - repo_principal_type
+    - repo_principal_name
+    - repo_credential_create_hint
+    # Legacy aliases retained for compatibility
+    - bucket_name
+    - aws_region
+    - iam_user_name
+    - access_key_hint
+
+probes: []
+constraints: []

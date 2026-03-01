@@ -1,0 +1,70 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/gcp/platform-vm"
+
+metadata:
+  title: "GCP Platform VM (Generic)"
+  description: "Creates or converges one or more generic GCP Compute Engine VMs using Terragrunt. Does not configure the OS."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    # Naming (used by HyOps workspace naming and resource prefixing).
+    name_prefix: ""
+    context_id: ""
+    project_state_ref: ""
+    project_id: "" # optional override; defaults to env credentials tfvars project_id
+
+    # Location / network
+    zone: "" # required
+    network_state_ref: ""
+    network: "default"
+    subnetwork: "" # optional (empty => let GCP pick default subnet for the zone)
+    subnetwork_output_key: "" # optional state output selector, e.g. subnet_workloads_name
+
+    # VM defaults
+    machine_type: "e2-standard-2"
+    boot_disk_size_gb: 40
+    boot_disk_type: "pd-balanced"
+    source_image_project: "rocky-linux-cloud"
+    source_image_family: "rocky-linux-9"
+    assign_public_ip: false
+
+    # SSH access
+    ssh_username: "opsadmin"
+    ssh_keys_from_init: true
+    ssh_keys_init_target: "gcp"
+    ssh_keys: [] # optional when ssh_keys_from_init=true and init readiness publishes a public key
+
+    tags: ["platform", "gcp", "vm"]
+    labels: {}
+
+    # VM pool (must be non-empty)
+    vms: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/platform/10-platform/00-platform-vm@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - vms
+    - vm_ids
+    - vm_names
+    - zones
+    - ipv4_addresses
+    - ipv4_addresses_all
+    - tags
+
+probes: []
+constraints: []

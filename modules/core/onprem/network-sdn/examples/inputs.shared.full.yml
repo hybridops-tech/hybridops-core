@@ -1,0 +1,120 @@
+# Shared SDN foundation (recommended canonical topology for a Proxmox site/cluster).
+# Apply with:
+#   hyops apply --env shared --module core/onprem/network-sdn \
+#     --inputs modules/core/onprem/network-sdn/examples/inputs.shared.full.yml
+#
+# VLAN layout follows ADR-0101 (VLAN Allocation Strategy):
+# - 10 mgmt
+# - 11 observability
+# - 12 shared services/data
+# - 20 dev
+# - 21 dev data tier (enterprise refinement)
+# - 30 staging
+# - 31 staging data tier (enterprise refinement)
+# - 40 prod
+# - 41 prod data tier (enterprise refinement)
+# - 50 lab
+
+zone_name: "hybzone"
+zone_bridge: "vmbr0"
+uplink_interface: "vmbr0"
+
+enable_snat: true
+enable_host_l3: true
+enable_dhcp: true
+
+dns_domain: "hybridops.local"
+dns_lease: "24h"
+
+vnets:
+  vnetmgmt:
+    vlan_id: 10
+    description: "Management network"
+    subnets:
+      submgmt:
+        cidr: "10.10.0.0/24"
+        gateway: "10.10.0.1"
+        dhcp_range_start: "10.10.0.120"
+        dhcp_range_end: "10.10.0.220"
+        dhcp_dns_server: "8.8.8.8"
+
+  vnetobs:
+    vlan_id: 11
+    description: "Observability network"
+    subnets:
+      subobs:
+        cidr: "10.11.0.0/24"
+        gateway: "10.11.0.1"
+        dhcp_range_start: "10.11.0.120"
+        dhcp_range_end: "10.11.0.220"
+        dhcp_dns_server: "8.8.8.8"
+
+  vnetdata:
+    vlan_id: 12
+    description: "Shared services / data tier (PostgreSQL, Redis, platform deps)"
+    subnets:
+      subdata:
+        cidr: "10.12.0.0/24"
+        gateway: "10.12.0.1"
+        dhcp_range_start: "10.12.0.120"
+        dhcp_range_end: "10.12.0.220"
+        dhcp_dns_server: "8.8.8.8"
+
+  vnetdev:
+    vlan_id: 20
+    description: "Development network"
+    subnets:
+      subdev:
+        cidr: "10.20.0.0/24"
+        gateway: "10.20.0.1"
+
+  vnetddev:
+    vlan_id: 21
+    description: "Development data tier network"
+    subnets:
+      subddev:
+        cidr: "10.21.0.0/24"
+        gateway: "10.21.0.1"
+
+  vnetstag:
+    vlan_id: 30
+    description: "Staging network"
+    subnets:
+      substag:
+        cidr: "10.30.0.0/24"
+        gateway: "10.30.0.1"
+
+  vnetdstg:
+    vlan_id: 31
+    description: "Staging data tier network"
+    subnets:
+      subdstg:
+        cidr: "10.31.0.0/24"
+        gateway: "10.31.0.1"
+
+  vnetprod:
+    vlan_id: 40
+    description: "Production network"
+    subnets:
+      subprod:
+        cidr: "10.40.0.0/24"
+        gateway: "10.40.0.1"
+
+  vnetdprd:
+    vlan_id: 41
+    description: "Production data tier network"
+    subnets:
+      subdprd:
+        cidr: "10.41.0.0/24"
+        gateway: "10.41.0.1"
+
+  vnetlab:
+    vlan_id: 50
+    description: "Lab network"
+    subnets:
+      sublab:
+        cidr: "10.50.0.0/24"
+        gateway: "10.50.0.1"
+        dhcp_range_start: "10.50.0.120"
+        dhcp_range_end: "10.50.0.220"
+        dhcp_dns_server: "8.8.8.8"

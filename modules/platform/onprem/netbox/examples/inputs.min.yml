@@ -1,0 +1,14 @@
+# Minimal NetBox config example.
+# Secrets are supplied via env/vault:
+#   - NETBOX_DB_PASSWORD
+#   - NETBOX_SECRET_KEY
+#   - NETBOX_SUPERUSER_PASSWORD
+#   - NETBOX_API_TOKEN
+
+# Recommended: load required_env from runtime vault (hyops secrets ensure ...).
+load_vault_env: true
+
+target_host: "10.12.0.11"
+
+# Minimal state-driven DB contract (preferred).
+db_state_ref: "platform/onprem/postgresql-ha"

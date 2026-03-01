@@ -1,0 +1,24 @@
+# Example explicit apply mode (manual-command provider).
+
+inventory_groups:
+  edge_control:
+    - name: edge01
+      host: 198.51.100.10
+
+provider: manual-command
+zone: example.com
+record_fqdn: app.example.com
+record_type: A
+ttl: 60
+
+primary_targets:
+  - 203.0.113.10
+secondary_targets:
+  - 198.51.100.20
+
+desired: secondary
+dry_run: false
+dns_apply: true
+
+# Example only: replace with your DNS automation command.
+provider_command: "/usr/local/bin/hyops-dns-update.sh"

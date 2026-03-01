@@ -1,0 +1,12 @@
+---
+- name: org/gcp/cloudsql-external-replica (destroy)
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {'cap.db.managed_external_replica': 'destroyed'} | to_json }}

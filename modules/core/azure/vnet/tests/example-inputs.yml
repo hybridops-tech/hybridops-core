@@ -1,0 +1,11 @@
+name_prefix: hyops
+context_id: core
+vnet_name: vnet-hyops-core
+resource_group_name: rg-hyops-core
+location: uksouth
+address_space:
+  - 10.60.0.0/16
+dns_servers: []
+tags:
+  project: hybridops
+  managed_by: hyops

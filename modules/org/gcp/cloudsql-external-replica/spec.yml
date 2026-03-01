@@ -1,0 +1,110 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/cloudsql-external-replica"
+
+metadata:
+  title: "GCP Cloud SQL External Replica (Assessment)"
+  description: "Assess readiness for a managed Cloud SQL PostgreSQL replication lane using an on-prem DR source contract and an existing Cloud SQL target."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    apply_mode: "assess" # assess|establish|status
+    replication_mode: "logical"
+    source_contract_version: 1
+
+    source_state_ref: "platform/onprem/postgresql-dr-source"
+    source_contract: {}
+    source_host: ""
+    source_port: 5432
+    source_db_name: ""
+    source_db_user: ""
+    source_leader_name: ""
+    source_leader_host: ""
+    source_export_ready: false
+    source_replication_candidate: false
+    source_replication_user: ""
+    source_replication_password_env: "PG_REPLICATION_PASSWORD"
+    source_ssl_type: "NONE"
+    source_ca_certificate_env: ""
+    source_client_certificate_env: ""
+    source_private_key_env: ""
+
+    project_state_ref: ""
+    project_id: ""
+    network_state_ref: ""
+    private_network: ""
+    network_project_id: ""
+    region: "europe-west2"
+
+    managed_target_state_ref: "org/gcp/cloudsql-postgresql"
+    target_project_id: ""
+    target_region: ""
+    target_instance_name: ""
+    target_db_host: ""
+    target_connection_name: ""
+    source_connection_profile_name: ""
+    destination_connection_profile_name: ""
+    migration_job_name: ""
+    migration_job_type: "CONTINUOUS"
+    start_migration_job: true
+    migration_objects_mode: "single-database" # single-database|all-databases
+    destination_database_version: "POSTGRES_16"
+    destination_tier: "db-custom-2-8192"
+    destination_edition: "ENTERPRISE"
+    destination_availability_type: "REGIONAL"
+    destination_enable_ipv4: false
+    destination_allocated_ip_range_name: ""
+    destination_root_password_env: ""
+    connectivity_mode: "static-ip" # static-ip|peer-vpc|reverse-ssh
+    reverse_ssh_vm: ""
+    reverse_ssh_vm_ip: ""
+    reverse_ssh_vm_port: 0
+    reverse_ssh_vpc: ""
+
+    gcloud_bin: "gcloud"
+    gcloud_copy_default_config: true
+    gcloud_runtime_config_dir: ""
+    gcloud_active_account: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "gcp/org/12-cloudsql-external-replica@v1.0"
+
+outputs:
+  publish:
+    - target_project_id
+    - target_region
+    - target_instance_name
+    - target_db_host
+    - target_connection_name
+    - source_host
+    - source_port
+    - source_leader_name
+    - source_replication_candidate
+    - source_connection_profile_name
+    - destination_connection_profile_name
+    - migration_job_name
+    - migration_job_state
+    - connectivity_mode
+    - managed_replication_mode
+    - managed_replication_prereqs_ready
+    - managed_replication_established
+    - cap.db.managed_external_replica
+
+probes: []
+constraints: []

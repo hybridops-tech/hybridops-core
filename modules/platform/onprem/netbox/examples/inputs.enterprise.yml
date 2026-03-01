@@ -1,0 +1,21 @@
+# Enterprise NetBox config example.
+# Secrets are supplied via env/vault:
+#   - NETBOX_DB_PASSWORD
+#   - NETBOX_SECRET_KEY
+#   - NETBOX_SUPERUSER_PASSWORD
+#   - NETBOX_API_TOKEN
+
+load_vault_env: true
+
+target_host: "10.12.0.11"
+target_user: "opsadmin"
+ssh_private_key_file: "~/.ssh/id_ed25519"
+
+netbox_version: "v4.1.7"
+netbox_http_host_port: 8000
+netbox_hostname: "netbox"
+netbox_domain: "corp.example"
+install_docker_engine: true
+
+# Enterprise state-driven DB contract (HA).
+db_state_ref: "platform/onprem/postgresql-ha"

@@ -1,0 +1,127 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/wan-hub-edge@v1"
+mode: "hybrid"
+
+metadata:
+  title: "WAN Hub to Edge (GCP + Hetzner)"
+  description: "Provision WAN edge foundation on Hetzner and establish GCP hub network/router/HA-VPN BGP connectivity."
+  outcome: "BGP control plane between GCP Cloud Router and edge peers is established for staged route exchange."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: hetzner_edge_foundation
+    module_ref: "org/hetzner/wan-edge-foundation"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      location: "nbg1"
+      home_location: "nbg1"
+      network_zone: "eu-central"
+      edge01_name: "edge-a"
+      edge02_name: "edge-b"
+      ssh_key_name: "hyops-wan-edge"
+      ssh_public_key: "ssh-ed25519 CHANGE_ME"
+      firewall_name: "fw-hyops-edge"
+      floating_ip_name: "fip-hyops-edge"
+      private_network_name: "net-hyops-edge"
+      private_network_cidr: "10.80.0.0/24"
+      edge01_private_ip: "10.80.0.11"
+      edge02_private_ip: "10.80.0.12"
+      assign_floating_to: "edge01"
+
+  - id: gcp_wan_hub_network
+    module_ref: "org/gcp/wan-hub-network"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      project_id: "change-me-gcp-project"
+      region: "europe-west2"
+      network_name: "hybridops-hub"
+      subnet_core_name: "hub-core"
+      subnet_core_cidr: "10.70.0.0/20"
+      subnet_workloads_name: "hub-workloads"
+      subnet_workloads_cidr: "10.70.16.0/20"
+
+  - id: gcp_wan_cloud_router
+    module_ref: "org/gcp/wan-cloud-router"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - gcp_wan_hub_network
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      router_name: "hybridops-hub-router-europe-west2"
+      bgp_asn: 64514
+
+  - id: gcp_wan_vpn_to_edge
+    module_ref: "org/gcp/wan-vpn-to-edge"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - hetzner_edge_foundation
+      - gcp_wan_hub_network
+      - gcp_wan_cloud_router
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      ha_vpn_gateway_name: "hybridops-hub-havpn-europe-west2"
+      external_vpn_gateway_name: "hybridops-edge-extgw"
+      peer_asn: 65010
+      tunnel_a_inside_cidr: "169.254.10.0/30"
+      tunnel_b_inside_cidr: "169.254.10.4/30"
+      advertised_prefixes:
+        - "10.70.0.0/20"
+      advertised_route_priority: 100
+      shared_secret_a: "CHANGE_ME_PSK_A"
+      shared_secret_b: "CHANGE_ME_PSK_B"
+
+  - id: wan_edge_config
+    module_ref: "platform/network/wan-edge"
+    action: "deploy"
+    phase: "operations"
+    with_deps: true
+    requires:
+      - hetzner_edge_foundation
+      - gcp_wan_vpn_to_edge
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "org/hetzner/wan-edge-foundation"
+      inventory_vm_groups:
+        wan_edge:
+          - "edge01"
+          - "edge02"
+
+      edge01_vm_key: "edge01"
+      edge02_vm_key: "edge02"
+
+      # Set WAN_IPSEC_PSK in env/vault before apply.
+      required_env:
+        - "WAN_IPSEC_PSK"
+
+      # Example policy prefixes (adjust to your topology).
+      wan_bgp_local_as: 65010
+      wan_bgp_peer_as: 64514
+      advertise_prefixes:
+        - "10.80.0.0/24"
+      import_allow_prefixes:
+        - "10.70.0.0/20"
+      export_allow_prefixes:
+        - "10.80.0.0/24"

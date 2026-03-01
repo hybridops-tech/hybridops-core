@@ -1,0 +1,74 @@
+# purpose: Defaults for wan_edge role (strongSwan swanctl + VTI + FRR BGP)
+# maintainer: HybridOps.Studio
+
+wan_pub_if: ""
+
+wan_public_local_ip: ""
+wan_public_peer_ip: ""
+
+wan_public_aliases: []
+
+wan_loopbacks: []
+
+wan_tunnels: []
+
+wan_ipsec:
+  psk: ""
+  proposals: "aes256-sha256-modp2048"
+  esp_proposals: "aes256-sha256"
+  dpd_delay: "30s"
+  dpd_timeout: "120s"
+  start_action: "start"
+  close_action: "restart"
+  dpd_action: "restart"
+
+wan_bgp:
+  local_as: 65010
+  peer_as: 64514
+  router_id: ""
+  neighbors: []
+  advertise: []
+  import_allow: []
+  export_allow: []
+
+# Hub/transit settings
+wan_bgp_transit: false
+wan_bgp_peer_groups: []
+# Example:
+# wan_bgp_peer_groups:
+#   - name: ONPREM
+#     remote_as: 65010
+#     neighbors: ["169.254.10.1", "169.254.10.5"]
+#   - name: AZURE
+#     remote_as: 65020
+#     neighbors: ["169.254.20.2", "169.254.20.6"]
+
+# Per-tunnel PSK override (for multi-cloud with different PSKs)
+wan_ipsec_psk_map: {}
+# Example:
+# wan_ipsec_psk_map:
+#   onprem_a: "{{ vault_onprem_psk }}"
+#   azure_a: "{{ vault_azure_psk }}"
+
+wan_packages:
+  - strongswan
+  - strongswan-swanctl
+  - strongswan-starter
+  - frr
+  - frr-pythontools
+  - tcpdump
+  - iproute2
+
+wan_wait_for_tunnels: false
+wan_initiate_retries: 3
+wan_initiate_delay: 5
+
+wan_charon_conf_path: "/etc/strongswan.d/charon/90-wan.conf"
+wan_swanctl_conf_path: "/etc/swanctl/swanctl.conf"
+wan_frr_conf_path: "/etc/frr/frr.conf"
+wan_frr_daemons_path: "/etc/frr/daemons"
+
+wan_sysctls:
+  - { key: "net.ipv4.ip_forward", value: "1" }
+  - { key: "net.ipv4.conf.all.rp_filter", value: "0" }
+  - { key: "net.ipv4.conf.default.rp_filter", value: "0" }

@@ -1,0 +1,20 @@
+inventory_state_ref: "platform/gcp/platform-vm#gcp_ops_runner"
+inventory_vm_groups:
+  runner:
+    - "runner-01"
+
+target_user: "opsadmin"
+target_port: 22
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_access_mode: "gcp-iap"
+connectivity_wait_s: 60
+
+runner_release_root: ""
+runner_release_archive_url: ""
+runner_release_archive_sha256: ""
+runner_install_prefix: "/opt/hybridops/core"
+runner_system_link: true
+runner_setup_base: true
+runner_setup_ansible: true
+runner_setup_cloud_gcp: true
+runner_setup_cloud_azure: false

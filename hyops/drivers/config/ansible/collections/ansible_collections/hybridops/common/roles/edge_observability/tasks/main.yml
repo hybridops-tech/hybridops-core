@@ -1,0 +1,171 @@
+---
+# purpose: Install and manage edge observability services via Docker Compose
+# maintainer: HybridOps.Studio
+
+- name: Preflight | assert supported state
+  ansible.builtin.assert:
+    that:
+      - edge_obs_state in ["present", "absent"]
+    fail_msg: "edge_obs_state must be 'present' or 'absent'"
+
+- name: Preflight | assert objstore config is present when required
+  ansible.builtin.assert:
+    that:
+      - (edge_obs_objstore_config | default('') | length) > 0
+    fail_msg: "edge_obs_objstore_config is required when Thanos uses object storage"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_receive or edge_obs_enable_store_gateway or edge_obs_enable_ruler
+
+- name: Preflight | assert hashring endpoints when receive enabled
+  ansible.builtin.assert:
+    that:
+      - (edge_obs_hashring_endpoints | default([]) | length) > 0
+    fail_msg: "edge_obs_hashring_endpoints must include at least one receiver endpoint"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_receive
+
+- name: Preflight | compute query upstreams when empty
+  ansible.builtin.set_fact:
+    edge_obs_query_upstreams_effective: >-
+      {{ (edge_obs_query_upstreams | length > 0)
+          | ternary(edge_obs_query_upstreams,
+              ( (edge_obs_enable_receive | ternary(['thanos-receive:10901'], []))
+                + (edge_obs_enable_store_gateway | ternary(['thanos-store-gateway:10901'], []))
+              )
+            )
+      }}
+  when: edge_obs_state == "present"
+
+- name: Stop edge observability (absent)
+  ansible.builtin.service:
+    name: edge-observability
+    state: stopped
+    enabled: false
+  when: edge_obs_state == "absent"
+  failed_when: false
+
+- name: Remove edge observability files (absent)
+  ansible.builtin.file:
+    path: "{{ edge_obs_root }}"
+    state: absent
+  when: edge_obs_state == "absent"
+
+- name: Ensure base directories (present)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ edge_obs_root }}"
+    - "{{ edge_obs_config_dir }}"
+    - "{{ edge_obs_data_dir }}"
+    - "{{ edge_obs_logs_dir }}"
+  when: edge_obs_state == "present"
+
+- name: Write Grafana env file
+  ansible.builtin.copy:
+    dest: "{{ edge_obs_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      GF_SECURITY_ADMIN_USER={{ edge_obs_grafana_admin_user }}
+      GF_SECURITY_ADMIN_PASSWORD={{ edge_obs_grafana_admin_password }}
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_grafana
+  notify: Restart edge observability
+
+- name: Render objstore config
+  ansible.builtin.template:
+    src: objstore.yml.j2
+    dest: "{{ edge_obs_config_dir }}/objstore.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  when: edge_obs_state == "present"
+  notify: Restart edge observability
+
+- name: Render hashring config
+  ansible.builtin.template:
+    src: hashring.json.j2
+    dest: "{{ edge_obs_config_dir }}/hashring.json"
+    owner: root
+    group: root
+    mode: "0640"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_receive
+  notify: Restart edge observability
+
+- name: Render Grafana datasource provisioning
+  ansible.builtin.template:
+    src: grafana-datasources.yaml.j2
+    dest: "{{ edge_obs_config_dir }}/grafana-datasources.yaml"
+    owner: root
+    group: root
+    mode: "0640"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_grafana
+  notify: Restart edge observability
+
+- name: Render Alertmanager config
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: "{{ edge_obs_config_dir }}/alertmanager.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_alertmanager
+  notify: Restart edge observability
+
+- name: Render Thanos Ruler rules
+  ansible.builtin.template:
+    src: thanos-rules.yaml.j2
+    dest: "{{ edge_obs_config_dir }}/rules.yaml"
+    owner: root
+    group: root
+    mode: "0640"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_ruler
+  notify: Restart edge observability
+
+- name: Render docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ edge_obs_compose_path }}"
+    owner: root
+    group: root
+    mode: "0640"
+  when: edge_obs_state == "present"
+  notify: Restart edge observability
+
+- name: Render systemd service
+  ansible.builtin.template:
+    src: edge-observability.service.j2
+    dest: /etc/systemd/system/edge-observability.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: edge_obs_state == "present"
+  notify: Restart edge observability
+
+- name: Systemd | reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: edge_obs_state == "present"
+
+- name: Ensure edge observability service is enabled and started
+  ansible.builtin.service:
+    name: edge-observability
+    state: started
+    enabled: true
+  when: edge_obs_state == "present"

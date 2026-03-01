@@ -1,0 +1,2 @@
+"""GCP platform validators."""
+

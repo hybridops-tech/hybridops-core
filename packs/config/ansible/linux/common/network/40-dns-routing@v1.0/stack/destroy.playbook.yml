@@ -1,0 +1,35 @@
+---
+- name: platform/network/dns-routing (destroy)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: true
+  gather_facts: false
+
+  vars:
+    dns_role_fqcn: "{{ dns_role_fqcn | default('hybridops.common.dns_routing') }}"
+    dns_state: "absent"
+
+  tasks:
+    - name: Run DNS routing role (absent)
+      ansible.builtin.include_role:
+        name: "{{ dns_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'dns.status': 'absent',
+            'dns.provider': '',
+            'dns.zone': '',
+            'dns.record_fqdn': '',
+            'dns.record_type': '',
+            'dns.desired': '',
+            'dns.targets': [],
+            'cap.network.dns_routing': 'absent'
+          } | to_json }}

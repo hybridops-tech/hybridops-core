@@ -1,0 +1,3 @@
+kubeconfig_path: "~/.hybridops/envs/dev/state/kubeconfigs/rke2.yaml"
+workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
+workloads_target_path: "clusters/onprem-stage1"

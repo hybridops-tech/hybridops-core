@@ -1,0 +1,203 @@
+# postgresql_service
+
+Wrapper role that installs and configures PostgreSQL using the upstream `geerlingguy.postgresql` role, enforcing HybridOps.Studio defaults, a stable variable schema, and optional evidence capture.
+
+This role targets shared services and data-tier PostgreSQL deployments consumed by multiple workloads (VMs and Kubernetes).
+
+## Architecture alignment (HybridOps.Studio)
+
+This role implements the PostgreSQL “shared state tier” pattern used in HybridOps.Studio:
+
+- [ADR-0501 — PostgreSQL on dedicated VM with DR replication](https://docs.hybridops.studio/adr/ADR-0501-postgresql-on-dedicated-vm-with-dr-replication/) — primary deployment model (VM outside Kubernetes).
+- [ADR-0101 — VLAN Allocation Strategy](https://docs.hybridops.studio/adr/ADR-0101-vlan-allocation-strategy/) and [ADR-0103 — Inter-VLAN Firewall Policy](https://docs.hybridops.studio/adr/ADR-0103-inter-vlan-firewall-policy/) — data-tier segmentation supported via `listen_addresses` + allowlisted `pg_hba.conf` (routing/firewall enforcement is out of scope).
+- [ADR-0020 — Secrets Strategy (AKV now; SOPS fallback; Vault later)](https://docs.hybridops.studio/adr/ADR-0020-secrets-strategy-akv-now-sops-fallback-vault-later/) and [ADR-0502 — ESO + AKV for Kubernetes secrets](https://docs.hybridops.studio/adr/ADR-0502-external-secrets-operator-akv/) — secret values are supplied by the caller; Kubernetes workloads should consume secrets via ESO/AKV, while VM provisioning uses a VM-side secret feed.
+
+> Note: ADR references are specific to HybridOps.Studio. The role remains usable as a general-purpose PostgreSQL wrapper.
+
+## Purpose and scope
+
+### Included
+
+- Install and configure PostgreSQL via `geerlingguy.postgresql`.
+- Enforce secure-by-default behaviour:
+  - Localhost-only listen by default.
+  - Remote listen requires an explicit allowlist.
+  - SCRAM authentication default for generated TCP host rules.
+- Create databases, users, and privileges when configured.
+- Optionally capture evidence artefacts (service status and readiness).
+
+### Excluded
+
+- Network and firewall policy (inter-VLAN rules are enforced elsewhere).
+- Backups, PITR, and replication (implemented as separate roles/phases).
+- Application deployment (NetBox and other services are out of scope).
+
+## Dependencies
+
+### Galaxy role dependency
+
+- `geerlingguy.postgresql` (Ansible Galaxy role)
+  - Galaxy: [geerlingguy.postgresql on Ansible Galaxy](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/postgresql/)
+  - Source: [geerlingguy/ansible-role-postgresql](https://github.com/geerlingguy/ansible-role-postgresql)
+
+Install role dependencies from the collection root:
+
+```bash
+ansible-galaxy role install -r requirements.yml
+```
+
+### Python dependencies
+
+The upstream role uses the PostgreSQL Python driver for user/database management. Ensure a suitable driver exists on targets (for example `python3-psycopg2`), or allow the upstream role to install it where supported.
+
+## Requirements
+
+- Ansible 2.14+
+- Supported platforms (validated):
+  - Rocky Linux 9+
+  - Ubuntu 22.04+
+
+## Variables
+
+### Core
+
+- `hybridops_postgres_version` (default: `null`)  
+  PostgreSQL major version. When `null`, upstream defaults apply.
+
+- `hybridops_postgres_port` (default: `5432`)  
+  PostgreSQL port.
+
+- `hybridops_postgres_listen_addresses` (default: `["127.0.0.1"]`)  
+  Addresses PostgreSQL listens on. Add a data-tier IP to accept remote clients.
+
+- `hybridops_postgres_log_dir` (default: `"log"`)  
+  `log_directory` value applied to `postgresql.conf`. Use a relative directory (recommended) unless an OS-specific absolute path is required.
+
+### Access control
+
+- `hybridops_postgres_auth_method` (default: `"scram-sha-256"`)  
+  Auth method used for generated TCP host rules.
+
+- `hybridops_postgres_allowed_clients` (default: `[]`)  
+  Declarative allowlist used to generate host-based `pg_hba.conf` rules.
+
+Schema:
+
+```yaml
+hybridops_postgres_allowed_clients:
+  - { database: "netbox", user: "netbox", cidr: "10.12.0.20/32" }
+  - { database: "all",   user: "all",   cidr: "10.20.0.11/32" }
+```
+
+Guardrail:
+
+- When `hybridops_postgres_listen_addresses` includes non-local addresses, `hybridops_postgres_allowed_clients` must be non-empty.
+
+### Databases, users, privileges
+
+- `hybridops_postgres_databases` (default: `[]`)  
+  List of databases to create (upstream schema).
+
+- `hybridops_postgres_users` (default: `[]`)  
+  List of users to create (upstream schema). Password material is supplied by the caller (Vault, environment, or external secret store).
+
+- `hybridops_postgres_privs` (default: `[]`)  
+  List of privileges to apply (upstream schema). Use `db` for database selection.
+
+Example:
+
+```yaml
+hybridops_postgres_privs:
+  - db: netbox
+    roles: netbox
+    privs: "ALL"
+    type: database
+```
+
+### Extra configuration
+
+- `hybridops_postgres_extra_conf` (default: `[ { option: password_encryption, value: "scram-sha-256" } ]`)  
+  Additional `postgresql.conf` options appended to the base config generated by this role (`port`, `listen_addresses`, `log_directory`).
+
+### Service control
+
+- `hybridops_postgres_service_state` (default: `started`)
+- `hybridops_postgres_service_enabled` (default: `true`)
+
+### Logging and sensitive output
+
+- `hybridops_postgres_users_no_log` (default: `true`)  
+  Controls whether upstream user-management tasks suppress sensitive output. Disable only for controlled debugging.
+
+### Evidence capture
+
+- `hybridops_evidence_enabled` (default: `false`)  
+  Enables evidence capture tasks.
+
+- `hybridops_evidence_dir` (default: `/var/lib/hybridops/evidence/postgresql`)  
+  Output directory for evidence artefacts.
+
+Artefacts written:
+
+- `systemctl-status.txt`
+- `pg_isready.txt`
+- `timestamp.txt`
+
+## Usage
+
+### Minimal (local-only)
+
+```yaml
+- name: PostgreSQL service
+  hosts: pgcore
+  become: true
+  roles:
+    - role: hybridops.common.postgresql_service
+```
+
+### Data-tier example (platform repository)
+
+The example below assumes:
+
+- PostgreSQL VM has a data-tier interface with `10.12.0.10/24`.
+- NetBox VM uses `10.12.0.20/32`.
+- RKE2 egress is allowlisted by node `/32` addresses.
+
+```yaml
+hybridops_postgres_listen_addresses:
+  - "127.0.0.1"
+  - "10.12.0.10"
+
+hybridops_postgres_databases:
+  - name: netbox
+
+hybridops_postgres_users:
+  - name: netbox
+    password: "{{ netbox_db_password }}"
+
+hybridops_postgres_privs:
+  - db: netbox
+    roles: netbox
+    privs: "ALL"
+    type: database
+
+hybridops_postgres_allowed_clients:
+  - { database: "netbox", user: "netbox", cidr: "10.12.0.20/32" }
+  - { database: "all",   user: "all",   cidr: "10.20.0.11/32" }
+  - { database: "all",   user: "all",   cidr: "10.20.0.12/32" }
+  - { database: "all",   user: "all",   cidr: "10.20.0.13/32" }
+```
+
+## Operational notes
+
+- Allowlisting by node `/32` addresses is the default v1 posture for Kubernetes egress. Broader CIDRs are acceptable only as a time-bound bring-up aid.
+- PostgreSQL cannot bind to an address that is not present on a host interface. Ensure the data-tier IP exists on the VM before enabling remote listen.
+- Evidence capture is designed for governed platform runs; enable it explicitly in platform inventories or CI contexts where artefacts are collected.
+
+## License
+
+- Code: [MIT-0](https://spdx.org/licenses/MIT-0.html)  
+- Documentation & diagrams: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+
+See the [HybridOps.Studio licensing overview](https://docs.hybridops.studio/briefings/legal/licensing/)
+for project-wide licence details, including branding and trademark notes.

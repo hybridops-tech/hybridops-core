@@ -1,0 +1,55 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/wan-cloud-router"
+
+metadata:
+  title: "GCP WAN Cloud Router"
+  description: "Provision Cloud Router for WAN BGP control plane in the hub VPC."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    project_id: ""
+    region: ""
+
+    network_self_link: ""
+    router_name: "hybridops-hub-router"
+    bgp_asn: 64514
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/21-wan-cloud-router@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-gcp"
+      strict: false
+      push_to_netbox: false
+
+dependencies:
+  - module_ref: "org/gcp/wan-hub-network"
+    required: false
+    imports:
+      project_id: "project_id"
+      region: "region"
+      network_self_link: "network_self_link"
+
+outputs:
+  publish:
+    - project_id
+    - region
+    - network_self_link
+    - router_name
+    - router_self_link
+    - bgp_asn
+
+probes: []
+constraints: []

@@ -1,0 +1,95 @@
+locals {
+  meta   = jsondecode(file("${get_terragrunt_dir()}/hyops.meta.json"))
+  inputs = jsondecode(file("${get_terragrunt_dir()}/hyops.inputs.json"))
+
+  # Import Proxmox-derived locals produced by the same profile.
+  proxmox = read_terragrunt_config("${get_terragrunt_dir()}/proxmox.locals.hcl").locals
+
+  tfc_org     = get_env("TFC_ORG", "hybridops-tech")
+  backend_mode = lower(trimspace(get_env("HYOPS_TERRAFORM_BACKEND_MODE", "local")))
+  runtime_root = trimspace(get_env("HYOPS_RUNTIME_ROOT", "."))
+  terraform_state_path = "${local.runtime_root}/state/terraform/${local.meta.module_id}.tfstate"
+  workspace_name = trimspace(try(tostring(local.meta.workspace_name), ""))
+
+  # Pass through all merged module inputs to Terraform.
+  tf_inputs = local.inputs
+
+  proxmox_ssh_private_key_expr = local.proxmox.proxmox_ssh_key != "" ? "file(pathexpand(\"${local.proxmox.proxmox_ssh_key}\"))" : "null"
+}
+
+generate "backend_local" {
+  disable   = local.backend_mode != "local"
+  path      = "backend.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<-EOF_LOCAL
+terraform {
+  backend "local" {
+    path = "${local.terraform_state_path}"
+  }
+}
+EOF_LOCAL
+}
+
+generate "backend_cloud" {
+  disable   = local.backend_mode == "local"
+  path      = "backend.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<-EOF_INNER
+terraform {
+  cloud {
+    organization = "${local.tfc_org}"
+    workspaces {
+      name = "${local.workspace_name}"
+    }
+  }
+}
+EOF_INNER
+}
+
+generate "provider" {
+  path      = "provider.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<-EOF_INNER
+provider "proxmox" {
+  endpoint  = "${local.proxmox.proxmox_url}"
+  api_token = "${local.proxmox.proxmox_token}"
+  insecure  = ${local.proxmox.proxmox_skip_tls}
+
+  ssh {
+    agent       = true
+    username    = "${local.proxmox.proxmox_ssh_username}"
+    private_key = ${local.proxmox_ssh_private_key_expr}
+  }
+}
+EOF_INNER
+}
+
+inputs = merge(
+  local.tf_inputs,
+  {
+    proxmox_url          = local.proxmox.proxmox_url
+    proxmox_host         = local.proxmox.proxmox_host
+    proxmox_token        = local.proxmox.proxmox_token
+    proxmox_insecure     = local.proxmox.proxmox_skip_tls
+    proxmox_node         = local.proxmox.proxmox_node
+    proxmox_ssh_username = local.proxmox.proxmox_ssh_username
+    proxmox_ssh_key      = local.proxmox.proxmox_ssh_key
+
+    node_name             = local.proxmox.proxmox_node
+    datastore_id          = local.proxmox.storage_pool
+    snippets_datastore_id = local.proxmox.storage_snippets
+    network_bridge        = local.proxmox.network_bridge
+    storage_iso           = local.proxmox.storage_iso
+    # Guest SSH defaults (for cloned VMs) should not override explicit module inputs.
+    ssh_keys = (
+      length(try(local.inputs.ssh_keys, [])) > 0
+      ? local.inputs.ssh_keys
+      : (local.proxmox.ssh_public_key != "" ? [local.proxmox.ssh_public_key] : [])
+    )
+    ssh_username = (
+      trimspace(try(tostring(local.inputs.ssh_username), "")) != ""
+      ? trimspace(tostring(local.inputs.ssh_username))
+      : local.proxmox.proxmox_ssh_username
+    )
+  }
+)

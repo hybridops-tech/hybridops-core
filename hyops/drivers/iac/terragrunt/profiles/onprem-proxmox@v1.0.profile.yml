@@ -1,0 +1,88 @@
+api_version: hybridops/v1
+kind: DriverProfile
+
+profile_ref: "onprem-proxmox@v1.0"
+driver: "iac/terragrunt"
+description: "Terragrunt profile for Proxmox stacks using runtime-injected credentials."
+
+policy:
+  defaults:
+    command_timeout_s: 180
+    retries: 1
+    redact: true
+  naming:
+    workspace_pattern: "{name_prefix}-{provider}-{context_id}-{module}-{pack}"
+    env:
+      code_map:
+        shared: "s"
+        training: "t"
+        dev: "d"
+        staging: "g"
+        prod: "p"
+      default_code: "x"
+    proxmox:
+      sdn_id_max_len: 8
+  workspace:
+    mode: local
+  tool_versions:
+    terragrunt: ">=0.66.0,<1.0.0"
+    terraform: ">=1.6.0,<2.0.0"
+  constraints:
+    credential_contracts:
+      proxmox:
+        required_tfvars:
+          - proxmox_url
+          - proxmox_token_id
+          - proxmox_token_secret
+          - proxmox_node
+
+terragrunt:
+  bin: terragrunt
+  terraform_bin: terraform
+  init_args: ["init", "-no-color"]
+  apply_args: ["apply", "-auto-approve", "-input=false", "-no-color"]
+  output_args: ["output", "-json", "-no-color"]
+
+templates:
+  - src: proxmox/root.hcl.tmpl
+    dst: root.hcl
+  - src: proxmox/proxmox.locals.hcl.tmpl
+    dst: proxmox.locals.hcl
+
+env:
+  TFC_HOST: "app.terraform.io"
+  TFC_ORG: "hybridops-tech"
+  TFC_CREDENTIALS_FILE: "~/.terraform.d/credentials.tfrc.json"
+  TG_LOG: ""
+
+workspace_policy:
+  enabled: true
+  provider: proxmox
+  mode: local
+  strict: false
+
+hooks:
+  export_infra:
+    command:
+      - hyops
+      - inventory
+      - export-infra
+      - --target
+      - "{target}"
+      - --terragrunt-root
+      - "{hook_root}"
+      - --only-module
+      - .
+      - --changed-only
+    netbox_sync_command:
+      - hyops
+      - inventory
+      - sync-netbox
+      - --dataset
+      - "{netbox_dataset_json}"
+    hook_root_env: HYOPS_EXPORT_HOOK_ROOT
+    hook_root_default: "."
+    strict: false
+    redact: true
+    timeout_s: 120
+    netbox_sync_timeout_s: 120

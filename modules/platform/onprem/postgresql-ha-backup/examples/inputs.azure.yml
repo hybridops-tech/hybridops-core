@@ -1,0 +1,50 @@
+# Configure pgBackRest to push backups + WAL archives to Azure Blob Storage.
+#
+# Prereq: platform/onprem/postgresql-ha applied and healthy.
+#
+# Secrets:
+# - Store storage account key in runtime vault env bundle under PG_BACKUP_AZURE_ACCOUNT_KEY
+#   (or override inputs.azure_account_key_env).
+#
+# Example:
+#   hyops secrets set --env <env> PG_BACKUP_AZURE_ACCOUNT_KEY='...'
+
+inventory_state_ref: platform/onprem/platform-vm
+inventory_vm_groups:
+  etcd_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+  master:
+    - pgha-01
+  replica:
+    - pgha-02
+    - pgha-03
+  postgres_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+
+patroni_cluster_name: postgres-ha
+# Safe default; set to reset only when intentionally re-initializing stale stanza metadata.
+repo_mismatch_action: fail
+
+# Backup backend: s3 | gcs | azure
+backend: azure
+# Optional state-driven repository source (recommended to avoid duplicate storage values).
+# repo_state_ref: org/azure/pgbackrest-repo
+
+# Azure Blob repository (bring your own storage account/container)
+azure_storage_account: "hyopspgbackrestdev"
+azure_container: "pgbackrest"
+azure_account_key_env: "PG_BACKUP_AZURE_ACCOUNT_KEY"
+
+required_env:
+  - PATRONI_SUPERUSER_PASSWORD
+  - PATRONI_REPLICATION_PASSWORD
+  - PG_BACKUP_AZURE_ACCOUNT_KEY
+
+# SSH
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_proxy_jump_auto: true
+load_vault_env: true

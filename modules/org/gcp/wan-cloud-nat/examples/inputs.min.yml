@@ -1,0 +1,10 @@
+router_state_ref: "org/gcp/wan-cloud-router"
+network_state_ref: "org/gcp/wan-hub-network"
+subnetwork_output_keys:
+  - "subnet_core_name"
+nat_name: "hybridops-runner-egress"
+subnetwork_source_ip_ranges_to_nat: "ALL_IP_RANGES"
+auto_allocate_external_ips: true
+min_ports_per_vm: 64
+enable_endpoint_independent_mapping: true
+log_filter: "ERRORS_ONLY"

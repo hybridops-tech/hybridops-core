@@ -1,0 +1,22 @@
+# Minimal explicit inventory with intent-only execution.
+
+inventory_groups:
+  edge_control:
+    - name: edge01
+      host: 198.51.100.10
+connectivity_check: false
+
+provider: manual-command
+zone: example.com
+record_fqdn: app.example.com
+record_type: A
+ttl: 60
+
+primary_targets:
+  - 203.0.113.10
+secondary_targets:
+  - 198.51.100.20
+
+desired: primary
+dry_run: true
+dns_apply: false

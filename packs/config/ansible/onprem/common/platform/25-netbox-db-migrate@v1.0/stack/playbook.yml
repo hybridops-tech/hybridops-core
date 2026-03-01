@@ -1,0 +1,436 @@
+---
+- name: platform/onprem/netbox-db-migrate (pg_dump -> pg_restore)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    source_db_host: "{{ source_db_host | default('') }}"
+    source_db_port: "{{ source_db_port | default(5432) | int }}"
+    source_db_name: "{{ source_db_name | default('netbox') }}"
+    source_db_user: "{{ source_db_user | default('netbox') }}"
+    source_db_password_env: "{{ source_db_password_env | default('NETBOX_DB_PASSWORD') }}"
+
+    target_db_host: "{{ target_db_host | default('') }}"
+    target_db_port: "{{ target_db_port | default(5432) | int }}"
+    target_db_name: "{{ target_db_name | default('netbox') }}"
+    target_db_user: "{{ target_db_user | default('netbox') }}"
+    target_db_password_env: "{{ target_db_password_env | default('NETBOX_DB_PASSWORD') }}"
+
+    netbox_compose_dir: "{{ netbox_compose_dir | default('/opt/netbox/compose') }}"
+    netbox_compose_project: "{{ netbox_compose_project | default('netbox') }}"
+    netbox_quiesce_services: "{{ netbox_quiesce_services | default(['netbox', 'netbox-worker', 'netbox-housekeeping']) }}"
+
+    maintenance_confirm: "{{ maintenance_confirm | default(false) | bool }}"
+    migration_confirm: "{{ migration_confirm | default(false) | bool }}"
+    target_replace_confirm: "{{ target_replace_confirm | default(false) | bool }}"
+
+    migration_method: "{{ migration_method | default('pg_dump_restore') }}"
+    quiesce_netbox: "{{ quiesce_netbox | default(true) | bool }}"
+    start_netbox_after_migration: "{{ start_netbox_after_migration | default(false) | bool }}"
+    install_postgresql_client: "{{ install_postgresql_client | default(true) | bool }}"
+    validate_row_counts: "{{ validate_row_counts | default(true) | bool }}"
+
+    dump_artifact_dir: "{{ dump_artifact_dir | default('/var/lib/hybridops/netbox-migration') }}"
+    dump_file: "{{ dump_artifact_dir }}/{{ (hyops_run_id | default('hyops-run')) }}-netbox-db.dump"
+    dump_sha256_file: "{{ dump_file }}.sha256"
+    _hyops_pg_client_pkg: "{{ 'postgresql-client' if ansible_os_family | lower == 'debian' else 'postgresql' }}"
+
+  pre_tasks:
+    - name: Require explicit maintenance confirmation
+      ansible.builtin.assert:
+        that:
+          - maintenance_confirm | bool
+          - migration_confirm | bool
+        fail_msg: >-
+          Refusing NetBox DB migration without explicit confirmation. Set:
+          inputs.maintenance_confirm=true and inputs.migration_confirm=true.
+
+    - name: Require supported migration method (v1)
+      ansible.builtin.assert:
+        that:
+          - (migration_method | string | lower) == 'pg_dump_restore'
+        fail_msg: "inputs.migration_method must be pg_dump_restore (v1)"
+
+    - name: Ensure PostgreSQL client tools are installed
+      ansible.builtin.package:
+        name: "{{ _hyops_pg_client_pkg }}"
+        state: present
+      when: install_postgresql_client | bool
+
+    - name: Ensure dump artifact directory exists
+      ansible.builtin.file:
+        path: "{{ dump_artifact_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: "Preflight: source DB port reachable"
+      ansible.builtin.wait_for:
+        host: "{{ source_db_host }}"
+        port: "{{ source_db_port | int }}"
+        timeout: 10
+
+    - name: "Preflight: target DB port reachable"
+      ansible.builtin.wait_for:
+        host: "{{ target_db_host }}"
+        port: "{{ target_db_port | int }}"
+        timeout: 10
+
+    - name: "Preflight: source DB query works"
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -h
+          - "{{ source_db_host }}"
+          - -p
+          - "{{ source_db_port | string }}"
+          - -U
+          - "{{ source_db_user }}"
+          - -d
+          - "{{ source_db_name }}"
+          - -c
+          - "SELECT 1;"
+      environment:
+        PGPASSWORD: "{{ lookup('env', source_db_password_env) }}"
+      changed_when: false
+      no_log: true
+
+    - name: "Preflight: target DB query works"
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -h
+          - "{{ target_db_host }}"
+          - -p
+          - "{{ target_db_port | string }}"
+          - -U
+          - "{{ target_db_user }}"
+          - -d
+          - "{{ target_db_name }}"
+          - -c
+          - "SELECT 1;"
+      environment:
+        PGPASSWORD: "{{ lookup('env', target_db_password_env) }}"
+      changed_when: false
+      no_log: true
+
+    - name: Detect NetBox user table in source DB
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -h
+          - "{{ source_db_host }}"
+          - -p
+          - "{{ source_db_port | string }}"
+          - -U
+          - "{{ source_db_user }}"
+          - -d
+          - "{{ source_db_name }}"
+          - -c
+          - >-
+            SELECT CASE
+              WHEN to_regclass('public.users_user') IS NOT NULL THEN 'users_user'
+              WHEN to_regclass('public.auth_user') IS NOT NULL THEN 'auth_user'
+              ELSE ''
+            END;
+      environment:
+        PGPASSWORD: "{{ lookup('env', source_db_password_env) }}"
+      register: _hyops_source_user_table
+      changed_when: false
+      no_log: true
+
+    - name: Normalize source NetBox user table
+      ansible.builtin.set_fact:
+        _hyops_source_user_table_name: "{{ _hyops_source_user_table.stdout | trim }}"
+      changed_when: false
+
+    - name: "Preflight: assert source DB contains a NetBox user table"
+      ansible.builtin.assert:
+        that:
+          - (_hyops_source_user_table_name | string | length) > 0
+        fail_msg: >-
+          Source database {{ source_db_name }} on {{ source_db_host }} does not appear to be a NetBox database
+          (missing users_user/auth_user).
+
+    - name: Ensure NetBox compose directory exists when quiesce is enabled
+      ansible.builtin.stat:
+        path: "{{ netbox_compose_dir }}"
+      register: _hyops_netbox_compose_dir
+      when: quiesce_netbox | bool
+
+    - name: "Preflight: assert NetBox compose directory exists"
+      ansible.builtin.assert:
+        that:
+          - _hyops_netbox_compose_dir.stat.isdir | default(false)
+        fail_msg: "NetBox compose directory not found: {{ netbox_compose_dir }}"
+      when: quiesce_netbox | bool
+
+    - name: Quiesce NetBox services (maintenance window)
+      ansible.builtin.command:
+        argv: "{{ ['docker', 'compose', '-p', netbox_compose_project, 'stop'] + (netbox_quiesce_services | list) }}"
+      args:
+        chdir: "{{ netbox_compose_dir }}"
+      register: _hyops_netbox_stop
+      changed_when: true
+      when: quiesce_netbox | bool
+
+  tasks:
+    - name: Collect source NetBox DB counts (pre-migration)
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -F
+          - "|"
+          - -h
+          - "{{ source_db_host }}"
+          - -p
+          - "{{ source_db_port | string }}"
+          - -U
+          - "{{ source_db_user }}"
+          - -d
+          - "{{ source_db_name }}"
+          - -c
+          - >-
+            SELECT
+            CASE WHEN to_regclass('public.django_migrations') IS NULL THEN -1 ELSE (SELECT count(*) FROM django_migrations) END,
+            (SELECT count(*) FROM {{ _hyops_source_user_table_name }}),
+            CASE WHEN to_regclass('public.ipam_prefix') IS NULL THEN -1 ELSE (SELECT count(*) FROM ipam_prefix) END,
+            CASE WHEN to_regclass('public.virtualization_virtualmachine') IS NULL THEN -1 ELSE (SELECT count(*) FROM virtualization_virtualmachine) END;
+      environment:
+        PGPASSWORD: "{{ lookup('env', source_db_password_env) }}"
+      register: _hyops_source_counts
+      changed_when: false
+
+    - name: Check whether target DB already contains tables
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -h
+          - "{{ target_db_host }}"
+          - -p
+          - "{{ target_db_port | string }}"
+          - -U
+          - "{{ target_db_user }}"
+          - -d
+          - "{{ target_db_name }}"
+          - -c
+          - "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
+      environment:
+        PGPASSWORD: "{{ lookup('env', target_db_password_env) }}"
+      register: _hyops_target_table_count
+      changed_when: false
+      no_log: true
+
+    - name: Normalize target table count
+      ansible.builtin.set_fact:
+        _hyops_target_table_count_int: "{{ (_hyops_target_table_count.stdout | trim | int) }}"
+      changed_when: false
+
+    - name: Fail when target DB is not empty and replace was not confirmed
+      ansible.builtin.assert:
+        that:
+          - (_hyops_target_table_count_int | int) == 0 or (target_replace_confirm | bool)
+        fail_msg: >-
+          Target database {{ target_db_name }} on {{ target_db_host }} already contains
+          {{ _hyops_target_table_count_int }} tables. Set inputs.target_replace_confirm=true
+          to replace target contents during the migration window.
+
+    - name: Reset target DB public schema (replace target contents)
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -v
+          - ON_ERROR_STOP=1
+          - -tAX
+          - -h
+          - "{{ target_db_host }}"
+          - -p
+          - "{{ target_db_port | string }}"
+          - -U
+          - "{{ target_db_user }}"
+          - -d
+          - "{{ target_db_name }}"
+          - -c
+          - >-
+            DROP SCHEMA IF EXISTS public CASCADE;
+            CREATE SCHEMA public AUTHORIZATION {{ target_db_user }};
+            GRANT ALL ON SCHEMA public TO {{ target_db_user }};
+            GRANT ALL ON SCHEMA public TO public;
+      environment:
+        PGPASSWORD: "{{ lookup('env', target_db_password_env) }}"
+      when:
+        - (_hyops_target_table_count_int | int) > 0
+        - target_replace_confirm | bool
+      no_log: true
+
+    - name: Create NetBox DB dump from source
+      ansible.builtin.command:
+        argv:
+          - pg_dump
+          - --format=custom
+          - --no-owner
+          - --no-privileges
+          - --file={{ dump_file }}
+          - -h
+          - "{{ source_db_host }}"
+          - -p
+          - "{{ source_db_port | string }}"
+          - -U
+          - "{{ source_db_user }}"
+          - -d
+          - "{{ source_db_name }}"
+      environment:
+        PGPASSWORD: "{{ lookup('env', source_db_password_env) }}"
+      no_log: true
+
+    - name: Compute dump artifact sha256
+      ansible.builtin.command:
+        argv:
+          - sha256sum
+          - "{{ dump_file }}"
+      register: _hyops_dump_sha256
+      changed_when: false
+
+    - name: Write sha256 sidecar file
+      ansible.builtin.copy:
+        dest: "{{ dump_sha256_file }}"
+        mode: "0600"
+        content: "{{ _hyops_dump_sha256.stdout | trim }}\n"
+
+    - name: Restore NetBox DB dump into target
+      ansible.builtin.command:
+        argv:
+          - pg_restore
+          - --clean
+          - --if-exists
+          - --exit-on-error
+          - --no-owner
+          - --no-privileges
+          - -h
+          - "{{ target_db_host }}"
+          - -p
+          - "{{ target_db_port | string }}"
+          - -U
+          - "{{ target_db_user }}"
+          - -d
+          - "{{ target_db_name }}"
+          - "{{ dump_file }}"
+      environment:
+        PGPASSWORD: "{{ lookup('env', target_db_password_env) }}"
+      no_log: true
+
+    - name: Collect target NetBox DB counts (post-migration)
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -F
+          - "|"
+          - -h
+          - "{{ target_db_host }}"
+          - -p
+          - "{{ target_db_port | string }}"
+          - -U
+          - "{{ target_db_user }}"
+          - -d
+          - "{{ target_db_name }}"
+          - -c
+          - >-
+            SELECT
+            CASE WHEN to_regclass('public.django_migrations') IS NULL THEN -1 ELSE (SELECT count(*) FROM django_migrations) END,
+            (SELECT count(*) FROM {{ _hyops_source_user_table_name }}),
+            CASE WHEN to_regclass('public.ipam_prefix') IS NULL THEN -1 ELSE (SELECT count(*) FROM ipam_prefix) END,
+            CASE WHEN to_regclass('public.virtualization_virtualmachine') IS NULL THEN -1 ELSE (SELECT count(*) FROM virtualization_virtualmachine) END;
+      environment:
+        PGPASSWORD: "{{ lookup('env', target_db_password_env) }}"
+      register: _hyops_target_counts
+      changed_when: false
+
+    - name: Normalize source/target row counts
+      ansible.builtin.set_fact:
+        _hyops_source_counts_list: "{{ (_hyops_source_counts.stdout | trim).split('|') }}"
+        _hyops_target_counts_list: "{{ (_hyops_target_counts.stdout | trim).split('|') }}"
+      changed_when: false
+
+    - name: Validate source DB looks like a NetBox database
+      ansible.builtin.assert:
+        that:
+          - (_hyops_source_counts_list | length) == 4
+          - (_hyops_source_counts_list[0] | int) >= 0  # django_migrations exists
+          - (_hyops_source_counts_list[1] | int) >= 0  # users_user/auth_user exists
+        fail_msg: >-
+          Source database {{ source_db_name }} on {{ source_db_host }} does not appear to contain a NetBox schema.
+          Source counts={{ _hyops_source_counts_list | default([]) }}.
+
+    - name: Validate row counts after restore (core NetBox tables)
+      ansible.builtin.assert:
+        that:
+          - (_hyops_source_counts_list | length) == 4
+          - (_hyops_target_counts_list | length) == 4
+          - (_hyops_source_counts_list[0] | int) == (_hyops_target_counts_list[0] | int)  # django_migrations
+          - (_hyops_source_counts_list[1] | int) == (_hyops_target_counts_list[1] | int)  # auth_user
+        fail_msg: >-
+          NetBox DB migration validation failed. Source counts={{ _hyops_source_counts_list | default([]) }}
+          Target counts={{ _hyops_target_counts_list | default([]) }}.
+      when: validate_row_counts | bool
+
+    - name: Start NetBox services after migration (optional)
+      ansible.builtin.command:
+        argv: [docker, compose, -p, "{{ netbox_compose_project }}", up, -d]
+      args:
+        chdir: "{{ netbox_compose_dir }}"
+      when: start_netbox_after_migration | bool
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {% set source_counts = (_hyops_source_counts_list | default([])) %}
+          {% set target_counts = (_hyops_target_counts_list | default([])) %}
+          {{ {
+            'cap.db.netbox_migration': 'ready',
+            'migration': {
+              'method': (migration_method | string),
+              'quiesced_netbox': (quiesce_netbox | bool),
+              'started_netbox_after_migration': (start_netbox_after_migration | bool),
+              'source': {
+                'db_host': (source_db_host | string),
+                'db_port': (source_db_port | int),
+                'db_name': (source_db_name | string),
+                'db_user': (source_db_user | string),
+                'db_password_env': (source_db_password_env | string)
+              },
+              'target': {
+                'db_host': (target_db_host | string),
+                'db_port': (target_db_port | int),
+                'db_name': (target_db_name | string),
+                'db_user': (target_db_user | string),
+                'db_password_env': (target_db_password_env | string)
+              },
+              'dump_path': (dump_file | string),
+              'dump_sha256': ((_hyops_dump_sha256.stdout | default('') | trim).split(' ') | first | default('')),
+              'validation': {
+                'source_counts': {
+                  'django_migrations': ((source_counts[0] | int) if (source_counts | length) > 0 else 0),
+                  'auth_user': ((source_counts[1] | int) if (source_counts | length) > 1 else 0),
+                  'ipam_prefix': ((source_counts[2] | int) if (source_counts | length) > 2 else -1),
+                  'virtualization_virtualmachine': ((source_counts[3] | int) if (source_counts | length) > 3 else -1)
+                },
+                'target_counts': {
+                  'django_migrations': ((target_counts[0] | int) if (target_counts | length) > 0 else 0),
+                  'auth_user': ((target_counts[1] | int) if (target_counts | length) > 1 else 0),
+                  'ipam_prefix': ((target_counts[2] | int) if (target_counts | length) > 2 else -1),
+                  'virtualization_virtualmachine': ((target_counts[3] | int) if (target_counts | length) > 3 else -1)
+                }
+              }
+            }
+          } | to_json }}

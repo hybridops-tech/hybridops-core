@@ -1,0 +1,104 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/edge-observability"
+
+metadata:
+  title: "Edge Observability Services"
+  description: "Deploys Thanos/Grafana/Alertmanager services on edge Linux nodes via Ansible role consumption."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Inventory. Prefer state-driven inventory from edge foundation.
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    # SSH defaults applied to every host in inventory.
+    target_user: "root"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    # Preflight/apply: ensure SSH is reachable before running Ansible.
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    # Vault/env wiring
+    required_env:
+      - "EDGE_OBS_GRAFANA_ADMIN_PASSWORD"
+      - "EDGE_OBS_OBJSTORE_CONFIG"
+    required_env_destroy: []
+    load_vault_env: true
+
+    # Role wiring
+    edge_obs_role_fqcn: "hybridops.common.edge_observability"
+    edge_obs_state: "present"
+
+    # Secret env var keys
+    edge_obs_objstore_config_env: "EDGE_OBS_OBJSTORE_CONFIG"
+    edge_obs_grafana_admin_password_env: "EDGE_OBS_GRAFANA_ADMIN_PASSWORD"
+
+    # Optional explicit secrets (prefer env/vault)
+    edge_obs_objstore_config: ""
+    edge_obs_grafana_admin_password: ""
+
+    # Role inputs
+    edge_obs_root: "/opt/hybridops/edge-observability"
+    edge_obs_thanos_image: "quay.io/thanos/thanos:v0.36.1"
+    edge_obs_grafana_image: "grafana/grafana:11.2.0"
+    edge_obs_alertmanager_image: "prom/alertmanager:v0.27.0"
+
+    edge_obs_enable_receive: true
+    edge_obs_enable_query: true
+    edge_obs_enable_store_gateway: true
+    edge_obs_enable_grafana: true
+    edge_obs_enable_alertmanager: true
+    edge_obs_enable_ruler: true
+
+    edge_obs_receive_remote_write_port: 10907
+    edge_obs_query_http_port: 10902
+    edge_obs_grafana_http_port: 3000
+    edge_obs_alertmanager_http_port: 9093
+
+    edge_obs_hashring_endpoints: []
+    edge_obs_query_upstreams: []
+    edge_obs_ruler_rules: ""
+    edge_obs_grafana_admin_user: "admin"
+    edge_obs_grafana_datasource_url: "http://thanos-query:10902"
+    edge_obs_alertmanager_config: |
+      global:
+        resolve_timeout: 5m
+      route:
+        receiver: default
+      receivers:
+        - name: default
+    edge_obs_docker_log_max_size: "50m"
+    edge_obs_docker_log_max_file: "3"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/20-edge-observability@v1.0"
+
+outputs:
+  publish:
+    - edge_obs_state
+    - edge_obs_root
+    - edge_obs_query_http_port
+    - edge_obs_grafana_http_port
+    - edge_obs_alertmanager_http_port
+    - cap.obs.edge
+
+probes: []
+constraints: []

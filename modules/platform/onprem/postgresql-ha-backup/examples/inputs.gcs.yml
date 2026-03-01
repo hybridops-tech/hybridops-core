@@ -1,0 +1,51 @@
+# Configure pgBackRest to push backups + WAL archives to a GCS bucket.
+#
+# Prereq: platform/onprem/postgresql-ha applied and healthy.
+#
+# Secrets:
+# - Store service account JSON content in the runtime vault env bundle under PG_BACKUP_GCS_SA_JSON
+#   (or override inputs.gcs_sa_json_env).
+#
+# Example:
+#   export PG_BACKUP_GCS_SA_JSON="$(cat sa.json)"
+#   hyops secrets set --env <env> --from-env PG_BACKUP_GCS_SA_JSON
+
+inventory_state_ref: platform/onprem/platform-vm
+inventory_vm_groups:
+  etcd_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+  master:
+    - pgha-01
+  replica:
+    - pgha-02
+    - pgha-03
+  postgres_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+
+patroni_cluster_name: postgres-ha
+# Safe default; set to reset only when intentionally re-initializing stale stanza metadata.
+repo_mismatch_action: fail
+
+# Backup backend: s3 | gcs | azure
+backend: gcs
+# Optional state-driven repository source (recommended to avoid duplicate bucket values).
+# repo_state_ref: org/gcp/pgbackrest-repo
+
+# GCS repository (bring your own bucket)
+gcs_bucket: "hyops-pgbackrest-dev"
+gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+
+required_env:
+  - PATRONI_SUPERUSER_PASSWORD
+  - PATRONI_REPLICATION_PASSWORD
+  - PG_BACKUP_GCS_SA_JSON
+
+# SSH
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_proxy_jump_auto: true
+load_vault_env: true

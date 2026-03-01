@@ -1,0 +1,41 @@
+locals {
+  tfvars_path = get_env("HYOPS_AWS_TFVARS", "")
+  tfvars_raw  = try(file(local.tfvars_path), "")
+
+  tfvars_region            = try(regex("aws_region\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_access_key_id     = try(regex("aws_access_key_id\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_secret_access_key = try(regex("aws_secret_access_key\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_session_token     = try(regex("aws_session_token\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+  tfvars_profile           = try(regex("aws_profile\\s*=\\s*\"([^\"]+)\"", local.tfvars_raw)[0], "")
+
+  region = coalesce(
+    local.tfvars_region != "" ? local.tfvars_region : null,
+    get_env("AWS_REGION", "") != "" ? get_env("AWS_REGION", "") : null,
+    get_env("AWS_DEFAULT_REGION", "") != "" ? get_env("AWS_DEFAULT_REGION", "") : null,
+    "us-east-1"
+  )
+
+  access_key_id = coalesce(
+    local.tfvars_access_key_id != "" ? local.tfvars_access_key_id : null,
+    get_env("AWS_ACCESS_KEY_ID", "") != "" ? get_env("AWS_ACCESS_KEY_ID", "") : null,
+    ""
+  )
+
+  secret_access_key = coalesce(
+    local.tfvars_secret_access_key != "" ? local.tfvars_secret_access_key : null,
+    get_env("AWS_SECRET_ACCESS_KEY", "") != "" ? get_env("AWS_SECRET_ACCESS_KEY", "") : null,
+    ""
+  )
+
+  session_token = coalesce(
+    local.tfvars_session_token != "" ? local.tfvars_session_token : null,
+    get_env("AWS_SESSION_TOKEN", "") != "" ? get_env("AWS_SESSION_TOKEN", "") : null,
+    ""
+  )
+
+  profile = coalesce(
+    local.tfvars_profile != "" ? local.tfvars_profile : null,
+    get_env("AWS_PROFILE", "") != "" ? get_env("AWS_PROFILE", "") : null,
+    ""
+  )
+}

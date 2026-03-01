@@ -1,0 +1,74 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "onprem/eve-ng@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem EVE-NG Platform Stack"
+  description: "Consume shared SDN/NetBox authority, build a Jammy template image (if needed), provision the EVE-NG VM, then configure EVE-NG."
+  outcome: "EVE-NG is installed and reachable."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "netbox"
+
+steps:
+  - id: template_image_jammy
+    module_ref: "core/onprem/template-image"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_key: "ubuntu-22.04"
+
+  - id: eve_ng_vm
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "eve_ng_vm"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - template_image_jammy
+    contracts:
+      addressing_mode: "ipam"
+      requires_authority: "netbox"
+    inputs:
+      require_ipam: true
+      template_state_ref: "core/onprem/template-image"
+      template_key: "ubuntu-22.04"
+      cpu_cores: 8
+      memory_mb: 32768
+      disk_size_gb: 256
+      ssh_username: "opsadmin"
+      addressing:
+        mode: "ipam"
+        ipam:
+          provider: "netbox"
+          network_state_ref: "core/onprem/network-sdn"
+      vms:
+        eve-ng-01:
+          role: "eve-ng"
+          interfaces:
+            - bridge: "vnetmgmt"
+
+  - id: eve_ng_config
+    module_ref: "platform/onprem/eve-ng"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - eve_ng_vm
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      target_state_ref: "platform/onprem/platform-vm#eve_ng_vm"
+      target_vm_key: "eve-ng-01"
+      target_user: "opsadmin"
+      ssh_proxy_jump_auto: true
+      become: true
+      become_user: "root"
+      eveng_resource_profile: "standard"

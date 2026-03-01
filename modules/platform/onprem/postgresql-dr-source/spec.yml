@@ -1,0 +1,73 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/postgresql-dr-source"
+
+metadata:
+  title: "PostgreSQL DR Source (On-Prem)"
+  description: "Assess an on-prem PostgreSQL HA source and publish a normalized managed-DR source contract. Non-destructive."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    apply_mode: "assess"
+    dr_mode: "managed-cloudsql" # managed-cloudsql|export
+    source_contract_version: 1
+
+    inventory_groups: {}
+    inventory_state_ref: "platform/onprem/postgresql-ha"
+    inventory_vm_groups: {}
+    inventory_requires_ipam: true
+
+    db_state_ref: "platform/onprem/postgresql-ha"
+    db_state_env: ""
+    db_app_key: "netbox"
+    db_host: ""
+    db_port: 5432
+    db_name: "netbox"
+    db_user: "netbox"
+    db_password_env: "NETBOX_DB_PASSWORD"
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: true
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    load_vault_env: false
+    required_env: []
+
+    allowed_consumer_cidrs: []
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/37-postgresql-dr-source@v1.0"
+
+outputs:
+  publish:
+    - source
+    - source_host
+    - source_port
+    - source_leader_name
+    - source_leader_host
+    - source_export_ready
+    - source_replication_candidate
+    - db_name
+    - db_user
+    - db_password_env
+    - cap.db.postgresql_dr_source
+
+probes: []
+constraints: []

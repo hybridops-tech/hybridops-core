@@ -1,0 +1,6 @@
+collections:
+  # NOTE: This dependency set is installed into an isolated collections path to
+  # avoid Galaxy dependency conflicts with other module sets (e.g. PostgreSQL HA).
+  - name: rancherfederal.rke2_ansible
+    version: "0.0.2"
+

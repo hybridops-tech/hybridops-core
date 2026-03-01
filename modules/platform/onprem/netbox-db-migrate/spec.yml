@@ -1,0 +1,85 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/netbox-db-migrate"
+
+metadata:
+  title: "NetBox DB Migration to PostgreSQL HA (On-Prem)"
+  description: "Performs an explicit NetBox database migration (pg_dump/pg_restore) from a source PostgreSQL contract (typically pgcore) to a target PostgreSQL HA contract. Does not repoint NetBox; use netbox-ha-cutover separately."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Target host (NetBox VM/host) where migration commands run.
+    target_host: ""
+    target_state_ref: "platform/onprem/platform-vm#platform_vms"
+    target_vm_key: "netbox-01"
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    become: true
+    become_user: "root"
+
+    # Vault/env wiring
+    required_env:
+      - "NETBOX_DB_PASSWORD"
+    load_vault_env: true
+
+    # Source DB contract (bootstrap DB by default)
+    source_db_state_ref: "platform/onprem/postgresql-core"
+    source_db_state_env: ""
+    source_db_app_key: "netbox"
+    source_db_host: ""
+    source_db_port: 5432
+    source_db_name: "netbox"
+    source_db_user: "netbox"
+    source_db_password_env: "NETBOX_DB_PASSWORD"
+
+    # Target DB contract (HA DB by default)
+    target_db_state_ref: "platform/onprem/postgresql-ha"
+    target_db_state_env: ""
+    target_db_app_key: "netbox"
+    target_db_host: ""
+    target_db_port: 5432
+    target_db_name: "netbox"
+    target_db_user: "netbox"
+    target_db_password_env: "NETBOX_DB_PASSWORD"
+
+    # Explicit safety gates (required)
+    maintenance_confirm: false
+    migration_confirm: false
+    target_replace_confirm: false
+
+    # Migration behavior
+    migration_method: "pg_dump_restore" # v1 only
+    quiesce_netbox: true
+    start_netbox_after_migration: false
+    install_postgresql_client: true
+    validate_row_counts: true
+
+    # NetBox Docker Compose control (quiesce/restart)
+    netbox_compose_dir: "/opt/netbox/compose"
+    netbox_compose_project: "netbox"
+    netbox_quiesce_services:
+      - "netbox"
+      - "netbox-worker"
+      - "netbox-housekeeping"
+
+    # Migration artifacts (stored on the NetBox host)
+    dump_artifact_dir: "/var/lib/hybridops/netbox-migration"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/25-netbox-db-migrate@v1.0"
+
+outputs:
+  publish:
+    - migration
+    - cap.db.netbox_migration
+
+probes: []
+constraints: []
