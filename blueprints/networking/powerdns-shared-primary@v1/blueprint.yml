@@ -1,0 +1,49 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/powerdns-shared-primary@v1"
+mode: "hybrid"
+
+metadata:
+  title: "PowerDNS Shared Primary"
+  description: "Deploy the writable internal DNS authority on the existing Hetzner shared control host."
+  outcome: "PowerDNS primary serves hyops.internal from the existing shared control host and exposes the API for DNS cutover automation."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: powerdns_primary
+    module_ref: "platform/network/powerdns-authority"
+    state_instance: "shared_primary"
+    action: "deploy"
+    phase: "operations"
+    with_deps: true
+    skip_if_state_ok: true
+    inputs:
+      inventory_state_ref: "org/hetzner/shared-control-host#edge_control_host"
+      inventory_vm_groups:
+        dns:
+          - "control-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      powerdns_mode: "primary"
+      powerdns_root: "/opt/hybridops/powerdns-primary"
+      powerdns_compose_project: "powerdns-primary"
+      powerdns_zone_name: "hyops.internal"
+      powerdns_default_ns: "dns.shared.hyops.internal"
+      powerdns_soa_admin: "hostmaster.hyops.internal"
+      powerdns_api_enabled: true
+      powerdns_api_port: 8081
+      powerdns_dns_bind_host: "10.80.0.20"
+      powerdns_allow_axfr_ips:
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+        - "192.168.0.0/16"
+      connectivity_wait_s: 30
+      required_env:
+        - "POWERDNS_API_KEY"
+      load_vault_env: true

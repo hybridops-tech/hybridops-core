@@ -1,0 +1,22 @@
+image_key: "vyos-1.5"
+image_ref: ""
+image_version: "1.5"
+image_description: "hyops-vyos-1-5"
+# Use the same operator-managed qcow2 artifact you intend to use for Proxmox.
+# If you already published a shared artifact contract, prefer artifact_state_ref/artifact_key in your blueprint instead.
+# HyOps will auto-wrap qcow2(.xz/.gz/.bz2) into a Hetzner-friendly raw image when seeding.
+image_source_url: "https://artifacts.example.com/vyos/vyos-1.5-amd64.qcow2.xz"
+# Required when image_source_url points to qcow2 and HyOps is expected to auto-wrap it.
+# The base URL must reach the execution host from the internet, for example a shared control host.
+seed_wrapper_public_base_url: "http://203.0.113.10:18080"
+image_architecture: "x86"
+image_compression: "xz"
+# Optional: pin the temporary import server location if your Hetzner project
+# does not allow the seed tool default location.
+# seed_location: "nbg1"
+# Optional: pin a larger temporary server type when your image virtual size is
+# larger than the default import server disk.
+# seed_server_type: "cpx21"
+seed_if_missing: true
+seed_tool: "hcloud-upload-image"
+# seed_command: "your-own-wrapper ..."

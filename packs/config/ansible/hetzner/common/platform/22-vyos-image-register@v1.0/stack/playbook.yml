@@ -1,0 +1,30 @@
+---
+- name: "core/hetzner/vyos-image-register"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    hyops_out_file: "{{ hyops_outputs_file }}"
+  tasks:
+    - name: Build image outputs
+      ansible.builtin.set_fact:
+        hyops_outputs:
+          image_key: "{{ image_key }}"
+          image_ref: "{{ image_ref }}"
+          image_version: "{{ image_version | default('') }}"
+          image_source_url: "{{ image_source_url | default('') }}"
+          images: >-
+            {{
+              {
+                image_key: {
+                  'image_ref': image_ref,
+                  'image_version': (image_version | default('')),
+                  'image_source_url': (image_source_url | default(''))
+                }
+              }
+            }}
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_out_file }}"
+        mode: "0600"
+        content: "{{ hyops_outputs | to_nice_json }}"

@@ -1,0 +1,22 @@
+# Managed by HybridOps
+launch=gsqlite3
+gsqlite3-database=/var/lib/powerdns/pdns.sqlite3
+
+local-address={{ powerdns_dns_bind_host }}
+local-port={{ powerdns_dns_port }}
+
+api={{ (powerdns_api_enabled | bool) | ternary('yes', 'no') }}
+webserver={{ (powerdns_api_enabled | bool) | ternary('yes', 'no') }}
+webserver-address={{ powerdns_api_bind_host }}
+webserver-port={{ powerdns_api_port }}
+webserver-allow-from={{ powerdns_api_allow_from | join(',') }}
+api-key={{ _powerdns_api_key_effective | default(powerdns_api_key) }}
+
+primary={{ (_powerdns_enable_primary | default(false) | bool) | ternary('yes', 'no') }}
+secondary={{ (_powerdns_enable_secondary | default(false) | bool) | ternary('yes', 'no') }}
+allow-axfr-ips={{ powerdns_allow_axfr_ips | join(',') }}
+allow-notify-from={{ powerdns_allow_notify_from | join(',') }}
+
+default-soa-content={{ powerdns_default_ns }} {{ powerdns_soa_admin }} 0 10800 3600 604800 3600
+version-string=anonymous
+loglevel=4

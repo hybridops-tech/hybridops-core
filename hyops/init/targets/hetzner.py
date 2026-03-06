@@ -55,6 +55,11 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
     p.add_argument("--api", default=None, help="Override HCLOUD_API.")
     p.add_argument("--token", default=None, help="Override HCLOUD_TOKEN (discouraged; prefer env/vault).")
     p.add_argument("--tfvars-out", default=None, help="Override credentials tfvars output path.")
+    p.add_argument(
+        "--ssh-public-key",
+        default=None,
+        help="Override or persist a non-secret SSH public key into Hetzner init readiness.",
+    )
     # Backwards-compatible alias.
     p.add_argument("--credentials-out", default=None, help=argparse.SUPPRESS)
     p.set_defaults(_handler=run)
@@ -100,6 +105,19 @@ def _validate_hcloud_token(*, evidence_dir: Path, api_endpoint: str, token: str)
         redact=True,
     )
     return r.rc == 0
+
+
+def _read_first_pubkey() -> str:
+    home = Path.home()
+    for p in (home / ".ssh" / "id_ed25519.pub", home / ".ssh" / "id_rsa.pub"):
+        try:
+            if p.exists():
+                v = p.read_text(encoding="utf-8").strip()
+                if v:
+                    return v
+        except Exception:
+            continue
+    return ""
 
 
 def run(ns) -> int:
@@ -191,6 +209,13 @@ def run(ns) -> int:
         or tfvars_out_default
     )
     tfvars_out = Path(str(tfvars_out_raw)).expanduser().resolve()
+    ssh_public_key = (
+        getattr(ns, "ssh_public_key", None)
+        or os.environ.get("HCLOUD_SSH_PUBLIC_KEY")
+        or cfg.get("HCLOUD_SSH_PUBLIC_KEY")
+        or _read_first_pubkey()
+        or ""
+    ).strip()
 
     auth = VaultAuth(
         password_file=getattr(ns, "vault_password_file", None),
@@ -277,6 +302,7 @@ def run(ns) -> int:
                 "api": api_endpoint,
                 "token_source": token_source,
                 "token_persisted": token_persisted,
+                "ssh_public_key_present": bool(ssh_public_key),
             },
         },
     )
@@ -353,6 +379,7 @@ def run(ns) -> int:
                 },
                 "context": {
                     "api": api_endpoint,
+                    "ssh_public_key": ssh_public_key,
                 },
             },
         )
@@ -364,6 +391,10 @@ def run(ns) -> int:
     print(f"evidence: {evidence_dir}")
     print(f"readiness: {marker}")
     print(f"credentials: {tfvars_out}")
+    if not ssh_public_key:
+        print("WARN: no SSH public key discovered for Hetzner runtime.")
+        print("hint: re-run with --ssh-public-key, set HCLOUD_SSH_PUBLIC_KEY in config/env, or ensure ~/.ssh/id_ed25519.pub exists.")
+        print("hint: org/hetzner/shared-control-host with ssh_keys_from_init=true will fail until a key is present in hetzner.ready.json")
 
     return OK
 

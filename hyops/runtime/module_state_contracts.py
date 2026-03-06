@@ -106,6 +106,17 @@ def resolve_gcp_instance_contract(outputs: dict[str, Any], *, vm_key: str) -> di
     }
 
 
+def resolve_vm_private_ipv4(outputs: dict[str, Any], *, vm_key: str) -> str | None:
+    vms = outputs.get("vms")
+    if isinstance(vms, dict) and vm_key in vms and isinstance(vms.get(vm_key), dict):
+        vm = vms.get(vm_key) or {}
+        for key in ("private_ipv4_address", "private_ip", "private_ipv4"):
+            picked = pick_ipv4(vm.get(key))
+            if picked:
+                return picked
+    return None
+
+
 def resolve_vm_tags(outputs: dict[str, Any], *, vm_key: str) -> list[str]:
     vms = outputs.get("vms")
     if isinstance(vms, dict) and vm_key in vms and isinstance(vms.get(vm_key), dict):
@@ -360,6 +371,9 @@ def resolve_inventory_groups_from_state(
                 )
             host_entry: dict[str, str] = {"name": vm_key, "host": picked}
             host_entry.update(resolve_gcp_instance_contract(outputs, vm_key=vm_key))
+            private_host = resolve_vm_private_ipv4(outputs, vm_key=vm_key)
+            if private_host:
+                host_entry["hyops_private_host"] = private_host
             tags = resolve_vm_tags(outputs, vm_key=vm_key)
             if tags:
                 host_entry["tags"] = tags
@@ -368,6 +382,456 @@ def resolve_inventory_groups_from_state(
         out[group] = hosts
 
     inputs["inventory_groups"] = out
+
+
+def resolve_hetzner_foundation_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    raw_ref = str(inputs.get("foundation_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        foundation_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.foundation_state_ref is invalid: {raw_ref!r}")
+
+    if assumed_state_ok is not None and foundation_state_ref in assumed_state_ok:
+        if not str(inputs.get("private_network_id") or "").strip():
+            inputs["private_network_id"] = "0"
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.foundation_state_ref requires runtime state_dir")
+
+    try:
+        state = read_module_state(state_root, foundation_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"foundation_state_ref={foundation_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{foundation_state_ref}' or provide inputs.private_network_id explicitly."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"foundation_state_ref={foundation_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{foundation_state_ref}' or provide inputs.private_network_id explicitly."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    private_network_id = str(outputs.get("private_network_id") or "").strip()
+    private_network_cidr = str(outputs.get("private_network_cidr") or "").strip()
+
+    if not str(inputs.get("private_network_id") or "").strip():
+        if not private_network_id:
+            raise ValueError(
+                f"foundation_state_ref={foundation_state_ref} does not publish outputs.private_network_id. "
+                "Re-apply the WAN foundation or provide inputs.private_network_id explicitly."
+            )
+        inputs["private_network_id"] = private_network_id
+
+    if not str(inputs.get("private_network_cidr") or "").strip() and private_network_cidr:
+        inputs["private_network_cidr"] = private_network_cidr
+
+
+def resolve_hetzner_image_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    if str(inputs.get("image") or "").strip():
+        return
+
+    raw_ref = str(inputs.get("image_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        image_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.image_state_ref is invalid: {raw_ref!r}")
+
+    if assumed_state_ok is not None and image_state_ref in assumed_state_ok:
+        inputs["image"] = str(inputs.get("image") or "0").strip() or "0"
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.image_state_ref requires runtime state_dir")
+
+    try:
+        state = read_module_state(state_root, image_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"image_state_ref={image_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{image_state_ref}' or provide inputs.image explicitly."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"image_state_ref={image_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{image_state_ref}' or provide inputs.image explicitly."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    image_key = str(inputs.get("image_key") or "").strip()
+    images = outputs.get("images")
+    if isinstance(images, dict) and image_key:
+        record = images.get(image_key)
+        if isinstance(record, dict):
+            image_ref = str(record.get("image_ref") or "").strip()
+            if image_ref:
+                inputs["image"] = image_ref
+                return
+
+    if image_key and str(outputs.get("image_key") or "").strip() == image_key:
+        image_ref = str(outputs.get("image_ref") or "").strip()
+        if image_ref:
+            inputs["image"] = image_ref
+            return
+
+    raise ValueError(
+        f"unable to resolve inputs.image from image_state_ref={image_state_ref} "
+        f"for image_key={image_key!r}. "
+        "Re-apply the VyOS image registration module or provide inputs.image explicitly."
+    )
+
+
+def resolve_vyos_artifact_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve a shared VyOS artifact contract into seed-module inputs."""
+    raw_ref = str(inputs.get("artifact_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        artifact_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.artifact_state_ref is invalid: {raw_ref!r}")
+
+    if assumed_state_ok is not None and artifact_state_ref in assumed_state_ok:
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.artifact_state_ref requires runtime state_dir")
+
+    try:
+        state = read_module_state(state_root, artifact_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"artifact_state_ref={artifact_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{artifact_state_ref}' (recommended: core/shared/vyos-image-build) "
+            "or provide inputs.image_source_url explicitly."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"artifact_state_ref={artifact_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{artifact_state_ref}' (recommended: core/shared/vyos-image-build) "
+            "or provide inputs.image_source_url explicitly."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    artifact_key = (
+        str(inputs.get("artifact_key") or "").strip()
+        or str(inputs.get("image_key") or "").strip()
+        or str(inputs.get("template_key") or "").strip()
+    )
+
+    record: dict[str, Any] | None = None
+    artifacts = outputs.get("artifacts")
+    if isinstance(artifacts, dict):
+        candidate = artifacts.get(artifact_key) if artifact_key else None
+        if isinstance(candidate, dict):
+            record = candidate
+
+    if record is None and artifact_key and str(outputs.get("artifact_key") or "").strip() == artifact_key:
+        record = outputs
+
+    if record is None:
+        available: list[str] = []
+        if isinstance(artifacts, dict):
+            available = sorted([str(k) for k in artifacts.keys() if str(k)])
+        raise ValueError(
+            f"unable to resolve VyOS artifact from artifact_state_ref={artifact_state_ref} "
+            f"for artifact_key={artifact_key!r}. "
+            + (
+                f"available artifact keys: {', '.join(available)}"
+                if available
+                else "state does not publish outputs.artifacts"
+            )
+        )
+
+    resolved_key = artifact_key or str(record.get("artifact_key") or outputs.get("artifact_key") or "").strip()
+    artifact_url = str(record.get("artifact_url") or outputs.get("artifact_url") or "").strip()
+    artifact_format = str(record.get("artifact_format") or outputs.get("artifact_format") or "").strip()
+    artifact_version = str(record.get("artifact_version") or outputs.get("artifact_version") or "").strip()
+    artifact_sha256 = str(record.get("artifact_sha256") or outputs.get("artifact_sha256") or "").strip()
+    source_iso_url = str(record.get("source_iso_url") or outputs.get("source_iso_url") or "").strip()
+
+    if not artifact_url:
+        raise ValueError(
+            f"artifact_state_ref={artifact_state_ref} for artifact_key={resolved_key or artifact_key!r} "
+            "does not publish artifact_url. Re-apply core/shared/vyos-image-build (or publish a valid artifact URL) "
+            "or provide inputs.image_source_url explicitly."
+        )
+
+    if not str(inputs.get("artifact_key") or "").strip() and resolved_key:
+        inputs["artifact_key"] = resolved_key
+    if not str(inputs.get("artifact_url") or "").strip():
+        inputs["artifact_url"] = artifact_url
+    if not str(inputs.get("artifact_format") or "").strip() and artifact_format:
+        inputs["artifact_format"] = artifact_format
+    if not str(inputs.get("artifact_version") or "").strip() and artifact_version:
+        inputs["artifact_version"] = artifact_version
+    if not str(inputs.get("artifact_sha256") or "").strip() and artifact_sha256:
+        inputs["artifact_sha256"] = artifact_sha256
+    if not str(inputs.get("source_iso_url") or "").strip() and source_iso_url:
+        inputs["source_iso_url"] = source_iso_url
+
+    if not str(inputs.get("image_source_url") or "").strip():
+        inputs["image_source_url"] = artifact_url
+    if not str(inputs.get("template_source_url") or "").strip():
+        inputs["template_source_url"] = artifact_url
+    if not str(inputs.get("image_version") or "").strip() and artifact_version:
+        inputs["image_version"] = artifact_version
+    if not str(inputs.get("template_image_version") or "").strip() and artifact_version:
+        inputs["template_image_version"] = artifact_version
+
+
+def resolve_dns_endpoint_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve DNS record FQDN/targets from an upstream endpoint-publishing module state."""
+    raw_ref = str(inputs.get("endpoint_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        endpoint_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.endpoint_state_ref is invalid: {raw_ref!r}")
+
+    if assumed_state_ok is not None and endpoint_state_ref in assumed_state_ok:
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.endpoint_state_ref requires runtime state_dir")
+
+    try:
+        state = read_module_state(state_root, endpoint_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"endpoint_state_ref={endpoint_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{endpoint_state_ref}' or provide explicit dns inputs."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"endpoint_state_ref={endpoint_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{endpoint_state_ref}' or provide explicit dns inputs."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    fqdn_key = str(inputs.get("endpoint_fqdn_output_key") or "endpoint_dns_name").strip() or "endpoint_dns_name"
+    target_key = str(inputs.get("endpoint_target_output_key") or "endpoint_target").strip() or "endpoint_target"
+
+    endpoint_fqdn = str(outputs.get(fqdn_key) or "").strip()
+    endpoint_target = pick_ipv4(outputs.get(target_key)) or str(outputs.get(target_key) or "").strip()
+
+    if not str(inputs.get("record_fqdn") or "").strip():
+        if endpoint_fqdn:
+            inputs["record_fqdn"] = endpoint_fqdn
+        else:
+            # Optional wiring path: if the upstream module does not publish a DNS
+            # name yet, turn the DNS step into a no-op instead of failing the full
+            # blueprint.
+            inputs["dns_state"] = "absent"
+            inputs["required_env"] = []
+            return
+
+    if endpoint_target:
+        if not isinstance(inputs.get("primary_targets"), list) or not inputs.get("primary_targets"):
+            inputs["primary_targets"] = [endpoint_target]
+        if not isinstance(inputs.get("secondary_targets"), list) or not inputs.get("secondary_targets"):
+            inputs["secondary_targets"] = [endpoint_target]
+
+
+def resolve_powerdns_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve PowerDNS authority details from upstream state when requested."""
+    raw_primary_ref = str(inputs.get("powerdns_primary_state_ref") or "").strip()
+    if raw_primary_ref:
+        try:
+            primary_state_ref = normalize_module_state_ref(raw_primary_ref)
+        except Exception:
+            raise ValueError(f"inputs.powerdns_primary_state_ref is invalid: {raw_primary_ref!r}")
+
+        if assumed_state_ok is None or primary_state_ref not in assumed_state_ok:
+            if state_root is None:
+                raise ValueError("inputs.powerdns_primary_state_ref requires runtime state_dir")
+            try:
+                state = read_module_state(state_root, primary_state_ref)
+            except Exception as e:
+                raise ValueError(
+                    f"powerdns_primary_state_ref={primary_state_ref} state is unavailable: {e}. "
+                    f"Re-apply upstream module '{primary_state_ref}' or provide inputs.powerdns_primary_endpoint explicitly."
+                ) from e
+
+            status = str(state.get("status") or "").strip().lower()
+            if status != "ok":
+                raise ValueError(
+                    f"powerdns_primary_state_ref={primary_state_ref} is not ready (status={status or 'missing'}). "
+                    f"Re-apply upstream module '{primary_state_ref}' or provide inputs.powerdns_primary_endpoint explicitly."
+                )
+
+            outputs = state.get("outputs")
+            if not isinstance(outputs, dict):
+                outputs = {}
+
+            primary_host = str(outputs.get("powerdns_target_host") or "").strip()
+            primary_zone = str(outputs.get("powerdns_zone_name") or "").strip()
+
+            if not str(inputs.get("powerdns_primary_endpoint") or "").strip():
+                if not primary_host:
+                    raise ValueError(
+                        f"powerdns_primary_state_ref={primary_state_ref} does not publish outputs.powerdns_target_host. "
+                        "Re-apply the shared primary or provide inputs.powerdns_primary_endpoint explicitly."
+                    )
+                inputs["powerdns_primary_endpoint"] = primary_host
+
+            if not str(inputs.get("powerdns_zone_name") or "").strip() and primary_zone:
+                inputs["powerdns_zone_name"] = primary_zone
+
+            if not isinstance(inputs.get("powerdns_allow_notify_from"), list) or not inputs.get("powerdns_allow_notify_from"):
+                if primary_host:
+                    inputs["powerdns_allow_notify_from"] = [primary_host]
+
+            if not isinstance(inputs.get("powerdns_allow_axfr_ips"), list) or not inputs.get("powerdns_allow_axfr_ips"):
+                if primary_host:
+                    inputs["powerdns_allow_axfr_ips"] = [primary_host]
+
+    raw_state_ref = str(inputs.get("powerdns_state_ref") or "").strip()
+    if not raw_state_ref:
+        return
+
+    try:
+        powerdns_state_ref = normalize_module_state_ref(raw_state_ref)
+    except Exception:
+        raise ValueError(f"inputs.powerdns_state_ref is invalid: {raw_state_ref!r}")
+
+    if assumed_state_ok is not None and powerdns_state_ref in assumed_state_ok:
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.powerdns_state_ref requires runtime state_dir")
+
+    try:
+        state = read_module_state(state_root, powerdns_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"powerdns_state_ref={powerdns_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{powerdns_state_ref}' or provide explicit PowerDNS API inputs."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"powerdns_state_ref={powerdns_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{powerdns_state_ref}' or provide explicit PowerDNS API inputs."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    api_url = str(outputs.get("powerdns_api_url") or "").strip()
+    server_id = str(outputs.get("powerdns_server_id") or "").strip()
+    zone_name = str(outputs.get("powerdns_zone_name") or "").strip()
+    zone_id = str(outputs.get("powerdns_zone_id") or zone_name).strip()
+    api_key_env = str(outputs.get("powerdns_api_key_env") or "").strip()
+    control_host = str(outputs.get("powerdns_control_host") or outputs.get("powerdns_public_host") or "").strip()
+    control_user = str(outputs.get("powerdns_control_user") or "").strip()
+
+    current_api_url = str(inputs.get("powerdns_api_url") or "").strip()
+    if not current_api_url and api_url:
+        inputs["powerdns_api_url"] = api_url
+        if api_url.startswith("http://"):
+            inputs["powerdns_validate_tls"] = False
+
+    if not str(inputs.get("powerdns_server_id") or "").strip() and server_id:
+        inputs["powerdns_server_id"] = server_id
+
+    if not str(inputs.get("zone") or "").strip() and zone_name:
+        inputs["zone"] = zone_name
+
+    if not str(inputs.get("powerdns_zone_id") or "").strip() and zone_id:
+        inputs["powerdns_zone_id"] = zone_id
+
+    if not str(inputs.get("powerdns_api_key_env") or "").strip() and api_key_env:
+        inputs["powerdns_api_key_env"] = api_key_env
+
+    provider = str(inputs.get("provider") or "").strip().lower()
+    has_inventory_groups = isinstance(inputs.get("inventory_groups"), dict) and bool(inputs.get("inventory_groups"))
+    has_inventory_state_ref = bool(str(inputs.get("inventory_state_ref") or "").strip())
+    has_target_host = bool(str(inputs.get("target_host") or "").strip())
+    if provider == "powerdns-api" and not has_inventory_groups and not has_inventory_state_ref and not has_target_host:
+        if control_host:
+            control_entry: dict[str, Any] = {
+                "name": "powerdns-control",
+                "host": control_host,
+            }
+            if control_user:
+                control_entry["ansible_user"] = control_user
+            inputs["inventory_groups"] = {"edge_control": [control_entry]}
+            target_user = str(inputs.get("target_user") or "").strip()
+            if control_user and (not target_user or target_user == "root"):
+                inputs["target_user"] = control_user
+        else:
+            inputs["inventory_groups"] = {
+                "edge_control": [
+                    {
+                        "name": "localhost",
+                        "host": "127.0.0.1",
+                        "ansible_connection": "local",
+                    }
+                ]
+            }
+            inputs["connectivity_check"] = False
+            inputs["become"] = False
+            dns_state_dir = str(inputs.get("dns_state_dir") or "").strip()
+            if not dns_state_dir or dns_state_dir == "/opt/hybridops/dns-routing/state":
+                inputs["dns_state_dir"] = "/tmp/hybridops/dns-routing/state"
 
 
 def resolve_db_contract_from_state(

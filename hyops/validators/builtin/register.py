@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from hyops.validators.registry import register
 from hyops.validators.core.azure import nat_gateway, resource_group, vnet
-from hyops.validators.core.onprem import network_sdn, template_image
+from hyops.validators.core.hetzner import vyos_image_register, vyos_image_seed
+from hyops.validators.core.onprem import network_sdn, template_image, vyos_template_import, vyos_template_seed
+from hyops.validators.core.shared import vyos_image_artifact, vyos_image_build
 from hyops.validators.org.aws import pgbackrest_repo as aws_pgbackrest_repo
 from hyops.validators.org.azure import pgbackrest_repo as azure_pgbackrest_repo
 from hyops.validators.org.gcp import (
@@ -20,13 +22,13 @@ from hyops.validators.org.gcp import (
     wan_hub_network,
     wan_vpn_to_edge,
 )
-from hyops.validators.org.hetzner import wan_edge_foundation
+from hyops.validators.org.hetzner import shared_control_host, vyos_edge_foundation, wan_edge_foundation
 from hyops.validators.platform.azure import container_registry
 from hyops.validators.platform.network import (
     decision_service,
     dns_routing,
     edge_observability,
-    wan_edge,
+    vyos_edge_wan,
 )
 from hyops.validators.platform.gcp import platform_vm as gcp_platform_vm
 from hyops.validators.platform.onprem import (
@@ -41,6 +43,7 @@ from hyops.validators.platform.onprem import (
     postgresql_ha_backup,
     netbox_db_migrate,
     rke2_cluster,
+    vyos_edge,
 )
 
 
@@ -56,16 +59,24 @@ def register_all() -> None:
     register("org/gcp/wan-hub-network", wan_hub_network.validate)
     register("org/gcp/wan-cloud-router", wan_cloud_router.validate)
     register("org/gcp/wan-vpn-to-edge", wan_vpn_to_edge.validate)
+    register("org/hetzner/shared-control-host", shared_control_host.validate)
+    register("org/hetzner/vyos-edge-foundation", vyos_edge_foundation.validate)
     register("org/hetzner/wan-edge-foundation", wan_edge_foundation.validate)
     register("org/gcp/pgbackrest-repo", pgbackrest_repo.validate)
     register("core/azure/resource-group", resource_group.validate)
     register("core/azure/vnet", vnet.validate)
     register("core/azure/nat-gateway", nat_gateway.validate)
+    register("core/hetzner/vyos-image-seed", vyos_image_seed.validate)
+    register("core/hetzner/vyos-image-register", vyos_image_register.validate)
     register("core/onprem/network-sdn", network_sdn.validate)
     register("core/onprem/template-image", template_image.validate)
+    register("core/onprem/vyos-template-import", vyos_template_import.validate)
+    register("core/onprem/vyos-template-seed", vyos_template_seed.validate)
+    register("core/shared/vyos-image-artifact", vyos_image_artifact.validate)
+    register("core/shared/vyos-image-build", vyos_image_build.validate)
     register("platform/azure/container-registry", container_registry.validate)
     register("platform/gcp/platform-vm", gcp_platform_vm.validate)
-    register("platform/network/wan-edge", wan_edge.validate)
+    register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)
     register("platform/network/edge-observability", edge_observability.validate)
     register("platform/network/decision-service", decision_service.validate)
     register("platform/network/dns-routing", dns_routing.validate)
@@ -81,3 +92,4 @@ def register_all() -> None:
     register("platform/onprem/postgresql-ha-backup", postgresql_ha_backup.validate)
     register("platform/onprem/netbox-db-migrate", netbox_db_migrate.validate)
     register("platform/onprem/rke2-cluster", rke2_cluster.validate)
+    register("platform/onprem/vyos-edge", vyos_edge.validate)

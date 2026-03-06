@@ -73,7 +73,7 @@ def _validate_inventory(data: dict[str, Any]) -> None:
     if not isinstance(inventory_state_ref, str) or not inventory_state_ref.strip():
         raise ValueError(
             "inputs.inventory_state_ref is required when inputs.inventory_groups is empty "
-            "(recommended: org/hetzner/wan-edge-foundation)"
+            "(recommended: org/hetzner/shared-control-host#edge_control_host)"
         )
     if not isinstance(inventory_vm_groups, dict) or not inventory_vm_groups:
         raise ValueError(

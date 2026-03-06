@@ -85,6 +85,7 @@ def run_module_driver_preflight(
     module_root: Path,
     inputs_file: Path | None,
     lifecycle_command: str | None = None,
+    state_instance: str | None = None,
     assumed_state_ok: set[str] | None = None,
 ) -> dict[str, Any]:
     module_ref = normalize_module_ref(str(module_ref or "").strip())
@@ -113,6 +114,7 @@ def run_module_driver_preflight(
         "command": "preflight",
         "run_id": run_id,
         "module_ref": module_ref,
+        "state_instance": str(state_instance or "").strip(),
         "module_dir": str(resolved.module_dir),
         "inputs": resolved.inputs,
         "execution": resolved.execution,
@@ -230,6 +232,7 @@ def run(ns) -> int:
                     module_root=module_root,
                     inputs_file=inputs_file,
                     lifecycle_command="apply",
+                    state_instance=None,
                 )
                 status = str(module_preflight.get("status") or "").strip().lower()
                 detail = str(module_preflight.get("error") or f"status={status}")

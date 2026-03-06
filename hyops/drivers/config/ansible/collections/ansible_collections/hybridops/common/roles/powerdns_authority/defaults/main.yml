@@ -1,0 +1,38 @@
+---
+powerdns_state: present
+powerdns_mode: primary
+
+powerdns_root: /opt/hybridops/powerdns
+powerdns_compose_project: powerdns
+powerdns_compose_path: "{{ powerdns_root }}/docker-compose.yml"
+powerdns_config_dir: "{{ powerdns_root }}/config"
+powerdns_data_dir: "{{ powerdns_root }}/data"
+powerdns_logs_dir: "{{ powerdns_root }}/logs"
+powerdns_container_uid: 953
+powerdns_container_gid: 953
+powerdns_container_user: "0:0"
+
+powerdns_image: "powerdns/pdns-auth-49:4.9.5"
+
+powerdns_api_enabled: true
+powerdns_api_key: ""
+powerdns_api_bind_host: "0.0.0.0"
+powerdns_api_port: 8081
+powerdns_api_allow_from:
+  - "127.0.0.1"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+
+powerdns_dns_bind_host: "0.0.0.0"
+powerdns_dns_port: 53
+
+powerdns_zone_name: ""
+powerdns_default_ns: "ns1.hyops.internal"
+powerdns_soa_admin: "hostmaster.hyops.internal"
+
+powerdns_allow_axfr_ips: []
+powerdns_allow_notify_from: []
+powerdns_primary_endpoint: ""
+
+docker_engine_enable: true

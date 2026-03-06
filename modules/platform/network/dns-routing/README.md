@@ -7,23 +7,48 @@ This module is designed as a deterministic control surface:
 - Always writes intent/state outputs for audit and orchestration.
 - Applies provider updates only when explicitly enabled.
 
-## v1 behavior
+## Providers
 
-- Default mode is non-destructive:
-  - `dry_run=true`
-  - `dns_apply=false`
-- Apply mode is explicit:
-  - set `dry_run=false`
-  - set `dns_apply=true`
-  - provide `provider_command`
+- `manual-command`
+  - fallback provider
+  - executes a shell command only when `dns_apply=true`
+- `powerdns-api`
+  - first-class internal DNS authority target
+  - updates a PowerDNS Authoritative server through its HTTP API
+
+Default mode remains non-destructive:
+
+- `dry_run=true`
+- `dns_apply=false`
 
 ## Inputs
 
-- `provider`: routing provider mode (`manual-command` in v1).
+- `provider`: routing provider mode (`manual-command` or `powerdns-api`).
 - `zone`, `record_fqdn`, `record_type`, `ttl`
 - `primary_targets`, `secondary_targets`
 - `desired`: `primary` or `secondary`
-- `provider_command`: shell command to execute when apply mode is enabled.
+- `endpoint_state_ref`: optional upstream service endpoint state reference
+- `endpoint_fqdn_output_key`, `endpoint_target_output_key`: output keys used when resolving endpoint data from state
+- `provider_command`: shell command to execute when `provider=manual-command`.
+- `powerdns_state_ref`: preferred shared PowerDNS authority state reference
+- `powerdns_api_url`, `powerdns_server_id`, `powerdns_zone_id`
+- `powerdns_api_key_env`: env var containing the PowerDNS API key
+- `powerdns_validate_tls`, `powerdns_account`, `powerdns_comment`
+
+When `provider=powerdns-api` and `dns_apply=true`, `required_env` must include the env var named by `powerdns_api_key_env`.
+
+When `endpoint_state_ref` is set, HyOps resolves:
+
+- `record_fqdn` from `outputs.<endpoint_fqdn_output_key>` when omitted
+- `primary_targets` / `secondary_targets` from `outputs.<endpoint_target_output_key>` when omitted
+
+This is the preferred way to publish stable service FQDNs from stateful modules such as `platform/onprem/postgresql-ha`.
+
+When `provider=powerdns-api`, HybridOps should also prefer:
+
+- `powerdns_state_ref: platform/network/powerdns-authority#shared_primary`
+
+That lets the module resolve the PowerDNS API endpoint, server id, zone id, and API key env name from state by default. Explicit values remain valid overrides.
 
 ## Usage
 

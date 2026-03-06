@@ -1,0 +1,84 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/onprem-vyos-edge@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem VyOS Edge"
+  description: "Seed or discover a Proxmox VyOS template and provision a VyOS edge VM on Proxmox using the shared VM lifecycle."
+  outcome: "A VyOS edge appliance is provisioned on Proxmox with state-first template resolution and env-prefixed VM naming."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: vyos_template
+    module_ref: "core/onprem/vyos-template-seed"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
+      artifact_key: "vyos-1.5"
+      template_key: "vyos-1.5"
+      template_vm_id: 9205
+      template_name: "vyos-1.5-template"
+      # HyOps consumes the shared VyOS artifact state by default.
+      # Set image_source_url only when you intentionally bypass the shared artifact contract.
+      image_source_url: ""
+      seed_if_missing: true
+
+  - id: vyos_edge_vm
+    module_ref: "platform/onprem/vyos-edge"
+    state_instance: "vyos_edge_vm"
+    action: "deploy"
+    phase: "operations"
+    with_deps: true
+    requires:
+      - vyos_template
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_state_ref: "core/onprem/vyos-template-seed"
+      template_key: "vyos-1.5"
+      require_ipam: false
+      disk_size_gb: 40
+      guest_agent_enabled: false
+      ssh_username: "vyos"
+      ssh_keys:
+        - "CHANGE_ME_SSH_PUBLIC_KEY"
+      vms:
+        edge-01:
+          role: "wan-edge"
+          interfaces:
+            - bridge: "vnetmgmt"
+              ipv4:
+                address: "10.10.0.20/24"
+                gateway: "10.10.0.1"
+            - bridge: "vmbr0"
+          cloud_init_user_data: |
+            #cloud-config
+            hostname: edge-01
+            manage_etc_hosts: true
+            vyos_config_commands:
+              - set system host-name 'edge-01'
+              - delete interfaces ethernet eth0 address dhcp
+              - set interfaces ethernet eth0 address '10.10.0.20/24'
+              - set interfaces ethernet eth0 description 'Management'
+              - set interfaces ethernet eth1 address 'dhcp'
+              - set system name-server '1.1.1.1'
+              - set system name-server '8.8.8.8'
+              - set protocols static route 0.0.0.0/0 next-hop '10.10.0.1'
+              - set service ssh port '22'
+          # cloud_init_network_data is optional. Start with user-data only for
+          # deterministic VyOS bring-up; add network-data only when explicitly tested
+          # against the pinned cloud-init behavior in your image version.
+          cloud_init_meta_data: |
+            instance-id: edge-01
+            local-hostname: edge-01

@@ -3,17 +3,18 @@
 # Maintainer: HybridOps.Studio
 
 include:
-  - Makefile
   - install.sh
   - LICENSE.txt
   - README.md
-  - GUIDE.md
+  - CHANGELOG.md
   - bin/
-  - ci/
-  - drivers/
+  - hyops/
   - modules/
-  - runbooks/
-  - toolchain/
+  - packs/
+  - blueprints/
+  - tools/
+  - pkg/
+  - pyproject.toml
 exclude:
   - output/
   - .git/

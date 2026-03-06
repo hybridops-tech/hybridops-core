@@ -58,10 +58,26 @@ def run(
     )
 
 
-def _write_result_envelope(evidence_dir: Path, label: str, r: ProcResult, *, mode: int = 0o600) -> None:
+def _redacted_argv(argv: Sequence[str]) -> list[str]:
+    return [redact_text(str(token)) for token in argv]
+
+
+def _write_result_envelope(
+    evidence_dir: Path,
+    label: str,
+    r: ProcResult,
+    *,
+    mode: int = 0o600,
+    redact: bool = False,
+) -> None:
     write_json_atomic(
         evidence_dir / f"{label}.result.json",
-        {"argv": r.argv, "cwd": r.cwd, "rc": r.rc, "duration_ms": r.duration_ms},
+        {
+            "argv": _redacted_argv(r.argv) if redact else r.argv,
+            "cwd": r.cwd,
+            "rc": r.rc,
+            "duration_ms": r.duration_ms,
+        },
         mode=mode,
     )
 
@@ -86,7 +102,7 @@ def run_capture(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / f"{label}.stdout.txt").write_text(out, encoding="utf-8")
     (evidence_dir / f"{label}.stderr.txt").write_text(err, encoding="utf-8")
-    _write_result_envelope(evidence_dir, label, r)
+    _write_result_envelope(evidence_dir, label, r, redact=redact)
     return r
 
 
@@ -127,7 +143,8 @@ def run_capture_stream(
         try:
             tee_path.parent.mkdir(parents=True, exist_ok=True)
             tee_f = tee_path.open("a", encoding="utf-8", errors="replace")
-            tee_f.write(f"\n[hyops] {label} start argv={list(argv)!r}\n")
+            safe_argv = _redacted_argv(argv) if redact else list(argv)
+            tee_f.write(f"\n[hyops] {label} start argv={safe_argv!r}\n")
             tee_f.flush()
         except Exception:
             tee_f = None
@@ -294,7 +311,7 @@ def run_capture_stream(
         stdout="",
         stderr="",
     )
-    _write_result_envelope(evidence_dir, label, r)
+    _write_result_envelope(evidence_dir, label, r, redact=redact)
     if interrupted:
         raise KeyboardInterrupt
     return r

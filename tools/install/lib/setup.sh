@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# purpose: setup-all orchestration helpers for installer.
+# Architecture Decision: ADR-N/A (bootstrap installer)
+# maintainer: HybridOps.Studio
+
+hyops_install_run_setup_all() {
+  [[ "${SETUP_ALL}" == "true" ]] || return 0
+
+  local setup_all_script="${APP_DIR}/tools/setup/setup-all.sh"
+  if [[ ! -f "${setup_all_script}" ]]; then
+    echo "ERR: setup-all not found: ${setup_all_script}" >&2
+    exit 2
+  fi
+
+  command -v sudo >/dev/null 2>&1 || {
+    echo "ERR: sudo required for --setup-all" >&2
+    exit 2
+  }
+
+  echo "[install] running setup-all"
+  sudo -E bash "${setup_all_script}"
+}

@@ -3,33 +3,80 @@ kind: BlueprintSpec
 blueprint_ref: networking/edge-control-plane@v1
 mode: hybrid
 metadata:
-  title: Edge Control Plane (WAN + Observability + Decisions)
+  title: Edge Control Plane (VyOS WAN + Observability + Decisions)
   description: Provision edge WAN foundations, configure edge routing, bootstrap observability,
     and deploy decision control loop.
   outcome: Edge control plane is ready for deterministic DR/burst signaling.
+  notes:
+  - VyOS tunnel/BGP day-2 configuration is not driven by the legacy Linux platform/network/wan-edge module.
+  - This blueprint intentionally excludes that legacy module to avoid applying strongSwan/FRR logic to VyOS appliances.
 policy:
   fail_fast: true
   evidence_required: true
   ipam_authority: none
 steps:
-- id: hetzner_edge_foundation
-  module_ref: org/hetzner/wan-edge-foundation
+- id: vyos_artifact_build
+  module_ref: core/shared/vyos-image-build
+  state_instance: vyos_default_build
   action: deploy
   phase: bootstrap
   with_deps: true
   skip_if_state_ok: true
+  inputs:
+    artifact_key: vyos-1.5
+    artifact_format: qcow2
+    artifact_version: ""
+    # If this URL is set, HyOps registers/uses it directly.
+    # If empty, HyOps builds + publishes via build_command/publish_command.
+    artifact_url: ""
+    artifact_local_path: /tmp/vyos-1.5.qcow2
+    # Set this to your object-repo state for publish backend discovery.
+    # Override in env blueprint overlay when using a non-default repo instance.
+    repo_state_ref: org/gcp/object-repo
+    build_command: ${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh
+    smoke_verify_required: true
+    publish_command: ${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/publish-vyos-artifact.sh
+- id: vyos_image
+  module_ref: core/hetzner/vyos-image-seed
+  action: deploy
+  phase: bootstrap
+  with_deps: true
+  skip_if_state_ok: true
+  requires:
+  - vyos_artifact_build
+  inputs:
+    artifact_state_ref: core/shared/vyos-image-build#vyos_default_build
+    artifact_key: vyos-1.5
+    image_key: vyos-1.5
+    image_ref: ""
+    image_version: "1.5"
+    image_description: hyops-vyos-1-5
+    image_source_url: ""
+    seed_wrapper_public_base_url: ""
+    seed_if_missing: true
+    seed_tool: hcloud-upload-image
+- id: hetzner_edge_foundation
+  module_ref: org/hetzner/vyos-edge-foundation
+  action: deploy
+  phase: bootstrap
+  with_deps: true
+  skip_if_state_ok: true
+  requires:
+  - vyos_image
   contracts:
     addressing_mode: static
   inputs:
     name_prefix: platform
     context_id: dev
-    location: nbg1
-    home_location: nbg1
+    image_state_ref: core/hetzner/vyos-image-seed
+    image_key: vyos-1.5
     network_zone: eu-central
     edge01_name: edge-a
     edge02_name: edge-b
     ssh_key_name: hyops-wan-edge
-    ssh_public_key: ssh-ed25519 CHANGE_ME
+    # Optional when ssh_key_name already exists in Hetzner.
+    # Required only when HyOps must create the SSH key.
+    ssh_public_key: ""
     firewall_name: fw-hyops-edge
     floating_ip_name: fip-hyops-edge
     private_network_name: net-hyops-edge
@@ -75,7 +122,7 @@ steps:
   action: deploy
   phase: bootstrap
   with_deps: true
-  skip_if_state_ok: true
+  skip_if_state_ok: false
   requires:
   - hetzner_edge_foundation
   - gcp_wan_hub_network
@@ -95,70 +142,99 @@ steps:
     advertised_route_priority: 100
     shared_secret_a: CHANGE_ME_PSK_A
     shared_secret_b: CHANGE_ME_PSK_B
-- id: wan_edge_config
-  module_ref: platform/network/wan-edge
+- id: vyos_edge_day2
+  module_ref: platform/network/vyos-edge-wan
   action: deploy
   phase: operations
   with_deps: true
   requires:
-  - hetzner_edge_foundation
   - gcp_wan_vpn_to_edge
+  - shared_control_host
   contracts:
     addressing_mode: static
   inputs:
-    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
     inventory_vm_groups:
-      wan_edge:
-      - edge01
-      - edge02
-    edge01_vm_key: edge01
-    edge02_vm_key: edge02
+      edge_control:
+      - control-01
+    target_user: opsadmin
     required_env:
     - WAN_IPSEC_PSK
-    wan_pub_if: eth0
-    wan_bgp_local_as: 65010
-    wan_bgp_peer_as: 64514
+    - WAN_EDGE_SSH_PRIVATE_KEY
+    local_asn: 65010
+    peer_asn: 64514
     advertise_prefixes:
-    - 10.80.0.0/24
+    - 10.10.0.0/24
+    - 10.11.0.0/24
+    - 10.12.0.0/24
+    - 10.20.0.0/24
+    - 10.21.0.0/24
     import_allow_prefixes:
     - 10.70.0.0/20
-    export_allow_prefixes:
-    - 10.80.0.0/24
+    - 10.70.16.0/20
+- id: shared_control_host
+  module_ref: org/hetzner/shared-control-host
+  state_instance: edge_control_host
+  action: deploy
+  phase: bootstrap
+  with_deps: true
+  skip_if_state_ok: true
+  requires:
+  - hetzner_edge_foundation
+  contracts:
+    addressing_mode: static
+  inputs:
+    foundation_state_ref: org/hetzner/vyos-edge-foundation
+    name_prefix: platform
+    context_id: dev
+    location: ash
+    server_type: cpx21
+    image: ubuntu-24.04
+    host_name: control-01
+    private_ip: 10.80.0.20
+    ssh_username: opsadmin
+    ssh_keys_from_init: true
+    public_ipv6_enabled: false
+    firewall_name: fw-shared-control
+    ssh_source_cidrs:
+    - 0.0.0.0/0
 - id: edge_observability
   module_ref: platform/network/edge-observability
   action: deploy
   phase: operations
   with_deps: true
   requires:
-  - hetzner_edge_foundation
+  - shared_control_host
   contracts:
     addressing_mode: static
   inputs:
-    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
     inventory_vm_groups:
       edge:
-      - edge01
+      - control-01
+    target_user: opsadmin
     required_env:
     - EDGE_OBS_GRAFANA_ADMIN_PASSWORD
     edge_obs_enable_receive: false
     edge_obs_enable_store_gateway: false
     edge_obs_enable_ruler: false
     edge_obs_hashring_endpoints:
-    - edge01.internal:10907
+    - control-01.internal:10907
 - id: dns_routing_intent
   module_ref: platform/network/dns-routing
   action: deploy
   phase: operations
   with_deps: true
   requires:
-  - hetzner_edge_foundation
+  - shared_control_host
   contracts:
     addressing_mode: static
   inputs:
-    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
     inventory_vm_groups:
       edge_control:
-      - edge01
+      - control-01
+    target_user: opsadmin
     provider: manual-command
     zone: example.com
     record_fqdn: app.example.com
@@ -182,10 +258,11 @@ steps:
   contracts:
     addressing_mode: static
   inputs:
-    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
     inventory_vm_groups:
       edge_control:
-      - edge01
+      - control-01
+    target_user: opsadmin
     thanos_query_url: http://127.0.0.1:10902
     policy:
       version: v1
@@ -213,9 +290,9 @@ steps:
         - 198.51.100.20
         dry_run: true
         dns_apply: false
-        inventory_state_ref: org/hetzner/wan-edge-foundation
+        inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
         inventory_vm_groups:
           edge_control:
-          - edge01
+          - control-01
     dry_run: true
     decision_enable_actions: false

@@ -21,14 +21,18 @@ def _resolve_current_hyops_bin() -> str:
     argv0 = str(sys.argv[0] or "").strip()
     if argv0:
         if "/" in argv0 or "\\" in argv0:
-            return str(Path(argv0).expanduser().resolve())
+            resolved = Path(argv0).expanduser().resolve()
+            parts = tuple(resolved.parts)
+            if len(parts) >= 2 and parts[-2:] == ("hyops", "cli.py"):
+                return str(Path(sys.executable).expanduser().resolve())
+            return str(resolved)
         resolved = shutil.which(argv0)
         if resolved:
             return str(Path(resolved).expanduser().resolve())
     resolved = shutil.which("hyops")
     if resolved:
         return str(Path(resolved).expanduser().resolve())
-    return "hyops"
+    return str(Path(sys.executable).expanduser().resolve())
 
 
 def _rewrite_hyops_hook_command(argv: list[str]) -> list[str]:
@@ -37,8 +41,12 @@ def _rewrite_hyops_hook_command(argv: list[str]) -> list[str]:
     head = str(argv[0] or "").strip()
     if head != "hyops":
         return list(argv)
+    resolved = _resolve_current_hyops_bin()
+    resolved_path = Path(resolved)
+    if resolved_path.name.startswith("python"):
+        return [resolved, "-m", "hyops.cli", *list(argv[1:])]
     rewritten = list(argv)
-    rewritten[0] = _resolve_current_hyops_bin()
+    rewritten[0] = resolved
     return rewritten
 
 

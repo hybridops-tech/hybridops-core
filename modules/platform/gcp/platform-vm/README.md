@@ -30,6 +30,14 @@ SSH key source of truth is intentionally strict:
 
 Do not set both in the same input file. HybridOps now fails fast if both are present.
 
+Fresh cloud VMs can also be gated before downstream steps consume them:
+
+- `post_apply_ssh_readiness: true`, or
+- `post_apply_ssh_readiness: { ... }`
+
+Use this when a blueprint creates GCP VMs and immediately hands off to an Ansible/config module. That keeps the
+handoff one-pass and avoids racing the guest boot/SSH availability window.
+
 Example:
 
 ```yaml
@@ -39,6 +47,11 @@ subnetwork_output_key: subnet_workloads_name
 zone: europe-west2-a
 ssh_username: opsadmin
 ssh_keys_from_init: true
+post_apply_ssh_readiness:
+  enabled: true
+  required: true
+  target_user: opsadmin
+  connectivity_wait_s: 180
 vms:
   app-01:
     role: app

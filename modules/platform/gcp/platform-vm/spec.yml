@@ -38,6 +38,7 @@ inputs:
     ssh_keys_from_init: true
     ssh_keys_init_target: "gcp"
     ssh_keys: [] # optional when ssh_keys_from_init=true and init readiness publishes a public key
+    post_apply_ssh_readiness: null
 
     tags: ["platform", "gcp", "vm"]
     labels: {}
@@ -60,6 +61,7 @@ outputs:
   publish:
     - vms
     - vm_ids
+    - vm_keys
     - vm_names
     - zones
     - ipv4_addresses

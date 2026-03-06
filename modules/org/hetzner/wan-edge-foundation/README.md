@@ -1,5 +1,7 @@
 # org/hetzner/wan-edge-foundation
 
+Legacy compatibility path for Linux edge hosts. New routed-edge deployments should use `org/hetzner/vyos-edge-foundation`.
+
 Provision Hetzner WAN edge baseline infrastructure:
 
 - 2 edge VMs (`edge-01`, `edge-02`)

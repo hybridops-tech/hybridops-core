@@ -1,0 +1,14 @@
+artifact_key: "vyos-1.5"
+artifact_format: "qcow2"
+artifact_version: "2026.03.03-0027-rolling"
+source_iso_url: "https://artifacts.example.invalid/network/vyos/vyos-1.5.qcow2"
+artifact_local_path: "/tmp/vyos-1.5.qcow2"
+artifact_url: "https://artifacts.example.invalid/network/vyos/vyos-1.5.qcow2"
+# Production path: consume a prebuilt qcow2/raw artifact URL.
+# ISO/Packer path is opt-in only:
+# allow_iso_build: true
+#   export HYOPS_VYOS_PACKER_TEMPLATE="${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/packs/images/packer/shared/qemu/images/10-vyos-image-build@v1.0/stack/vyos-qemu.pkr.hcl"
+#   export HYOPS_VYOS_PACKER_VARS_FILE="${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/packs/images/packer/shared/qemu/images/10-vyos-image-build@v1.0/stack/vyos-qemu.auto.pkrvars.hcl.example"
+build_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh"
+smoke_verify_required: true
+publish_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/publish-vyos-artifact.sh"

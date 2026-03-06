@@ -1,0 +1,64 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/vyos-edge"
+
+metadata:
+  title: "VyOS Edge Appliance"
+  description: "Provision VyOS routed edge VMs on Proxmox by specializing the generic Proxmox platform-vm lifecycle and requiring VyOS first-boot cloud-init intent."
+
+requirements:
+  credentials: ["proxmox"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    vm_role: "wan-edge"
+    template_state_ref: "core/onprem/vyos-template-seed"
+    template_key: "vyos-1.5"
+    build_image: false
+    cpu_cores: 2
+    memory_mb: 2048
+    disk_size_gb: 40
+    guest_agent_enabled: false
+    cpu_type: "host"
+    os_type: "l26"
+    on_boot: true
+    dns_domain: "hybzone.local"
+    dns_servers: ["1.1.1.1", "8.8.8.8"]
+    tags: ["platform", "onprem", "wan-edge", "vyos"]
+    require_ipam: false
+    allow_vm_set_replace: false
+    ssh_username: "vyos"
+    post_apply_ssh_readiness:
+      enabled: true
+      required: true
+      target_user: "vyos"
+      connectivity_timeout_s: 5
+      connectivity_wait_s: 300
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "onprem-proxmox@v1.0"
+  pack_ref:
+    id: "onprem/proxmox/core/10-platform/00-platform-vm@v1.0"
+  hooks:
+    export_infra:
+      enabled: false
+
+outputs:
+  publish:
+    - vms
+    - vm_ids
+    - vm_keys
+    - vm_names
+    - node_name
+    - ipv4_addresses
+    - ipv4_addresses_all
+    - mac_addresses_primary
+    - mac_addresses_all
+    - tags
+
+probes: []
+constraints: []

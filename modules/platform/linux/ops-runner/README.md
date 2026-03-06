@@ -8,7 +8,9 @@ This module is intentionally generic:
 - it consumes state-driven inventory if you already created the VM with `platform/*/platform-vm`
 - it installs from an unpacked HybridOps release root, not from a Git checkout requirement
 
-Current runner blueprints standardize on Ubuntu LTS images for the execution host. That keeps the bootstrap path predictable while the toolchain setup scripts remain Debian-family oriented.
+The bootstrap ensures the runner has the minimum execution toolchain required by HybridOps drivers, including `git` for Terragrunt module sources.
+
+Cloud runner blueprints currently standardize on Ubuntu LTS images for the execution host. On-prem runner blueprints follow the validated local template contract and may use Rocky 9 where that is the proven on-prem base image.
 
 ## Typical use
 
@@ -54,6 +56,8 @@ For a more production-oriented runner flow, use:
 That allows the runner to download a versioned HybridOps release tarball from an artifact repository instead of depending on a local unpacked tree on the controller.
 
 When bootstrapping from a local unpacked release root, the controller vendors the already-installed HybridOps Python runtime dependencies from its active runtime and copies them into the staged release on the runner. The runner then executes HybridOps directly from the copied release payload, without network dependency resolution or PyPI access.
+
+The module records the staged release archive hash on the runner and automatically reinstalls when that hash changes. That keeps runner refreshes aligned with the shipped payload without requiring a manual `runner_force_reinstall` toggle after every code update.
 
 ## Toolchain mode
 

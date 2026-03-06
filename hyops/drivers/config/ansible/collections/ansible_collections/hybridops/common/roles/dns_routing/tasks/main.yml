@@ -18,8 +18,20 @@
   ansible.builtin.file:
     path: "{{ dns_state_dir }}"
     state: directory
-    owner: root
-    group: root
+    owner: >-
+      {{
+        (
+          (ansible_connection | default('ssh')) == 'local'
+          and not (ansible_become | default(false) | bool)
+        ) | ternary(omit, 'root')
+      }}
+    group: >-
+      {{
+        (
+          (ansible_connection | default('ssh')) == 'local'
+          and not (ansible_become | default(false) | bool)
+        ) | ternary(omit, 'root')
+      }}
     mode: "0750"
   when: dns_state == "present"
 
@@ -29,11 +41,63 @@
   when: dns_state == "present"
   changed_when: false
 
+- name: Build PowerDNS effective values
+  ansible.builtin.set_fact:
+    _powerdns_zone_id_effective: "{{ (powerdns_zone_id | default('', true) | string | trim) or (zone | string | trim) }}"
+    _powerdns_record_name_effective: "{{ (record_fqdn | string).endswith('.') | ternary((record_fqdn | string), ((record_fqdn | string) ~ '.')) }}"
+    _powerdns_records_effective: []
+    _powerdns_comments_effective: >-
+      {{
+        ((powerdns_comment | default('', true) | string | trim) != '') |
+        ternary(
+          [{'content': (powerdns_comment | string | trim), 'account': (powerdns_account | default('hyops', true) | string)}],
+          []
+        )
+      }}
+  when: dns_state == "present"
+  changed_when: false
+
+- name: Build PowerDNS record list
+  ansible.builtin.set_fact:
+    _powerdns_records_effective: "{{ (_powerdns_records_effective | default([])) + [ {'content': (item | string), 'disabled': false} ] }}"
+  loop: "{{ _dns_targets_effective | default([]) }}"
+  when: dns_state == "present"
+  changed_when: false
+
+- name: Normalize PowerDNS CNAME targets
+  ansible.builtin.set_fact:
+    _powerdns_records_effective: >-
+      {{
+        [
+          {
+            'content': ((item.content | string).endswith('.') | ternary((item.content | string), ((item.content | string) ~ '.'))),
+            'disabled': false
+          }
+          for item in (_powerdns_records_effective | default([]))
+        ]
+      }}
+  when:
+    - dns_state == "present"
+    - (record_type | upper) == "CNAME"
+  changed_when: false
+
 - name: Write DNS routing intent
   ansible.builtin.copy:
     dest: "{{ dns_state_dir }}/{{ dns_intent_file }}"
-    owner: root
-    group: root
+    owner: >-
+      {{
+        (
+          (ansible_connection | default('ssh')) == 'local'
+          and not (ansible_become | default(false) | bool)
+        ) | ternary(omit, 'root')
+      }}
+    group: >-
+      {{
+        (
+          (ansible_connection | default('ssh')) == 'local'
+          and not (ansible_become | default(false) | bool)
+        ) | ternary(omit, 'root')
+      }}
     mode: "0640"
     content: |
       {{
@@ -73,3 +137,52 @@
     - dns_apply | bool
     - not (dry_run | bool)
     - provider == "manual-command"
+
+- name: Resolve PowerDNS API key from environment
+  ansible.builtin.set_fact:
+    _powerdns_api_key_effective: "{{ lookup('ansible.builtin.env', powerdns_api_key_env) | default('', true) | string }}"
+  when:
+    - dns_state == "present"
+    - dns_apply | bool
+    - not (dry_run | bool)
+    - provider == "powerdns-api"
+  changed_when: false
+
+- name: Assert PowerDNS API key is available
+  ansible.builtin.assert:
+    that:
+      - _powerdns_api_key_effective | length > 0
+    fail_msg: "PowerDNS API key was not found in env var {{ powerdns_api_key_env }}."
+  when:
+    - dns_state == "present"
+    - dns_apply | bool
+    - not (dry_run | bool)
+    - provider == "powerdns-api"
+
+- name: Update DNS record via PowerDNS API
+  ansible.builtin.uri:
+    url: "{{ (powerdns_api_url | regex_replace('/+$', '')) ~ '/api/v1/servers/' ~ (powerdns_server_id | urlencode) ~ '/zones/' ~ (_powerdns_zone_id_effective | urlencode) }}"
+    method: PATCH
+    headers:
+      X-API-Key: "{{ _powerdns_api_key_effective }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      rrsets:
+        - name: "{{ _powerdns_record_name_effective }}"
+          type: "{{ record_type | upper }}"
+          ttl: "{{ ttl | int }}"
+          changetype: REPLACE
+          records: "{{ _powerdns_records_effective }}"
+          comments: "{{ _powerdns_comments_effective }}"
+    status_code:
+      - 200
+      - 204
+    validate_certs: "{{ powerdns_validate_tls | bool }}"
+  register: _powerdns_apply
+  changed_when: true
+  when:
+    - dns_state == "present"
+    - dns_apply | bool
+    - not (dry_run | bool)
+    - provider == "powerdns-api"

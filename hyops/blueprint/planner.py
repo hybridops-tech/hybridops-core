@@ -132,6 +132,7 @@ def preflight_step(
             module_root=module_root,
             inputs_file=inputs_file,
             lifecycle_command=str(step["action"] or "").strip().lower() or None,
+            state_instance=str(step.get("state_instance") or "").strip() or None,
             assumed_state_ok=assumed_state_ok,
         )
         result["driver_preflight"] = driver_preflight

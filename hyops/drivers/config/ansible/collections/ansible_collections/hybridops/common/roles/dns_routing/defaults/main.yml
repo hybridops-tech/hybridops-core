@@ -15,6 +15,14 @@ primary_targets: []
 secondary_targets: []
 desired: primary
 
+powerdns_api_url: ""
+powerdns_server_id: "localhost"
+powerdns_zone_id: ""
+powerdns_api_key_env: "POWERDNS_API_KEY"
+powerdns_validate_tls: true
+powerdns_account: "hyops"
+powerdns_comment: ""
+
 dry_run: true
 dns_apply: false
 provider_command: ""

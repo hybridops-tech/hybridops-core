@@ -7,7 +7,7 @@ description: "Terragrunt profile for Proxmox stacks using runtime-injected crede
 
 policy:
   defaults:
-    command_timeout_s: 180
+    command_timeout_s: 900
     retries: 1
     redact: true
   naming:

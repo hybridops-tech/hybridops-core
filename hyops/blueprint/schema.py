@@ -43,7 +43,11 @@ def resolve_blueprint_file(ref: str, file_path: str, blueprints_root: Path) -> P
         if candidate.exists():
             return candidate
 
-    raise FileNotFoundError(f"blueprint file not found under: {base}")
+    raise FileNotFoundError(
+        f"blueprint file not found under: {base}. "
+        "If the ref is valid in your source checkout, refresh the installed HyOps payload "
+        "(for example rerun install.sh) or use the repo-local CLI until the install is updated."
+    )
 
 
 def load_blueprint(path: Path) -> dict[str, Any]:
@@ -315,4 +319,3 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         "steps": steps,
         "order": order,
     }
-

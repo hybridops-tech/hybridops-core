@@ -1,0 +1,53 @@
+---
+vyos_wan_state: "present"
+wan_ipsec_psk_env: "WAN_IPSEC_PSK"
+
+vyos_ssh_user: "vyos"
+vyos_ssh_port: 22
+vyos_ssh_key_file: "/home/opsadmin/.ssh/id_ed25519"
+vyos_ssh_private_key_env: "WAN_EDGE_SSH_PRIVATE_KEY"
+edge_ssh_connectivity_timeout_s: 8
+vyos_ssh_opts:
+  - "-o StrictHostKeyChecking=no"
+  - "-o UserKnownHostsFile=/dev/null"
+  - "-o ConnectTimeout=10"
+
+edge01_name: "edge01"
+edge02_name: "edge02"
+
+edge01_ssh_host: ""
+edge02_ssh_host: ""
+
+edge01_public_ip: ""
+edge02_public_ip: ""
+edge01_peer_public_ip: ""
+edge02_peer_public_ip: ""
+
+edge01_inside_local_ip: "169.254.10.1"
+edge01_inside_peer_ip: "169.254.10.2"
+edge02_inside_local_ip: "169.254.10.5"
+edge02_inside_peer_ip: "169.254.10.6"
+inside_prefix_len: 30
+
+edge01_tunnel_ifname: "vti10"
+edge02_tunnel_ifname: "vti11"
+edge01_tunnel_name: "gcp-a"
+edge02_tunnel_name: "gcp-b"
+
+edge01_router_id: "10.80.0.11"
+edge02_router_id: "10.80.0.12"
+
+local_asn: 65010
+peer_asn: 64514
+
+advertise_prefixes: []
+import_allow_prefixes: []
+
+ipsec_ike_group: "HYOPS-GCP-IKE"
+ipsec_esp_group: "HYOPS-GCP-ESP"
+bgp_export_prefix_list: "HYOPS-GCP-EXPORT"
+bgp_import_prefix_list: "HYOPS-GCP-IMPORT"
+bgp_export_route_map: "HYOPS-GCP-EXPORT"
+bgp_import_route_map: "HYOPS-GCP-IMPORT"
+
+validate_post_apply: true

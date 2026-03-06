@@ -1,0 +1,76 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/onprem/vyos-template-seed"
+
+metadata:
+  title: "VyOS Template Seed"
+  description: "Seed or discover a Proxmox VyOS template, then publish its template contract into HyOps state for downstream VyOS edge modules."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    template_key: "vyos-1.5"
+    template_vm_id: 9205
+    template_name: "vyos-1.5-template"
+    template_image_version: ""
+    template_source_url: ""
+    artifact_state_ref: ""
+    artifact_key: ""
+    artifact_url: ""
+    artifact_format: ""
+    artifact_version: ""
+    artifact_sha256: ""
+    source_iso_url: ""
+    image_source_url: ""
+    image_format: "auto"
+    image_compression: "auto"
+    seed_if_missing: true
+    rebuild_if_exists: false
+    seed_command: ""
+    seed_timeout_s: 7200
+    proxmox_host: ""
+    proxmox_node: ""
+    storage_vm: ""
+    network_bridge: ""
+    ssh_username: ""
+    ssh_private_key: ""
+    cpu_cores: 2
+    memory_mb: 2048
+    ci_username: "vyos"
+    template_smoke_gate: true
+    template_smoke_wait_s: 90
+    template_smoke_vmid: null
+    template_smoke_bridge: ""
+    template_smoke_marker: ""
+    notes: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/11-vyos-template-seed@v1.0"
+
+outputs:
+  publish:
+    - template_key
+    - template_vm_id
+    - template_name
+    - template_image_version
+    - template_source_url
+    - template_seeded
+    - templates
+
+probes: []
+constraints: []

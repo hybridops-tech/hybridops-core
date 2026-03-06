@@ -1,0 +1,18 @@
+inventory_groups:
+  dns:
+    - name: dns-02
+      host: 10.10.0.53
+
+target_user: opsadmin
+become: true
+load_vault_env: true
+required_env:
+  - POWERDNS_API_KEY
+
+powerdns_mode: secondary
+powerdns_zone_name: hyops.internal
+powerdns_primary_state_ref: platform/network/powerdns-authority#shared_primary
+powerdns_api_allow_from:
+  - 127.0.0.1
+  - 10.80.0.0/24
+  - 10.10.0.0/24

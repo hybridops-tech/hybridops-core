@@ -1,0 +1,29 @@
+---
+- name: platform/network/powerdns-authority (destroy)
+  hosts: dns
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+
+  vars:
+    powerdns_role_fqcn: "{{ powerdns_role_fqcn | default('hybridops.common.powerdns_authority') }}"
+    powerdns_state: "absent"
+
+  tasks:
+    - name: Run PowerDNS authority role (absent)
+      ansible.builtin.include_role:
+        name: "{{ powerdns_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'powerdns_state': 'absent',
+            'cap.net.dns_authority': 'absent'
+          } | to_json }}

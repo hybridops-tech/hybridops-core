@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # purpose: Run an end-to-end smoke chain (init -> template-image linux/windows -> platform-vm) using the public hyops CLI path.
+# note: Manual engineering helper for validating templates; not a packaged runtime workflow.
 # Architecture Decision: ADR-0206 (module execution contract v1)
 
 set -euo pipefail
@@ -7,6 +8,8 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 usage: hyops-onprem-template-vm-smoke.sh --proxmox-ip <ip> [options]
+
+manual helper: template/image smoke validation for engineering workflows.
 
 options:
   --env <name>                       Runtime environment namespace (default: dev)

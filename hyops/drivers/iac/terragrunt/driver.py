@@ -87,6 +87,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     pack_id = str(execution.get("pack_id") or "").strip()
 
     command_name = str(request.get("command") or "apply").strip().lower()
+    lifecycle_command = str(request.get("lifecycle_command") or command_name).strip().lower()
     if command_name == "deploy":
         command_name = "apply"
     if command_name not in ("apply", "plan", "validate", "destroy", "import", "state_unlock", "preflight"):
@@ -317,12 +318,16 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     if credential_contract_error:
         return _fail(ev, result, credential_contract_error)
 
+    runtime_for_contract = dict(runtime) if isinstance(runtime, dict) else {}
+    runtime_for_contract["state_instance"] = state_instance
+    runtime_for_contract["lifecycle_command"] = lifecycle_command
+
     processed_inputs, contract_warnings, contract_error = contract.preprocess_inputs(
         command_name=command_name,
         module_ref=module_ref,
         inputs=dict(inputs),
         profile_policy=profile_policy,
-        runtime=runtime if isinstance(runtime, dict) else {},
+        runtime=runtime_for_contract,
         env=env,
         credential_env=credential_env,
     )
@@ -351,7 +356,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         export_infra_hook=export_infra_hook,
         contract=contract,
         module_ref=module_ref,
-        runtime=runtime if isinstance(runtime, dict) else {},
+        runtime=runtime_for_contract,
         profile_ref=profile_ref,
         pack_id=pack_id,
         required_credentials=required_credentials,
@@ -382,6 +387,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     workspace_result, workspace_error, workspace_warning = _enforce_workspace_policy(
         backend_mode=backend_mode,
         workspace_policy=workspace_policy,
+        env=env,
     )
     if workspace_result:
         ev.write_json("workspace_policy.json", workspace_result)

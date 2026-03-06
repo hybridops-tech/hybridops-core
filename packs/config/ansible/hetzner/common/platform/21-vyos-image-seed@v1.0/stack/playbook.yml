@@ -1,0 +1,362 @@
+---
+- name: "core/hetzner/vyos-image-seed"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    hyops_out_file: "{{ hyops_outputs_file }}"
+    hcloud_credentials_dir: "{{ lookup('env', 'HYOPS_CREDENTIALS_DIR') | default('', true) | trim }}"
+    hcloud_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) | trim }}"
+    hcloud_env_name: "{{ lookup('env', 'HYOPS_ENV') | default('', true) | trim }}"
+    hcloud_home_dir: "{{ lookup('env', 'HOME') | default('', true) | trim }}"
+    hcloud_tfvars_path: >-
+      {{
+        (lookup('env', 'HYOPS_HETZNER_TFVARS') | default('', true) | trim)
+        or (
+          (hcloud_credentials_dir | length > 0)
+          | ternary(hcloud_credentials_dir ~ '/hetzner.credentials.tfvars', '')
+        )
+        or (
+          (hcloud_runtime_root | length > 0)
+          | ternary(hcloud_runtime_root ~ '/credentials/hetzner.credentials.tfvars', '')
+        )
+        or (
+          (hcloud_home_dir | length > 0 and hcloud_env_name | length > 0)
+          | ternary(hcloud_home_dir ~ '/.hybridops/envs/' ~ hcloud_env_name ~ '/credentials/hetzner.credentials.tfvars', '')
+        )
+      }}
+    hcloud_tfvars_raw: "{{ lookup('file', hcloud_tfvars_path, errors='ignore') | default('', true) }}"
+    hcloud_token_from_tfvars: >-
+      {{
+        (
+          hcloud_tfvars_raw
+          | regex_findall('(?m)^hcloud_token\\s*=\\s*\"([^\"]+)\"')
+          | first
+          | default('')
+        ) | string | trim
+      }}
+    hcloud_token: >-
+      {{
+        (lookup('env', 'HCLOUD_TOKEN') | default('', true) | trim)
+        or (lookup('env', 'hcloud_token') | default('', true) | trim)
+        or hcloud_token_from_tfvars
+      }}
+    hcloud_api_url: "https://api.hetzner.cloud/v1"
+    image_source_url_effective: "{{ image_source_url | default('', true) | trim }}"
+    image_source_is_qcow2: >-
+      {{
+        (image_source_url_effective | length > 0)
+        and
+        (
+          image_source_url_effective
+          | regex_search('\.qcow2(\.(xz|gz|bz2))?(\?.*)?$', ignorecase=True)
+        )
+      }}
+    seed_location_effective: "{{ seed_location | default('', true) | trim }}"
+    seed_server_type_effective: "{{ seed_server_type | default('', true) | trim }}"
+    seed_wrapper_public_base_url_effective: "{{ seed_wrapper_public_base_url | default('', true) | trim }}"
+    seed_wrapper_bind_port_effective: "{{ (seed_wrapper_bind_port | default(18080)) | int }}"
+    seed_wrapper_script: "{{ playbook_dir }}/bin/seed-vyos-hetzner-from-qcow2.sh"
+    image_description_effective: "{{ (image_description | default('', true) | trim) or ('hyops-vyos-' ~ image_key) }}"
+    image_name_effective: "{{ image_name | default('', true) | trim }}"
+    image_labels_effective: >-
+      {{
+        ({'hyops_image_key': image_key})
+        | combine(
+            ((image_version | default('', true) | trim) | length > 0)
+            | ternary({'hyops_image_version': (image_version | trim)}, {}),
+            recursive=False
+          )
+      }}
+    image_labels_csv: >-
+      {%- for item in image_labels_effective | dict2items -%}
+      {{- "," if not loop.first else "" -}}{{ item.key }}={{ item.value }}
+      {%- endfor -%}
+  tasks:
+    - name: Fail when Hetzner token is not available
+      ansible.builtin.fail:
+        msg: >-
+          Hetzner API token is not available. Set HCLOUD_TOKEN (or hcloud_token),
+          or run `hyops init hetzner --env <env> --force` so HYOPS_HETZNER_TFVARS
+          contains hcloud_token before image seeding can run.
+      when: hcloud_token | trim | length == 0
+
+    - name: List Hetzner snapshot images
+      ansible.builtin.uri:
+        url: "{{ hcloud_api_url }}/images?type=snapshot&per_page=50"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ hcloud_token }}"
+          Content-Type: "application/json"
+        return_content: true
+        status_code: 200
+      register: hcloud_images
+
+    - name: Collect snapshot images
+      ansible.builtin.set_fact:
+        snapshot_images: "{{ hcloud_images.json.images | default([]) }}"
+        resolved_image: {}
+
+    - name: Resolve existing image by explicit ref
+      ansible.builtin.set_fact:
+        resolved_image: "{{ item }}"
+      loop: "{{ snapshot_images }}"
+      when:
+        - resolved_image | length == 0
+        - image_ref | default('', true) | trim | length > 0
+        - >
+          (item.id | string) == (image_ref | trim)
+          or (item.name | default('')) == (image_ref | trim)
+          or (item.description | default('')) == (image_ref | trim)
+
+    - name: Resolve existing image by description or name
+      ansible.builtin.set_fact:
+        resolved_image: "{{ item }}"
+      loop: "{{ snapshot_images }}"
+      when:
+        - resolved_image | length == 0
+        - image_ref | default('', true) | trim | length == 0
+        - >
+          (item.description | default('')) == image_description_effective
+          or (
+            image_name_effective | length > 0
+            and (item.name | default('')) == image_name_effective
+          )
+
+    - name: Fail when no matching image exists and seeding is disabled
+      ansible.builtin.fail:
+        msg: >-
+          No Hetzner snapshot matched image_key={{ image_key }} (description={{ image_description_effective }}).
+          Either provide inputs.image_ref explicitly, or set inputs.seed_if_missing=true with a valid seed source.
+      when:
+        - resolved_image | length == 0
+        - not (seed_if_missing | bool)
+
+    - name: Ensure default seeding tool exists when using generated command
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/env
+          - bash
+          - -lc
+          - "command -v {{ seed_tool }}"
+      register: seed_tool_probe
+      changed_when: false
+      failed_when: seed_tool_probe.rc != 0
+      when:
+        - resolved_image | length == 0
+        - seed_if_missing | bool
+        - (seed_command | default('', true) | trim) | length == 0
+
+    - name: Probe image source URL reachability with HEAD before seeding
+      ansible.builtin.uri:
+        url: "{{ image_source_url_effective }}"
+        method: HEAD
+        follow_redirects: all
+        return_content: false
+        timeout: 20
+      register: image_source_probe_head
+      changed_when: false
+      failed_when: false
+      when:
+        - resolved_image | length == 0
+        - seed_if_missing | bool
+        - (seed_command | default('', true) | trim) | length == 0
+        - image_source_url_effective | length > 0
+
+    - name: Probe image source URL reachability with fallback GET
+      ansible.builtin.uri:
+        url: "{{ image_source_url_effective }}"
+        method: GET
+        headers:
+          Range: "bytes=0-0"
+        follow_redirects: all
+        return_content: false
+        timeout: 20
+      register: image_source_probe_get
+      changed_when: false
+      failed_when: false
+      when:
+        - image_source_probe_head is defined
+        - (image_source_probe_head.status | default(0) | int) == 405
+
+    - name: Evaluate image source probe status
+      ansible.builtin.set_fact:
+        image_source_probe_ok: >-
+          {{
+            (
+              not (image_source_probe_head.failed | default(false))
+              and (image_source_probe_head.status | default(0) | int) in [200, 206, 301, 302, 303, 307, 308]
+            )
+            or
+            (
+              (image_source_probe_head.status | default(0) | int) == 405
+              and not (image_source_probe_get.failed | default(false))
+              and (image_source_probe_get.status | default(0) | int) in [200, 206, 301, 302, 303, 307, 308]
+            )
+          }}
+      when:
+        - image_source_probe_head is defined
+
+    - name: Fail when image source URL is unreachable or invalid
+      ansible.builtin.fail:
+        msg: >-
+          image_source_url is not reachable from the execution host:
+          {{ image_source_url_effective }}.
+          HEAD status={{ image_source_probe_head.status | default('n/a') }},
+          GET status={{ image_source_probe_get.status | default('n/a') }}.
+          Provide a valid public http(s) artifact URL, or run core/shared/vyos-image-build
+          and consume its artifact_state_ref/artifact_key outputs.
+      when:
+        - image_source_probe_head is defined
+        - not (image_source_probe_ok | default(false))
+
+    - name: Build effective seeding command
+      ansible.builtin.set_fact:
+        effective_seed_command: >-
+          {{
+            (seed_command | default('', true) | trim)
+            if ((seed_command | default('', true) | trim) | length > 0)
+            else (
+              (
+                (
+                  seed_wrapper_script | quote
+                  ~ ' --source-url ' ~ (image_source_url_effective | quote)
+                  ~ ' --public-base-url ' ~ (seed_wrapper_public_base_url_effective | quote)
+                  ~ ' --bind-port ' ~ (seed_wrapper_bind_port_effective | string)
+                  ~ ' --architecture ' ~ (image_architecture | quote)
+                  ~ ' --compression ' ~ (image_compression | quote)
+                  ~ ' --description ' ~ (image_description_effective | quote)
+                  ~ ' --seed-tool ' ~ (seed_tool | quote)
+                  ~ (
+                      (seed_location_effective | length > 0)
+                      | ternary(' --seed-location ' ~ (seed_location_effective | quote), '')
+                    )
+                  ~ (
+                      (seed_server_type_effective | length > 0)
+                      | ternary(' --seed-server-type ' ~ (seed_server_type_effective | quote), '')
+                    )
+                  ~ (
+                      (image_labels_csv | trim | length > 0)
+                      | ternary(' --labels ' ~ (image_labels_csv | quote), '')
+                    )
+                )
+                if image_source_is_qcow2
+                else
+                (
+                  seed_tool
+                  ~ ' upload'
+                  ~ ' --image-url ' ~ (image_source_url_effective | quote)
+                  ~ (
+                      (seed_server_type_effective | length > 0)
+                      | ternary('', ' --architecture ' ~ (image_architecture | quote))
+                    )
+                  ~ ' --compression ' ~ (image_compression | quote)
+                  ~ ' --description ' ~ (image_description_effective | quote)
+                  ~ (
+                      (seed_location_effective | length > 0)
+                      | ternary(' --location ' ~ (seed_location_effective | quote), '')
+                    )
+                  ~ (
+                      (seed_server_type_effective | length > 0)
+                      | ternary(' --server-type ' ~ (seed_server_type_effective | quote), '')
+                    )
+                  ~ (
+                      (image_labels_csv | trim | length > 0)
+                      | ternary(' --labels ' ~ (image_labels_csv | quote), '')
+                    )
+                )
+              )
+            )
+          }}
+      when:
+        - resolved_image | length == 0
+        - seed_if_missing | bool
+
+    - name: Seed Hetzner VyOS image when missing
+      ansible.builtin.shell: "{{ effective_seed_command }}"
+      args:
+        executable: /bin/bash
+      environment:
+        HCLOUD_TOKEN: "{{ hcloud_token }}"
+      register: seed_result
+      changed_when: true
+      when:
+        - resolved_image | length == 0
+        - seed_if_missing | bool
+      async: "{{ seed_timeout_s }}"
+      poll: 15
+
+    - name: Capture created image ref from seeding output
+      ansible.builtin.set_fact:
+        created_image_ref: "{{ ((seed_result.stdout | default('')) ~ '\n' ~ (seed_result.stderr | default(''))) | regex_findall('image=([0-9]+)') | first | default('') }}"
+      when:
+        - resolved_image | length == 0
+        - seed_if_missing | bool
+
+    - name: Refresh Hetzner snapshot images after seeding
+      ansible.builtin.uri:
+        url: "{{ hcloud_api_url }}/images?type=snapshot&per_page=50"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ hcloud_token }}"
+          Content-Type: "application/json"
+        return_content: true
+        status_code: 200
+      register: hcloud_images_after_seed
+      when:
+        - resolved_image | length == 0
+        - seed_if_missing | bool
+
+    - name: Resolve newly seeded image by returned ref
+      ansible.builtin.set_fact:
+        resolved_image: "{{ item }}"
+      loop: "{{ hcloud_images_after_seed.json.images | default([]) }}"
+      when:
+        - resolved_image | length == 0
+        - created_image_ref | default('') | trim | length > 0
+        - (item.id | string) == (created_image_ref | trim)
+
+    - name: Resolve newly seeded image by description fallback
+      ansible.builtin.set_fact:
+        resolved_image: "{{ item }}"
+      loop: "{{ hcloud_images_after_seed.json.images | default([]) }}"
+      when:
+        - resolved_image | length == 0
+        - (item.description | default('')) == image_description_effective
+
+    - name: Fail when seeding finished without a discoverable image
+      ansible.builtin.fail:
+        msg: >-
+          Hetzner VyOS image seeding completed, but no snapshot could be resolved afterwards.
+          Check the seeding output and ensure the image was created successfully.
+      when:
+        - resolved_image | length == 0
+
+    - name: Build image outputs
+      ansible.builtin.set_fact:
+        hyops_outputs:
+          image_key: "{{ image_key }}"
+          image_ref: "{{ resolved_image.id | string }}"
+          image_name: "{{ resolved_image.name | default('') }}"
+          image_description: "{{ resolved_image.description | default(image_description_effective) }}"
+          image_version: "{{ image_version | default('') }}"
+          image_source_url: "{{ image_source_url | default('') }}"
+          image_seeded: "{{ (seed_result is defined) | bool }}"
+          images: >-
+            {{
+              {
+                image_key: {
+                  'image_ref': (resolved_image.id | string),
+                  'image_name': (resolved_image.name | default('')),
+                  'image_description': (resolved_image.description | default(image_description_effective)),
+                  'image_version': (image_version | default('')),
+                  'image_source_url': (image_source_url | default(''))
+                }
+              }
+            }}
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_out_file }}"
+        mode: "0600"
+        content: "{{ hyops_outputs | to_nice_json }}"

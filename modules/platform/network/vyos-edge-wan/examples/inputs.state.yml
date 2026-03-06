@@ -1,0 +1,30 @@
+# State-driven example (recommended)
+# Assumes upstream module states exist in this env:
+#   - org/hetzner/shared-control-host#edge_control_host
+#   - org/hetzner/vyos-edge-foundation
+#   - org/gcp/wan-vpn-to-edge
+
+inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+inventory_vm_groups:
+  edge_control:
+    - control-01
+
+target_user: opsadmin
+
+required_env:
+  - WAN_IPSEC_PSK
+  - WAN_EDGE_SSH_PRIVATE_KEY
+
+local_asn: 65010
+peer_asn: 64514
+
+advertise_prefixes:
+  - 10.10.0.0/24
+  - 10.11.0.0/24
+  - 10.12.0.0/24
+  - 10.20.0.0/24
+  - 10.21.0.0/24
+
+import_allow_prefixes:
+  - 10.70.0.0/20
+  - 10.70.16.0/20

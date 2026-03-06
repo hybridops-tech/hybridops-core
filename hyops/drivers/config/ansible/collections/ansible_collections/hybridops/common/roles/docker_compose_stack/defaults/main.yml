@@ -1,0 +1,9 @@
+---
+docker_compose_stack_state: present
+docker_compose_stack_service_name: docker-compose-stack
+docker_compose_stack_compose_path: /opt/hybridops/compose/docker-compose.yml
+docker_compose_stack_workdir: "{{ docker_compose_stack_compose_path | dirname }}"
+docker_compose_stack_project_name: ""
+docker_compose_stack_env_file: ""
+docker_compose_stack_pull: false
+docker_compose_stack_notify_handler: ""

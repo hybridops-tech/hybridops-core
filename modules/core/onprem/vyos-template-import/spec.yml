@@ -1,0 +1,47 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/onprem/vyos-template-import"
+
+metadata:
+  title: "VyOS Template Registration"
+  description: "Register a pre-imported official VyOS Proxmox template into HyOps state for downstream VyOS edge modules."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    template_key: "vyos-1.5"
+    template_vm_id: 0
+    template_name: ""
+    template_image_version: ""
+    template_source_url: ""
+    notes: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/12-vyos-template-import@v1.0"
+
+outputs:
+  publish:
+    - template_key
+    - template_vm_id
+    - template_name
+    - template_image_version
+    - template_source_url
+    - templates
+
+probes: []
+constraints: []

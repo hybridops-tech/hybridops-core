@@ -304,7 +304,7 @@ def run_post_apply_network_sdn_readiness(
 ) -> tuple[dict[str, Any] | None, list[str], str]:
     if str(module_ref or "").strip() != "core/onprem/network-sdn":
         return None, [], ""
-    if str(command_name or "").strip().lower() != "apply":
+    if str(command_name or "").strip().lower() not in {"apply", "deploy"}:
         return None, [], ""
 
     warnings: list[str] = []
@@ -546,7 +546,11 @@ def run_post_apply_ssh_readiness(
     evidence_dir: Path,
     redact: bool,
 ) -> tuple[dict[str, Any] | None, list[str], str]:
-    if str(module_ref or "").strip() != "platform/onprem/platform-vm":
+    module_ref_value = str(module_ref or "").strip()
+    if not (
+        module_ref_value.startswith("platform/")
+        and module_ref_value.endswith("/platform-vm")
+    ):
         return None, [], ""
     if str(command_name or "").strip().lower() != "apply":
         return None, [], ""

@@ -1,7 +1,7 @@
-inventory_state_ref: org/hetzner/wan-edge-foundation
+inventory_state_ref: org/hetzner/shared-control-host
 inventory_vm_groups:
   edge_control:
-  - edge01
+  - control-01
 thanos_query_url: http://127.0.0.1:10902
 policy:
   version: v1
@@ -29,10 +29,10 @@ actions:
     - 198.51.100.20
     dry_run: true
     dns_apply: false
-    inventory_state_ref: org/hetzner/wan-edge-foundation
+    inventory_state_ref: org/hetzner/shared-control-host
     inventory_vm_groups:
       edge_control:
-      - edge01
+      - control-01
 dry_run: true
 decision_enable_actions: false
 decision_require_signal_readiness: true

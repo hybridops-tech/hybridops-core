@@ -54,6 +54,49 @@ def _reject_placeholder(value: str, field: str) -> None:
         raise ValueError(f"{field} must not contain placeholder values (found {value!r})")
 
 
+def _validate_post_apply_ssh_readiness(inputs: dict[str, Any]) -> None:
+    raw = inputs.get("post_apply_ssh_readiness")
+    if raw is None:
+        return
+    if isinstance(raw, bool):
+        return
+    if not isinstance(raw, dict):
+        raise ValueError("inputs.post_apply_ssh_readiness must be a boolean or mapping when set")
+
+    bool_fields = ("enabled", "required", "ssh_proxy_jump_auto")
+    for field in bool_fields:
+        if raw.get(field) is None:
+            continue
+        if not isinstance(raw.get(field), bool):
+            raise ValueError(f"inputs.post_apply_ssh_readiness.{field} must be a boolean when set")
+
+    int_fields = (
+        "target_port",
+        "connectivity_timeout_s",
+        "connectivity_wait_s",
+        "ssh_proxy_jump_port",
+    )
+    for field in int_fields:
+        if raw.get(field) is None:
+            continue
+        value = raw.get(field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"inputs.post_apply_ssh_readiness.{field} must be an integer when set")
+        if field == "connectivity_wait_s":
+            if value < 0:
+                raise ValueError("inputs.post_apply_ssh_readiness.connectivity_wait_s must be >= 0")
+        else:
+            if value < 1:
+                raise ValueError(f"inputs.post_apply_ssh_readiness.{field} must be >= 1")
+
+    str_fields = ("target_user", "ssh_proxy_jump_host", "ssh_proxy_jump_user", "ssh_private_key_file")
+    for field in str_fields:
+        if raw.get(field) is None:
+            continue
+        if not isinstance(raw.get(field), str):
+            raise ValueError(f"inputs.post_apply_ssh_readiness.{field} must be a string when set")
+
+
 def validate(inputs: dict[str, Any]) -> None:
     data = _require_mapping(inputs, "inputs")
 
@@ -117,6 +160,8 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.ssh_keys must contain at least one public key unless inputs.ssh_keys_from_init=true")
     for idx, key in enumerate(ssh_keys, start=1):
         _reject_placeholder(key, f"inputs.ssh_keys[{idx}]")
+
+    _validate_post_apply_ssh_readiness(data)
 
     tags = _require_str_list(data.get("tags"), "inputs.tags")
     if not tags:

@@ -18,6 +18,7 @@ _CONTRACTS = {
     "core/onprem/network-sdn": NetworkSdnContract(),
     "platform/onprem/platform-vm": _proxmox_vm,
     "platform/onprem/control-node": _proxmox_vm,
+    "platform/onprem/vyos-edge": _proxmox_vm,
     "platform/onprem/netbox": _proxmox_vm,
     "platform/onprem/postgresql-core": _proxmox_vm,
     "platform/onprem/eve-ng": _proxmox_vm,

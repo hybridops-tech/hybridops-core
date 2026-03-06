@@ -1,9 +1,9 @@
-# State-driven inventory from Hetzner WAN edge foundation module.
+# State-driven inventory from Hetzner shared control host module.
 
-inventory_state_ref: org/hetzner/wan-edge-foundation
+inventory_state_ref: org/hetzner/shared-control-host
 inventory_vm_groups:
   edge:
-    - edge01
+    - control-01
 
 required_env:
   - EDGE_OBS_GRAFANA_ADMIN_PASSWORD
@@ -13,4 +13,4 @@ edge_obs_objstore_config_env: EDGE_OBS_OBJSTORE_CONFIG
 edge_obs_grafana_admin_password_env: EDGE_OBS_GRAFANA_ADMIN_PASSWORD
 
 edge_obs_hashring_endpoints:
-  - edge01.internal:10907
+  - control-01.internal:10907

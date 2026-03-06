@@ -105,7 +105,8 @@
             + [
               {
                 'name': (item.value.db_user | string),
-                'password': lookup('env', item.value.db_password_env | string)
+                'password': lookup('env', item.value.db_password_env | string),
+                'flags': 'LOGIN'
               }
             ]
           }}
@@ -262,6 +263,33 @@
           else ''
         )
       }}
+    endpoint_target: >-
+      {{
+        (endpoint_dns_name | string)
+        if (endpoint_dns_name is string and (endpoint_dns_name | length) > 0)
+        else (
+          (cluster_vip | string)
+          if (cluster_vip is string and (cluster_vip | length) > 0)
+          else (endpoint_host | default('') | string)
+        )
+      }}
+    endpoint_target_type: >-
+      {{
+        'dns'
+        if (endpoint_dns_name is string and (endpoint_dns_name | length) > 0)
+        else (
+          'vip'
+          if (cluster_vip is string and (cluster_vip | length) > 0)
+          else 'host'
+        )
+      }}
+    endpoint_cutover_required: >-
+      {{
+        (
+          (endpoint_dns_name is string and (endpoint_dns_name | length) > 0)
+          or not (cluster_vip is string and (cluster_vip | length) > 0)
+        ) | bool
+      }}
 
   tasks:
     - name: Write HyOps outputs
@@ -275,6 +303,12 @@
             'pg_host': host,
             'pg_port': port,
             'cluster_vip': (cluster_vip | default('') | string),
+            'endpoint_target': (endpoint_target | default('') | string),
+            'endpoint_target_type': (endpoint_target_type | default('host') | string),
+            'endpoint_dns_name': (endpoint_dns_name | default('') | string),
+            'endpoint_host': host,
+            'endpoint_port': port,
+            'endpoint_cutover_required': (endpoint_cutover_required | bool),
             'cap.db.postgresql_ha': 'ready'
           }, apps={}, inventory={}) %}
           {% for group_name in _hyops_inventory_publish_group_names %}

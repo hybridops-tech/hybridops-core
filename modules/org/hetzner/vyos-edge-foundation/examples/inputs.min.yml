@@ -1,0 +1,15 @@
+image_state_ref: "core/hetzner/vyos-image-seed"
+image_key: "vyos-1.5"
+edge01_name: "edge-a"
+edge02_name: "edge-b"
+ssh_key_name: "hyops-vyos-edge"
+# Optional when ssh_key_name already exists in Hetzner.
+# Required only when HyOps must create the SSH key.
+ssh_public_key: ""
+firewall_name: "fw-hyops-vyos-edge"
+floating_ip_name: "fip-hyops-vyos-edge"
+private_network_name: "net-hyops-vyos-edge"
+private_network_cidr: "10.80.0.0/24"
+edge01_private_ip: "10.80.0.11"
+edge02_private_ip: "10.80.0.12"
+assign_floating_to: "edge01"

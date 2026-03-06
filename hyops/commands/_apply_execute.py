@@ -15,6 +15,7 @@ from hyops.commands._apply_helpers import (
     driver_outputs,
     evidence_root,
     merge_template_image_outputs,
+    normalize_published_outputs,
     persist_rerun_inputs,
     progress_log_hint,
     select_published_outputs,
@@ -232,6 +233,7 @@ def run_single(
                     published_outputs,
                     state_instance=state_instance,
                 )
+                published_outputs = normalize_published_outputs(module_ref, published_outputs)
                 if command_name in ("apply", "deploy"):
                     rerun_inputs_file = persist_rerun_inputs(
                         paths.config_dir,

@@ -8,13 +8,13 @@ maintainer: HybridOps.Studio
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 import json
 
-from hyops.runtime.terraform_cloud import require_tfrc_token
+from hyops.runtime.terraform_cloud import require_tfrc_token, tf_token_env_key
 
 
 _ALLOWED_EXECUTION_MODES = frozenset({"local", "remote", "agent"})
@@ -34,7 +34,12 @@ def default_workspace_description(mode: str) -> str:
     return "Managed by HybridOps.Core Terragrunt driver."
 
 
-def read_tfc_token(host: str, credentials_file: Path) -> str:
+def read_tfc_token(host: str, credentials_file: Path, env: Mapping[str, str] | None = None) -> str:
+    token_key = tf_token_env_key(host)
+    if isinstance(env, Mapping):
+        token = str(env.get(token_key) or "").strip()
+        if token:
+            return token
     return require_tfrc_token(host, credentials_file)
 
 
@@ -94,6 +99,7 @@ def ensure_workspace_execution_mode(
     workspace_name: str,
     execution_mode: str,
     credentials_file: Path,
+    env: Mapping[str, str] | None = None,
     description: str | None = None,
 ) -> dict[str, Any]:
     mode = (execution_mode or "").strip().lower()
@@ -139,7 +145,7 @@ def ensure_workspace_execution_mode(
         }
 
     try:
-        token = read_tfc_token(host_name, credentials_file)
+        token = read_tfc_token(host_name, credentials_file, env=env)
     except Exception as e:
         return {
             "ok": False,
@@ -171,15 +177,63 @@ def ensure_workspace_execution_mode(
         }
 
     if status == 404:
+        create_url = f"https://{host_name}/api/v2/organizations/{org_q}/workspaces"
+        create_payload = {
+            "data": {
+                "type": "workspaces",
+                "attributes": {
+                    "name": ws_name,
+                    "execution-mode": mode,
+                    "description": desc,
+                },
+            }
+        }
+        create_status, create_body, create_err = _http_json("POST", create_url, token, create_payload)
+        if create_err:
+            return {
+                "ok": False,
+                "status": "workspace_create_error",
+                "message": f"workspace create failed: {create_err}",
+                "host": host_name,
+                "org": org_name,
+                "workspace_name": ws_name,
+                "execution_mode": mode,
+                "http_status": create_status,
+                "credentials_file": str(credentials_file),
+            }
+
+        create_data = create_body.get("data")
+        if create_status not in (200, 201) or not isinstance(create_data, dict):
+            return {
+                "ok": False,
+                "status": "workspace_create_error",
+                "message": f"workspace create returned HTTP {create_status}",
+                "host": host_name,
+                "org": org_name,
+                "workspace_name": ws_name,
+                "execution_mode": mode,
+                "http_status": create_status,
+                "credentials_file": str(credentials_file),
+            }
+
+        workspace_id = str(create_data.get("id") or "").strip()
+        create_attrs = create_data.get("attributes")
+        created_mode = (
+            str(create_attrs.get("execution-mode") or "").strip().lower()
+            if isinstance(create_attrs, dict)
+            else ""
+        )
         return {
-            "ok": False,
-            "status": "workspace_not_found",
-            "message": "workspace not found (it may not be created yet)",
+            "ok": True,
+            "status": "created",
+            "message": "workspace created with requested execution mode",
             "host": host_name,
             "org": org_name,
             "workspace_name": ws_name,
+            "workspace_id": workspace_id,
             "execution_mode": mode,
-            "http_status": status,
+            "current_mode": created_mode,
+            "http_status": create_status,
             "credentials_file": str(credentials_file),
         }
 

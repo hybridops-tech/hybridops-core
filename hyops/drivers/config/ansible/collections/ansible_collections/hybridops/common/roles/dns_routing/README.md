@@ -1,9 +1,12 @@
 # dns_routing
 
-Publishes DNS routing intent and can optionally execute a manual provider command.
+Publishes DNS routing intent and can optionally apply DNS changes through:
 
-v1 is safety-first:
+- `manual-command`
+- `powerdns-api`
 
-- Intent is always written to state.
-- DNS provider change requires explicit `dns_apply=true`.
-- Provider execution path is `manual-command` only.
+Safety-first behavior remains:
+
+- intent is always written to state
+- DNS provider change requires explicit `dns_apply=true`
+- `dry_run=true` keeps the module intent-only

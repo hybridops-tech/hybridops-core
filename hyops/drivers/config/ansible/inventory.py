@@ -10,14 +10,25 @@ from hyops.runtime.coerce import as_bool, as_int
 
 _GROUP_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
 _HOST_ALIAS_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_RESERVED_HOST_KEYS = {
+    "name",
+    "host",
+    "ansible_host",
+    "gcp_iap_instance",
+    "gcp_iap_project_id",
+    "gcp_iap_zone",
+    "tags",
+}
 
 
 def _ssh_access_mode(inputs: dict[str, Any]) -> str:
     token = str(inputs.get("ssh_access_mode") or "").strip().lower()
-    if token in {"direct", "bastion-explicit", "gcp-iap"}:
+    if token == "gcp-iap":
         return token
     if str(inputs.get("ssh_proxy_jump_host") or "").strip():
         return "bastion-explicit"
+    if token in {"direct", "bastion-explicit"}:
+        return token
     return "direct"
 
 
@@ -134,6 +145,18 @@ def _write_inventory_groups(path: Path, inputs: dict[str, Any], inventory_groups
             host_parts = [name, f"ansible_host={ansible_host}"]
             if common_args:
                 host_parts.append(f"ansible_ssh_common_args='{common_args}'")
+            for raw_key, raw_value in item.items():
+                key = str(raw_key or "").strip()
+                if not key or key in _RESERVED_HOST_KEYS:
+                    continue
+                if not _GROUP_NAME_RE.fullmatch(key):
+                    return f"inputs.inventory_groups[{group!r}][{idx}].{key} is not a valid inventory variable name"
+                if isinstance(raw_value, bool):
+                    host_parts.append(f"{key}={'true' if raw_value else 'false'}")
+                elif isinstance(raw_value, (int, float)):
+                    host_parts.append(f"{key}={raw_value}")
+                elif isinstance(raw_value, str) and raw_value.strip():
+                    host_parts.append(f"{key}={raw_value.strip()}")
             lines.append(" ".join(host_parts))
         lines.append("")
 

@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 from hyops.runtime.module_state import read_module_state
 from hyops.runtime.coerce import as_bool, as_positive_int
 from hyops.runtime.netbox_env import resolve_netbox_authority_root
+from hyops.runtime.refs import module_id_from_ref
+from hyops.runtime.state import read_json
 
 from .base import TerragruntModuleContract
 
@@ -523,21 +525,7 @@ def _collect_requested_vm_names(inputs: dict[str, Any]) -> set[str]:
     return names
 
 
-def _collect_existing_managed_vm_names_from_state(state_dir: Path, module_ref: str) -> tuple[set[str], str]:
-    try:
-        payload = read_module_state(state_dir, module_ref)
-    except FileNotFoundError:
-        return set(), ""
-    except Exception as exc:
-        return set(), f"failed to read existing module state for collision check: {exc}"
-
-    if str(payload.get("status") or "").strip().lower() != "ok":
-        return set(), ""
-
-    outputs = payload.get("outputs")
-    if not isinstance(outputs, dict):
-        return set(), ""
-
+def _extract_vm_names_from_outputs(outputs: dict[str, Any]) -> set[str]:
     out: set[str] = set()
     raw_vms = outputs.get("vms")
     if isinstance(raw_vms, dict):
@@ -547,7 +535,7 @@ def _collect_existing_managed_vm_names_from_state(state_dir: Path, module_ref: s
                 out.add(name)
 
     if out:
-        return out, ""
+        return out
 
     raw_vm_names = outputs.get("vm_names")
     if isinstance(raw_vm_names, list):
@@ -555,6 +543,59 @@ def _collect_existing_managed_vm_names_from_state(state_dir: Path, module_ref: s
             name = str(item).strip()
             if name:
                 out.add(name)
+    return out
+
+
+def _extract_vm_names_from_state_payload(payload: Any) -> set[str]:
+    if not isinstance(payload, dict):
+        return set()
+    if str(payload.get("status") or "").strip().lower() != "ok":
+        return set()
+    outputs = payload.get("outputs")
+    if not isinstance(outputs, dict):
+        return set()
+    return _extract_vm_names_from_outputs(outputs)
+
+
+def _collect_existing_managed_vm_names_by_slot(
+    state_dir: Path,
+    module_ref: str,
+) -> tuple[dict[str, set[str]], str]:
+    module_id = module_id_from_ref(module_ref)
+    if not module_id:
+        return {}, f"invalid module_ref for collision check: {module_ref!r}"
+
+    module_dir = (state_dir / "modules" / module_id).resolve()
+    if not module_dir.exists():
+        return {}, ""
+
+    out: dict[str, set[str]] = {}
+
+    latest_path = module_dir / "latest.json"
+    if latest_path.exists():
+        try:
+            latest_payload = read_json(latest_path)
+        except Exception as exc:
+            return {}, f"failed to read existing module state for collision check: {exc}"
+        latest_names = _extract_vm_names_from_state_payload(latest_payload)
+        if latest_names:
+            out["latest"] = latest_names
+
+    instances_dir = module_dir / "instances"
+    if instances_dir.exists():
+        try:
+            instance_paths = sorted(instances_dir.glob("*.json"))
+        except Exception as exc:
+            return {}, f"failed to enumerate instance states for collision check: {exc}"
+        for path in instance_paths:
+            try:
+                payload = read_json(path)
+            except Exception as exc:
+                return {}, f"failed to read instance state for collision check: {path} ({exc})"
+            names = _extract_vm_names_from_state_payload(payload)
+            if names:
+                out[f"instance:{path.stem}"] = names
+
     return out, ""
 
 
@@ -752,7 +793,13 @@ class ProxmoxVmContract(TerragruntModuleContract):
         credential_env: dict[str, str],
     ) -> tuple[dict[str, Any], list[str], str]:
         normalized_command = str(command_name or "").strip().lower()
-        if normalized_command not in ("apply", "deploy", "plan", "validate", "preflight"):
+        lifecycle_command = str(runtime.get("lifecycle_command") or "").strip().lower()
+        effective_command = (
+            lifecycle_command
+            if normalized_command == "preflight" and lifecycle_command
+            else normalized_command
+        )
+        if effective_command not in ("apply", "deploy", "plan", "validate", "preflight"):
             return inputs, [], ""
 
         out = dict(inputs)
@@ -831,12 +878,16 @@ class ProxmoxVmContract(TerragruntModuleContract):
         # already-managed VM set under the same module_ref in the same env.
         requested_vm_names = _collect_requested_vm_names(out)
         if requested_vm_names:
-            existing_vm_names, existing_err = _collect_existing_managed_vm_names_from_state(
+            raw_state_instance = str(runtime.get("state_instance") or "").strip().lower()
+            current_slot = f"instance:{raw_state_instance}" if raw_state_instance else "latest"
+
+            existing_by_slot, existing_err = _collect_existing_managed_vm_names_by_slot(
                 state_dir, module_ref
             )
             if existing_err:
                 return out, warnings, existing_err
 
+            existing_vm_names = existing_by_slot.get(current_slot, set())
             if existing_vm_names and existing_vm_names != requested_vm_names:
                 allow_replace = as_bool(out.get("allow_vm_set_replace"), default=False)
                 diff = _format_vm_set_diff(existing_vm_names, requested_vm_names)
@@ -852,6 +903,26 @@ class ProxmoxVmContract(TerragruntModuleContract):
                 warnings.append(
                     "allow_vm_set_replace=true: proceeding despite VM set collision "
                     f"for module_ref={module_ref}; {diff}"
+                )
+
+            # Guard against duplicated VM names across different state slots
+            # (for example latest vs instance), which can silently create
+            # duplicate Proxmox VMs with clashing IP/name intent.
+            cross_slot_conflicts: list[str] = []
+            for slot, names in existing_by_slot.items():
+                if slot == current_slot:
+                    continue
+                overlap = sorted(names & requested_vm_names)
+                if overlap:
+                    cross_slot_conflicts.append(f"{slot} overlap={overlap}")
+            if cross_slot_conflicts:
+                detail = "; ".join(cross_slot_conflicts)
+                return (
+                    out,
+                    warnings,
+                    "vm name collision detected across module state slots "
+                    f"for module_ref={module_ref}: requested={sorted(requested_vm_names)}; {detail}. "
+                    "Use one slot consistently (latest or a single state_instance), or destroy the stale slot first.",
                 )
 
         # Fail fast when a VM consumer targets HyOps SDN bridges (vnet*) but the shared SDN

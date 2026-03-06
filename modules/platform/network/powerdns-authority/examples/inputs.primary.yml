@@ -1,0 +1,21 @@
+inventory_groups:
+  dns:
+    - name: dns-01
+      host: 10.80.0.20
+
+target_user: opsadmin
+become: true
+load_vault_env: true
+required_env:
+  - POWERDNS_API_KEY
+
+powerdns_mode: primary
+powerdns_zone_name: hyops.internal
+powerdns_default_ns: ns1.hyops.internal
+powerdns_soa_admin: hostmaster.hyops.internal
+powerdns_allow_axfr_ips:
+  - 10.10.0.53
+powerdns_api_allow_from:
+  - 127.0.0.1
+  - 10.80.0.0/24
+  - 10.10.0.0/24

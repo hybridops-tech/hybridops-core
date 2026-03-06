@@ -1,0 +1,61 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/shared/vyos-image-build"
+
+metadata:
+  title: "VyOS Shared Image Build"
+  description: "Build a pinned VyOS disk artifact locally, optionally publish it, and publish the same shared artifact contract consumed by Proxmox and Hetzner seed modules."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    artifact_key: "vyos-1.5"
+    artifact_format: "qcow2"
+    artifact_version: ""
+    source_iso_url: ""
+    artifact_local_path: ""
+    artifact_url: ""
+    artifact_sha256: ""
+    repo_state_ref: ""
+    build_command: ""
+    build_workdir: ""
+    smoke_verify_command: ""
+    smoke_verify_workdir: ""
+    smoke_verify_required: true
+    publish_command: ""
+    publish_workdir: ""
+    rebuild_if_exists: false
+    allow_iso_build: false
+    notes: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/14-vyos-image-build@v1.0"
+
+outputs:
+  publish:
+    - artifact_key
+    - artifact_url
+    - artifact_format
+    - artifact_version
+    - artifact_sha256
+    - source_iso_url
+    - artifact_local_path
+    - artifacts
+
+probes: []
+constraints: []

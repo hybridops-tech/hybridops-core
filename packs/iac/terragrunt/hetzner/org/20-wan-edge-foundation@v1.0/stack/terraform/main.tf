@@ -11,8 +11,19 @@ locals {
   floating_ip_name     = local.prefix != "" ? "${local.prefix}-${var.floating_ip_name}" : var.floating_ip_name
   private_network_name = local.prefix != "" ? "${local.prefix}-${var.private_network_name}" : var.private_network_name
 
+  ssh_public_key_trimmed      = trimspace(var.ssh_public_key)
+  existing_ssh_keys_by_name   = [for k in data.hcloud_ssh_keys.existing.ssh_keys : k if k.name == local.ssh_key_name]
+  existing_ssh_keys_by_pubkey = local.ssh_public_key_trimmed != "" ? [for k in data.hcloud_ssh_keys.existing.ssh_keys : k if trimspace(k.public_key) == local.ssh_public_key_trimmed] : []
+  existing_ssh_keys           = length(local.existing_ssh_keys_by_name) > 0 ? local.existing_ssh_keys_by_name : local.existing_ssh_keys_by_pubkey
+  ssh_key_exists              = length(local.existing_ssh_keys) > 0
+  ssh_key_mismatch            = length(local.existing_ssh_keys_by_name) > 0 && local.ssh_public_key_trimmed != "" && trimspace(local.existing_ssh_keys_by_name[0].public_key) != local.ssh_public_key_trimmed
+  must_create_ssh_key         = !local.ssh_key_exists
+  effective_ssh_key_name      = one(concat([for k in local.existing_ssh_keys : k.name], [for k in hcloud_ssh_key.edge : k.name]))
+
   floating_target_server_id = lower(trimspace(var.assign_floating_to)) == "edge02" ? hcloud_server.edge02.id : hcloud_server.edge01.id
 }
+
+data "hcloud_ssh_keys" "existing" {}
 
 resource "hcloud_network" "edge" {
   name     = local.private_network_name
@@ -54,8 +65,9 @@ resource "hcloud_firewall" "edge" {
 }
 
 resource "hcloud_ssh_key" "edge" {
+  count      = local.must_create_ssh_key ? 1 : 0
   name       = local.ssh_key_name
-  public_key = var.ssh_public_key
+  public_key = local.ssh_public_key_trimmed
   labels     = var.labels
 }
 
@@ -64,8 +76,19 @@ resource "hcloud_server" "edge01" {
   image       = var.image
   server_type = var.server_type
   location    = var.location
-  ssh_keys    = [hcloud_ssh_key.edge.name]
+  ssh_keys    = [local.effective_ssh_key_name]
   labels      = merge(var.labels, { role = "wan-edge" })
+
+  lifecycle {
+    precondition {
+      condition     = !local.must_create_ssh_key || local.ssh_public_key_trimmed != ""
+      error_message = "No SSH key named '${local.ssh_key_name}' exists in Hetzner, and inputs.ssh_public_key is empty. Provide inputs.ssh_public_key or pre-create the key."
+    }
+    precondition {
+      condition     = !local.ssh_key_mismatch
+      error_message = "Existing SSH key '${local.ssh_key_name}' has a different public key than inputs.ssh_public_key. Use a unique ssh_key_name or align ssh_public_key."
+    }
+  }
 
   network {
     network_id = hcloud_network.edge.id
@@ -78,7 +101,7 @@ resource "hcloud_server" "edge02" {
   image       = var.image
   server_type = var.server_type
   location    = var.location
-  ssh_keys    = [hcloud_ssh_key.edge.name]
+  ssh_keys    = [local.effective_ssh_key_name]
   labels      = merge(var.labels, { role = "wan-edge" })
 
   network {

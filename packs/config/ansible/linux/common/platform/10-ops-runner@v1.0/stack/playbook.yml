@@ -29,6 +29,7 @@
     runner_install_root_clean: "{{ runner_install_prefix | regex_replace('/+$', '') }}"
     runner_installed_hyops_path: "{{ runner_install_root_clean }}/venv/bin/hyops"
     runner_installed_app_path: "{{ runner_install_root_clean }}/app"
+    runner_release_marker_path: "{{ runner_install_root_clean }}/.hyops-release.sha256"
     runner_controller_python: >-
       {{
         ((lookup('env', 'VIRTUAL_ENV') | default('', true)) ~ '/bin/python')
@@ -347,11 +348,64 @@
         update_cache: true
       when: ansible_os_family == "Debian"
 
+    - name: Ensure git is present on Debian-family runners
+      become: true
+      ansible.builtin.apt:
+        name: git
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure git is present on non-Debian runners
+      become: true
+      ansible.builtin.package:
+        name: git
+        state: present
+      when: ansible_os_family != "Debian"
+
     - name: Check for existing HybridOps executable on runner
       become: true
       ansible.builtin.stat:
         path: "{{ runner_installed_hyops_path }}"
       register: _runner_installed_hyops_stat
+
+    - name: Compute staged release archive sha256 on runner
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sha256sum
+          - "{{ runner_archive_remote }}"
+      register: _runner_release_archive_sha
+      changed_when: false
+
+    - name: Check installed release marker on runner
+      become: true
+      ansible.builtin.stat:
+        path: "{{ runner_release_marker_path }}"
+      register: _runner_release_marker_stat
+
+    - name: Read installed release marker from runner
+      become: true
+      ansible.builtin.slurp:
+        path: "{{ runner_release_marker_path }}"
+      register: _runner_release_marker
+      when: _runner_release_marker_stat.stat.exists | default(false)
+
+    - name: Derive runner release archive and marker hashes
+      ansible.builtin.set_fact:
+        _runner_release_archive_sha256: "{{ (_runner_release_archive_sha.stdout | regex_search('^([0-9a-fA-F]+)', '\\1') | first | default('')) }}"
+        _runner_release_marker_sha256: >-
+          {{
+            ((_runner_release_marker.content | b64decode | trim) if (_runner_release_marker is defined and (_runner_release_marker.content | default('') | length) > 0) else '')
+          }}
+
+    - name: Derive runner release change flag
+      ansible.builtin.set_fact:
+        _runner_release_changed: >-
+          {{
+            (_runner_release_archive_sha256 | length) > 0
+            and (_runner_release_archive_sha256 != _runner_release_marker_sha256)
+          }}
 
     - name: Compute runner install action
       ansible.builtin.set_fact:
@@ -360,13 +414,17 @@
             (runner_force_reinstall | default(false))
             or (
               (_runner_installed_app_stat.stat.exists | default(false))
-              and not (_runner_installed_hyops_stat.stat.exists | default(false))
+              and (
+                not (_runner_installed_hyops_stat.stat.exists | default(false))
+                or _runner_release_changed
+              )
             )
           }}
         _runner_install_should_run: >-
           {{
             (runner_force_reinstall | default(false))
             or not (_runner_installed_hyops_stat.stat.exists | default(false))
+            or _runner_release_changed
           }}
 
     - name: Install HybridOps release on runner
@@ -389,7 +447,7 @@
       ansible.builtin.debug:
         msg: >-
           HybridOps is already installed on the runner at {{ runner_install_root_clean }};
-          skipping install.sh because runner_force_reinstall=false.
+          skipping install.sh because the staged release hash matches the installed release marker.
       when: not _runner_install_should_run
 
     - name: Ensure runner install parent directory is traversable
@@ -426,6 +484,14 @@
         executable: /bin/bash
       changed_when: true
       when: runner_system_link | default(true)
+
+    - name: Update installed release marker on runner
+      become: true
+      ansible.builtin.copy:
+        dest: "{{ runner_release_marker_path }}"
+        content: "{{ _runner_release_archive_sha256 }}\n"
+        mode: "0644"
+      when: _runner_install_should_run
 
     - name: Run setup-base on runner
       become: true

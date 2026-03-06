@@ -1,0 +1,101 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/hetzner-vyos-edge@v1"
+mode: "hybrid"
+
+metadata:
+  title: "Provision Hetzner VyOS Edge"
+  description: "Seed or discover a Hetzner VyOS image and provision the routed Hetzner edge pair as the default WAN edge path."
+  outcome: "A VyOS-based Hetzner routed edge pair is available for future IPsec/BGP integration."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: vyos_artifact_build
+    module_ref: "core/shared/vyos-image-build"
+    state_instance: "vyos_default_build"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    inputs:
+      artifact_key: "vyos-1.5"
+      artifact_format: "qcow2"
+      artifact_version: ""
+      # If this URL is set, HyOps registers/uses it directly.
+      # If empty, HyOps builds + publishes via build_command/publish_command.
+      artifact_url: ""
+      artifact_local_path: "/tmp/vyos-1.5.qcow2"
+      # Set this to your object-repo state for publish backend discovery.
+      # Override in env blueprint overlay when using a non-default repo instance.
+      repo_state_ref: "org/gcp/object-repo"
+      build_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh"
+      smoke_verify_required: true
+      publish_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/publish-vyos-artifact.sh"
+
+  - id: vyos_image
+    module_ref: "core/hetzner/vyos-image-seed"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    requires:
+      - vyos_artifact_build
+    inputs:
+      artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
+      artifact_key: "vyos-1.5"
+      image_key: "vyos-1.5"
+      # Set image_ref when the Hetzner custom image already exists.
+      image_ref: ""
+      image_version: "1.5"
+      image_description: "hyops-vyos-1-5"
+      # HyOps consumes the shared VyOS artifact state by default.
+      # Set image_source_url only when you intentionally bypass the shared artifact contract.
+      image_source_url: ""
+      # Required for the built-in qcow2 wrapper path. This must be a publicly reachable base URL
+      # for the execution host so Hetzner rescue can fetch the temporary wrapped raw image.
+      seed_wrapper_public_base_url: ""
+      # Optional: pin a Hetzner location (for example nbg1) when your project
+      # does not allow the seed tool default location.
+      seed_location: ""
+      # Optional: use a larger temporary import server when the image virtual
+      # size exceeds default import server disk.
+      seed_server_type: ""
+      seed_if_missing: true
+      # Override seed_command if you need an ISO-to-image workflow or another custom wrapper.
+      seed_tool: "hcloud-upload-image"
+
+  - id: hetzner_vyos_edge
+    module_ref: "org/hetzner/vyos-edge-foundation"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - vyos_image
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      image_state_ref: "core/hetzner/vyos-image-seed"
+      image_key: "vyos-1.5"
+      # Keep location and server type aligned with known-available defaults.
+      location: "ash"
+      home_location: "ash"
+      # Use a disk size that fits the seeded VyOS image.
+      server_type: "cpx21"
+      edge01_name: "edge-a"
+      edge02_name: "edge-b"
+      ssh_key_name: "hyops-vyos-edge"
+      # Optional when ssh_key_name already exists in Hetzner.
+      # Required only when HyOps must create the SSH key.
+      ssh_public_key: ""
+      firewall_name: "fw-hyops-vyos-edge"
+      floating_ip_name: "fip-hyops-vyos-edge"
+      private_network_name: "net-hyops-vyos-edge"
+      private_network_cidr: "10.80.0.0/24"
+      edge01_private_ip: "10.80.0.11"
+      edge02_private_ip: "10.80.0.12"
+      assign_floating_to: "edge01"

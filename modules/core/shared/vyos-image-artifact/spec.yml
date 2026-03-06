@@ -1,0 +1,49 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/shared/vyos-image-artifact"
+
+metadata:
+  title: "VyOS Shared Artifact Registration"
+  description: "Publish one canonical VyOS disk artifact contract into HyOps state so Proxmox and Hetzner seed modules can consume it state-first."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    artifact_key: "vyos-1.5"
+    artifact_url: ""
+    artifact_format: "qcow2"
+    artifact_version: ""
+    artifact_sha256: ""
+    source_iso_url: ""
+    notes: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/13-vyos-image-artifact@v1.0"
+
+outputs:
+  publish:
+    - artifact_key
+    - artifact_url
+    - artifact_format
+    - artifact_version
+    - artifact_sha256
+    - source_iso_url
+    - artifacts
+
+probes: []
+constraints: []

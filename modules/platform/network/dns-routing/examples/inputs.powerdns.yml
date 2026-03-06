@@ -1,0 +1,30 @@
+# PowerDNS API example for internal cutover records.
+
+inventory_groups:
+  edge_control:
+    - name: edge01
+      host: 198.51.100.10
+connectivity_check: false
+
+provider: powerdns-api
+powerdns_state_ref: platform/network/powerdns-authority#shared_primary
+record_fqdn: postgres.dev.hyops.internal
+record_type: A
+ttl: 30
+
+primary_targets:
+  - 10.12.0.31
+secondary_targets:
+  - 10.72.16.24
+
+desired: primary
+dry_run: false
+dns_apply: true
+
+required_env:
+  - POWERDNS_API_KEY
+
+powerdns_api_key_env: POWERDNS_API_KEY
+powerdns_validate_tls: true
+powerdns_account: hyops
+powerdns_comment: "Managed by HybridOps dns-routing"

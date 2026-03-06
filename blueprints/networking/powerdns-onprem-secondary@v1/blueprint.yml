@@ -1,0 +1,44 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/powerdns-onprem-secondary@v1"
+mode: "hybrid"
+
+metadata:
+  title: "PowerDNS On-Prem Secondary"
+  description: "Provision an on-prem read-only internal DNS secondary on the shared on-prem runner host."
+  outcome: "An on-prem PowerDNS secondary serves replicated hyops.internal data for local resolution resilience."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: powerdns_secondary
+    module_ref: "platform/network/powerdns-authority"
+    state_instance: "onprem_secondary"
+    action: "deploy"
+    phase: "operations"
+    with_deps: true
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#onprem_ops_runner"
+      inventory_vm_groups:
+        dns:
+          - "runner-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      powerdns_mode: "secondary"
+      powerdns_root: "/opt/hybridops/powerdns-secondary"
+      powerdns_compose_project: "powerdns-secondary"
+      powerdns_zone_name: "hyops.internal"
+      powerdns_default_ns: "dns.shared.hyops.internal"
+      powerdns_soa_admin: "hostmaster.hyops.internal"
+      powerdns_primary_state_ref: "platform/network/powerdns-authority#shared_primary"
+      connectivity_wait_s: 30
+      required_env:
+        - "POWERDNS_API_KEY"
+      load_vault_env: true

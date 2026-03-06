@@ -1,0 +1,88 @@
+---
+- name: platform/network/powerdns-authority (configure)
+  hosts: dns
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+
+  vars:
+    powerdns_role_fqcn: "{{ powerdns_role_fqcn | default('hybridops.common.powerdns_authority') }}"
+    powerdns_api_key_env: "{{ powerdns_api_key_env | default('POWERDNS_API_KEY') }}"
+
+  pre_tasks:
+    - name: Resolve PowerDNS API key (input override or env)
+      ansible.builtin.set_fact:
+        _hyops_powerdns_api_key_effective: >-
+          {{
+            (powerdns_api_key | string)
+            if (powerdns_api_key is string and (powerdns_api_key | length) > 0)
+            else (lookup('env', powerdns_api_key_env) | default('', true))
+          }}
+      no_log: true
+
+    - name: Assert required resolved API key for present state
+      ansible.builtin.assert:
+        that:
+          - (not (powerdns_api_enabled | bool)) or (_hyops_powerdns_api_key_effective | length > 0)
+        fail_msg: >-
+          Missing PowerDNS API key. Provide inputs.powerdns_api_key or set env var
+          {{ powerdns_api_key_env }}.
+      when: (powerdns_state | default('present')) == "present"
+      no_log: true
+
+    - name: Promote resolved API key into role vars
+      ansible.builtin.set_fact:
+        powerdns_api_key: "{{ _hyops_powerdns_api_key_effective }}"
+      no_log: true
+
+  tasks:
+    - name: Run PowerDNS authority role
+      ansible.builtin.include_role:
+        name: "{{ powerdns_role_fqcn }}"
+      vars:
+        powerdns_api_key: "{{ _hyops_powerdns_api_key_effective }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'powerdns_state': (powerdns_state | default('present') | string),
+            'powerdns_mode': (powerdns_mode | default('primary') | string),
+            'powerdns_root': (powerdns_root | default('/opt/hybridops/powerdns') | string),
+            'powerdns_zone_name': (powerdns_zone_name | default('') | string),
+            'powerdns_zone_id': (powerdns_zone_name | default('') | string),
+            'powerdns_private_host': (hostvars[(groups['dns'] | first)].hyops_private_host | default('') | string),
+            'powerdns_public_host': (hostvars[(groups['dns'] | first)].ansible_host | default(groups['dns'] | first) | string),
+            'powerdns_control_host': (hostvars[(groups['dns'] | first)].ansible_host | default(groups['dns'] | first) | string),
+            'powerdns_control_user': (hostvars[(groups['dns'] | first)].ansible_user | default('root') | string),
+            'powerdns_target_host': (
+              hostvars[(groups['dns'] | first)].hyops_private_host
+              | default(hostvars[(groups['dns'] | first)].ansible_host | default(groups['dns'] | first))
+              | string
+            ),
+            'powerdns_server_id': (powerdns_server_id | default('localhost') | string),
+            'powerdns_api_key_env': (powerdns_api_key_env | default('POWERDNS_API_KEY') | string),
+            'powerdns_dns_port': (powerdns_dns_port | default(53) | int),
+            'powerdns_api_port': (powerdns_api_port | default(8081) | int),
+            'powerdns_api_url': (
+              (
+                'http://'
+                ~ (
+                  hostvars[(groups['dns'] | first)].hyops_private_host
+                  | default(hostvars[(groups['dns'] | first)].ansible_host | default(groups['dns'] | first))
+                  | string
+                )
+                ~ ':'
+                ~ ((powerdns_api_port | default(8081) | int) | string)
+              )
+              if (powerdns_api_enabled | default(true) | bool)
+              else ''
+            ),
+            'cap.net.dns_authority': 'ready'
+          } | to_json }}

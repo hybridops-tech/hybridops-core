@@ -36,6 +36,15 @@ This is useful when you already have DR secrets in the runtime vault bundle and
 want to seed Secret Manager as the external authority before a runner-driven DR
 demo.
 
+The same path can also persist build-time secrets, for example:
+
+```bash
+hyops secrets gsm-persist --env dev --scope build
+```
+
+This is the preferred way to make `HYOPS_VYOS_GCS_SA_JSON` available to a
+runner-driven VyOS image build without depending on a local shell export.
+
 ## Mapping file
 
 Default map file:

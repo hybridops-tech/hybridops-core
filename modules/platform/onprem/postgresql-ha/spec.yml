@@ -98,6 +98,7 @@ inputs:
 
     # Stable client endpoint (recommended)
     cluster_vip: ""
+    endpoint_dns_name: ""
     with_haproxy_load_balancing: false
     pgbouncer_install: false
 
@@ -134,6 +135,12 @@ outputs:
     - pg_host
     - pg_port
     - cluster_vip
+    - endpoint_target
+    - endpoint_target_type
+    - endpoint_dns_name
+    - endpoint_host
+    - endpoint_port
+    - endpoint_cutover_required
     - inventory_groups
     - apps
     - db_host

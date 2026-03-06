@@ -8,7 +8,9 @@ locals {
   # Single source of truth for the Proxmox vm-multi Terraform module.
   # Use Terragrunt's //subdir syntax so sibling nested modules (for example ../vm)
   # are copied into the cache.
-  module_source = "git::https://github.com/hybridops-tech/hybridops-terraform-gitmods.git//proxmox/vm-multi?ref=v0.1.0"
+  module_source_default = "git::https://github.com/hybridops-tech/hybridops-terraform-gitmods.git//proxmox/vm-multi?ref=v0.1.3"
+  module_source_override = trimspace(get_env("HYOPS_PROXMOX_MODULE_SOURCE", ""))
+  module_source = local.module_source_override != "" ? local.module_source_override : local.module_source_default
 
   hyops_env      = trimspace(get_env("HYOPS_ENV", ""))
   name_prefix_in = trimspace(try(tostring(local.inputs.name_prefix), ""))
@@ -63,8 +65,27 @@ locals {
 
   dns_domain = trimspace(try(tostring(local.inputs.dns_domain), "")) != "" ? trimspace(tostring(local.inputs.dns_domain)) : "hybzone.local"
 
+  ssh_username_effective = trimspace(try(tostring(local.inputs.ssh_username), try(tostring(local.inputs.proxmox_ssh_username), "root")))
+  ssh_keys = (
+    length(try(local.inputs.ssh_keys, [])) > 0
+    ? local.inputs.ssh_keys
+    : (
+        trimspace(try(tostring(local.inputs.ssh_public_key), "")) != ""
+        ? [trimspace(tostring(local.inputs.ssh_public_key))]
+        : []
+      )
+  )
+  vyos_users_keys_block = length(local.ssh_keys) > 0 ? trimspace(yamlencode({
+    users = [{
+      name                = local.ssh_username_effective
+      ssh_authorized_keys = local.ssh_keys
+    }]
+  })) : ""
+
   cloud_init_user_data_in = trimspace(try(tostring(local.inputs.cloud_init_user_data), ""))
-  cloud_init_user_data = local.cloud_init_user_data_in != "" ? local.cloud_init_user_data_in : <<-EOF
+  cloud_init_network_data_in = trimspace(try(tostring(local.inputs.cloud_init_network_data), ""))
+  cloud_init_meta_data_in = trimspace(try(tostring(local.inputs.cloud_init_meta_data), ""))
+  cloud_init_user_data_base = local.cloud_init_user_data_in != "" ? local.cloud_init_user_data_in : <<-EOF
 #cloud-config
 hostname: ${local.vm_name}
 fqdn: ${local.vm_name}.${local.dns_domain}
@@ -73,9 +94,18 @@ manage_etc_hosts: true
 runcmd:
   - touch /var/lib/cloud/instance/ansible-ready
 EOF
+  cloud_init_user_data = (
+    local.vyos_users_keys_block != ""
+    && !can(regex("(?m)^\\s*users\\s*:", local.cloud_init_user_data_base))
+    ? format("%s\n%s\n", trimspace(local.cloud_init_user_data_base), local.vyos_users_keys_block)
+    : local.cloud_init_user_data_base
+  )
+
+  cloud_init_network_data = local.cloud_init_network_data_in != "" ? local.cloud_init_network_data_in : ""
+  cloud_init_meta_data = local.cloud_init_meta_data_in != "" ? local.cloud_init_meta_data_in : ""
 
   vms_in = try(local.inputs.vms, {})
-  vms = length(keys(local.vms_in)) > 0 ? {
+  vms_explicit = {
     for raw_name, raw_cfg in local.vms_in :
     trimspace(raw_name) => {
       role = trimspace(try(tostring(raw_cfg.role), "")) != "" ? trimspace(tostring(raw_cfg.role)) : "platform-vm"
@@ -90,7 +120,11 @@ EOF
           )
       )
       interfaces = [
-        for nic in (length(try(raw_cfg.interfaces, [])) > 0 ? try(raw_cfg.interfaces, []) : local.interfaces) :
+        for nic in jsondecode(
+          length(try(raw_cfg.interfaces, [])) > 0
+          ? jsonencode(try(raw_cfg.interfaces, []))
+          : jsonencode(local.interfaces)
+        ) :
         merge(
           { bridge = trimspace(try(tostring(nic.bridge), try(local.inputs.network_bridge, "vmbr0"))) },
           try(nic.vlan_id, null) != null ? { vlan_id = tonumber(nic.vlan_id) } : {},
@@ -103,7 +137,9 @@ EOF
           } : {}
         )
       ]
-      cloud_init_user_data = trimspace(try(tostring(raw_cfg.cloud_init_user_data), "")) != "" ? trimspace(tostring(raw_cfg.cloud_init_user_data)) : <<-EOF
+      cloud_init_user_data = (
+        local.vyos_users_keys_block != ""
+        && !can(regex("(?m)^\\s*users\\s*:", trimspace(try(tostring(raw_cfg.cloud_init_user_data), "")) != "" ? trimspace(tostring(raw_cfg.cloud_init_user_data)) : <<-EOF
 #cloud-config
 hostname: ${trimspace(raw_name)}
 fqdn: ${trimspace(raw_name)}.${local.dns_domain}
@@ -112,47 +148,74 @@ manage_etc_hosts: true
 runcmd:
   - touch /var/lib/cloud/instance/ansible-ready
 EOF
+))
+        ? format("%s\n%s\n", trimspace(trimspace(try(tostring(raw_cfg.cloud_init_user_data), "")) != "" ? trimspace(tostring(raw_cfg.cloud_init_user_data)) : <<-EOF
+#cloud-config
+hostname: ${trimspace(raw_name)}
+fqdn: ${trimspace(raw_name)}.${local.dns_domain}
+preserve_hostname: false
+manage_etc_hosts: true
+runcmd:
+  - touch /var/lib/cloud/instance/ansible-ready
+EOF
+), local.vyos_users_keys_block)
+        : (trimspace(try(tostring(raw_cfg.cloud_init_user_data), "")) != "" ? trimspace(tostring(raw_cfg.cloud_init_user_data)) : <<-EOF
+#cloud-config
+hostname: ${trimspace(raw_name)}
+fqdn: ${trimspace(raw_name)}.${local.dns_domain}
+preserve_hostname: false
+manage_etc_hosts: true
+runcmd:
+  - touch /var/lib/cloud/instance/ansible-ready
+EOF
+)
+      )
+      cloud_init_network_data = trimspace(try(tostring(raw_cfg.cloud_init_network_data), "")) != "" ? trimspace(tostring(raw_cfg.cloud_init_network_data)) : local.cloud_init_network_data
+      cloud_init_meta_data = trimspace(try(tostring(raw_cfg.cloud_init_meta_data), "")) != "" ? trimspace(tostring(raw_cfg.cloud_init_meta_data)) : local.cloud_init_meta_data
     }
-  } : {
+  }
+  vms_single = {
     (local.vm_name) = {
       role  = trimspace(try(tostring(local.inputs.vm_role), "")) != "" ? trimspace(tostring(local.inputs.vm_role)) : "platform-vm"
       vm_name = local.vm_name_physical
       vm_id = local.vm_id
       interfaces = local.interfaces
       cloud_init_user_data = local.cloud_init_user_data
+      cloud_init_network_data = local.cloud_init_network_data
+      cloud_init_meta_data = local.cloud_init_meta_data
     }
   }
+  vms = jsondecode(
+    length(keys(local.vms_in)) > 0
+    ? jsonencode(local.vms_explicit)
+    : jsonencode(local.vms_single)
+  )
 }
 
 terraform {
   source = local.module_source
 }
 
-inputs = {
+  inputs = {
   node_name             = try(local.inputs.node_name, try(local.inputs.proxmox_node, ""))
   datastore_id          = try(local.inputs.datastore_id, try(local.inputs.storage_pool, "local-lvm"))
   snippets_datastore_id = try(local.inputs.snippets_datastore_id, try(local.inputs.storage_snippets, "local"))
-  ssh_username          = try(local.inputs.ssh_username, try(local.inputs.proxmox_ssh_username, "root"))
-  ssh_keys              = (
-    length(try(local.inputs.ssh_keys, [])) > 0
-    ? local.inputs.ssh_keys
-    : (
-        trimspace(try(tostring(local.inputs.ssh_public_key), "")) != ""
-        ? [trimspace(tostring(local.inputs.ssh_public_key))]
-        : []
-      )
-  )
+  ssh_username          = local.ssh_username_effective
+  ssh_keys              = local.ssh_keys
 
   template_vm_id       = try(tonumber(local.inputs.template_vm_id), null)
   cpu_cores            = try(tonumber(local.inputs.cpu_cores), 2)
   cpu_type             = try(local.inputs.cpu_type, "host")
   memory_mb            = try(tonumber(local.inputs.memory_mb), 4096)
   disk_size_gb         = try(tonumber(local.inputs.disk_size_gb), 32)
+  guest_agent_enabled  = try(local.inputs.guest_agent_enabled, true)
   os_type              = try(local.inputs.os_type, "l26")
   on_boot              = try(local.inputs.on_boot, true)
   nameservers          = local.dns_servers
   tags                 = local.tags
   cloud_init_user_data = local.cloud_init_user_data
+  cloud_init_network_data = local.cloud_init_network_data
+  cloud_init_meta_data = local.cloud_init_meta_data
   interfaces           = local.interfaces
   vms                  = local.vms
 }

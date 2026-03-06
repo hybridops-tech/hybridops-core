@@ -1,9 +1,9 @@
-# State-driven inventory from Hetzner WAN edge foundation module.
+# State-driven inventory from Hetzner shared control host module.
 
-inventory_state_ref: org/hetzner/wan-edge-foundation
+inventory_state_ref: org/hetzner/shared-control-host
 inventory_vm_groups:
   edge_control:
-    - edge01
+    - control-01
 
 provider: manual-command
 zone: example.com

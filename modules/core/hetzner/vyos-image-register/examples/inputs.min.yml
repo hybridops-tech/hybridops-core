@@ -1,0 +1,4 @@
+image_key: "vyos-1.5"
+image_ref: "vyos-1-5-custom"
+image_version: "1.5"
+image_source_url: "https://downloads.vyos.io/"

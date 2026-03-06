@@ -1,0 +1,6 @@
+artifact_key: "vyos-1.5"
+artifact_url: "https://artifacts.example.com/vyos/vyos-1.5-amd64.qcow2"
+artifact_format: "qcow2"
+artifact_version: "2026.03.03-0027-rolling"
+artifact_sha256: ""
+source_iso_url: "https://github.com/vyos/vyos-nightly-build/releases/download/2026.03.03-0027-rolling/vyos-2026.03.03-0027-rolling-generic-amd64.iso"

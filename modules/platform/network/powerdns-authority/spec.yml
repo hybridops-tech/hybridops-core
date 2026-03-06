@@ -1,0 +1,98 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/powerdns-authority"
+
+metadata:
+  title: "PowerDNS Internal Authority"
+  description: "Deploy PowerDNS Authoritative in Docker Compose on Linux hosts, supporting primary or secondary internal DNS authority roles."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "root"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env:
+      - "POWERDNS_API_KEY"
+    required_env_destroy: []
+    load_vault_env: true
+
+    powerdns_role_fqcn: "hybridops.common.powerdns_authority"
+    powerdns_state: "present"
+    powerdns_mode: "primary"   # primary|secondary
+
+    powerdns_root: "/opt/hybridops/powerdns"
+    powerdns_compose_project: "powerdns"
+    powerdns_image: "powerdns/pdns-auth-49:4.9.5"
+    powerdns_server_id: "localhost"
+
+    powerdns_api_enabled: true
+    powerdns_api_key_env: "POWERDNS_API_KEY"
+    powerdns_api_key: ""
+    powerdns_api_bind_host: "0.0.0.0"
+    powerdns_api_port: 8081
+    powerdns_api_allow_from:
+      - "127.0.0.1"
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+
+    powerdns_dns_bind_host: "0.0.0.0"
+    powerdns_dns_port: 53
+
+    powerdns_zone_name: ""
+    powerdns_default_ns: "ns1.hyops.internal"
+    powerdns_soa_admin: "hostmaster.hyops.internal"
+
+    powerdns_allow_axfr_ips: []
+    powerdns_allow_notify_from: []
+    powerdns_primary_endpoint: ""
+    powerdns_primary_state_ref: ""
+
+    docker_engine_enable: true
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/50-powerdns-authority@v1.0"
+
+outputs:
+  publish:
+    - powerdns_state
+    - powerdns_mode
+    - powerdns_root
+    - powerdns_zone_name
+    - powerdns_target_host
+    - powerdns_private_host
+    - powerdns_public_host
+    - powerdns_control_host
+    - powerdns_control_user
+    - powerdns_server_id
+    - powerdns_zone_id
+    - powerdns_api_key_env
+    - powerdns_dns_port
+    - powerdns_api_port
+    - powerdns_api_url
+    - cap.net.dns_authority
+
+probes: []
+constraints: []

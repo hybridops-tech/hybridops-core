@@ -1,0 +1,69 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/hetzner/vyos-image-seed"
+
+metadata:
+  title: "Hetzner VyOS Image Seed"
+  description: "Seed a Hetzner custom VyOS image when missing, then publish its image contract for downstream edge blueprints."
+
+requirements:
+  credentials: ["hetzner"]
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    image_key: "vyos-1.5"
+    image_ref: ""
+    image_name: ""
+    image_description: ""
+    image_version: ""
+    artifact_state_ref: ""
+    artifact_key: ""
+    artifact_url: ""
+    artifact_format: ""
+    artifact_version: ""
+    artifact_sha256: ""
+    source_iso_url: ""
+    image_source_url: ""
+    image_architecture: "x86"
+    image_compression: "xz"
+    seed_location: ""
+    seed_server_type: ""
+    seed_wrapper_public_base_url: ""
+    seed_wrapper_bind_port: 18080
+
+    seed_if_missing: true
+    seed_tool: "hcloud-upload-image"
+    seed_command: ""
+    seed_timeout_s: 7200
+
+    notes: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "hetzner/common/platform/21-vyos-image-seed@v1.0"
+
+outputs:
+  publish:
+    - image_key
+    - image_ref
+    - image_name
+    - image_description
+    - image_version
+    - image_source_url
+    - image_seeded
+    - images
+
+probes: []
+constraints: []

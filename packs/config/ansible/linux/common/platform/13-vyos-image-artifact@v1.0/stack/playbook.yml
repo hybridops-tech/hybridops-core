@@ -1,0 +1,34 @@
+---
+- name: "core/shared/vyos-image-artifact"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    hyops_out_file: "{{ hyops_outputs_file }}"
+  tasks:
+    - name: Build artifact outputs
+      ansible.builtin.set_fact:
+        hyops_outputs:
+          artifact_key: "{{ artifact_key }}"
+          artifact_url: "{{ artifact_url }}"
+          artifact_format: "{{ artifact_format }}"
+          artifact_version: "{{ artifact_version | default('') }}"
+          artifact_sha256: "{{ artifact_sha256 | default('') }}"
+          source_iso_url: "{{ source_iso_url | default('') }}"
+          artifacts: >-
+            {{
+              {
+                artifact_key: {
+                  'artifact_url': artifact_url,
+                  'artifact_format': artifact_format,
+                  'artifact_version': (artifact_version | default('')),
+                  'artifact_sha256': (artifact_sha256 | default('')),
+                  'source_iso_url': (source_iso_url | default(''))
+                }
+              }
+            }}
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_out_file }}"
+        mode: "0600"
+        content: "{{ hyops_outputs | to_nice_json }}"

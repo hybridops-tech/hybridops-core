@@ -108,6 +108,7 @@ Cloud DR blueprints should prefer `execution_plane: runner-local` so preflight a
 ## Inputs (high level)
 
 - `cluster_vip` (recommended): stable client endpoint; if unset, outputs default to the master host IP.
+- `endpoint_dns_name` (recommended for DR): stable DNS name that applications should use across failover/failback. When set, outputs publish `endpoint_target=<dns name>` while `db_host`/`pg_host` continue to show the current active host or VIP.
 - `allowed_clients`: explicit `pg_hba` allowlist; avoid broad networks.
 - `apps`: multi-service DB contract (authoritative when non-empty).
 - `patroni_cluster_name`, `postgresql_version`, `postgresql_port`, `dcs_type`, `dcs_exists`.
@@ -117,6 +118,19 @@ Cloud DR blueprints should prefer `execution_plane: runner-local` so preflight a
 Published module state keys:
 
 - `pg_host`, `pg_port`, `cluster_vip`
+- `endpoint_target`, `endpoint_target_type`, `endpoint_dns_name`, `endpoint_host`, `endpoint_port`, `endpoint_cutover_required`
 - `apps` (per-app connection details, including `db_password_env` env-var names only)
 - Backward-compat: `db_host`, `db_port`, `db_name`, `db_user`, `db_password_env` from `apps.netbox` when present
 - `cap.db.postgresql_ha = ready`
+
+Endpoint semantics:
+
+- `endpoint_target`: what clients should be configured to use
+- `endpoint_target_type`:
+  - `dns` when `endpoint_dns_name` is set
+  - `vip` when `cluster_vip` is set and no DNS name is set
+  - `host` when neither DNS nor VIP is configured
+- `endpoint_host`: current active host/VIP behind the endpoint
+- `endpoint_cutover_required`:
+  - `true` when clients are pinned to a raw host or when DNS must be updated during DR
+  - `false` when a stable in-cluster VIP is already the client endpoint

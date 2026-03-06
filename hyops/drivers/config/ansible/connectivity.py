@@ -104,10 +104,12 @@ def execution_plane(inputs: dict[str, Any]) -> str:
 
 def ssh_access_mode(inputs: dict[str, Any]) -> str:
     token = str(inputs.get("ssh_access_mode") or "").strip().lower()
-    if token in _SSH_ACCESS_MODES:
+    if token == "gcp-iap":
         return token
     if str(inputs.get("ssh_proxy_jump_host") or "").strip():
         return "bastion-explicit"
+    if token in _SSH_ACCESS_MODES:
+        return token
     return "direct"
 
 

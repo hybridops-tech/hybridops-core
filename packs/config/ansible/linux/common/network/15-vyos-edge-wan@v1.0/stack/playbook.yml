@@ -1,0 +1,31 @@
+---
+- name: platform/network/vyos-edge-wan (configure)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: false
+  gather_facts: true
+
+  vars:
+    vyos_wan_role_fqcn: "{{ vyos_wan_role_fqcn | default('hybridops.common.vyos_edge_wan') }}"
+
+  tasks:
+    - name: Run VyOS edge WAN role
+      ansible.builtin.include_role:
+        name: "{{ vyos_wan_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'vyos.edge01.peer_ip': (edge01_peer_public_ip | string),
+            'vyos.edge02.peer_ip': (edge02_peer_public_ip | string),
+            'vyos.edge01.bgp_neighbor': (edge01_inside_peer_ip | string),
+            'vyos.edge02.bgp_neighbor': (edge02_inside_peer_ip | string),
+            'cap.network.vyos_edge_wan': ((vyos_wan_state | default('present') | lower) == 'absent') | ternary('absent', 'ready')
+          } | to_json }}

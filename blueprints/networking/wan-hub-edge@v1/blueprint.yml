@@ -5,9 +5,12 @@ blueprint_ref: "networking/wan-hub-edge@v1"
 mode: "hybrid"
 
 metadata:
-  title: "WAN Hub to Edge (GCP + Hetzner)"
-  description: "Provision WAN edge foundation on Hetzner and establish GCP hub network/router/HA-VPN BGP connectivity."
-  outcome: "BGP control plane between GCP Cloud Router and edge peers is established for staged route exchange."
+  title: "WAN Hub to Edge (GCP + Hetzner VyOS)"
+  description: "Provision Hetzner VyOS edge peers, GCP hub networking, and HA VPN/BGP between the cloud hub and routed edge."
+  outcome: "Deterministic BGP/IPsec control plane between GCP Cloud Router and Hetzner VyOS edge peers."
+  notes:
+    - "VyOS day-2 tunnel/BGP policy is handled outside the legacy Linux platform/network/wan-edge module."
+    - "This blueprint excludes the legacy Linux edge role path to keep VyOS deployments deterministic."
 
 policy:
   fail_fast: true
@@ -15,22 +18,68 @@ policy:
   ipam_authority: "none"
 
 steps:
-  - id: hetzner_edge_foundation
-    module_ref: "org/hetzner/wan-edge-foundation"
+  - id: vyos_artifact_build
+    module_ref: "core/shared/vyos-image-build"
+    state_instance: "vyos_default_build"
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    inputs:
+      artifact_key: "vyos-1.5"
+      artifact_format: "qcow2"
+      artifact_version: ""
+      # If this URL is set, HyOps registers/uses it directly.
+      # If empty, HyOps builds + publishes via build_command/publish_command.
+      artifact_url: ""
+      artifact_local_path: "/tmp/vyos-1.5.qcow2"
+      # Set this to your object-repo state for publish backend discovery.
+      # Override in env blueprint overlay when using a non-default repo instance.
+      repo_state_ref: "org/gcp/object-repo"
+      build_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh"
+      smoke_verify_required: true
+      publish_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/publish-vyos-artifact.sh"
+
+  - id: vyos_image
+    module_ref: "core/hetzner/vyos-image-seed"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    requires:
+      - vyos_artifact_build
+    inputs:
+      artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
+      artifact_key: "vyos-1.5"
+      image_key: "vyos-1.5"
+      image_ref: ""
+      image_version: "1.5"
+      image_description: "hyops-vyos-1-5"
+      image_source_url: ""
+      seed_wrapper_public_base_url: ""
+      seed_if_missing: true
+      seed_tool: "hcloud-upload-image"
+
+  - id: hetzner_edge_foundation
+    module_ref: "org/hetzner/vyos-edge-foundation"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    requires:
+      - vyos_image
     contracts:
       addressing_mode: "static"
     inputs:
-      location: "nbg1"
-      home_location: "nbg1"
       network_zone: "eu-central"
+      image_state_ref: "core/hetzner/vyos-image-seed"
+      image_key: "vyos-1.5"
       edge01_name: "edge-a"
       edge02_name: "edge-b"
       ssh_key_name: "hyops-wan-edge"
-      ssh_public_key: "ssh-ed25519 CHANGE_ME"
+      # Optional when ssh_key_name already exists in Hetzner.
+      # Required only when HyOps must create the SSH key.
+      ssh_public_key: ""
       firewall_name: "fw-hyops-edge"
       floating_ip_name: "fip-hyops-edge"
       private_network_name: "net-hyops-edge"
@@ -74,6 +123,7 @@ steps:
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
+    skip_if_state_ok: false
     requires:
       - hetzner_edge_foundation
       - gcp_wan_hub_network
@@ -91,37 +141,3 @@ steps:
       advertised_route_priority: 100
       shared_secret_a: "CHANGE_ME_PSK_A"
       shared_secret_b: "CHANGE_ME_PSK_B"
-
-  - id: wan_edge_config
-    module_ref: "platform/network/wan-edge"
-    action: "deploy"
-    phase: "operations"
-    with_deps: true
-    requires:
-      - hetzner_edge_foundation
-      - gcp_wan_vpn_to_edge
-    contracts:
-      addressing_mode: "static"
-    inputs:
-      inventory_state_ref: "org/hetzner/wan-edge-foundation"
-      inventory_vm_groups:
-        wan_edge:
-          - "edge01"
-          - "edge02"
-
-      edge01_vm_key: "edge01"
-      edge02_vm_key: "edge02"
-
-      # Set WAN_IPSEC_PSK in env/vault before apply.
-      required_env:
-        - "WAN_IPSEC_PSK"
-
-      # Example policy prefixes (adjust to your topology).
-      wan_bgp_local_as: 65010
-      wan_bgp_peer_as: 64514
-      advertise_prefixes:
-        - "10.80.0.0/24"
-      import_allow_prefixes:
-        - "10.70.0.0/20"
-      export_allow_prefixes:
-        - "10.80.0.0/24"

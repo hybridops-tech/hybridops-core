@@ -45,14 +45,27 @@ inputs:
     dns_intent_file: "latest.json"
 
     # Routing contract
-    provider: "manual-command"
+    provider: "manual-command" # manual-command|powerdns-api
     zone: ""
     record_fqdn: ""
+    endpoint_state_ref: ""
+    endpoint_fqdn_output_key: "endpoint_dns_name"
+    endpoint_target_output_key: "endpoint_target"
     record_type: "A"
     ttl: 60
     primary_targets: []
     secondary_targets: []
     desired: "primary" # primary|secondary
+
+    # PowerDNS API provider settings.
+    powerdns_state_ref: ""
+    powerdns_api_url: ""
+    powerdns_server_id: "localhost"
+    powerdns_zone_id: ""
+    powerdns_api_key_env: "POWERDNS_API_KEY"
+    powerdns_validate_tls: true
+    powerdns_account: "hyops"
+    powerdns_comment: ""
 
     # Execution policy
     dry_run: true

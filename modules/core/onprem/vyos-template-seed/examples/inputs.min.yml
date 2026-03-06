@@ -1,0 +1,18 @@
+template_key: "vyos-1.5"
+template_vm_id: 9205
+template_name: "vyos-1.5-template"
+template_image_version: "1.5-stream"
+# Optional provenance hint:
+# template_source_url: "https://artifacts.example.com/vyos/vyos-1.5-amd64.qcow2"
+# Use a directly downloadable disk image artifact here, not an installer ISO page.
+# If you already published a shared artifact contract, prefer artifact_state_ref/artifact_key in your blueprint instead.
+# If your source is ISO-only, leave this empty and provide a custom seed_command instead.
+image_source_url: "https://artifacts.example.com/vyos/vyos-1.5-amd64.qcow2"
+seed_if_missing: true
+rebuild_if_exists: false
+# template_smoke_gate: true
+# template_smoke_wait_s: 120
+# template_smoke_vmid: 18205
+# template_smoke_bridge: "vnetmgmt"
+# template_smoke_marker: "hyops-template-smoke-9205"
+# seed_command: "your-iso-to-proxmox-template-wrapper ..."

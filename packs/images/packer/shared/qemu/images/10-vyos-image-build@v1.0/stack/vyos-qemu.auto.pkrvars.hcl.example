@@ -1,0 +1,83 @@
+# Starting-point scaffold for official VyOS rolling ISO builds.
+# Stage 1 performs the installer-driven disk install from the live ISO.
+# Stage 2 boots the installed disk over SSH and installs cloud-init + guest agent.
+#
+# The resulting disk image uses legacy SeaBIOS GRUB, which is compatible with
+# Proxmox default (seabios) deployments and is required because the VyOS
+# installer ISO does not include a UEFI El Torito boot entry.
+
+vm_name    = "hyops-vyos-build"
+cpus       = 2
+memory     = 2048
+disk_size  = "8192M"
+headless   = true
+boot_wait  = "5s"
+installed_boot_wait = "30s"
+qemu_accelerator = "kvm"
+
+# Keep these aligned with your install workflow.
+ssh_username = "vyos"
+ssh_password = "vyos"
+ssh_timeout  = "45m"
+
+# Adjust if your automated install sets a different password.
+shutdown_command = "echo 'vyos' | sudo -S poweroff"
+
+# Keep a stage-1 serial log by default while tuning the installer prompts.
+# This makes it possible to inspect the live ISO/install flow after a failed
+# run on the builder without relying on a GUI console capture.
+serial_device = "file:/tmp/vyos-stage1-serial.log"
+
+# Keep a QEMU monitor socket available too, so the builder can take stage-1
+# screenshots with commands like:
+#   printf 'screendump /tmp/vyos-stage1.ppm\n' | nc -U /tmp/vyos-stage1-monitor.sock
+monitor_device = "unix:/tmp/vyos-stage1-monitor.sock,server,nowait"
+
+# Stage-1 console install scaffold for VyOS BIOS boot.
+# Packer's active VNC connection prevents GRUB's 10s auto-boot countdown
+# from completing.  We therefore set boot_wait=5s (just long enough for the
+# GRUB menu to appear), send Enter to boot "KVM console" (entry 0), then
+# wait 120 s for VyOS live to finish booting before typing login creds.
+boot_command = [
+  "<enter><wait120>",
+  "<enter><wait5>",
+  "vyos<enter><wait3>",
+  "vyos<enter><wait12>",
+  "install image<enter><wait8>",
+  "y<enter><wait3>",
+  "<enter><wait3>",
+  "vyos<enter><wait3>",
+  "vyos<enter><wait6>",
+  "K<enter><wait8>",
+  "<enter><wait3>",
+  "y<enter><wait3>",
+  "Y<enter><wait120>",
+  "1<enter><wait180>",
+  "poweroff<enter><wait2>",
+  "y<enter><wait5>"
+]
+
+# Stage-2 console bootstrap on the installed disk.
+# With installed_boot_wait=30s VyOS is booting. The leading waits + enter
+# retries handle boot noise on the serial console before the login prompt
+# is stable.
+installed_boot_command = [
+  "<wait20>",
+  "<enter><wait5>",
+  "<enter><wait5>",
+  "vyos<enter><wait3>",
+  "vyos<enter><wait10>",
+  "configure<enter><wait3>",
+  "delete interfaces ethernet eth0 address<enter><wait2>",
+  "set interfaces ethernet eth0 address dhcp<enter><wait3>",
+  "set service ssh port 22<enter><wait2>",
+  "set service ssh listen-address 0.0.0.0<enter><wait2>",
+  "delete service ssh disable-password-authentication<enter><wait2>",
+  "set system login user vyos authentication plaintext-password vyos<enter><wait2>",
+  "set system name-server 10.0.2.3<enter><wait2>",
+  "set system name-server 8.8.8.8<enter><wait2>",
+  "set system name-server 1.1.1.1<enter><wait2>",
+  "commit<enter><wait15>",
+  "save<enter><wait5>",
+  "exit<enter><wait2>"
+]

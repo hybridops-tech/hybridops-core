@@ -1,0 +1,268 @@
+---
+- name: "core/shared/vyos-image-build"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    hyops_out_file: "{{ hyops_outputs_file }}"
+    smoke_verify_command_default: >-
+      /usr/bin/env bash {{
+        (
+          playbook_dir ~
+          '/../../../../../../../../tools/build/vyos/verify-vyos-artifact.sh'
+        ) | realpath
+      }}
+    smoke_verify_command_effective: >-
+      {{
+        (smoke_verify_command | default('', true) | trim)
+        if ((smoke_verify_command | default('', true) | trim) | length > 0)
+        else smoke_verify_command_default
+      }}
+    build_env_common:
+      HYOPS_VYOS_ARTIFACT_KEY: "{{ artifact_key }}"
+      HYOPS_VYOS_ARTIFACT_FORMAT: "{{ artifact_format }}"
+      HYOPS_VYOS_ARTIFACT_VERSION: "{{ artifact_version | default('') }}"
+      HYOPS_VYOS_SOURCE_ISO_URL: "{{ source_iso_url | default('') }}"
+      HYOPS_VYOS_ARTIFACT_LOCAL_PATH: "{{ artifact_local_path | default('') }}"
+      HYOPS_VYOS_ARTIFACT_URL: "{{ artifact_url | default('') }}"
+      HYOPS_VYOS_REPO_BACKEND: "{{ backend | default('') }}"
+      HYOPS_VYOS_GCS_BUCKET: "{{ gcs_bucket | default('') }}"
+      HYOPS_VYOS_S3_BUCKET: "{{ s3_bucket | default('') }}"
+      HYOPS_VYOS_AZURE_CONTAINER: "{{ azure_container | default('') }}"
+      HYOPS_VYOS_AZURE_STORAGE_ACCOUNT: "{{ azure_storage_account | default('') }}"
+      HYOPS_CORE_ROOT: "{{ lookup('env', 'HYOPS_CORE_ROOT') | default('', true) }}"
+      HYOPS_VYOS_ISO_BUILD_COMMAND: "{{ lookup('env', 'HYOPS_VYOS_ISO_BUILD_COMMAND') | default('', true) }}"
+      HYOPS_VYOS_PACKER_TEMPLATE: "{{ lookup('env', 'HYOPS_VYOS_PACKER_TEMPLATE') | default('', true) }}"
+      HYOPS_VYOS_PACKER_VARS_FILE: "{{ lookup('env', 'HYOPS_VYOS_PACKER_VARS_FILE') | default('', true) }}"
+      HYOPS_VYOS_PACKER_WORKDIR: "{{ lookup('env', 'HYOPS_VYOS_PACKER_WORKDIR') | default('', true) }}"
+      HYOPS_VYOS_PACKER_EXTRA_ARGS: "{{ lookup('env', 'HYOPS_VYOS_PACKER_EXTRA_ARGS') | default('', true) }}"
+      HYOPS_VYOS_ISO_BUILD_METHOD: "{{ lookup('env', 'HYOPS_VYOS_ISO_BUILD_METHOD') | default('', true) }}"
+      HYOPS_VYOS_VM_IMAGES_REF: "{{ lookup('env', 'HYOPS_VYOS_VM_IMAGES_REF') | default('', true) }}"
+      HYOPS_VYOS_VM_IMAGES_DIR: "{{ lookup('env', 'HYOPS_VYOS_VM_IMAGES_DIR') | default('', true) }}"
+      HYOPS_VYOS_VM_IMAGES_ISO_PATH: "{{ lookup('env', 'HYOPS_VYOS_VM_IMAGES_ISO_PATH') | default('', true) }}"
+      HYOPS_VYOS_IMAGE_VERSION: "{{ lookup('env', 'HYOPS_VYOS_IMAGE_VERSION') | default('', true) }}"
+      HYOPS_VYOS_DISK_SIZE_GB: "{{ lookup('env', 'HYOPS_VYOS_DISK_SIZE_GB') | default('', true) }}"
+      HYOPS_VYOS_CLOUD_INIT_DS: "{{ lookup('env', 'HYOPS_VYOS_CLOUD_INIT_DS') | default('', true) }}"
+      HYOPS_VYOS_ENABLE_SSH: "{{ lookup('env', 'HYOPS_VYOS_ENABLE_SSH') | default('', true) }}"
+      HYOPS_VYOS_KEEP_USER: "{{ lookup('env', 'HYOPS_VYOS_KEEP_USER') | default('', true) }}"
+      HYOPS_VYOS_GUEST_AGENT: "{{ lookup('env', 'HYOPS_VYOS_GUEST_AGENT') | default('', true) }}"
+      HYOPS_VYOS_SMOKE_GATE_COMMAND: "{{ lookup('env', 'HYOPS_VYOS_SMOKE_GATE_COMMAND') | default('', true) }}"
+      HYOPS_VYOS_REBUILD_IF_EXISTS: "{{ (rebuild_if_exists | default(false)) | ternary('true', 'false') }}"
+      HYOPS_VYOS_ALLOW_ISO_BUILD: "{{ (allow_iso_build | default(false)) | ternary('true', 'false') }}"
+    publish_sa_json_inline: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON') | default('', true) }}"
+    publish_sa_json_file_input: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON_FILE') | default('', true) }}"
+  tasks:
+    - name: Ensure build workdir exists when requested
+      ansible.builtin.file:
+        path: "{{ build_workdir }}"
+        state: directory
+        mode: "0755"
+      when: build_workdir | default('') | length > 0
+
+    - name: Ensure publish workdir exists when requested
+      ansible.builtin.file:
+        path: "{{ publish_workdir }}"
+        state: directory
+        mode: "0755"
+      when: publish_workdir | default('') | length > 0
+
+    - name: Check whether local artifact already exists
+      ansible.builtin.stat:
+        path: "{{ artifact_local_path }}"
+      register: artifact_local_stat
+      when: artifact_local_path | default('') | length > 0
+
+    - name: Build local VyOS artifact when required
+      ansible.builtin.shell: "{{ build_command }}"
+      args:
+        chdir: "{{ build_workdir if (build_workdir | default('') | length > 0) else omit }}"
+      environment: "{{ build_env_common }}"
+      when:
+        - build_command | default('') | length > 0
+        - artifact_local_path | default('') | length > 0
+        - rebuild_if_exists | default(false) or not (artifact_local_stat.stat.exists | default(false))
+
+    - name: Re-check local artifact after build
+      ansible.builtin.stat:
+        path: "{{ artifact_local_path }}"
+      register: artifact_local_stat_final
+      when: artifact_local_path | default('') | length > 0
+
+    - name: Fail when local artifact is still missing
+      ansible.builtin.fail:
+        msg: >-
+          Local VyOS artifact is missing at {{ artifact_local_path }} after build/publish preparation.
+          Ensure inputs.build_command produces the expected file or set inputs.artifact_url to an existing published artifact.
+      when:
+        - artifact_local_path | default('') | length > 0
+        - not (artifact_local_stat_final.stat.exists | default(false))
+        - artifact_url | default('') | length == 0
+
+    - name: Run local VyOS artifact smoke verification when configured
+      ansible.builtin.shell: "{{ smoke_verify_command_effective }}"
+      args:
+        executable: /bin/bash
+        chdir: "{{ smoke_verify_workdir if (smoke_verify_workdir | default('') | length > 0) else omit }}"
+      environment: "{{ build_env_common }}"
+      register: smoke_verify_result
+      changed_when: false
+      failed_when: false
+      when:
+        - smoke_verify_command_effective | default('') | trim | length > 0
+        - artifact_local_path | default('') | length > 0
+        - artifact_local_stat_final.stat.exists | default(false)
+
+    - name: Fail when local VyOS artifact smoke verification failed
+      ansible.builtin.fail:
+        msg: >-
+          Local VyOS artifact smoke verification failed (rc={{ smoke_verify_result.rc | default(-1) }}).
+          command={{ smoke_verify_command_effective }}
+          stdout={{ smoke_verify_result.stdout | default('') }}
+          stderr={{ smoke_verify_result.stderr | default('') }}
+      when:
+        - smoke_verify_required | default(true)
+        - smoke_verify_command_effective | default('') | trim | length > 0
+        - artifact_local_path | default('') | length > 0
+        - artifact_local_stat_final.stat.exists | default(false)
+        - (smoke_verify_result.rc | default(0)) != 0
+
+    - name: Warn when optional local VyOS artifact smoke verification failed
+      ansible.builtin.debug:
+        msg: >-
+          Local VyOS artifact smoke verification failed but smoke_verify_required=false.
+          command={{ smoke_verify_command_effective }}
+          rc={{ smoke_verify_result.rc | default(-1) }}
+          stderr={{ smoke_verify_result.stderr | default('') }}
+      when:
+        - not (smoke_verify_required | default(true))
+        - smoke_verify_command_effective | default('') | trim | length > 0
+        - artifact_local_path | default('') | length > 0
+        - artifact_local_stat_final.stat.exists | default(false)
+        - (smoke_verify_result.rc | default(0)) != 0
+
+    - name: Materialize temporary GCS service-account file for publish
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .json
+      register: publish_sa_json_temp
+      when:
+        - publish_sa_json_inline | length > 0
+        - publish_sa_json_file_input | length == 0
+
+    - name: Write temporary GCS service-account file for publish
+      ansible.builtin.copy:
+        dest: "{{ publish_sa_json_temp.path }}"
+        mode: "0600"
+        content: "{{ publish_sa_json_inline }}"
+      when:
+        - publish_sa_json_inline | length > 0
+        - publish_sa_json_file_input | length == 0
+      no_log: true
+
+    - name: Build publish environment
+      ansible.builtin.set_fact:
+        publish_env: >-
+          {{
+            build_env_common
+            | combine(
+                {
+                  'HYOPS_VYOS_GCS_SA_JSON_FILE': (
+                    publish_sa_json_file_input
+                    if (publish_sa_json_file_input | length > 0)
+                    else (
+                      publish_sa_json_temp.path
+                      if (publish_sa_json_temp is defined and (publish_sa_json_temp.path | default('') | length > 0))
+                      else ''
+                    )
+                  )
+                },
+                recursive=True
+              )
+          }}
+
+    - name: Publish local VyOS artifact when requested
+      ansible.builtin.shell: "{{ publish_command }}"
+      args:
+        chdir: "{{ publish_workdir if (publish_workdir | default('') | length > 0) else omit }}"
+      environment: "{{ publish_env }}"
+      register: publish_cmd
+      when:
+        - publish_command | default('') | length > 0
+        - artifact_local_path | default('') | length > 0
+        - artifact_local_stat_final.stat.exists | default(false)
+
+    - name: Remove temporary GCS service-account file
+      ansible.builtin.file:
+        path: "{{ publish_sa_json_temp.path }}"
+        state: absent
+      when:
+        - publish_sa_json_temp is defined
+        - publish_sa_json_temp.path | default('') | length > 0
+      no_log: true
+
+    - name: Resolve final published artifact URL
+      ansible.builtin.set_fact:
+        vyos_artifact_url_resolved: >-
+          {{
+            (artifact_url | default('') | trim)
+            if (artifact_url | default('') | trim | length > 0)
+            else (publish_cmd.stdout | default('') | trim)
+          }}
+
+    - name: Fail when published artifact URL is still empty
+      ansible.builtin.fail:
+        msg: >-
+          Unable to resolve the final published artifact URL. Set inputs.artifact_url explicitly or make
+          inputs.publish_command print the final URL on stdout.
+      when: vyos_artifact_url_resolved | default('') | length == 0
+
+    - name: Compute sha256 for local artifact when not supplied
+      ansible.builtin.command:
+        argv:
+          - sha256sum
+          - "{{ artifact_local_path }}"
+      register: artifact_sha256_cmd
+      changed_when: false
+      when:
+        - artifact_sha256 | default('') | length == 0
+        - artifact_local_path | default('') | length > 0
+        - artifact_local_stat_final.stat.exists | default(false)
+
+    - name: Resolve final artifact sha256
+      ansible.builtin.set_fact:
+        vyos_artifact_sha256_resolved: >-
+          {{
+            (artifact_sha256 | default('') | trim)
+            if (artifact_sha256 | default('') | trim | length > 0)
+            else ((artifact_sha256_cmd.stdout | default('') | split(' ')) | first | default(''))
+          }}
+
+    - name: Build artifact outputs
+      ansible.builtin.set_fact:
+        hyops_outputs:
+          artifact_key: "{{ artifact_key }}"
+          artifact_url: "{{ vyos_artifact_url_resolved }}"
+          artifact_format: "{{ artifact_format }}"
+          artifact_version: "{{ artifact_version | default('') }}"
+          artifact_sha256: "{{ vyos_artifact_sha256_resolved | default('') }}"
+          source_iso_url: "{{ source_iso_url | default('') }}"
+          artifact_local_path: "{{ artifact_local_path | default('') }}"
+          artifacts: >-
+            {{
+              {
+                artifact_key: {
+                  'artifact_url': vyos_artifact_url_resolved,
+                  'artifact_format': artifact_format,
+                  'artifact_version': (artifact_version | default('')),
+                  'artifact_sha256': (vyos_artifact_sha256_resolved | default('')),
+                  'source_iso_url': (source_iso_url | default('')),
+                  'artifact_local_path': (artifact_local_path | default(''))
+                }
+              }
+            }}
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_out_file }}"
+        mode: "0600"
+        content: "{{ hyops_outputs | to_nice_json }}"

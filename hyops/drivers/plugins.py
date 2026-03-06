@@ -23,7 +23,13 @@ def register_plugins(registry: DriverRegistry) -> None:
     from importlib.metadata import entry_points
 
     group = "hyops.drivers"
-    eps = list(entry_points().select(group=group))
+    raw_entry_points = entry_points()
+    if hasattr(raw_entry_points, "select"):
+        eps = list(raw_entry_points.select(group=group))
+    elif isinstance(raw_entry_points, dict):
+        eps = list(raw_entry_points.get(group, ()))
+    else:
+        eps = [ep for ep in raw_entry_points if getattr(ep, "group", None) == group]
     eps.sort(key=lambda ep: ep.name)
 
     for ep in eps:

@@ -27,6 +27,7 @@ They package repeatable outcomes, not low-level implementation details.
 - `onprem/eve-ng@v1`: EVE-NG foundation chain with optional post-config intent.
 - `networking/wan-hub-edge@v1`: Hetzner edge + GCP hub WAN baseline (network/router/HA VPN BGP).
 - `networking/gcp-ops-runner@v1`: private GCP runner VM in the hub core subnet for runner-local DR/burst execution.
+- `networking/onprem-ops-runner@v1`: on-prem runner VM on the management network for runner-local failback and platform execution.
 
 ## CLI Usage
 - Validate:

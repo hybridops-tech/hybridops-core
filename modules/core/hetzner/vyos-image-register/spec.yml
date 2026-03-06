@@ -1,0 +1,45 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/hetzner/vyos-image-register"
+
+metadata:
+  title: "Hetzner VyOS Image Registration"
+  description: "Register a pre-imported Hetzner custom image or snapshot reference for downstream VyOS edge modules."
+
+requirements:
+  credentials: ["hetzner"]
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    image_key: "vyos-1.5"
+    image_ref: ""
+    image_version: ""
+    image_source_url: ""
+    notes: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "hetzner/common/platform/22-vyos-image-register@v1.0"
+
+outputs:
+  publish:
+    - image_key
+    - image_ref
+    - image_version
+    - image_source_url
+    - images
+
+probes: []
+constraints: []

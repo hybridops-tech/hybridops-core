@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from urllib.parse import urlparse
 from typing import Any
 
 
@@ -51,7 +52,7 @@ def _validate_inventory(data: dict[str, Any]) -> None:
     if not isinstance(inventory_state_ref, str) or not inventory_state_ref.strip():
         raise ValueError(
             "inputs.inventory_state_ref is required when inputs.inventory_groups is empty "
-            "(recommended: org/hetzner/wan-edge-foundation)"
+            "(recommended: org/hetzner/shared-control-host#edge_control_host)"
         )
     if not isinstance(inventory_vm_groups, dict) or not inventory_vm_groups:
         raise ValueError(
@@ -91,6 +92,21 @@ def _validate_targets(record_type: str, targets: Any, field: str) -> list[str]:
     return out
 
 
+def _require_http_url(value: Any, field: str) -> str:
+    token = _require_non_empty_str(value, field)
+    parsed = urlparse(token)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{field} must be a valid http or https URL")
+    return token
+
+
+def _require_env_var_name(value: Any, field: str) -> str:
+    token = _require_non_empty_str(value, field)
+    if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", token):
+        raise ValueError(f"{field} must be a valid environment variable name")
+    return token
+
+
 def validate(inputs: dict[str, Any]) -> None:
     data = inputs or {}
     if not isinstance(data, dict):
@@ -117,6 +133,13 @@ def validate(inputs: dict[str, Any]) -> None:
     if "REPLACE_" in provider.upper():
         raise ValueError("inputs.provider contains placeholder token")
 
+    if data.get("endpoint_state_ref") is not None and str(data.get("endpoint_state_ref")).strip():
+        _require_non_empty_str(data.get("endpoint_state_ref"), "inputs.endpoint_state_ref")
+    if data.get("endpoint_fqdn_output_key") is not None and str(data.get("endpoint_fqdn_output_key")).strip():
+        _require_non_empty_str(data.get("endpoint_fqdn_output_key"), "inputs.endpoint_fqdn_output_key")
+    if data.get("endpoint_target_output_key") is not None and str(data.get("endpoint_target_output_key")).strip():
+        _require_non_empty_str(data.get("endpoint_target_output_key"), "inputs.endpoint_target_output_key")
+
     zone = _require_non_empty_str(data.get("zone"), "inputs.zone")
     if not _FQDN_RE.fullmatch(zone):
         raise ValueError("inputs.zone must be a valid DNS zone")
@@ -139,8 +162,13 @@ def validate(inputs: dict[str, Any]) -> None:
     if desired not in {"primary", "secondary"}:
         raise ValueError("inputs.desired must be one of: primary, secondary")
 
-    _validate_targets(record_type, data.get("primary_targets"), "inputs.primary_targets")
-    _validate_targets(record_type, data.get("secondary_targets"), "inputs.secondary_targets")
+    primary_targets = _validate_targets(record_type, data.get("primary_targets"), "inputs.primary_targets")
+    secondary_targets = _validate_targets(record_type, data.get("secondary_targets"), "inputs.secondary_targets")
+    if record_type == "CNAME":
+        if len(primary_targets) != 1:
+            raise ValueError("inputs.primary_targets must contain exactly one target for CNAME records")
+        if len(secondary_targets) != 1:
+            raise ValueError("inputs.secondary_targets must contain exactly one target for CNAME records")
 
     dry_run = data.get("dry_run")
     dns_apply = data.get("dns_apply")
@@ -152,8 +180,37 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.dns_apply must be true when inputs.dry_run=false")
 
     provider_command = str(data.get("provider_command") or "").strip()
-    if dns_apply:
-        if provider != "manual-command":
-            raise ValueError("inputs.provider must be manual-command in v1 when inputs.dns_apply=true")
-        if not provider_command:
-            raise ValueError("inputs.provider_command is required when inputs.dns_apply=true")
+    if provider == "manual-command":
+        if dns_apply and not provider_command:
+            raise ValueError(
+                "inputs.provider_command is required when inputs.dns_apply=true and inputs.provider=manual-command"
+            )
+        return
+
+    if provider != "powerdns-api":
+        raise ValueError("inputs.provider must be one of: manual-command, powerdns-api")
+
+    if data.get("powerdns_state_ref") is not None and str(data.get("powerdns_state_ref")).strip():
+        _require_non_empty_str(data.get("powerdns_state_ref"), "inputs.powerdns_state_ref")
+
+    if not str(data.get("powerdns_state_ref") or "").strip():
+        _require_http_url(data.get("powerdns_api_url"), "inputs.powerdns_api_url")
+        _require_non_empty_str(data.get("powerdns_server_id"), "inputs.powerdns_server_id")
+    elif str(data.get("powerdns_api_url") or "").strip():
+        _require_http_url(data.get("powerdns_api_url"), "inputs.powerdns_api_url")
+    if str(data.get("powerdns_server_id") or "").strip():
+        _require_non_empty_str(data.get("powerdns_server_id"), "inputs.powerdns_server_id")
+    if data.get("powerdns_zone_id") is not None and str(data.get("powerdns_zone_id")).strip():
+        _require_non_empty_str(data.get("powerdns_zone_id"), "inputs.powerdns_zone_id")
+    key_env = _require_env_var_name(data.get("powerdns_api_key_env"), "inputs.powerdns_api_key_env")
+    if data.get("powerdns_validate_tls") is not None and not isinstance(data.get("powerdns_validate_tls"), bool):
+        raise ValueError("inputs.powerdns_validate_tls must be a boolean")
+    if data.get("powerdns_account") is not None and str(data.get("powerdns_account")).strip():
+        _require_non_empty_str(data.get("powerdns_account"), "inputs.powerdns_account")
+    if data.get("powerdns_comment") is not None and not isinstance(data.get("powerdns_comment"), str):
+        raise ValueError("inputs.powerdns_comment must be a string")
+    required_env = data.get("required_env") or []
+    if dns_apply and key_env not in required_env:
+        raise ValueError(
+            f"inputs.required_env must include '{key_env}' when inputs.provider=powerdns-api and inputs.dns_apply=true"
+        )

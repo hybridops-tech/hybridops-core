@@ -63,7 +63,7 @@ dependencies:
     imports:
       router_name: "router_name"
 
-  - module_ref: "org/hetzner/wan-edge-foundation"
+  - module_ref: "org/hetzner/vyos-edge-foundation"
     required: false
     imports:
       edge01_public_ip: "peer_ip_a"

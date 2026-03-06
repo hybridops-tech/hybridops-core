@@ -1,0 +1,94 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/onprem-ops-runner@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem Ops Runner"
+  description: "Provision and bootstrap an on-prem runner VM for runner-local failback and steady-state platform operations."
+  outcome: "A shared execution host exists on the on-prem management network and can be used for failback or local platform workflows."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: template_image_rocky9
+    module_ref: "core/onprem/template-image"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_key: "rocky-9"
+
+  - id: onprem_ops_runner_vm
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "onprem_ops_runner"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - template_image_rocky9
+    with_deps: true
+    skip_if_state_ok: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "shared"
+      require_ipam: false
+      template_state_ref: "core/onprem/template-image"
+      template_key: "rocky-9"
+      ssh_username: "opsadmin"
+      tags:
+        - "platform"
+        - "onprem"
+        - "runner"
+        - "control-plane"
+      post_apply_ssh_readiness:
+        enabled: true
+        required: true
+        ssh_proxy_jump_auto: true
+        connectivity_wait_s: 180
+      vms:
+        runner-01:
+          role: "ops-runner"
+          interfaces:
+            - bridge: "vnetmgmt"
+              ipv4:
+                address: "CHANGE_ME_RUNNER_IP_CIDR"
+                gateway: "CHANGE_ME_RUNNER_GATEWAY"
+
+  - id: onprem_ops_runner_bootstrap
+    module_ref: "platform/linux/ops-runner"
+    state_instance: "onprem_ops_runner_bootstrap"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - onprem_ops_runner_vm
+    with_deps: true
+    skip_if_state_ok: true
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#onprem_ops_runner"
+      inventory_vm_groups:
+        runner:
+          - "runner-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_access_mode: "direct"
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      connectivity_wait_s: 60
+      runner_release_root: ""
+      runner_release_archive_url: ""
+      runner_release_archive_sha256: ""
+      runner_system_link: true
+      runner_setup_base: true
+      runner_setup_ansible: true
+      runner_setup_cloud_gcp: false
+      runner_setup_cloud_azure: false

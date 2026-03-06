@@ -1,0 +1,289 @@
+---
+# purpose: Configure VyOS route-based IPsec + BGP from shared control host.
+# maintainer: HybridOps.Studio
+
+- name: Preflight | assert supported state
+  ansible.builtin.assert:
+    that:
+      - vyos_wan_state in ["present", "absent"]
+    fail_msg: "vyos_wan_state must be 'present' or 'absent'"
+
+- name: Preflight | resolve WAN PSK from environment
+  ansible.builtin.set_fact:
+    _vyos_wan_psk: "{{ lookup('ansible.builtin.env', wan_ipsec_psk_env) | default('', true) | string }}"
+  no_log: true
+  when: vyos_wan_state == "present"
+
+- name: Preflight | assert WAN PSK available
+  ansible.builtin.assert:
+    that:
+      - _vyos_wan_psk | length > 0
+    fail_msg: "Required env {{ wan_ipsec_psk_env }} is missing for VyOS WAN configuration."
+  no_log: true
+  when: vyos_wan_state == "present"
+
+- name: Preflight | resolve inline VyOS SSH private key from environment
+  ansible.builtin.set_fact:
+    _vyos_ssh_private_key_inline: "{{ lookup('ansible.builtin.env', vyos_ssh_private_key_env) | default('', true) | string }}"
+  no_log: true
+  when: vyos_wan_state == "present"
+
+- name: Preflight | set effective VyOS SSH key path
+  ansible.builtin.set_fact:
+    _vyos_ssh_key_effective: "{{ vyos_ssh_key_file }}"
+  changed_when: false
+  when: vyos_wan_state == "present"
+
+- name: Preflight | write inline VyOS SSH private key to transient file on control host
+  ansible.builtin.copy:
+    dest: "/tmp/hyops-vyos-edge.key"
+    mode: "0600"
+    content: "{{ _vyos_ssh_private_key_inline }}"
+  no_log: true
+  when:
+    - vyos_wan_state == "present"
+    - _vyos_ssh_private_key_inline | length > 0
+
+- name: Preflight | switch to transient VyOS SSH key path when inline key is provided
+  ansible.builtin.set_fact:
+    _vyos_ssh_key_effective: "/tmp/hyops-vyos-edge.key"
+  changed_when: false
+  when:
+    - vyos_wan_state == "present"
+    - _vyos_ssh_private_key_inline | length > 0
+
+- name: Preflight | check effective VyOS SSH key path exists
+  ansible.builtin.stat:
+    path: "{{ _vyos_ssh_key_effective }}"
+  register: _vyos_ssh_key_stat
+  when: vyos_wan_state == "present"
+
+- name: Preflight | assert effective VyOS SSH key is available
+  ansible.builtin.assert:
+    that:
+      - _vyos_ssh_key_stat.stat.exists | default(false)
+    fail_msg: >-
+      VyOS SSH key is unavailable on control host. Provide env {{ vyos_ssh_private_key_env }}
+      (recommended), or ensure inputs.vyos_ssh_key_file exists on the control host.
+  when: vyos_wan_state == "present"
+
+- name: Build edge profile list
+  ansible.builtin.set_fact:
+    _vyos_edges:
+      - key: "edge01"
+        edge_name: "{{ edge01_name }}"
+        ssh_host: "{{ edge01_ssh_host }}"
+        local_public_ip: "{{ edge01_public_ip }}"
+        peer_public_ip: "{{ edge01_peer_public_ip }}"
+        inside_local_ip: "{{ edge01_inside_local_ip }}"
+        inside_peer_ip: "{{ edge01_inside_peer_ip }}"
+        tunnel_ifname: "{{ edge01_tunnel_ifname }}"
+        tunnel_name: "{{ edge01_tunnel_name }}"
+        router_id: "{{ edge01_router_id }}"
+      - key: "edge02"
+        edge_name: "{{ edge02_name }}"
+        ssh_host: "{{ edge02_ssh_host }}"
+        local_public_ip: "{{ edge02_public_ip }}"
+        peer_public_ip: "{{ edge02_peer_public_ip }}"
+        inside_local_ip: "{{ edge02_inside_local_ip }}"
+        inside_peer_ip: "{{ edge02_inside_peer_ip }}"
+        tunnel_ifname: "{{ edge02_tunnel_ifname }}"
+        tunnel_name: "{{ edge02_tunnel_name }}"
+        router_id: "{{ edge02_router_id }}"
+  changed_when: false
+
+- name: Preflight | assert edge profile completeness
+  ansible.builtin.assert:
+    that:
+      - item.ssh_host | length > 0
+      - item.local_public_ip | length > 0
+      - item.peer_public_ip | length > 0
+      - item.inside_local_ip | length > 0
+      - item.inside_peer_ip | length > 0
+      - item.tunnel_ifname | length > 0
+      - item.router_id | length > 0
+    fail_msg: "VyOS edge profile {{ item.key }} is missing required fields"
+  loop: "{{ _vyos_edges }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Preflight | probe edge SSH reachability from control host
+  ansible.builtin.command:
+    argv:
+      - nc
+      - -z
+      - -w
+      - "{{ edge_ssh_connectivity_timeout_s | int | string }}"
+      - "{{ item.ssh_host }}"
+      - "{{ vyos_ssh_port | int | string }}"
+  register: _vyos_edge_ssh_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ _vyos_edges }}"
+  loop_control:
+    label: "{{ item.key }}@{{ item.ssh_host }}"
+  when: vyos_wan_state == "present"
+
+- name: Preflight | assert edge SSH reachability from control host
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+    fail_msg: >-
+      Cannot reach VyOS edge {{ item.item.key }} on {{ item.item.ssh_host }}:{{ vyos_ssh_port }} from control host {{ inventory_hostname }}.
+      This usually means the edge VM network/SSH is not ready yet (image/cloud-init) or firewall/routing blocks SSH.
+      Reconcile org/hetzner/vyos-edge-foundation first, then rerun platform/network/vyos-edge-wan.
+  loop: "{{ _vyos_edge_ssh_probe.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key if (item.item is defined and item.item.key is defined) else 'edge' }}"
+  when: vyos_wan_state == "present"
+
+- name: Apply VyOS WAN config on each edge (present)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ssh_key="{{ _vyos_ssh_key_effective }}"
+    if [ ! -f "$ssh_key" ]; then
+      echo "SSH key not found on control host: $ssh_key" >&2
+      exit 2
+    fi
+
+    ssh {{ vyos_ssh_opts | join(' ') }} -p "{{ vyos_ssh_port | int }}" -i "$ssh_key" "{{ vyos_ssh_user }}@{{ item.ssh_host }}" "sudo /bin/vbash -s" <<'VYOS_EOF'
+    source /opt/vyatta/etc/functions/script-template
+    configure
+
+    # Tunnel interface and peer profile are reconciled deterministically.
+    delete interfaces vti {{ item.tunnel_ifname }}
+    set interfaces vti {{ item.tunnel_ifname }} description '{{ item.tunnel_name }}'
+    set interfaces vti {{ item.tunnel_ifname }} address '{{ item.inside_local_ip }}/{{ inside_prefix_len | int }}'
+
+    delete vpn ipsec ike-group {{ ipsec_ike_group }}
+    set vpn ipsec ike-group {{ ipsec_ike_group }} key-exchange 'ikev2'
+    set vpn ipsec ike-group {{ ipsec_ike_group }} proposal 1 dh-group '14'
+    set vpn ipsec ike-group {{ ipsec_ike_group }} proposal 1 encryption 'aes256'
+    set vpn ipsec ike-group {{ ipsec_ike_group }} proposal 1 hash 'sha256'
+
+    delete vpn ipsec esp-group {{ ipsec_esp_group }}
+    set vpn ipsec esp-group {{ ipsec_esp_group }} mode 'tunnel'
+    set vpn ipsec esp-group {{ ipsec_esp_group }} pfs 'disable'
+    set vpn ipsec esp-group {{ ipsec_esp_group }} proposal 1 encryption 'aes256'
+    set vpn ipsec esp-group {{ ipsec_esp_group }} proposal 1 hash 'sha256'
+
+    delete vpn ipsec site-to-site peer {{ item.peer_public_ip }}
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} authentication mode 'pre-shared-secret'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} authentication pre-shared-secret '{{ _vyos_wan_psk }}'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} ike-group '{{ ipsec_ike_group }}'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} local-address '{{ item.local_public_ip }}'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} connection-type 'initiate'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} tunnel 1 esp-group '{{ ipsec_esp_group }}'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} tunnel 1 local prefix '0.0.0.0/0'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} tunnel 1 remote prefix '0.0.0.0/0'
+    set vpn ipsec site-to-site peer {{ item.peer_public_ip }} tunnel 1 vti bind '{{ item.tunnel_ifname }}'
+
+    delete policy prefix-list {{ bgp_export_prefix_list }}
+    {% for prefix in advertise_prefixes %}
+    set policy prefix-list {{ bgp_export_prefix_list }} rule {{ loop.index * 10 }} action 'permit'
+    set policy prefix-list {{ bgp_export_prefix_list }} rule {{ loop.index * 10 }} prefix '{{ prefix }}'
+    {% endfor %}
+
+    delete policy prefix-list {{ bgp_import_prefix_list }}
+    {% for prefix in import_allow_prefixes %}
+    set policy prefix-list {{ bgp_import_prefix_list }} rule {{ loop.index * 10 }} action 'permit'
+    set policy prefix-list {{ bgp_import_prefix_list }} rule {{ loop.index * 10 }} prefix '{{ prefix }}'
+    {% endfor %}
+
+    delete policy route-map {{ bgp_export_route_map }}
+    set policy route-map {{ bgp_export_route_map }} rule 10 action 'permit'
+    set policy route-map {{ bgp_export_route_map }} rule 10 match ip address prefix-list '{{ bgp_export_prefix_list }}'
+
+    delete policy route-map {{ bgp_import_route_map }}
+    set policy route-map {{ bgp_import_route_map }} rule 10 action 'permit'
+    set policy route-map {{ bgp_import_route_map }} rule 10 match ip address prefix-list '{{ bgp_import_prefix_list }}'
+
+    set protocols bgp system-as '{{ local_asn | int }}'
+    delete protocols bgp parameters router-id
+    set protocols bgp parameters router-id '{{ item.router_id }}'
+    delete protocols bgp neighbor {{ item.inside_peer_ip }}
+    set protocols bgp neighbor {{ item.inside_peer_ip }} remote-as '{{ peer_asn | int }}'
+    set protocols bgp neighbor {{ item.inside_peer_ip }} address-family ipv4-unicast route-map import '{{ bgp_import_route_map }}'
+    set protocols bgp neighbor {{ item.inside_peer_ip }} address-family ipv4-unicast route-map export '{{ bgp_export_route_map }}'
+
+    commit
+    save
+    exit
+    VYOS_EOF
+  args:
+    executable: /bin/bash
+  loop: "{{ _vyos_edges }}"
+  loop_control:
+    label: "{{ item.key }}@{{ item.ssh_host }}"
+  no_log: true
+  when: vyos_wan_state == "present"
+
+- name: Remove VyOS WAN config on each edge (absent)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ssh_key="{{ _vyos_ssh_key_effective | default(vyos_ssh_key_file) }}"
+    if [ ! -f "$ssh_key" ]; then
+      echo "SSH key not found on control host: $ssh_key" >&2
+      exit 2
+    fi
+
+    ssh {{ vyos_ssh_opts | join(' ') }} -p "{{ vyos_ssh_port | int }}" -i "$ssh_key" "{{ vyos_ssh_user }}@{{ item.ssh_host }}" "sudo /bin/vbash -s" <<'VYOS_EOF'
+    source /opt/vyatta/etc/functions/script-template
+    configure
+    delete interfaces vti {{ item.tunnel_ifname }}
+    delete vpn ipsec site-to-site peer {{ item.peer_public_ip }}
+    delete protocols bgp neighbor {{ item.inside_peer_ip }}
+    delete policy route-map {{ bgp_export_route_map }}
+    delete policy route-map {{ bgp_import_route_map }}
+    delete policy prefix-list {{ bgp_export_prefix_list }}
+    delete policy prefix-list {{ bgp_import_prefix_list }}
+    commit
+    save
+    exit
+    VYOS_EOF
+  args:
+    executable: /bin/bash
+  loop: "{{ _vyos_edges }}"
+  loop_control:
+    label: "{{ item.key }}@{{ item.ssh_host }}"
+  when: vyos_wan_state == "absent"
+
+- name: Collect VyOS WAN/BGP status (present)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ssh_key="{{ _vyos_ssh_key_effective }}"
+    ssh {{ vyos_ssh_opts | join(' ') }} -p "{{ vyos_ssh_port | int }}" -i "$ssh_key" "{{ vyos_ssh_user }}@{{ item.ssh_host }}" \
+      "show vpn ipsec sa; echo '---'; show ip bgp summary; echo '---'; show ip route"
+  args:
+    executable: /bin/bash
+  register: _vyos_status
+  changed_when: false
+  loop: "{{ _vyos_edges }}"
+  loop_control:
+    label: "{{ item.key }}@{{ item.ssh_host }}"
+  when:
+    - vyos_wan_state == "present"
+    - validate_post_apply | bool
+
+- name: Cleanup | remove transient VyOS SSH key file
+  ansible.builtin.file:
+    path: "/tmp/hyops-vyos-edge.key"
+    state: absent
+  no_log: true
+  when: _vyos_ssh_private_key_inline | default('') | length > 0
+
+- name: Assert peer/tunnel markers present in status output (present)
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - (item.stdout is search(item.item.peer_public_ip))
+      - (item.stdout is search(item.item.inside_peer_ip))
+    fail_msg: >-
+      VyOS verification failed for {{ item.item.key }}.
+      Expected peer {{ item.item.peer_public_ip }} and BGP neighbor {{ item.item.inside_peer_ip }} in status output.
+  loop: "{{ _vyos_status.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key if (item.item is defined and item.item.key is defined) else 'edge' }}"
+  when:
+    - vyos_wan_state == "present"
+    - validate_post_apply | bool

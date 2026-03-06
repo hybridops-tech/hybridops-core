@@ -23,6 +23,10 @@ from hyops.runtime.module_state_contracts import (
     resolve_cloudsql_target_contract_from_state as _resolve_cloudsql_target_contract_from_state,
     resolve_db_contract_from_state as _resolve_db_contract_from_state,
     resolve_inventory_groups_from_state as _resolve_inventory_groups_from_state,
+    resolve_dns_endpoint_contract_from_state as _resolve_dns_endpoint_contract_from_state,
+    resolve_hetzner_image_contract_from_state as _resolve_hetzner_image_contract_from_state,
+    resolve_hetzner_foundation_contract_from_state as _resolve_hetzner_foundation_contract_from_state,
+    resolve_powerdns_contract_from_state as _resolve_powerdns_contract_from_state,
     resolve_network_contract_from_state as _resolve_network_contract_from_state,
     resolve_prefixed_db_contract_from_state as _resolve_prefixed_db_contract_from_state,
     resolve_prefixed_repo_contract_from_state as _resolve_prefixed_repo_contract_from_state,
@@ -32,6 +36,7 @@ from hyops.runtime.module_state_contracts import (
     resolve_router_contract_from_state as _resolve_router_contract_from_state,
     resolve_ssh_keys_from_init as _resolve_ssh_keys_from_init,
     resolve_target_host_from_state as _resolve_target_host_from_state,
+    resolve_vyos_artifact_contract_from_state as _resolve_vyos_artifact_contract_from_state,
 )
 from hyops.runtime.presets import resolve_preset_overlay
 from hyops.runtime.refs import normalize_module_ref
@@ -147,6 +152,11 @@ def resolve_module(
     inputs = _apply_env_overrides(inputs)
     _resolve_target_host_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
     _resolve_inventory_groups_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+    _resolve_dns_endpoint_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+    _resolve_vyos_artifact_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+    _resolve_hetzner_image_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+    _resolve_hetzner_foundation_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+    _resolve_powerdns_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
     _resolve_db_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
     _resolve_prefixed_db_contract_from_state(inputs, prefix="source", state_root=state_root, assumed_state_ok=assumed_state_ok)
     _resolve_prefixed_db_contract_from_state(inputs, prefix="target", state_root=state_root, assumed_state_ok=assumed_state_ok)

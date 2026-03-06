@@ -1,0 +1,282 @@
+---
+- name: core/onprem/vyos-template-seed
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    hyops_outputs_file: "{{ lookup('env', 'HYOPS_OUTPUT_FILE') }}"
+    hyops_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') }}"
+    proxmox_ready_path: "{{ hyops_runtime_root ~ '/meta/proxmox.ready.json' }}"
+    proxmox_creds_path: "{{ hyops_runtime_root ~ '/credentials/proxmox.credentials.tfvars' }}"
+    proxmox_ready_raw: "{{ lookup('file', proxmox_ready_path, errors='ignore') | default('', true) }}"
+    proxmox_ready: >-
+      {{
+        proxmox_ready_raw
+        if (proxmox_ready_raw is mapping)
+        else (
+          (proxmox_ready_raw | trim | length > 0)
+          | ternary((proxmox_ready_raw | from_json), {})
+        )
+      }}
+    proxmox_creds_raw: "{{ lookup('file', proxmox_creds_path, errors='ignore') | default('', true) }}"
+    home_dir: "{{ lookup('env', 'HOME') }}"
+    seed_gcs_sa_json_inline: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON') | default('', true) }}"
+    seed_gcs_sa_json_file_input: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON_FILE') | default('', true) }}"
+
+    effective_proxmox_host: >-
+      {{
+        (proxmox_host | default('', true) | trim)
+        or ((proxmox_ready.runtime.api_ip | default('')) | string | trim)
+        or ((proxmox_creds_raw | regex_findall('(?m)^proxmox_url\\s*=\\s*\"https?://([^:/]+)') | first | default('')) | string | trim)
+      }}
+    effective_proxmox_node: >-
+      {{
+        (proxmox_node | default('', true) | trim)
+        or ((proxmox_ready.runtime.node | default('')) | string | trim)
+        or ((proxmox_creds_raw | regex_findall('(?m)^proxmox_node\\s*=\\s*\"([^\"]+)\"') | first | default('')) | string | trim)
+      }}
+    effective_storage_vm: >-
+      {{
+        (storage_vm | default('', true) | trim)
+        or ((proxmox_ready.runtime.storage_vm | default('')) | string | trim)
+        or ((proxmox_creds_raw | regex_findall('(?m)^storage_pool\\s*=\\s*\"([^\"]+)\"') | first | default('')) | string | trim)
+      }}
+    effective_network_bridge: >-
+      {{
+        (network_bridge | default('', true) | trim)
+        or ((proxmox_ready.runtime.bridge | default('')) | string | trim)
+        or ((proxmox_creds_raw | regex_findall('(?m)^network_bridge\\s*=\\s*\"([^\"]+)\"') | first | default('')) | string | trim)
+      }}
+    effective_ssh_username: >-
+      {{
+        (ssh_username | default('', true) | trim)
+        or ((proxmox_creds_raw | regex_findall('(?m)^proxmox_ssh_username\\s*=\\s*\"([^\"]+)\"') | first | default('')) | string | trim)
+        or 'root'
+      }}
+    effective_ssh_private_key: >-
+      {{
+        ((ssh_private_key | default('', true) | trim)
+         or ((proxmox_creds_raw | regex_findall('(?m)^proxmox_ssh_key\\s*=\\s*\"([^\"]+)\"') | first | default('')) | string | trim)
+         or '~/.ssh/id_ed25519')
+        | regex_replace('^~', home_dir)
+      }}
+    effective_template_source_url: "{{ (template_source_url | default('', true) | trim) or (image_source_url | default('', true) | trim) }}"
+    seed_script_path: "{{ playbook_dir }}/bin/seed-vyos-proxmox-template.sh"
+
+  tasks:
+    - name: Require HyOps runtime root
+      ansible.builtin.assert:
+        that:
+          - hyops_runtime_root | trim | length > 0
+        fail_msg: "HYOPS_RUNTIME_ROOT must be set for core/onprem/vyos-template-seed"
+
+    - name: Require resolved Proxmox access details
+      ansible.builtin.assert:
+        that:
+          - effective_proxmox_host | length > 0
+          - effective_proxmox_node | length > 0
+          - effective_storage_vm | length > 0
+          - effective_network_bridge | length > 0
+          - effective_ssh_username | length > 0
+          - effective_ssh_private_key | length > 0
+        fail_msg: >-
+          Unable to resolve Proxmox init metadata for VyOS template seeding.
+          Run `hyops init proxmox --env <env>` first, or provide proxmox_host/proxmox_node/storage_vm/network_bridge/ssh_username/ssh_private_key explicitly.
+
+    - name: Check current Proxmox template state
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - StrictHostKeyChecking=no
+          - -o
+          - UserKnownHostsFile=/dev/null
+          - -o
+          - LogLevel=ERROR
+          - -i
+          - "{{ effective_ssh_private_key }}"
+          - "{{ effective_ssh_username }}@{{ effective_proxmox_host }}"
+          - "qm config {{ template_vm_id }}"
+      register: proxmox_template_config
+      changed_when: false
+      failed_when: false
+
+    - name: Determine template status
+      ansible.builtin.set_fact:
+        template_exists: "{{ proxmox_template_config.rc == 0 }}"
+        template_is_template: "{{ (proxmox_template_config.stdout | default('')) is regex('(?m)^template:\\s*1$') }}"
+        template_bios_mode: >-
+          {{
+            (
+              proxmox_template_config.stdout
+              | default('')
+              | regex_findall('(?m)^bios:\\s*(\\S+)')
+              | first
+              | default('')
+            ) | string | trim
+          }}
+
+    - name: Fail when VMID exists but is not a template and rebuild is disabled
+      ansible.builtin.fail:
+        msg: >-
+          Proxmox VMID {{ template_vm_id }} already exists on {{ effective_proxmox_host }} but is not a template.
+          Set inputs.rebuild_if_exists=true to replace it, or choose a different template_vm_id.
+      when:
+        - template_exists
+        - not template_is_template
+        - not (rebuild_if_exists | bool)
+
+    - name: Fail when existing template uses non-deterministic firmware mode
+      ansible.builtin.fail:
+        msg: >-
+          Existing template VMID {{ template_vm_id }} is set to bios={{ template_bios_mode }},
+          but the VyOS seed contract expects seabios. Set inputs.rebuild_if_exists=true so HyOps
+          recreates the template with deterministic seabios settings.
+      when:
+        - template_exists
+        - template_is_template
+        - not (rebuild_if_exists | bool)
+        - template_bios_mode | length > 0
+        - template_bios_mode != 'seabios'
+
+    - name: Fail when template is missing and no seed source is configured
+      ansible.builtin.fail:
+        msg: >-
+          No VyOS template exists at VMID {{ template_vm_id }}, and no seed source is configured.
+          Set inputs.image_source_url to a downloadable disk image artifact, or provide inputs.seed_command explicitly.
+      when:
+        - not template_exists
+        - not (seed_if_missing | bool)
+          or (
+            (image_source_url | default('', true) | trim) | length == 0
+            and (seed_command | default('', true) | trim) | length == 0
+          )
+
+    - name: Materialize temporary GCS service-account file for seed
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .json
+      register: seed_gcs_sa_json_temp
+      when:
+        - seed_gcs_sa_json_inline | length > 0
+        - seed_gcs_sa_json_file_input | length == 0
+
+    - name: Write temporary GCS service-account file for seed
+      ansible.builtin.copy:
+        dest: "{{ seed_gcs_sa_json_temp.path }}"
+        mode: "0600"
+        content: "{{ seed_gcs_sa_json_inline }}"
+      when:
+        - seed_gcs_sa_json_inline | length > 0
+        - seed_gcs_sa_json_file_input | length == 0
+      no_log: true
+
+    - name: Resolve GCS service-account file for seed
+      ansible.builtin.set_fact:
+        seed_gcs_sa_json_file_effective: >-
+          {{
+            (seed_gcs_sa_json_file_input | trim)
+            if (seed_gcs_sa_json_file_input | length > 0)
+            else (
+              seed_gcs_sa_json_temp.path
+              if (seed_gcs_sa_json_temp is defined and (seed_gcs_sa_json_temp.path | default('') | length > 0))
+              else ''
+            )
+          }}
+
+    - name: Seed or rebuild VyOS template when required
+      ansible.builtin.shell: >-
+        {{
+          (seed_command | default('', true) | trim)
+          if ((seed_command | default('', true) | trim) | length > 0)
+          else ('/usr/bin/env bash ' ~ (seed_script_path | quote))
+        }}
+      args:
+        executable: /bin/bash
+      environment:
+        PROXMOX_HOST: "{{ effective_proxmox_host }}"
+        PROXMOX_NODE: "{{ effective_proxmox_node }}"
+        PROXMOX_SSH_USER: "{{ effective_ssh_username }}"
+        PROXMOX_SSH_KEY: "{{ effective_ssh_private_key }}"
+        STORAGE_VM: "{{ effective_storage_vm }}"
+        NETWORK_BRIDGE: "{{ effective_network_bridge }}"
+        TEMPLATE_VMID: "{{ template_vm_id | string }}"
+        TEMPLATE_NAME: "{{ template_name }}"
+        IMAGE_SOURCE_URL: "{{ image_source_url | default('', true) | trim }}"
+        CPU_CORES: "{{ cpu_cores | string }}"
+        MEMORY_MB: "{{ memory_mb | string }}"
+        CI_USERNAME: "{{ ci_username }}"
+        REBUILD_IF_EXISTS: "{{ (rebuild_if_exists | bool) | ternary('true', 'false') }}"
+        HYOPS_VYOS_GCS_SA_JSON_FILE: "{{ seed_gcs_sa_json_file_effective | default('') }}"
+        TEMPLATE_SMOKE_GATE: "{{ (template_smoke_gate | default(true, true)) | ternary('true', 'false') }}"
+        TEMPLATE_SMOKE_WAIT_S: "{{ (template_smoke_wait_s | default(90, true)) | string }}"
+        TEMPLATE_SMOKE_VMID: "{{ (template_smoke_vmid | default((template_vm_id | int) + 9000, true)) | string }}"
+        TEMPLATE_SMOKE_BRIDGE: "{{ template_smoke_bridge | default(effective_network_bridge, true) }}"
+        TEMPLATE_SMOKE_MARKER: "{{ template_smoke_marker | default('hyops-template-smoke-' ~ (template_vm_id | string), true) }}"
+      register: seed_result
+      changed_when: true
+      when:
+        - (rebuild_if_exists | bool) or not template_exists
+
+    - name: Remove temporary GCS service-account file for seed
+      ansible.builtin.file:
+        path: "{{ seed_gcs_sa_json_temp.path }}"
+        state: absent
+      when:
+        - seed_gcs_sa_json_temp is defined
+        - seed_gcs_sa_json_temp.path | default('') | length > 0
+      no_log: true
+
+    - name: Re-check Proxmox template after seed
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - StrictHostKeyChecking=no
+          - -o
+          - UserKnownHostsFile=/dev/null
+          - -o
+          - LogLevel=ERROR
+          - -i
+          - "{{ effective_ssh_private_key }}"
+          - "{{ effective_ssh_username }}@{{ effective_proxmox_host }}"
+          - "qm config {{ template_vm_id }}"
+      register: proxmox_template_config_after
+      changed_when: false
+      failed_when: proxmox_template_config_after.rc != 0
+
+    - name: Require resulting VM to be a template
+      ansible.builtin.assert:
+        that:
+          - (proxmox_template_config_after.stdout | default('')) is regex('(?m)^template:\\s*1$')
+        fail_msg: "VyOS template seed finished, but VMID {{ template_vm_id }} is not a Proxmox template."
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'template_key': (template_key | string),
+              'template_vm_id': (template_vm_id | int),
+              'template_name': (template_name | string),
+              'template_image_version': (template_image_version | string),
+              'template_source_url': (effective_template_source_url | string),
+              'template_seeded': (seed_result is defined),
+              'templates': {
+                (template_key | string): {
+                  'template_vm_id': (template_vm_id | int),
+                  'template_name': (template_name | string),
+                  'template_image_version': (template_image_version | string),
+                  'template_source_url': (effective_template_source_url | string),
+                  'notes': (notes | string)
+                }
+              }
+            } | to_json
+          }}

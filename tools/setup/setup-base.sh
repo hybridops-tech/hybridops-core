@@ -7,7 +7,7 @@ set -euo pipefail
 
 [[ "${EUID}" -eq 0 ]] || { echo "ERR: requires root (use: hyops setup base --sudo)"; exit 2; }
 
-export DEBIAN_FRONTEND=noninteractive
+export PATH="/usr/local/bin:/usr/local/sbin:${PATH}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
@@ -17,6 +17,16 @@ source "${RELEASE_ROOT}/tools/setup/lib/toolchain_lock.sh"
 
 cmd_path() { command -v "$1" 2>/dev/null || true; }
 
+tool_cmd_path() {
+  local name="$1"
+  local preferred="/usr/local/bin/${name}"
+  if [[ -x "${preferred}" ]]; then
+    echo "${preferred}"
+    return 0
+  fi
+  cmd_path "${name}"
+}
+
 ver_major() {
   local v="${1#v}"
   echo "${v%%.*}"
@@ -25,9 +35,20 @@ ver_major() {
 ver_ok_min_same_major() {
   local actual="${1#v}"
   local expected="${2#v}"
+  local highest=""
   [[ -n "${actual}" && -n "${expected}" ]] || return 1
   [[ "$(ver_major "${actual}")" == "$(ver_major "${expected}")" ]] || return 1
-  dpkg --compare-versions "${actual}" ge "${expected}"
+  highest="$(printf '%s\n%s\n' "${actual}" "${expected}" | sort -V | tail -n1)"
+  [[ "${highest}" == "${actual}" ]]
+}
+
+ver_ge() {
+  local actual="${1#v}"
+  local expected="${2#v}"
+  local highest=""
+  [[ -n "${actual}" && -n "${expected}" ]] || return 1
+  highest="$(printf '%s\n%s\n' "${actual}" "${expected}" | sort -V | tail -n1)"
+  [[ "${highest}" == "${actual}" ]]
 }
 
 print_header() {
@@ -55,28 +76,149 @@ filter_pipx_output() {
   '
 }
 
-APT_UPDATED=0
+have() { command -v "$1" >/dev/null 2>&1; }
 
-apt_update_once() {
-  if [[ "${APT_UPDATED}" -eq 0 ]]; then
-    apt-get update -y
-    APT_UPDATED=1
+run_quiet_timeout() {
+  local seconds="$1"
+  shift
+  timeout --foreground "${seconds}s" "$@" 2>/dev/null || true
+}
+
+python_cmd_version() {
+  local python_cmd="$1"
+  "${python_cmd}" - <<'PY' 2>/dev/null || true
+import sys
+print(".".join(str(v) for v in sys.version_info[:3]))
+PY
+}
+
+ansible_core_min_python_version() {
+  local core_v="${1#v}"
+  local mm=""
+  mm="$(printf '%s' "${core_v}" | cut -d. -f1-2)"
+  case "${mm}" in
+    2.20) echo "3.12" ;;
+    2.18|2.19) echo "3.11" ;;
+    2.16|2.17) echo "3.10" ;;
+    *) echo "3.9" ;;
+  esac
+}
+
+ensure_ansible_python_runtime() {
+  local core_v="$1"
+  local min_python=""
+  local current_python=""
+  local current_version=""
+  local alt_python=""
+  local alt_version=""
+
+  min_python="$(ansible_core_min_python_version "${core_v}")"
+  current_python="$(cmd_path python3)"
+  current_version="$(python_cmd_version "${current_python}")"
+  if ver_ge "${current_version}" "${min_python}"; then
+    echo "${current_python}"
+    return 0
+  fi
+
+  case "${PKG_MANAGER}" in
+    apt)
+      pkg_install "python${min_python}" "python${min_python}-venv" >&2
+      alt_python="$(cmd_path "python${min_python}")"
+      ;;
+    dnf|yum)
+      pkg_install "python${min_python}" >&2
+      alt_python="$(cmd_path "python${min_python}")"
+      ;;
+  esac
+
+  alt_version="$(python_cmd_version "${alt_python}")"
+  ver_ge "${alt_version}" "${min_python}" || {
+    echo "ERR: unable to provision Python >=${min_python} required for ansible-core ${core_v}" >&2
+    exit 2
+  }
+  echo "${alt_python}"
+}
+
+detect_pkg_manager() {
+  if have apt-get; then
+    echo "apt"
+    return 0
+  fi
+  if have dnf; then
+    echo "dnf"
+    return 0
+  fi
+  if have yum; then
+    echo "yum"
+    return 0
+  fi
+  echo "ERR: unsupported package manager (expected apt-get, dnf, or yum)" >&2
+  exit 2
+}
+
+PKG_MANAGER="$(detect_pkg_manager)"
+PKG_UPDATED=0
+
+if [[ "${PKG_MANAGER}" == "apt" ]]; then
+  export DEBIAN_FRONTEND=noninteractive
+fi
+
+pkg_update_once() {
+  if [[ "${PKG_UPDATED}" -eq 0 ]]; then
+    case "${PKG_MANAGER}" in
+      apt)
+        apt-get update -y
+        ;;
+      dnf)
+        dnf -y makecache
+        ;;
+      yum)
+        yum -y makecache
+        ;;
+    esac
+    PKG_UPDATED=1
   fi
 }
 
-apt_install() {
-  apt_update_once
-  apt-get install -y "$@"
+pkg_install() {
+  pkg_update_once
+  case "${PKG_MANAGER}" in
+    apt)
+      apt-get install -y "$@"
+      ;;
+    dnf)
+      dnf install -y "$@"
+      ;;
+    yum)
+      yum install -y "$@"
+      ;;
+  esac
 }
 
-have() { command -v "$1" >/dev/null 2>&1; }
+pkg_install_optional() {
+  pkg_install "$@" >/dev/null 2>&1
+}
 
 ensure_foundation() {
-  apt_install ca-certificates curl gnupg lsb-release openssh-client unzip
+  case "${PKG_MANAGER}" in
+    apt)
+      pkg_install ca-certificates curl gnupg lsb-release openssh-client unzip
+      ;;
+    dnf|yum)
+      pkg_install ca-certificates curl gnupg2 openssh-clients unzip tar
+      ;;
+  esac
 }
 
 ensure_python() {
-  apt_install python3 python3-venv python3-pip
+  case "${PKG_MANAGER}" in
+    apt)
+      pkg_install python3 python3-venv python3-pip
+      ;;
+    dnf|yum)
+      pkg_install python3 python3-pip
+      ;;
+  esac
 }
 
 ensure_pipx() {
@@ -85,7 +227,7 @@ ensure_pipx() {
   fi
 
   # Prefer distro package.
-  if apt_install pipx; then
+  if pkg_install_optional pipx; then
     :
   else
     python3 -m pip install --no-input --upgrade pip >/dev/null 2>&1 || true
@@ -102,7 +244,10 @@ _install_bin_zip() {
 
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL -o "${tmp}/${name}.zip" "${url}"
+  curl --fail --silent --show-error --location \
+    --connect-timeout 15 --max-time 300 \
+    --retry 5 --retry-delay 2 --retry-all-errors \
+    -o "${tmp}/${name}.zip" "${url}"
   (cd "${tmp}" && unzip -qq "${name}.zip")
   install -m 0755 "${tmp}/${name}" "${dest}"
   rm -rf "${tmp}"
@@ -113,16 +258,19 @@ _install_bin_raw() {
   local url="$2"
   local dest="/usr/local/bin/${name}"
 
-  curl -fsSLo "${dest}" "${url}"
+  curl --fail --silent --show-error --location \
+    --connect-timeout 15 --max-time 300 \
+    --retry 5 --retry-delay 2 --retry-all-errors \
+    -o "${dest}" "${url}"
   chmod 0755 "${dest}"
 }
 
 _arch() {
-  local arch
-  arch="$(dpkg --print-architecture)"
+  local arch=""
+  arch="$(uname -m)"
   case "${arch}" in
-    amd64) echo "amd64" ;;
-    arm64) echo "arm64" ;;
+    amd64|x86_64) echo "amd64" ;;
+    arm64|aarch64) echo "arm64" ;;
     *) echo "ERR: unsupported architecture: ${arch}" >&2; exit 2 ;;
   esac
 }
@@ -137,20 +285,36 @@ _version_fail() {
 }
 
 terraform_version() {
-  terraform version 2>/dev/null | head -n1 | sed -E 's/^Terraform v//; s/[[:space:]].*$//' || true
+  local terraform_bin=""
+  terraform_bin="$(tool_cmd_path terraform)"
+  [[ -n "${terraform_bin}" ]] || return 0
+  run_quiet_timeout 20 "${terraform_bin}" version | head -n1 | sed -E 's/^Terraform v//; s/[[:space:]].*$//' || true
 }
 
 packer_version() {
-  packer version 2>/dev/null | head -n1 | sed -E 's/^Packer v//; s/[[:space:]].*$//' || true
+  local packer_bin="" resolved=""
+  packer_bin="$(tool_cmd_path packer)"
+  [[ -n "${packer_bin}" ]] || return 0
+  resolved="$(readlink -f "${packer_bin}" 2>/dev/null || printf '%s' "${packer_bin}")"
+  if [[ "${resolved}" == *"/cracklib-packer" ]]; then
+    return 0
+  fi
+  run_quiet_timeout 20 "${packer_bin}" version | head -n1 | sed -E 's/^Packer v//; s/[[:space:]].*$//' || true
 }
 
 terragrunt_version() {
-  terragrunt --version 2>/dev/null | head -n1 | sed -E 's/^terragrunt version v//; s/[[:space:]].*$//' || true
+  local terragrunt_bin=""
+  terragrunt_bin="$(tool_cmd_path terragrunt)"
+  [[ -n "${terragrunt_bin}" ]] || return 0
+  run_quiet_timeout 20 "${terragrunt_bin}" --version | head -n1 | sed -E 's/^terragrunt version v//; s/[[:space:]].*$//' || true
 }
 
 kubectl_version() {
   local out v
-  out="$(kubectl version --client 2>/dev/null | tr -d '\r' || true)"
+  local kubectl_bin=""
+  kubectl_bin="$(tool_cmd_path kubectl)"
+  [[ -n "${kubectl_bin}" ]] || return 0
+  out="$(run_quiet_timeout 20 "${kubectl_bin}" version --client | tr -d '\r' || true)"
 
   # Preferred (modern) format:
   #   Client Version: v1.30.7
@@ -174,7 +338,7 @@ ansible_core_version() {
   have ansible || return 0
 
   local line
-  line="$(ANSIBLE_LOCAL_TEMP=/tmp/hyops-ansible-local ansible --version 2>/dev/null | head -n1 | tr -d '\r' || true)"
+  line="$(ANSIBLE_LOCAL_TEMP=/tmp/hyops-ansible-local run_quiet_timeout 20 ansible --version | head -n1 | tr -d '\r' || true)"
 
   if [[ "${line}" =~ \[core[[:space:]]+([0-9]+(\.[0-9]+)+)\] ]]; then
     echo "${BASH_REMATCH[1]}"
@@ -210,7 +374,7 @@ ensure_terraform() {
   if have terraform; then
     local actual path
     actual="$(terraform_version)"
-    path="$(cmd_path terraform)"
+    path="$(tool_cmd_path terraform)"
     if ver_ok_min_same_major "${actual}" "${v}"; then
       echo "[setup] terraform ok (v${actual:-unknown} at ${path:-unknown})"
       return 0
@@ -232,10 +396,10 @@ ensure_terraform() {
 ensure_packer() {
   local v arch url
   v="$(toolchain_require PACKER_VERSION)"
-  if have packer; then
+  if [[ -n "$(tool_cmd_path packer)" ]]; then
     local actual path
     actual="$(packer_version)"
-    path="$(cmd_path packer)"
+    path="$(tool_cmd_path packer)"
     if ver_ok_min_same_major "${actual}" "${v}"; then
       echo "[setup] packer ok (v${actual:-unknown} at ${path:-unknown})"
       return 0
@@ -257,10 +421,10 @@ ensure_packer() {
 ensure_terragrunt() {
   local v arch url
   v="$(toolchain_require TERRAGRUNT_VERSION)"
-  if have terragrunt; then
+  if [[ -n "$(tool_cmd_path terragrunt)" ]]; then
     local actual path
     actual="$(terragrunt_version)"
-    path="$(cmd_path terragrunt)"
+    path="$(tool_cmd_path terragrunt)"
     if ver_ok_min_same_major "${actual}" "${v}"; then
       echo "[setup] terragrunt ok (v${actual:-unknown} at ${path:-unknown})"
       return 0
@@ -282,10 +446,10 @@ ensure_terragrunt() {
 ensure_kubectl() {
   local v arch url
   v="$(toolchain_require KUBECTL_VERSION)"
-  if have kubectl; then
+  if [[ -n "$(tool_cmd_path kubectl)" ]]; then
     local actual path
     actual="$(kubectl_version)"
-    path="$(cmd_path kubectl)"
+    path="$(tool_cmd_path kubectl)"
     if ver_ok_min_same_major "${actual}" "${v}"; then
       echo "[setup] kubectl ok (v${actual:-unknown} at ${path:-unknown})"
       return 0
@@ -305,17 +469,20 @@ ensure_kubectl() {
 }
 
 ensure_ansible() {
-  local ansible_v core_v
+  local ansible_v core_v ansible_python
 
   core_v="$(toolchain_require ANSIBLE_CORE_VERSION)"
   ansible_v="$(toolchain_get ANSIBLE_VERSION)"
+  ansible_python="$(ensure_ansible_python_runtime "${core_v}" | tail -n1)"
 
   echo "[setup] ansible: ensuring pinned version"
 
   # Some upstream roles require controller-side Python deps (json_query/netaddr)
   # at playbook parse time, even for tasks that will later be skipped.
   ensure_python
-  apt_install python3-jmespath python3-netaddr
+  if ! pkg_install_optional python3-jmespath python3-netaddr; then
+    echo "[setup] python3-jmespath/python3-netaddr not available from package manager; relying on pipx injection"
+  fi
 
   # If Ansible is already installed but not pinned, do not fail; install/override
   # a pinned version via pipx instead (pipx installs into /usr/local/bin).
@@ -347,9 +514,9 @@ ensure_ansible() {
 
   mkdir -p "${PIPX_HOME}" "${PIPX_BIN_DIR}"
   if [[ -n "${ansible_v}" ]]; then
-    pipx install "ansible==${ansible_v}" --include-deps --force 2>&1 | filter_pipx_output
+    pipx install --python "${ansible_python}" "ansible==${ansible_v}" --include-deps --force 2>&1 | filter_pipx_output
   else
-    pipx install "ansible-core==${core_v}" --include-deps --force 2>&1 | filter_pipx_output
+    pipx install --python "${ansible_python}" "ansible-core==${core_v}" --include-deps --force 2>&1 | filter_pipx_output
   fi
 
   have ansible && have ansible-galaxy || { echo "ERR: ansible install failed"; exit 2; }
@@ -361,12 +528,27 @@ ensure_ansible() {
 
 ensure_gh() {
   have gh && return 0
-  apt_install gh
+  if pkg_install_optional gh; then
+    return 0
+  fi
+  echo "[setup] gh unavailable from configured package repositories; skipping"
 }
 
 ensure_vault_pass_deps() {
   ensure_foundation
-  apt_install pass pinentry-curses
+  case "${PKG_MANAGER}" in
+    apt)
+      if pkg_install_optional pass pinentry-curses; then
+        return 0
+      fi
+      ;;
+    dnf|yum)
+      if pkg_install_optional pass pinentry; then
+        return 0
+      fi
+      ;;
+  esac
+  echo "[setup] pass/pinentry unavailable from configured package repositories; skipping"
 }
 
 main() {

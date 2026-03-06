@@ -1,0 +1,6 @@
+---
+- name: Restart powerdns authority
+  ansible.builtin.systemd:
+    name: powerdns-authority
+    state: restarted
+    daemon_reload: true

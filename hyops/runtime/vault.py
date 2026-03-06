@@ -224,6 +224,27 @@ class VaultAuth:
 
 
 def _parse_env(text: str) -> dict[str, str]:
+    def _unescape_env_value(value: str) -> str:
+        out: list[str] = []
+        idx = 0
+        while idx < len(value):
+            ch = value[idx]
+            if ch != "\\" or idx + 1 >= len(value):
+                out.append(ch)
+                idx += 1
+                continue
+            nxt = value[idx + 1]
+            if nxt == "n":
+                out.append("\n")
+            elif nxt == '"':
+                out.append('"')
+            elif nxt == "\\":
+                out.append("\\")
+            else:
+                out.append(nxt)
+            idx += 2
+        return "".join(out)
+
     out: dict[str, str] = {}
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -239,11 +260,20 @@ def _parse_env(text: str) -> dict[str, str]:
         # remove surrounding quotes if present
         if len(v) >= 2 and ((v[0] == v[-1] == '"') or (v[0] == v[-1] == "'")):
             v = v[1:-1]
+        v = _unescape_env_value(v)
         out[k] = v
     return out
 
 
 def _render_env(env: Mapping[str, str]) -> str:
+    def _escape_env_value(value: str) -> str:
+        return (
+            value
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+        )
+
     lines = [
         "# purpose: HybridOps.Core bootstrap vault env (ansible-vault encrypted)",
         "# Architecture Decision: ADR-N/A (bootstrap vault env)",
@@ -252,8 +282,9 @@ def _render_env(env: Mapping[str, str]) -> str:
     ]
     for k in sorted(env.keys()):
         v = env[k]
-        # write as simple KEY="VALUE" with minimal escaping
-        escaped = v.replace('"', '\"')
+        # Keep values single-line in the env file so multiline secrets survive
+        # ansible-vault round-trips and can be reconstructed deterministically.
+        escaped = _escape_env_value(v)
         lines.append(f'{k}="{escaped}"')
     lines.append("")
     return "\n".join(lines)

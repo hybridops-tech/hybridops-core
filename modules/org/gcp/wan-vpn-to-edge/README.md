@@ -6,6 +6,6 @@ This module can import:
 
 - hub network contract from `org/gcp/wan-hub-network`
 - router name from `org/gcp/wan-cloud-router`
-- edge public IPs from `org/hetzner/wan-edge-foundation`
+- edge public IPs from `org/hetzner/vyos-edge-foundation`
 
 PSKs are required (`shared_secret_a`, `shared_secret_b`).

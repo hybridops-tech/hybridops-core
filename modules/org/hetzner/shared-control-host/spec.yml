@@ -1,0 +1,72 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/hetzner/shared-control-host"
+
+metadata:
+  title: "Hetzner Shared Control Host"
+  description: "Provision a dedicated shared control-plane VM on the existing Hetzner WAN private network for services such as PowerDNS, decision service, and shared runners."
+
+requirements:
+  credentials: ["hetzner"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    foundation_state_ref: ""
+    private_network_id: ""
+    private_network_cidr: ""
+
+    location: "nbg1"
+    server_type: "cx23"
+    image: "ubuntu-24.04"
+
+    host_name: "control-01"
+    private_ip: "10.80.0.20"
+
+    ssh_username: "opsadmin"
+    ssh_keys_from_init: true
+    ssh_keys_init_target: "hetzner"
+    ssh_keys: []
+
+    public_ipv4_enabled: true
+    public_ipv6_enabled: false
+
+    firewall_enabled: true
+    firewall_name: "fw-shared-control"
+    ssh_source_cidrs:
+      - "0.0.0.0/0"
+
+    labels: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "hetzner@v1.0"
+  pack_ref:
+    id: "hetzner/org/21-shared-control-host@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-hetzner"
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - host_name
+    - vm_id
+    - vm_keys
+    - vm_names
+    - public_ipv4
+    - private_ipv4
+    - private_network_id
+    - private_network_cidr
+    - vms
+    - ipv4_configured_primary
+    - ipv4_addresses_all
+    - tags
+
+probes: []
+constraints: []

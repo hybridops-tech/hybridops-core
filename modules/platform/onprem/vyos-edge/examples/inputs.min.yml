@@ -1,0 +1,51 @@
+template_state_ref: "core/onprem/vyos-template-seed"
+template_key: "vyos-1.5"
+require_ipam: false
+ssh_username: "vyos"
+ssh_keys:
+  - "CHANGE_ME_SSH_PUBLIC_KEY"
+guest_agent_enabled: false
+
+vms:
+  edge-01:
+    role: "wan-edge"
+    interfaces:
+      - bridge: "vnetmgmt"
+        ipv4:
+          address: "10.10.0.20/24"
+          gateway: "10.10.0.1"
+      - bridge: "vmbr0"
+    cloud_init_user_data: |
+      #cloud-config
+      hostname: edge-01
+      vyos_config_commands:
+        - set system host-name 'edge-01'
+        - delete interfaces ethernet eth0 address dhcp
+        - set interfaces ethernet eth0 address '10.10.0.20/24'
+        - set interfaces ethernet eth0 description 'Management'
+        - set interfaces ethernet eth1 address 'dhcp'
+        - set system name-server '1.1.1.1'
+        - set system name-server '8.8.8.8'
+        - set protocols static route 0.0.0.0/0 next-hop '10.10.0.1'
+        - set service ssh port '22'
+    # Optional; when provided, use cloud-init v1 network-config shape.
+    # cloud_init_network_data: |
+    #   version: 1
+    #   config:
+    #     - type: physical
+    #       name: eth0
+    #       subnets:
+    #         - type: static
+    #           address: 10.10.0.20
+    #           netmask: 255.255.255.0
+    #           gateway: 10.10.0.1
+    #           dns_nameservers:
+    #             - 1.1.1.1
+    #             - 8.8.8.8
+    #     - type: physical
+    #       name: eth1
+    #       subnets:
+    #         - type: dhcp4
+    cloud_init_meta_data: |
+      instance-id: edge-01
+      local-hostname: edge-01

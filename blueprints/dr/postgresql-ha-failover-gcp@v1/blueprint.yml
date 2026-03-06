@@ -15,11 +15,32 @@ policy:
   ipam_authority: "none"
 
 steps:
+  - id: gcp_pg_egress
+    module_ref: "org/gcp/wan-cloud-nat"
+    state_instance: "gcp_pg_egress"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    inputs:
+      router_state_ref: "org/gcp/wan-cloud-router"
+      network_state_ref: "org/gcp/wan-hub-network"
+      subnetwork_output_keys:
+        - "subnet_workloads_name"
+      nat_name: "dr-pg-egress"
+      subnetwork_source_ip_ranges_to_nat: "ALL_IP_RANGES"
+      auto_allocate_external_ips: true
+      min_ports_per_vm: 128
+      enable_endpoint_independent_mapping: true
+      log_filter: "ERRORS_ONLY"
+
   - id: gcp_pg_vms
     module_ref: "platform/gcp/platform-vm"
     state_instance: "gcp_pg_vms"
     action: "deploy"
     phase: "bootstrap"
+    requires:
+      - gcp_pg_egress
     with_deps: true
     skip_if_state_ok: true
     contracts:
@@ -33,6 +54,13 @@ steps:
       assign_public_ip: false
       ssh_username: "opsadmin"
       ssh_keys_from_init: true
+      post_apply_ssh_readiness:
+        enabled: true
+        required: true
+        target_user: "opsadmin"
+        connectivity_timeout_s: 5
+        connectivity_wait_s: 180
+        ssh_proxy_jump_auto: false
       vms:
         pgdr-01:
           role: "postgres"
@@ -80,6 +108,10 @@ steps:
         - "NETBOX_DB_PASSWORD"
         - "PG_BACKUP_GCS_SA_JSON"
 
+      # Preferred client-facing DB endpoint for cutover.
+      # Set this to a stable DNS name to avoid teaching applications raw leader IPs.
+      endpoint_dns_name: ""
+
       load_vault_env: true
 
   - id: postgresql_backup_config
@@ -117,3 +149,38 @@ steps:
         - "PG_BACKUP_GCS_SA_JSON"
 
       load_vault_env: true
+
+  - id: postgresql_dns_cutover
+    module_ref: "platform/network/dns-routing"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - postgresql_backup_config
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_ops_runner"
+      inventory_vm_groups:
+        edge_control:
+          - "runner-01"
+      connectivity_check: false
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "direct"
+      load_vault_env: true
+      required_env:
+        - "POWERDNS_API_KEY"
+
+      provider: "powerdns-api"
+      powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
+      endpoint_state_ref: "platform/onprem/postgresql-ha"
+      endpoint_fqdn_output_key: "endpoint_dns_name"
+      endpoint_target_output_key: "endpoint_target"
+      record_type: "A"
+      ttl: 30
+      desired: "primary"
+      dry_run: false
+      dns_apply: true
+
+      powerdns_account: "hyops"
+      powerdns_comment: "Managed by HybridOps DR failover"

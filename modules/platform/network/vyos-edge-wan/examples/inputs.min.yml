@@ -1,0 +1,45 @@
+# Minimal explicit example (standalone)
+# Required secret:
+#   export WAN_IPSEC_PSK='change-me'
+
+inventory_groups:
+  edge_control:
+    - name: control-01
+      host: 10.80.0.20
+
+target_user: opsadmin
+connectivity_check: false
+
+required_env:
+  - WAN_IPSEC_PSK
+  - WAN_EDGE_SSH_PRIVATE_KEY
+
+edge01_ssh_host: 10.80.0.11
+edge02_ssh_host: 10.80.0.12
+
+edge01_public_ip: 5.161.120.85
+edge02_public_ip: 178.156.214.131
+edge01_peer_public_ip: 34.157.37.151
+edge02_peer_public_ip: 34.128.54.191
+
+edge01_inside_local_ip: 169.254.10.1
+edge01_inside_peer_ip: 169.254.10.2
+edge02_inside_local_ip: 169.254.10.5
+edge02_inside_peer_ip: 169.254.10.6
+
+edge01_router_id: 10.80.0.11
+edge02_router_id: 10.80.0.12
+
+local_asn: 65010
+peer_asn: 64514
+
+advertise_prefixes:
+  - 10.10.0.0/24
+  - 10.11.0.0/24
+  - 10.12.0.0/24
+  - 10.20.0.0/24
+  - 10.21.0.0/24
+
+import_allow_prefixes:
+  - 10.70.0.0/20
+  - 10.70.16.0/20

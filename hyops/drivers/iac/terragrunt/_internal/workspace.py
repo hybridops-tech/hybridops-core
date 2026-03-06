@@ -80,6 +80,7 @@ def enforce_workspace_policy(
     *,
     backend_mode: str,
     workspace_policy: dict[str, Any] | None,
+    env: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], str, str]:
     """Enforce cloud workspace execution mode policy.
 
@@ -94,6 +95,7 @@ def enforce_workspace_policy(
         workspace_name=str(workspace_policy.get("workspace_name") or ""),
         execution_mode=str(workspace_policy.get("mode") or ""),
         credentials_file=Path(str(workspace_policy.get("credentials_file") or "~/.terraform.d/credentials.tfrc.json")),
+        env=env if isinstance(env, dict) else None,
         description=str(workspace_policy.get("description") or "") or None,
     )
 

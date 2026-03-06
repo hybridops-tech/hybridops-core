@@ -61,6 +61,40 @@ def select_published_outputs(all_outputs: dict[str, Any], publish: list[str]) ->
     return out
 
 
+def normalize_published_outputs(module_ref: str, outputs: dict[str, Any]) -> dict[str, Any]:
+    """Normalize published outputs for stable downstream/operator semantics."""
+    if not outputs:
+        return {}
+
+    out = deepcopy(outputs)
+    normalized_ref = normalize_module_ref(module_ref)
+    if normalized_ref not in ("platform/onprem/platform-vm", "platform/gcp/platform-vm"):
+        return out
+
+    raw_vms = out.get("vms")
+    if not isinstance(raw_vms, dict) or not raw_vms:
+        return out
+
+    vm_keys: list[str] = []
+    vm_names: list[str] = []
+    for logical_name, vm_payload in raw_vms.items():
+        logical = str(logical_name or "").strip()
+        if not logical:
+            continue
+        vm_keys.append(logical)
+        physical = ""
+        if isinstance(vm_payload, dict):
+            physical = str(vm_payload.get("vm_name") or "").strip()
+        vm_names.append(physical or logical)
+
+    if vm_keys:
+        out["vm_keys"] = vm_keys
+    if vm_names:
+        # vm_names should reflect the actual physical resource names presented to operators.
+        out["vm_names"] = vm_names
+    return out
+
+
 def build_input_contract(inputs: dict[str, Any]) -> dict[str, Any]:
     """Persist small, non-secret contract metadata for downstream consumers."""
     out: dict[str, Any] = {}
