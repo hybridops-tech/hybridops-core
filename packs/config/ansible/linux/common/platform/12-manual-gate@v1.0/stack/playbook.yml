@@ -1,0 +1,60 @@
+---
+- name: core/shared/manual-gate (acknowledge)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    gate_name: "{{ gate_name | default('') }}"
+    gate_message: "{{ gate_message | default('') }}"
+    confirm: "{{ confirm | default(false) | bool }}"
+    assertions: "{{ assertions | default({}) }}"
+    evidence_notes: "{{ evidence_notes | default([]) }}"
+
+  tasks:
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that:
+          - gate_name | string | length > 0
+          - gate_message | string | length > 0
+          - confirm | bool
+        fail_msg: >-
+          Manual gate {{ gate_name | default('unnamed-gate', true) }} is not approved.
+          Set inputs.confirm=true only after the required operator checks are complete.
+
+    - name: Collect failed manual assertions
+      ansible.builtin.set_fact:
+        _hyops_failed_assertions: >-
+          {{
+            (
+              assertions | dict2items
+              | rejectattr('value', 'equalto', true)
+              | map(attribute='key')
+              | list
+            )
+          }}
+      changed_when: false
+
+    - name: Require all manual assertions to be true
+      ansible.builtin.assert:
+        that:
+          - (_hyops_failed_assertions | length) == 0
+        fail_msg: >-
+          Manual gate {{ gate_name }} is not satisfied. The following assertions remain false:
+          {{ _hyops_failed_assertions | join(', ') }}.
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'gate.name': (gate_name | string),
+              'gate.message': (gate_message | string),
+              'gate.confirmed': (confirm | bool),
+              'gate.assertions': (assertions | default({})),
+              'gate.evidence_notes': (evidence_notes | default([])),
+              'cap.control.manual_gate': 'confirmed'
+            } | to_json
+          }}

@@ -1,0 +1,46 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/shared/manual-gate"
+
+metadata:
+  title: "Shared Manual Gate"
+  description: "Require explicit operator acknowledgement and declared safety assertions before a control-plane action proceeds."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    gate_name: ""
+    gate_message: ""
+    confirm: false
+    assertions: {}
+    evidence_notes: []
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/12-manual-gate@v1.0"
+
+outputs:
+  publish:
+    - gate.name
+    - gate.message
+    - gate.confirmed
+    - gate.assertions
+    - gate.evidence_notes
+    - cap.control.manual_gate
+
+probes: []
+constraints: []

@@ -28,6 +28,9 @@ They package repeatable outcomes, not low-level implementation details.
 - `networking/wan-hub-edge@v1`: Hetzner edge + GCP hub WAN baseline (network/router/HA VPN BGP).
 - `networking/gcp-ops-runner@v1`: private GCP runner VM in the hub core subnet for runner-local DR/burst execution.
 - `networking/onprem-ops-runner@v1`: on-prem runner VM on the management network for runner-local failback and platform execution.
+- `dr/postgresql-cloudsql-standby-gcp@v1`: establish a managed Cloud SQL standby lane without traffic cutover.
+- `dr/postgresql-cloudsql-promote-gcp@v1`: explicit promotion gate plus DNS cutover to the managed Cloud SQL endpoint.
+- `dr/postgresql-cloudsql-failback-onprem@v1`: explicit failback gate plus DNS cutback to the on-prem PostgreSQL HA endpoint.
 
 ## CLI Usage
 - Validate:

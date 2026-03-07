@@ -1,0 +1,81 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "dr/postgresql-cloudsql-standby-gcp@v1"
+mode: "hybrid"
+
+metadata:
+  title: "PostgreSQL Managed DR Standby in GCP (Cloud SQL)"
+  description: "Assess the on-prem source contract and establish the managed Cloud SQL external replication lane without cutting application traffic."
+  outcome: "A managed standby lane exists in GCP and publishes the same client-facing endpoint contract used by the self-managed PostgreSQL HA lane."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: postgresql_source_contract
+    module_ref: "platform/onprem/postgresql-dr-source"
+    state_instance: "managed_source"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      apply_mode: "assess"
+      dr_mode: "managed-cloudsql"
+
+      inventory_state_ref: "platform/postgresql-ha"
+      inventory_requires_ipam: true
+      db_state_ref: "platform/postgresql-ha"
+      db_app_key: "netbox"
+
+      load_vault_env: true
+      required_env:
+        - "NETBOX_DB_PASSWORD"
+
+  - id: cloudsql_managed_standby
+    module_ref: "org/gcp/cloudsql-external-replica"
+    state_instance: "managed_standby"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - postgresql_source_contract
+    inputs:
+      apply_mode: "establish"
+      replication_mode: "logical"
+      source_contract_version: 1
+
+      source_state_ref: "platform/onprem/postgresql-dr-source#managed_source"
+
+      project_state_ref: ""
+      project_id: ""
+      network_state_ref: ""
+      private_network: ""
+      network_project_id: ""
+      region: "europe-west2"
+
+      source_connection_profile_name: ""
+      destination_connection_profile_name: ""
+      migration_job_name: ""
+      migration_job_type: "CONTINUOUS"
+      start_migration_job: true
+      migration_objects_mode: "single-database"
+
+      # The destination connection profile name becomes the managed Cloud SQL
+      # target instance name created by DMS.
+
+      source_replication_user: ""
+      source_replication_password_env: "PG_REPLICATION_PASSWORD"
+      source_ssl_type: "NONE"
+      destination_root_password_env: ""
+
+      endpoint_dns_name: ""
+
+      gcloud_bin: "gcloud"
+      gcloud_copy_default_config: true
+      gcloud_runtime_config_dir: ""
+      gcloud_active_account: ""

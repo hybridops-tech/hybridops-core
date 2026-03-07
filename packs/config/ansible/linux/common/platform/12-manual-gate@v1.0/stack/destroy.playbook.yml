@@ -1,0 +1,20 @@
+---
+- name: core/shared/manual-gate (destroy)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'gate.name': '',
+            'gate.message': '',
+            'gate.confirmed': false,
+            'gate.assertions': {},
+            'gate.evidence_notes': [],
+            'cap.control.manual_gate': 'absent'
+          } | to_json }}

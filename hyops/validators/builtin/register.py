@@ -10,7 +10,7 @@ from hyops.validators.registry import register
 from hyops.validators.core.azure import nat_gateway, resource_group, vnet
 from hyops.validators.core.hetzner import vyos_image_register, vyos_image_seed
 from hyops.validators.core.onprem import network_sdn, template_image, vyos_template_import, vyos_template_seed
-from hyops.validators.core.shared import vyos_image_artifact, vyos_image_build
+from hyops.validators.core.shared import manual_gate, vyos_image_artifact, vyos_image_build
 from hyops.validators.org.aws import pgbackrest_repo as aws_pgbackrest_repo
 from hyops.validators.org.azure import pgbackrest_repo as azure_pgbackrest_repo
 from hyops.validators.org.gcp import (
@@ -72,6 +72,7 @@ def register_all() -> None:
     register("core/onprem/template-image", template_image.validate)
     register("core/onprem/vyos-template-import", vyos_template_import.validate)
     register("core/onprem/vyos-template-seed", vyos_template_seed.validate)
+    register("core/shared/manual-gate", manual_gate.validate)
     register("core/shared/vyos-image-artifact", vyos_image_artifact.validate)
     register("core/shared/vyos-image-build", vyos_image_build.validate)
     register("platform/azure/container-registry", container_registry.validate)

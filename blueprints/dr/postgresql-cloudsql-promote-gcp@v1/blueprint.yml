@@ -1,0 +1,66 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "dr/postgresql-cloudsql-promote-gcp@v1"
+mode: "hybrid"
+
+metadata:
+  title: "PostgreSQL Managed DR Promote in GCP (Cloud SQL)"
+  description: "Require explicit operator fencing and provider-native promotion acknowledgement, then cut the stable PostgreSQL service endpoint to the managed GCP standby."
+  outcome: "Application traffic is redirected to the managed GCP PostgreSQL endpoint after an operator confirms promotion and source fencing."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: promotion_gate
+    module_ref: "core/shared/manual-gate"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    inputs:
+      gate_name: "postgresql-cloudsql-promote-gcp"
+      gate_message: "Confirm the on-prem primary is fenced, the managed Cloud SQL target has been promoted using provider-native controls, and application cutover is approved."
+      confirm: false
+      assertions:
+        source_primary_fenced: false
+        managed_target_promoted: false
+        application_cutover_approved: false
+      evidence_notes: []
+
+  - id: postgresql_dns_cutover
+    module_ref: "platform/network/dns-routing"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - promotion_gate
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_ops_runner"
+      inventory_vm_groups:
+        edge_control:
+          - "runner-01"
+      connectivity_check: false
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "direct"
+      load_vault_env: true
+      required_env:
+        - "POWERDNS_API_KEY"
+
+      provider: "powerdns-api"
+      powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
+      endpoint_state_ref: "org/gcp/cloudsql-external-replica#managed_standby"
+      endpoint_fqdn_output_key: "endpoint_dns_name"
+      endpoint_target_output_key: "endpoint_target"
+      record_type: "A"
+      ttl: 30
+      desired: "primary"
+      dry_run: false
+      dns_apply: true
+
+      powerdns_account: "hyops"
+      powerdns_comment: "Managed by HybridOps Cloud SQL DR promote"

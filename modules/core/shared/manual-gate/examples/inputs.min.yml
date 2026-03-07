@@ -1,0 +1,9 @@
+gate_name: "postgresql-cutover-approved"
+gate_message: "Confirm the old primary is fenced and the target endpoint is approved for traffic."
+confirm: true
+assertions:
+  source_fenced: true
+  target_ready: true
+evidence_notes:
+  - "CAB approval recorded"
+  - "Operator verified source write block"
