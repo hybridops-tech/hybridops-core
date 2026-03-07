@@ -12,12 +12,12 @@ This module is intentionally non-destructive:
 
 ## Recommended use
 
-Use this after `platform/onprem/postgresql-ha` is healthy and before any managed DR target workflow.
+Use this after `platform/postgresql-ha` is healthy and before any managed DR target workflow.
 
 Preferred state-driven composition:
 
-- `inventory_state_ref=platform/onprem/postgresql-ha`
-- `db_state_ref=platform/onprem/postgresql-ha`
+- `inventory_state_ref=platform/postgresql-ha`
+- `db_state_ref=platform/postgresql-ha`
 
 ## Usage
 

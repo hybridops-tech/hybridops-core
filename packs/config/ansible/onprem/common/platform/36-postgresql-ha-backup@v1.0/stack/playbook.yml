@@ -3,7 +3,7 @@
 # Configure pgBackRest backups for an existing Patroni cluster.
 # This playbook is on-prem only and intentionally avoids Autobase cloud provisioning.
 
-- name: platform/onprem/postgresql-ha-backup (derive pgbackrest config)
+- name: platform/postgresql-ha-backup (derive pgbackrest config)
   hosts: postgres_cluster
   gather_facts: false
   become: false
@@ -169,7 +169,7 @@
               fi
       changed_when: false
 
-- name: platform/onprem/postgresql-ha-backup (pre-checks)
+- name: platform/postgresql-ha-backup (pre-checks)
   hosts: postgres_cluster:etcd_cluster
   become: true
   become_method: sudo
@@ -254,7 +254,7 @@
       changed_when: false
       check_mode: false
 
-- name: platform/onprem/postgresql-ha-backup (configure patroni)
+- name: platform/postgresql-ha-backup (configure patroni)
   hosts: "primary:secondary"
   become: true
   become_method: sudo
@@ -268,7 +268,7 @@
         name: vitabaks.autobase.patroni
         tasks_from: config
 
-- name: platform/onprem/postgresql-ha-backup (configure pgbackrest)
+- name: platform/postgresql-ha-backup (configure pgbackrest)
   hosts: "pgbackrest:postgres_cluster"
   become: true
   become_method: sudo
@@ -280,7 +280,7 @@
     - role: vitabaks.autobase.pgbackrest
       when: pgbackrest_install | default(false) | bool
 
-- name: platform/onprem/postgresql-ha-backup (publish outputs)
+- name: platform/postgresql-ha-backup (publish outputs)
   hosts: localhost
   become: false
   gather_facts: false

@@ -1,6 +1,6 @@
 """hyops.validators.platform.onprem.postgresql_ha
 
-purpose: Validate inputs for platform/onprem/postgresql-ha module.
+purpose: Validate inputs for the PostgreSQL HA module.
 Architecture Decision: ADR-N/A (onprem postgresql-ha validator)
 maintainer: HybridOps.Studio
 """
@@ -21,6 +21,7 @@ from hyops.validators.common import (
 
 _APP_KEY_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _EXECUTION_PLANES = {"workstation-direct", "runner-local"}
+_PGHA_STATE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
 
 
 def _state_ref_publishes_inventory(raw_ref: Any) -> bool:
@@ -28,7 +29,7 @@ def _state_ref_publishes_inventory(raw_ref: Any) -> bool:
     if not ref:
         return False
     base = ref.split("#", 1)[0].strip().lower()
-    return base in {"platform/onprem/postgresql-ha"}
+    return base in _PGHA_STATE_REFS
 
 
 def _normalize_apps(value: Any) -> dict[str, dict[str, str]]:
@@ -128,7 +129,7 @@ def validate(inputs: dict[str, Any]) -> None:
         if not isinstance(raw, str):
             raise ValueError(f"inputs.{field} must be a string when set")
         if raw.strip() != "":
-            raise ValueError(f"inputs.{field} must be empty for platform/onprem/postgresql-ha")
+            raise ValueError(f"inputs.{field} must be empty for the PostgreSQL HA module")
 
     _validate_inventory(data)
 

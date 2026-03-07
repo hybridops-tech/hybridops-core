@@ -15,6 +15,12 @@ from hyops.runtime.state import read_json, write_json_atomic
 
 
 _STATE_INSTANCE_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_STATE_REF_ALIASES: dict[str, tuple[str, ...]] = {
+    "platform/postgresql-ha": ("platform/onprem/postgresql-ha",),
+    "platform/onprem/postgresql-ha": ("platform/postgresql-ha",),
+    "platform/postgresql-ha-backup": ("platform/onprem/postgresql-ha-backup",),
+    "platform/onprem/postgresql-ha-backup": ("platform/postgresql-ha-backup",),
+}
 
 
 def normalize_state_instance(value: str | None) -> str | None:
@@ -59,6 +65,22 @@ def normalize_module_state_ref(module_ref: str, *, state_instance: str | None = 
     return ref
 
 
+def _candidate_module_state_paths(state_root: Path, module_ref: str, *, state_instance: str | None = None) -> list[Path]:
+    state_dir = Path(state_root).expanduser().resolve()
+    ref, instance = split_module_state_ref(module_ref, state_instance=state_instance)
+    refs = [ref, *[alias for alias in _STATE_REF_ALIASES.get(ref, ()) if alias and alias != ref]]
+    paths: list[Path] = []
+    for candidate_ref in refs:
+        module_id = module_id_from_ref(candidate_ref)
+        if not module_id:
+            continue
+        if instance:
+            paths.append(state_dir / "modules" / module_id / "instances" / f"{instance}.json")
+        else:
+            paths.append(state_dir / "modules" / module_id / "latest.json")
+    return paths
+
+
 def module_state_path(state_root: Path, module_ref: str, *, state_instance: str | None = None) -> Path:
     state_dir = Path(state_root).expanduser().resolve()
 
@@ -74,7 +96,11 @@ def module_state_path(state_root: Path, module_ref: str, *, state_instance: str 
 
 
 def read_module_state(state_root: Path, module_ref: str, *, state_instance: str | None = None) -> dict[str, Any]:
-    path = module_state_path(state_root, module_ref, state_instance=state_instance)
+    candidates = _candidate_module_state_paths(state_root, module_ref, state_instance=state_instance)
+    if not candidates:
+        raise FileNotFoundError(module_state_path(state_root, module_ref, state_instance=state_instance))
+
+    path = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
     if not path.exists():
         raise FileNotFoundError(path)
 

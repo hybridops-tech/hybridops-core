@@ -1,0 +1,45 @@
+# Configure pgBackRest to push backups + WAL archives to an S3-compatible repository (e.g. MinIO).
+#
+# Prereq: platform/postgresql-ha applied and healthy.
+
+inventory_state_ref: platform/onprem/platform-vm
+inventory_vm_groups:
+  etcd_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+  master:
+    - pgha-01
+  replica:
+    - pgha-02
+    - pgha-03
+  postgres_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+
+patroni_cluster_name: postgres-ha
+# Safe default; set to reset only when intentionally re-initializing stale stanza metadata.
+repo_mismatch_action: fail
+
+# Backup backend: s3 | gcs | azure
+backend: s3
+# Optional state-driven repository source (set for org/*/pgbackrest-repo modules).
+# repo_state_ref: org/aws/pgbackrest-repo
+
+# S3 repository (bring your own bucket)
+s3_bucket: "hyops-pgbackrest-dev"
+s3_endpoint: "minio.example.com:9000"
+s3_region: "us-east-1"
+s3_uri_style: "path"
+
+required_env:
+  - PATRONI_SUPERUSER_PASSWORD
+  - PATRONI_REPLICATION_PASSWORD
+  - PG_BACKUP_S3_ACCESS_KEY_ID
+  - PG_BACKUP_S3_SECRET_ACCESS_KEY
+
+# SSH
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_proxy_jump_auto: true
+load_vault_env: true

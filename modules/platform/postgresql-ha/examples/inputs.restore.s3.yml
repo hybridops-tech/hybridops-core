@@ -1,0 +1,51 @@
+# RESTORE (S3): bootstrap Patroni from pgBackRest backups stored in an S3/S3-compatible bucket.
+# WARNING: destructive operation on the target hosts.
+# You must pass:
+#   HYOPS_INPUT_apply_mode=restore
+#   HYOPS_INPUT_restore_confirm=true
+
+inventory_state_ref: platform/onprem/platform-vm
+inventory_vm_groups:
+  etcd_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+  master:
+    - pgha-01
+  replica:
+    - pgha-02
+    - pgha-03
+  postgres_cluster:
+    - pgha-01
+    - pgha-02
+    - pgha-03
+
+cluster_vip: 10.12.0.15
+allowed_clients: []
+
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_proxy_jump_auto: true
+load_vault_env: true
+
+# Ensure hyops preflight validates all required secrets are present.
+required_env:
+  - "PATRONI_SUPERUSER_PASSWORD"
+  - "PATRONI_REPLICATION_PASSWORD"
+  - "NETBOX_DB_PASSWORD"
+  - "PG_BACKUP_S3_ACCESS_KEY_ID"
+  - "PG_BACKUP_S3_SECRET_ACCESS_KEY"
+
+# pgBackRest repo location (BYO bucket)
+backend: s3
+repo_path: /pgbackrest
+s3_bucket: "CHANGE_ME_BUCKET"
+s3_endpoint: ""
+s3_region: ""
+s3_uri_style: ""
+s3_access_key_env: "PG_BACKUP_S3_ACCESS_KEY_ID"
+s3_secret_key_env: "PG_BACKUP_S3_SECRET_ACCESS_KEY"
+
+# Restore behavior
+restore_confirm: false
+restore_target_time: "" # Optional PITR: "YYYY-MM-DD HH:MM:SS+00"
+restore_delta: false

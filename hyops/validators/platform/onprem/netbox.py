@@ -100,7 +100,7 @@ def validate(inputs: dict[str, Any]) -> None:
     if db_state_ref.lower() == "platform/onprem/postgresql-core" and not allow_legacy_pgcore_bool:
         raise ValueError(
             "inputs.db_state_ref=platform/onprem/postgresql-core is deprecated for NetBox. "
-            "Use inputs.db_state_ref=platform/onprem/postgresql-ha. "
+            "Use inputs.db_state_ref=platform/postgresql-ha. "
             "For temporary rollback only, set inputs.allow_legacy_pgcore=true explicitly."
         )
     if allow_legacy_pgcore_bool and db_state_ref.lower() != "platform/onprem/postgresql-core":

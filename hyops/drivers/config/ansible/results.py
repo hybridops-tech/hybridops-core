@@ -34,7 +34,7 @@ def ansible_error_hint(
         return ""
 
     if "data directory" in tail and "already initialized" in tail:
-        if module_ref.strip().lower() == "platform/onprem/postgresql-ha" and str(inputs.get("apply_mode") or "").strip().lower() in ("", "auto", "bootstrap"):
+        if module_ref.strip().lower() in {"platform/postgresql-ha", "platform/onprem/postgresql-ha"} and str(inputs.get("apply_mode") or "").strip().lower() in ("", "auto", "bootstrap"):
             return (
                 "postgresql-ha bootstrap detected existing initialized data directories. "
                 "This usually means a prior bootstrap partially completed. "

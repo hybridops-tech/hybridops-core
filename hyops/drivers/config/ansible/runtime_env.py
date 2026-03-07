@@ -15,6 +15,14 @@ from hyops.runtime.vault import VaultAuth, read_env
 from .hotfixes import apply_collection_hotfixes
 
 
+_MODULE_ID_ALIASES: dict[str, tuple[str, ...]] = {
+    "platform__postgresql-ha": ("platform__onprem__postgresql-ha",),
+    "platform__onprem__postgresql-ha": ("platform__postgresql-ha",),
+    "platform__postgresql-ha-backup": ("platform__onprem__postgresql-ha-backup",),
+    "platform__onprem__postgresql-ha-backup": ("platform__postgresql-ha-backup",),
+}
+
+
 def resolve_ansible_controller_python(ansible_bin: str) -> str:
     """Best-effort resolve of the Python interpreter used by ansible-playbook."""
     resolved = str(shutil.which(ansible_bin) or ansible_bin).strip()
@@ -163,10 +171,13 @@ def configure_ansible_search_paths(
     ev: EvidenceWriter,
     result: dict[str, Any],
 ) -> None:
+    module_ids = [module_id, *[alias for alias in _MODULE_ID_ALIASES.get(module_id, ()) if alias and alias != module_id]]
+
     roles_path_parts: list[str] = []
-    module_roles = runtime_root / "state" / "ansible" / "modules" / module_id / "roles"
-    if module_roles.is_dir():
-        roles_path_parts.append(str(module_roles))
+    for candidate_module_id in module_ids:
+        module_roles = runtime_root / "state" / "ansible" / "modules" / candidate_module_id / "roles"
+        if module_roles.is_dir():
+            roles_path_parts.append(str(module_roles))
     runtime_roles = runtime_root / "state" / "ansible" / "roles"
     if runtime_roles.is_dir():
         roles_path_parts.append(str(runtime_roles))
@@ -176,9 +187,10 @@ def configure_ansible_search_paths(
     # install deps per-environment.
     global_root = (Path.home() / ".hybridops").resolve()
     if global_root != runtime_root:
-        global_module_roles = global_root / "state" / "ansible" / "modules" / module_id / "roles"
-        if global_module_roles.is_dir():
-            roles_path_parts.append(str(global_module_roles))
+        for candidate_module_id in module_ids:
+            global_module_roles = global_root / "state" / "ansible" / "modules" / candidate_module_id / "roles"
+            if global_module_roles.is_dir():
+                roles_path_parts.append(str(global_module_roles))
         global_roles = global_root / "state" / "ansible" / "roles"
         if global_roles.is_dir():
             roles_path_parts.append(str(global_roles))
@@ -196,11 +208,12 @@ def configure_ansible_search_paths(
         env["ANSIBLE_ROLES_PATH"] = ":".join(roles_path_parts)
 
     collections_path_parts: list[str] = []
-    module_collections = runtime_root / "state" / "ansible" / "modules" / module_id / "galaxy_collections"
-    if not module_collections.is_dir():
-        module_collections = runtime_root / "state" / "ansible" / "modules" / module_id / "collections"
-    if module_collections.is_dir():
-        collections_path_parts.append(str(module_collections))
+    for candidate_module_id in module_ids:
+        module_collections = runtime_root / "state" / "ansible" / "modules" / candidate_module_id / "galaxy_collections"
+        if not module_collections.is_dir():
+            module_collections = runtime_root / "state" / "ansible" / "modules" / candidate_module_id / "collections"
+        if module_collections.is_dir():
+            collections_path_parts.append(str(module_collections))
 
     runtime_collections = runtime_root / "state" / "ansible" / "galaxy_collections"
     if not runtime_collections.is_dir():
@@ -209,11 +222,12 @@ def configure_ansible_search_paths(
         collections_path_parts.append(str(runtime_collections))
 
     if global_root != runtime_root:
-        global_module_collections = global_root / "state" / "ansible" / "modules" / module_id / "galaxy_collections"
-        if not global_module_collections.is_dir():
-            global_module_collections = global_root / "state" / "ansible" / "modules" / module_id / "collections"
-        if global_module_collections.is_dir():
-            collections_path_parts.append(str(global_module_collections))
+        for candidate_module_id in module_ids:
+            global_module_collections = global_root / "state" / "ansible" / "modules" / candidate_module_id / "galaxy_collections"
+            if not global_module_collections.is_dir():
+                global_module_collections = global_root / "state" / "ansible" / "modules" / candidate_module_id / "collections"
+            if global_module_collections.is_dir():
+                collections_path_parts.append(str(global_module_collections))
 
         global_collections = global_root / "state" / "ansible" / "galaxy_collections"
         if not global_collections.is_dir():

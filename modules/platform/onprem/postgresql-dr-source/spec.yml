@@ -17,11 +17,11 @@ inputs:
     source_contract_version: 1
 
     inventory_groups: {}
-    inventory_state_ref: "platform/onprem/postgresql-ha"
+    inventory_state_ref: "platform/postgresql-ha"
     inventory_vm_groups: {}
     inventory_requires_ipam: true
 
-    db_state_ref: "platform/onprem/postgresql-ha"
+    db_state_ref: "platform/postgresql-ha"
     db_state_env: ""
     db_app_key: "netbox"
     db_host: ""

@@ -1,8 +1,8 @@
-# platform/onprem/postgresql-ha-backup
-
-Legacy compatibility module ref. The canonical ref is `platform/postgresql-ha-backup`.
+# platform/postgresql-ha-backup
 
 Configure pgBackRest backups (S3, GCS, or Azure Blob repo) for an existing Patroni PostgreSQL HA cluster.
+
+Legacy compatibility ref `platform/onprem/postgresql-ha-backup` remains supported for existing state and automation, but new blueprints and docs should use `platform/postgresql-ha-backup`.
 
 ## What this module does
 
@@ -15,12 +15,12 @@ Configure pgBackRest backups (S3, GCS, or Azure Blob repo) for an existing Patro
 ## What this module does not do
 
 - Does not provision VMs.
-- Does not deploy Patroni/etcd (use `platform/onprem/postgresql-ha` first).
+- Does not deploy Patroni/etcd (use `platform/postgresql-ha` first).
 - Does not create object-store resources (bring your own S3 bucket, GCS bucket, or Azure storage account/container).
 
 ## Prerequisites
 
-- `platform/onprem/postgresql-ha` applied and `status=ok`.
+- `platform/postgresql-ha` applied and `status=ok`.
 - Inventory available (typically from `platform/onprem/platform-vm` state).
 - When using state-driven inventory, default policy enforces NetBox-IPAM provenance
   (`inventory_requires_ipam=true`).
@@ -107,7 +107,7 @@ S3-compatible (MinIO):
 GCS:
 
 - `examples/inputs.gcs.yml`
-- `examples/inputs.gcs.ha-state.yml` (consume current `platform/onprem/postgresql-ha` state directly)
+- `examples/inputs.gcs.ha-state.yml` (consume current `platform/postgresql-ha` state directly)
 - `examples/inputs.gcs.explicit-inventory.yml` (state-independent inventory mode)
 
 Azure Blob:
@@ -124,20 +124,20 @@ Configure backups:
 
 ```bash
 hyops preflight --env <env> --strict \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.minio.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.minio.yml
 
 hyops apply --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.minio.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.minio.yml
 ```
 
 Example (explicit inventory_groups, no inventory_state_ref dependency):
 
 ```bash
 hyops apply --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.explicit-inventory.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.explicit-inventory.yml
 ```
 
 Example (state-driven repository settings):
@@ -145,16 +145,16 @@ Example (state-driven repository settings):
 ```bash
 HYOPS_INPUT_repo_state_ref=org/gcp/object-repo \
 hyops apply --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.yml
 ```
 
 Example (consume current PostgreSQL HA state, no explicit host IPs):
 
 ```bash
 hyops apply --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.ha-state.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.ha-state.yml
 ```
 
 Example (state-driven primary + secondary repositories):
@@ -164,8 +164,8 @@ HYOPS_INPUT_repo_state_ref=org/gcp/object-repo \
 HYOPS_INPUT_secondary_enabled=true \
 HYOPS_INPUT_secondary_repo_state_ref=org/azure/object-repo \
 hyops apply --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.azure-secondary.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.azure-secondary.yml
 ```
 
 Trigger an on-demand full backup:
@@ -174,8 +174,8 @@ Trigger an on-demand full backup:
 HYOPS_INPUT_repo_state_ref=org/gcp/object-repo \
 HYOPS_INPUT_apply_mode=backup \
 hyops apply --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.ha-state.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.ha-state.yml
 ```
 
 If the repository path was reused from an older cluster and pgBackRest reports a
@@ -186,8 +186,8 @@ HYOPS_INPUT_repo_state_ref=org/gcp/object-repo \
 HYOPS_INPUT_apply_mode=backup \
 HYOPS_INPUT_repo_mismatch_action=reset \
 hyops apply --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.ha-state.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.ha-state.yml
 ```
 
 After that one-time reset, return to the normal command without
@@ -197,8 +197,8 @@ Destroy (best-effort):
 
 ```bash
 hyops destroy --env <env> \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.minio.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.minio.yml
 ```
 
 Note: destroy currently disables the scheduled cron jobs, but does not attempt to remove archive configuration from a running Patroni cluster.

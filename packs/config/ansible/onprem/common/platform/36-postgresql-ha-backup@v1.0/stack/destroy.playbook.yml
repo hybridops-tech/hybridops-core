@@ -3,7 +3,7 @@
 # Best-effort disablement of scheduled backups.
 # Intentionally does not attempt to remove archive_command from a running Patroni cluster.
 
-- name: platform/onprem/postgresql-ha-backup (disable cron)
+- name: platform/postgresql-ha-backup (disable cron)
   hosts: postgres_cluster
   become: true
   gather_facts: false

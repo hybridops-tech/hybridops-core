@@ -42,7 +42,7 @@ When `endpoint_state_ref` is set, HyOps resolves:
 - `record_fqdn` from `outputs.<endpoint_fqdn_output_key>` when omitted
 - `primary_targets` / `secondary_targets` from `outputs.<endpoint_target_output_key>` when omitted
 
-This is the preferred way to publish stable service FQDNs from stateful modules such as `platform/onprem/postgresql-ha`.
+This is the preferred way to publish stable service FQDNs from stateful modules such as `platform/postgresql-ha`.
 
 When `provider=powerdns-api`, HybridOps should also prefer:
 

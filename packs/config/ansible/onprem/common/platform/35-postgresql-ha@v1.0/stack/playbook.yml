@@ -4,7 +4,7 @@
 # We keep HyOps-level inputs stable and translate only the minimal pieces we own
 # (apps -> postgresql_users/databases/privs; allowed_clients -> pg_hba entries).
 
-- name: platform/onprem/postgresql-ha (seed patroni passwords)
+- name: platform/postgresql-ha (seed patroni passwords)
   hosts: postgres_cluster
   gather_facts: false
   become: false
@@ -164,7 +164,7 @@
       loop_control:
         label: "{{ item.cidr | default('') }}"
 
-- name: platform/onprem/postgresql-ha (deploy)
+- name: platform/postgresql-ha (deploy)
   ansible.builtin.import_playbook: vitabaks.autobase.deploy_pgcluster
   vars:
     # This module is intentionally on-prem only.
@@ -189,7 +189,7 @@
     # Secure-by-default host access (cluster nodes are always added separately by Autobase).
     postgresql_password_encryption_algorithm: "scram-sha-256"
 
-- name: platform/onprem/postgresql-ha (ensure VIP is configured)
+- name: platform/postgresql-ha (ensure VIP is configured)
   hosts: postgres_cluster
   become: true
   gather_facts: true
@@ -336,7 +336,7 @@
       run_once: true
       when: _hyops_use_vip | bool
 
-- name: platform/onprem/postgresql-ha (publish outputs)
+- name: platform/postgresql-ha (publish outputs)
   hosts: localhost
   become: false
   gather_facts: false

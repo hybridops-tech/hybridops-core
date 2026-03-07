@@ -7,7 +7,7 @@ mode: "hybrid"
 metadata:
   title: "On-Prem NetBox DB Cutover to PostgreSQL HA"
   description: "Re-apply NetBox so it consumes the PostgreSQL HA DB contract from state."
-  outcome: "NetBox uses platform/onprem/postgresql-ha outputs (apps.netbox.db_*) instead of bootstrap pgcore."
+  outcome: "NetBox uses platform/postgresql-ha outputs (apps.netbox.db_*) instead of bootstrap pgcore."
 
 policy:
   fail_fast: true
@@ -26,10 +26,10 @@ steps:
       requires_authority: "netbox"
       requires_module_state_ok:
         - "platform/onprem/netbox"
-        - "platform/onprem/postgresql-ha"
+        - "platform/postgresql-ha"
     inputs:
       target_state_ref: "platform/onprem/platform-vm#platform_vms"
       target_vm_key: "netbox-01"
       ssh_proxy_jump_auto: true
       load_vault_env: true
-      db_state_ref: "platform/onprem/postgresql-ha"
+      db_state_ref: "platform/postgresql-ha"

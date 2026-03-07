@@ -37,6 +37,8 @@
     destination_enable_ipv4: "{{ destination_enable_ipv4 | default(false) | bool }}"
     destination_allocated_ip_range_name: "{{ destination_allocated_ip_range_name | default('') }}"
     destination_root_password_env: "{{ destination_root_password_env | default('') }}"
+    target_db_port: "{{ target_db_port | default(5432) | int }}"
+    endpoint_dns_name: "{{ endpoint_dns_name | default('') }}"
     connectivity_mode: "{{ connectivity_mode | default('static-ip') }}"
     reverse_ssh_vm: "{{ reverse_ssh_vm | default('') }}"
     reverse_ssh_vm_ip: "{{ reverse_ssh_vm_ip | default('') }}"
@@ -519,6 +521,10 @@
                (destination_cp.cloudsql.privateIp | default(''))
                if (destination_cp.cloudsql is defined)
                else '' %}
+          {% set endpoint_target =
+               (endpoint_dns_name | string)
+               if (endpoint_dns_name | string | length) > 0
+               else target_host %}
           {% set established = (job_state | upper) not in ['FAILED', 'STOPPED', 'UNKNOWN'] %}
           {{
             {
@@ -526,7 +532,14 @@
               'target_region': (region | string),
               'target_instance_name': (destination_connection_profile_name | string),
               'target_db_host': (target_host | string),
+              'target_db_port': (target_db_port | int),
               'target_connection_name': '',
+              'endpoint_dns_name': (endpoint_dns_name | string),
+              'endpoint_target': endpoint_target,
+              'endpoint_target_type': ('dns' if (endpoint_dns_name | string | length) > 0 else 'host'),
+              'endpoint_host': (target_host | string),
+              'endpoint_port': (target_db_port | int),
+              'endpoint_cutover_required': ((endpoint_dns_name | string | length) == 0),
               'source_host': (source_host | string),
               'source_port': (source_port | int),
               'source_leader_name': (source_leader_name | string),

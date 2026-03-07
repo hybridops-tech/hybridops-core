@@ -69,7 +69,7 @@ steps:
                 gateway: "CHANGE_ME_PG_GATEWAY"
 
   - id: postgresql_restore
-    module_ref: "platform/onprem/postgresql-ha"
+    module_ref: "platform/postgresql-ha"
     action: "deploy"
     phase: "operations"
     with_deps: false
@@ -110,7 +110,7 @@ steps:
       load_vault_env: true
 
   - id: postgresql_backup_config
-    module_ref: "platform/onprem/postgresql-ha-backup"
+    module_ref: "platform/postgresql-ha-backup"
     action: "deploy"
     phase: "operations"
     with_deps: false
@@ -167,7 +167,7 @@ steps:
 
       provider: "powerdns-api"
       powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
-      endpoint_state_ref: "platform/onprem/postgresql-ha"
+      endpoint_state_ref: "platform/postgresql-ha"
       endpoint_fqdn_output_key: "endpoint_dns_name"
       endpoint_target_output_key: "endpoint_target"
       record_type: "A"

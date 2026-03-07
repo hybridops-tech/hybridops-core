@@ -54,7 +54,9 @@ inputs:
     target_region: ""
     target_instance_name: ""
     target_db_host: ""
+    target_db_port: 5432
     target_connection_name: ""
+    endpoint_dns_name: ""
     source_connection_profile_name: ""
     destination_connection_profile_name: ""
     migration_job_name: ""
@@ -91,7 +93,14 @@ outputs:
     - target_region
     - target_instance_name
     - target_db_host
+    - target_db_port
     - target_connection_name
+    - endpoint_dns_name
+    - endpoint_target
+    - endpoint_target_type
+    - endpoint_host
+    - endpoint_port
+    - endpoint_cutover_required
     - source_host
     - source_port
     - source_leader_name

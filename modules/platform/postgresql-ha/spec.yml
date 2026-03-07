@@ -1,11 +1,11 @@
 api_version: hybridops/v1
 kind: ModuleSpec
 
-module_ref: "platform/onprem/postgresql-ha"
+module_ref: "platform/postgresql-ha"
 
 metadata:
   title: "PostgreSQL HA (Patroni + etcd)"
-  description: "Legacy compatibility ref for platform/postgresql-ha. Deploys a highly available PostgreSQL cluster using Patroni and etcd via Ansible (Autobase). Does not provision VMs."
+  description: "Deploys a highly available PostgreSQL cluster using Patroni and etcd via Ansible (Autobase). Does not provision VMs."
 
 requirements:
   credentials: []

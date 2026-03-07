@@ -1,8 +1,8 @@
-# platform/onprem/postgresql-ha
-
-Legacy compatibility module ref. The canonical ref is `platform/postgresql-ha`.
+# platform/postgresql-ha
 
 Deploy a highly available PostgreSQL cluster (Patroni + etcd) on existing Linux hosts via Ansible (Autobase).
+
+Legacy compatibility ref `platform/onprem/postgresql-ha` remains supported for existing state and automation, but new blueprints and docs should use `platform/postgresql-ha`.
 
 This module is capability-style: it **does not provision VMs**. Pair it with `platform/onprem/platform-vm` (or another VM module) in a blueprint.
 When using state-driven inventory from `platform/onprem/platform-vm`, default policy enforces NetBox-IPAM provenance (`inventory_requires_ipam=true`).
@@ -17,8 +17,8 @@ PATRONI_SUPERUSER_PASSWORD='...' \
 PATRONI_REPLICATION_PASSWORD='...' \
 NETBOX_DB_PASSWORD='...' \
 hyops apply --env dev \
-  --module platform/onprem/postgresql-ha \
-  --inputs modules/platform/onprem/postgresql-ha/examples/inputs.min.yml
+  --module platform/postgresql-ha \
+  --inputs modules/platform/postgresql-ha/examples/inputs.min.yml
 ```
 
 ## Apply Modes
@@ -34,8 +34,8 @@ Example (force maintenance):
 
 ```bash
 HYOPS_INPUT_apply_mode=maintenance \
-hyops apply --env dev --module platform/onprem/postgresql-ha \
-  --inputs modules/platform/onprem/postgresql-ha/examples/inputs.min.yml
+hyops apply --env dev --module platform/postgresql-ha \
+  --inputs modules/platform/postgresql-ha/examples/inputs.min.yml
 ```
 
 ## Restore (DR / Failback)
@@ -52,15 +52,15 @@ This mode is intentionally guarded:
 
 Typical workflow:
 
-1. Deploy the primary HA cluster with `platform/onprem/postgresql-ha`
-2. Configure backups + WAL archiving with `platform/onprem/postgresql-ha-backup`
+1. Deploy the primary HA cluster with `platform/postgresql-ha`
+2. Configure backups + WAL archiving with `platform/postgresql-ha-backup`
 3. Trigger an on-demand backup:
 
 ```bash
 HYOPS_INPUT_apply_mode=backup \
 hyops apply --env dev \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.yml
 ```
 
 4. Restore to a fresh target cluster (inventory can come from a VM module state or explicit inventory_groups):
@@ -69,8 +69,8 @@ hyops apply --env dev \
 HYOPS_INPUT_apply_mode=restore \
 HYOPS_INPUT_restore_confirm=true \
 hyops apply --env dev \
-  --module platform/onprem/postgresql-ha \
-  --inputs modules/platform/onprem/postgresql-ha/examples/inputs.restore.gcs.yml
+  --module platform/postgresql-ha \
+  --inputs modules/platform/postgresql-ha/examples/inputs.restore.gcs.yml
 ```
 
 Note: restore requires repository credentials in env/vault:

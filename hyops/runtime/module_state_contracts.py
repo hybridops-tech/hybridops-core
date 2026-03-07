@@ -24,6 +24,7 @@ from hyops.runtime.module_state import (
 
 _INPUT_SEG_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _GCP_VM_ID_RE = re.compile(r"^projects/(?P<project>[^/]+)/zones/(?P<zone>[^/]+)/instances/(?P<name>[^/]+)$")
+_PGHA_STATE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
 
 
 def ipv4_from_token(raw: Any) -> str | None:
@@ -280,10 +281,10 @@ def resolve_inventory_groups_from_state(
     inventory_requires_ipam = as_bool(inputs.get("inventory_requires_ipam"), default=False)
     if inventory_requires_ipam:
         inventory_base_ref, _inventory_instance = split_module_state_ref(inventory_state_ref)
-        if inventory_base_ref not in ("platform/onprem/platform-vm", "platform/onprem/postgresql-ha"):
+        if inventory_base_ref not in ("platform/onprem/platform-vm", *_PGHA_STATE_REFS):
             raise ValueError(
                 "inputs.inventory_requires_ipam=true currently requires "
-                "inputs.inventory_state_ref=platform/onprem/platform-vm or platform/onprem/postgresql-ha"
+                "inputs.inventory_state_ref=platform/onprem/platform-vm or platform/postgresql-ha"
             )
 
         if inventory_base_ref == "platform/onprem/platform-vm":
@@ -308,7 +309,7 @@ def resolve_inventory_groups_from_state(
         inventory_requires_ipam = as_bool(inputs.get("inventory_requires_ipam"), default=False)
         if inventory_requires_ipam:
             inventory_base_ref, _inventory_instance = split_module_state_ref(inventory_state_ref)
-            if inventory_base_ref == "platform/onprem/postgresql-ha":
+            if inventory_base_ref in _PGHA_STATE_REFS:
                 raw_contract = state.get("input_contract")
                 contract = raw_contract if isinstance(raw_contract, dict) else {}
                 source_ref = str(contract.get("inventory_state_ref") or "").strip()
@@ -321,14 +322,14 @@ def resolve_inventory_groups_from_state(
                         source_base_ref = ""
                 if source_base_ref != "platform/onprem/platform-vm" or not source_requires_ipam:
                     raise ValueError(
-                        "inventory_state_ref=platform/onprem/postgresql-ha does not prove NetBox-IPAM provenance. "
+                        "inventory_state_ref=platform/postgresql-ha does not prove NetBox-IPAM provenance. "
                         "Expected state.input_contract.inventory_state_ref=platform/onprem/platform-vm[#instance] and "
                         "state.input_contract.inventory_requires_ipam=true."
                     )
             elif inventory_base_ref != "platform/onprem/platform-vm":
                 raise ValueError(
                     "inputs.inventory_requires_ipam=true requires inventory state published either directly from "
-                    "platform/onprem/platform-vm or transitively from platform/onprem/postgresql-ha."
+                    "platform/onprem/platform-vm or transitively from platform/postgresql-ha."
                 )
 
         inputs["inventory_groups"] = published_inventory_groups
@@ -336,10 +337,10 @@ def resolve_inventory_groups_from_state(
 
     if not isinstance(raw_groups, dict) or not raw_groups:
         inventory_base_ref, _inventory_instance = split_module_state_ref(inventory_state_ref)
-        if inventory_base_ref == "platform/onprem/postgresql-ha":
+        if inventory_base_ref in _PGHA_STATE_REFS:
             raise ValueError(
-                "inventory_state_ref=platform/onprem/postgresql-ha does not yet publish outputs.inventory_groups. "
-                "Re-apply upstream module 'platform/onprem/postgresql-ha' once to refresh its state contract, "
+                "inventory_state_ref=platform/postgresql-ha does not yet publish outputs.inventory_groups. "
+                "Re-apply upstream module 'platform/postgresql-ha' once to refresh its state contract, "
                 "or provide explicit inputs.inventory_groups."
             )
         raise ValueError(
@@ -447,11 +448,10 @@ def resolve_hetzner_image_contract_from_state(
     state_root: Path | None,
     assumed_state_ok: set[str] | None = None,
 ) -> None:
-    if str(inputs.get("image") or "").strip():
-        return
-
     raw_ref = str(inputs.get("image_state_ref") or "").strip()
     if not raw_ref:
+        if str(inputs.get("image") or "").strip():
+            return
         return
 
     try:
@@ -492,6 +492,8 @@ def resolve_hetzner_image_contract_from_state(
         if isinstance(record, dict):
             image_ref = str(record.get("image_ref") or "").strip()
             if image_ref:
+                # image_state_ref is authoritative when present; do not keep stale
+                # saved image ids from earlier reruns.
                 inputs["image"] = image_ref
                 return
 
@@ -595,27 +597,27 @@ def resolve_vyos_artifact_contract_from_state(
             "or provide inputs.image_source_url explicitly."
         )
 
-    if not str(inputs.get("artifact_key") or "").strip() and resolved_key:
+    # artifact_state_ref is the source of truth for downstream seed/import modules.
+    # Override previously persisted derived fields so reruns cannot drift on stale URLs/SHAs.
+    if resolved_key:
         inputs["artifact_key"] = resolved_key
-    if not str(inputs.get("artifact_url") or "").strip():
-        inputs["artifact_url"] = artifact_url
-    if not str(inputs.get("artifact_format") or "").strip() and artifact_format:
+    inputs["artifact_url"] = artifact_url
+    if artifact_format:
         inputs["artifact_format"] = artifact_format
-    if not str(inputs.get("artifact_version") or "").strip() and artifact_version:
+    if artifact_version:
         inputs["artifact_version"] = artifact_version
-    if not str(inputs.get("artifact_sha256") or "").strip() and artifact_sha256:
+    if artifact_sha256:
         inputs["artifact_sha256"] = artifact_sha256
-    if not str(inputs.get("source_iso_url") or "").strip() and source_iso_url:
+    if source_iso_url:
         inputs["source_iso_url"] = source_iso_url
 
-    if not str(inputs.get("image_source_url") or "").strip():
-        inputs["image_source_url"] = artifact_url
-    if not str(inputs.get("template_source_url") or "").strip():
-        inputs["template_source_url"] = artifact_url
-    if not str(inputs.get("image_version") or "").strip() and artifact_version:
+    inputs["image_source_url"] = artifact_url
+    inputs["template_source_url"] = artifact_url
+    if artifact_version:
         inputs["image_version"] = artifact_version
-    if not str(inputs.get("template_image_version") or "").strip() and artifact_version:
         inputs["template_image_version"] = artifact_version
+    if "seed_command" in inputs:
+        inputs["seed_command"] = ""
 
 
 def resolve_dns_endpoint_contract_from_state(

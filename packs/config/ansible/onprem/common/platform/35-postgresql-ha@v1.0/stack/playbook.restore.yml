@@ -7,7 +7,7 @@
 # `inputs.restore_confirm=true` because it can overwrite the target data
 # directory if `inputs.restore_delta=true`.
 
-- name: platform/onprem/postgresql-ha (restore preflight + seed secrets)
+- name: platform/postgresql-ha (restore preflight + seed secrets)
   hosts: postgres_cluster
   gather_facts: false
   become: false
@@ -194,7 +194,7 @@
           restore
       no_log: true
 
-- name: platform/onprem/postgresql-ha (restore)
+- name: platform/postgresql-ha (restore)
   ansible.builtin.import_playbook: vitabaks.autobase.deploy_pgcluster
   vars:
     # This module is intentionally on-prem only.
@@ -214,7 +214,7 @@
 
     postgresql_password_encryption_algorithm: "scram-sha-256"
 
-- name: platform/onprem/postgresql-ha (ensure VIP is configured)
+- name: platform/postgresql-ha (ensure VIP is configured)
   hosts: postgres_cluster
   become: true
   gather_facts: true
@@ -361,7 +361,7 @@
       run_once: true
       when: _hyops_use_vip | bool
 
-- name: platform/onprem/postgresql-ha (publish outputs)
+- name: platform/postgresql-ha (publish outputs)
   hosts: localhost
   become: false
   gather_facts: false

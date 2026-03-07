@@ -1,18 +1,18 @@
 api_version: hybridops/v1
 kind: ModuleSpec
 
-module_ref: "platform/onprem/postgresql-ha-backup"
+module_ref: "platform/postgresql-ha-backup"
 
 metadata:
   title: "PostgreSQL HA Backup (pgBackRest)"
-  description: "Legacy compatibility ref for platform/postgresql-ha-backup. Configures pgBackRest backups (S3, GCS, or Azure Blob repo) for an existing Patroni PostgreSQL HA cluster via Ansible (Autobase). Does not provision VMs."
+  description: "Configures pgBackRest backups (S3, GCS, or Azure Blob repo) for an existing Patroni PostgreSQL HA cluster via Ansible (Autobase). Does not provision VMs."
 
 requirements:
   credentials: []
 
 dependencies:
   # Ensure the HA cluster exists and published a readiness capability.
-  - module_ref: "platform/onprem/postgresql-ha"
+  - module_ref: "platform/postgresql-ha"
     required: true
     imports:
       cap.db.postgresql_ha: upstream.cap_db_postgresql_ha
@@ -76,7 +76,7 @@ inputs:
     required_env_destroy: []
     load_vault_env: true
 
-    # Cluster identity (must match platform/onprem/postgresql-ha)
+    # Cluster identity (must match platform/postgresql-ha)
     patroni_cluster_name: "postgres-ha"
     postgresql_version: 16
     postgresql_port: 5432

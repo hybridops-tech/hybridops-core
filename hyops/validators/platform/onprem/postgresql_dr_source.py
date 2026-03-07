@@ -35,7 +35,7 @@ def _validate_inventory_contract(data: dict[str, Any]) -> None:
     else:
         raise ValueError(
             "inputs.inventory_state_ref or inputs.inventory_groups is required "
-            "(prefer state-driven inventory from platform/onprem/postgresql-ha)"
+            "(prefer state-driven inventory from platform/postgresql-ha)"
         )
 
 
@@ -49,7 +49,7 @@ def _validate_db_contract(data: dict[str, Any]) -> None:
     else:
         raise ValueError(
             "inputs.db_state_ref or inputs.db_host is required "
-            "(prefer state-driven DB contract from platform/onprem/postgresql-ha)"
+            "(prefer state-driven DB contract from platform/postgresql-ha)"
         )
 
     if data.get("db_port") is not None:

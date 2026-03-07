@@ -39,7 +39,7 @@ steps:
       service_account_display_name: "PostgreSQL HA Backup Repo"
 
   - id: postgresql_ha_backup
-    module_ref: "platform/onprem/postgresql-ha-backup"
+    module_ref: "platform/postgresql-ha-backup"
     action: "deploy"
     phase: "operations"
     with_deps: false
@@ -48,7 +48,7 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      inventory_state_ref: "platform/onprem/postgresql-ha"
+      inventory_state_ref: "platform/postgresql-ha"
       inventory_requires_ipam: true
 
       repo_state_ref: "org/gcp/object-repo#postgresql_ha_backup_repo"

@@ -3,7 +3,7 @@
 # On-demand backup entrypoint.
 # Assumes pgBackRest is already configured on the cluster.
 
-- name: platform/onprem/postgresql-ha-backup (run full backup on primary)
+- name: platform/postgresql-ha-backup (run full backup on primary)
   hosts: postgres_cluster
   become: true
   gather_facts: false
@@ -105,7 +105,7 @@
         - (_hyops_recovery.stdout | default('') | trim) == 'f'
         - secondary_enabled | default(false) | bool
 
-- name: platform/onprem/postgresql-ha-backup (publish outputs)
+- name: platform/postgresql-ha-backup (publish outputs)
   hosts: localhost
   become: false
   gather_facts: false

@@ -61,7 +61,7 @@ steps:
             - bridge: "vnetenvdata"
 
   - id: postgresql_ha
-    module_ref: "platform/onprem/postgresql-ha"
+    module_ref: "platform/postgresql-ha"
     action: "deploy"
     phase: "operations"
     with_deps: false

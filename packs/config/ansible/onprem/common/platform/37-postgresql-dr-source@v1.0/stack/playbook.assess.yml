@@ -84,7 +84,7 @@
           - not (_hyops_pg_source_in_recovery | bool)
         fail_msg: >-
           The source leader candidate {{ inventory_hostname }} is in recovery. Reconcile the upstream
-          platform/onprem/postgresql-ha state and ensure groups.master points to the writable primary.
+          platform/postgresql-ha state and ensure groups.master points to the writable primary.
 
     - name: Compute source posture flags
       ansible.builtin.set_fact:

@@ -67,9 +67,11 @@ def _infer_from_parts(parts: list[str]) -> list[str]:
             inferred.append(token)
 
     # Secondary token for module_ref-like refs (<namespace>/<provider>/...).
+    # Only known provider tokens should be inferred here. Generic capability
+    # names like "postgresql-ha" are valid module families, not credentials.
     if len(parts) >= 2:
         for token in _provider_tokens(parts[1]):
-            if token not in _PROVIDER_STOPWORDS:
+            if token in _KNOWN_PROVIDER_TOKENS and token not in _PROVIDER_STOPWORDS:
                 inferred.append(token)
 
     # Additional hints from later segments for multi-provider refs.

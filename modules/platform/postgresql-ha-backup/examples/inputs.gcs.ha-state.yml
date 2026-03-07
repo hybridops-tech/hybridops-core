@@ -1,0 +1,28 @@
+# Configure pgBackRest to push backups + WAL archives to a GCS bucket
+# by consuming the current PostgreSQL HA module state directly.
+#
+# This is the preferred day-2 path once platform/postgresql-ha is already deployed.
+# No explicit host IPs are required here.
+
+inventory_state_ref: platform/postgresql-ha
+
+patroni_cluster_name: postgres-ha
+repo_mismatch_action: fail
+
+backend: gcs
+# Optional state-driven repository source:
+# repo_state_ref: org/gcp/object-repo
+gcs_bucket: "hyops-pgbackrest-dev"
+gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
+gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
+
+required_env:
+  - PATRONI_SUPERUSER_PASSWORD
+  - PATRONI_REPLICATION_PASSWORD
+  - PG_BACKUP_GCS_SA_JSON
+
+# SSH defaults reused from the HA cluster environment.
+target_user: "opsadmin"
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_proxy_jump_auto: true
+load_vault_env: true

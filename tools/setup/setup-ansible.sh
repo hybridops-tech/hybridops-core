@@ -204,11 +204,19 @@ install_set "common" "common" "" "${REQ_FILE}" "${RUNTIME_ROOT}/state/ansible"
 
 # Module-specific sets are installed into isolated paths to avoid Galaxy dependency conflicts.
 # These paths are added automatically at runtime by the Ansible driver when the module runs.
-install_set "platform/onprem/postgresql-ha" "module" "platform/onprem/postgresql-ha" \
+install_set "platform/postgresql-ha" "module" "platform/postgresql-ha" \
+  "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
+  "${RUNTIME_ROOT}/state/ansible/modules/platform__postgresql-ha"
+
+install_set "platform/onprem/postgresql-ha (legacy alias)" "module" "platform/onprem/postgresql-ha" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__onprem__postgresql-ha"
 
-install_set "platform/onprem/postgresql-ha-backup" "module" "platform/onprem/postgresql-ha-backup" \
+install_set "platform/postgresql-ha-backup" "module" "platform/postgresql-ha-backup" \
+  "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
+  "${RUNTIME_ROOT}/state/ansible/modules/platform__postgresql-ha-backup"
+
+install_set "platform/onprem/postgresql-ha-backup (legacy alias)" "module" "platform/onprem/postgresql-ha-backup" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__onprem__postgresql-ha-backup"
 

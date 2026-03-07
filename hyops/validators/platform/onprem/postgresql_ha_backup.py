@@ -1,6 +1,6 @@
 """hyops.validators.platform.onprem.postgresql_ha_backup
 
-purpose: Validate inputs for platform/onprem/postgresql-ha-backup module.
+purpose: Validate inputs for the PostgreSQL HA backup module.
 Architecture Decision: ADR-N/A (onprem postgresql-ha-backup validator)
 maintainer: HybridOps.Studio
 """
@@ -20,6 +20,7 @@ from hyops.validators.common import (
 _AZURE_STORAGE_ACCOUNT_RE = re.compile(r"^[a-z0-9]{3,24}$")
 _AZURE_CONTAINER_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$")
 _EXECUTION_PLANES = {"workstation-direct", "runner-local"}
+_PGHA_STATE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
 
 
 def _state_ref_publishes_inventory(raw_ref: Any) -> bool:
@@ -27,7 +28,7 @@ def _state_ref_publishes_inventory(raw_ref: Any) -> bool:
     if not ref:
         return False
     base = ref.split("#", 1)[0].strip().lower()
-    return base in {"platform/onprem/postgresql-ha"}
+    return base in _PGHA_STATE_REFS
 
 
 def _validate_inventory(data: dict[str, Any]) -> None:
@@ -119,7 +120,7 @@ def validate(inputs: dict[str, Any]) -> None:
     # Dependency guard: backup only makes sense once the HA cluster is ready.
     upstream_cap = str(data.get("upstream", {}).get("cap_db_postgresql_ha") if isinstance(data.get("upstream"), dict) else "")
     if upstream_cap.strip().lower() != "ready":
-        raise ValueError("dependency platform/onprem/postgresql-ha is not ready (expected outputs.cap.db.postgresql_ha=ready)")
+        raise ValueError("dependency platform/postgresql-ha is not ready (expected outputs.cap.db.postgresql_ha=ready)")
 
     apply_mode = str(data.get("apply_mode") or "").strip().lower()
     if apply_mode and apply_mode not in ("backup",):

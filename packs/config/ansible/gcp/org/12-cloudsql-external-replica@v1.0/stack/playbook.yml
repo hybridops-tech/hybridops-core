@@ -17,7 +17,9 @@
     target_region: "{{ target_region | default('') }}"
     target_instance_name: "{{ target_instance_name | default('') }}"
     target_db_host: "{{ target_db_host | default('') }}"
+    target_db_port: "{{ target_db_port | default(5432) | int }}"
     target_connection_name: "{{ target_connection_name | default('') }}"
+    endpoint_dns_name: "{{ endpoint_dns_name | default('') }}"
     gcloud_bin: "{{ gcloud_bin | default('gcloud') }}"
     gcloud_copy_default_config: "{{ gcloud_copy_default_config | default(true) | bool }}"
     gcloud_runtime_config_dir: "{{ gcloud_runtime_config_dir | default('') }}"
@@ -200,13 +202,25 @@
         mode: "0600"
         content: |
           {% set ready = (source_replication_candidate | bool) and ((_hyops_cloudsql_target.state | default('') | string) == 'RUNNABLE') %}
+          {% set target_host = (_hyops_cloudsql_private_ip | string) %}
+          {% set endpoint_target =
+               (endpoint_dns_name | string)
+               if (endpoint_dns_name | string | length) > 0
+               else target_host %}
           {{
             {
               'target_project_id': (target_project_id | string),
               'target_region': (target_region | string),
               'target_instance_name': (target_instance_name | string),
-              'target_db_host': (_hyops_cloudsql_private_ip | string),
+              'target_db_host': target_host,
+              'target_db_port': (target_db_port | int),
               'target_connection_name': (_hyops_cloudsql_target.connectionName | default(target_connection_name) | string),
+              'endpoint_dns_name': (endpoint_dns_name | string),
+              'endpoint_target': endpoint_target,
+              'endpoint_target_type': ('dns' if (endpoint_dns_name | string | length) > 0 else 'host'),
+              'endpoint_host': target_host,
+              'endpoint_port': (target_db_port | int),
+              'endpoint_cutover_required': ((endpoint_dns_name | string | length) == 0),
               'source_host': (source_host | string),
               'source_port': (source_port | int),
               'source_leader_name': (source_leader_name | string),

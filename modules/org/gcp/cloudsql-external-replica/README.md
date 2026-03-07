@@ -30,7 +30,7 @@ This keeps replication secrets out of Terraform state and aligns the managed DR 
 - assess an existing Cloud SQL target
 - create DMS source and destination connection profiles
 - create and optionally start a DMS migration job
-- publish normalized readiness and establishment outputs
+- publish normalized readiness, establishment, and endpoint outputs
 
 ## Not in scope yet
 
@@ -52,6 +52,7 @@ hyops apply --env dev \
 - `managed_target_state_ref`: upstream managed Cloud SQL target state. Default: `org/gcp/cloudsql-postgresql`
 - `apply_mode`: `assess`, `establish`, or `status`
 - `replication_mode`: currently `logical` only
+- `endpoint_dns_name`: optional stable DNS name that clients should use after promotion/cutover
 - `gcloud_active_account`: optional expected active `gcloud` account for operator sanity
 
 For `apply_mode=establish`, additional inputs are required:
@@ -79,7 +80,14 @@ Connectivity modes currently supported:
 - `target_region`
 - `target_instance_name`
 - `target_db_host`
+- `target_db_port`
 - `target_connection_name`
+- `endpoint_dns_name`
+- `endpoint_target`
+- `endpoint_target_type`
+- `endpoint_host`
+- `endpoint_port`
+- `endpoint_cutover_required`
 - `source_host`
 - `source_port`
 - `source_leader_name`
@@ -93,3 +101,10 @@ Connectivity modes currently supported:
 - `managed_replication_prereqs_ready`
 - `managed_replication_established`
 - `cap.db.managed_external_replica = assessed|established`
+
+The endpoint outputs intentionally match the client-facing contract already used by `platform/postgresql-ha`:
+
+- when `endpoint_dns_name` is set, `endpoint_target` publishes that DNS name and `endpoint_target_type=dns`
+- when `endpoint_dns_name` is blank, `endpoint_target` falls back to the Cloud SQL private IP/host and `endpoint_cutover_required=true`
+
+That keeps DNS cutover and application consumers lane-agnostic.
