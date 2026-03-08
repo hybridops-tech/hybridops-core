@@ -185,6 +185,12 @@
         disable_archive_command: false
         pgbackrest_patroni_cluster_restore_command: >-
           /usr/bin/pgbackrest --stanza={{ pgbackrest_stanza }}
+          {% if (restore_set | default('') | string | length) > 0 %}
+          --set={{ restore_set | string }}
+          {% endif %}
+          {% if (restore_target_timeline | default('') | string | length) > 0 %}
+          --target-timeline={{ restore_target_timeline | string }}
+          {% endif %}
           {% if (restore_target_time | default('') | string | length) > 0 %}
           --type=time --target='{{ restore_target_time | string }}'
           {% endif %}

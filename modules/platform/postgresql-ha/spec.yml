@@ -69,6 +69,8 @@ inputs:
     # This uses Patroni custom bootstrap method "pgbackrest" and requires a
     # pgBackRest repository (S3-compatible or GCS) that contains the cluster backups.
     restore_confirm: false
+    restore_set: "" # Optional pgBackRest backup label to restore (e.g. 20260308-030002F)
+    restore_target_timeline: "" # Optional recovery target timeline (e.g. 7 or current)
     restore_target_time: "" # Optional PITR: "YYYY-MM-DD HH:MM:SS+00"
     restore_delta: false # WARNING: if true, enables pgbackrest --delta restore (can overwrite existing data).
 

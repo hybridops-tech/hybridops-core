@@ -49,6 +49,10 @@ This mode is intentionally guarded:
 
 - You must set `inputs.restore_confirm=true`
 - By default `inputs.restore_delta=false` (safer). If you set `restore_delta=true`, pgBackRest can overwrite an existing data directory.
+- When the repository contains divergent timelines from earlier drills/promotions, prefer pinning:
+  - `inputs.restore_set`
+  - `inputs.restore_target_timeline`
+  - and optionally `inputs.restore_target_time` for PITR
 
 Typical workflow:
 
@@ -68,6 +72,24 @@ hyops apply --env dev \
 ```bash
 HYOPS_INPUT_apply_mode=restore \
 HYOPS_INPUT_restore_confirm=true \
+hyops apply --env dev \
+  --module platform/postgresql-ha \
+  --inputs modules/platform/postgresql-ha/examples/inputs.restore.gcs.yml
+```
+
+If pgBackRest reports a timeline mismatch, inspect the repository first:
+
+```bash
+sudo -u postgres pgbackrest --stanza=postgres-ha info --output=json
+```
+
+Then rerun with an explicit backup set and target timeline, for example:
+
+```bash
+HYOPS_INPUT_apply_mode=restore \
+HYOPS_INPUT_restore_confirm=true \
+HYOPS_INPUT_restore_set=20260308-030002F \
+HYOPS_INPUT_restore_target_timeline=7 \
 hyops apply --env dev \
   --module platform/postgresql-ha \
   --inputs modules/platform/postgresql-ha/examples/inputs.restore.gcs.yml

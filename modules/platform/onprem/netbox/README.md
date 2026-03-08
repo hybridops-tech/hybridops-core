@@ -19,7 +19,7 @@ hyops apply --env dev \
 ## Inputs
 
 - `target_host` (required): SSH target IP/DNS.
-- `db_state_ref` (recommended): upstream DB module state ref (preferred: `platform/onprem/postgresql-ha`).
+- `db_state_ref` (recommended): upstream DB module state ref (preferred: `platform/postgresql-ha`).
 - `db_state_env` (optional): HyOps env name to resolve `db_state_ref` from (for example `dev` when running NetBox cutover in `shared`).
 - `db_host`, `db_port`, `db_name`, `db_user` (fallback): external PostgreSQL connection when not using `db_state_ref`.
 - `db_password_env`, `secret_key_env`: env-var names used to read secrets.

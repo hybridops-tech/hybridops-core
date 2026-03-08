@@ -53,6 +53,38 @@ _PROFILES_DIR = _DRIVER_DIR / "profiles"
 _VENDORED_COLLECTIONS_DIR = _DRIVER_DIR / "collections"
 
 
+def _materialize_ssh_private_key_from_env(
+    *,
+    inputs: dict[str, Any],
+    env: dict[str, str],
+    workdir: Path,
+) -> str:
+    key_file_raw = str(inputs.get("ssh_private_key_file") or "").strip()
+    key_env_name = str(inputs.get("ssh_private_key_env") or "").strip()
+
+    if not key_env_name:
+        return ""
+
+    key_value = str(env.get(key_env_name) or "").strip()
+    if not key_value:
+        return ""
+
+    existing_ok = False
+    if key_file_raw:
+        try:
+            existing_ok = Path(key_file_raw).expanduser().exists()
+        except Exception:
+            existing_ok = False
+    if existing_ok:
+        return ""
+
+    key_path = (workdir / "runtime.ssh.key").resolve()
+    key_path.write_text(key_value + ("\n" if not key_value.endswith("\n") else ""), encoding="utf-8")
+    os.chmod(key_path, 0o600)
+    inputs["ssh_private_key_file"] = str(key_path)
+    return str(key_path)
+
+
 def _resolve_hyops_executable() -> str:
     """Resolve the current hyops executable path for delegated local tasks."""
     argv0 = str(getattr(sys, "argv", [""])[:1][0] or "").strip()
@@ -237,6 +269,16 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         return _fail(ev, result, f"workdir setup failed: {exc}")
 
+    materialized_ssh_key = ""
+    try:
+        materialized_ssh_key = _materialize_ssh_private_key_from_env(
+            inputs=inputs,
+            env=env,
+            workdir=workdir,
+        )
+    except Exception as exc:
+        return _fail(ev, result, f"failed to materialize ssh_private_key_env: {exc}")
+
     inventory_path = workdir / ansible_cfg["inventory_file"]
     inventory_error = write_inventory(inventory_path, inputs)
     if inventory_error:
@@ -308,6 +350,11 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             "port": as_int(inputs.get("ssh_proxy_jump_port"), default=22),
             "auto_enabled": as_bool(inputs.get("ssh_proxy_jump_auto"), default=False),
             "auto_note": proxy_jump_auto_note,
+        },
+        "ssh_key": {
+            "file": str(inputs.get("ssh_private_key_file") or ""),
+            "env": str(inputs.get("ssh_private_key_env") or ""),
+            "materialized_from_env": bool(materialized_ssh_key),
         },
     }
     ev.write_json("meta.json", meta)

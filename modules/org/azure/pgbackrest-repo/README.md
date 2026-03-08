@@ -33,7 +33,7 @@ Recommended flow:
 1. Apply infra module.
 2. Fetch storage account key using Azure CLI.
 3. Store key in runtime vault (`PG_BACKUP_AZURE_ACCOUNT_KEY`).
-4. Use in backup automation once Azure backend is enabled in `platform/onprem/postgresql-ha-backup`.
+4. Use in backup automation once Azure backend is enabled in `platform/postgresql-ha-backup`.
 
 ## Example
 

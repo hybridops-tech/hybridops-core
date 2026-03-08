@@ -38,7 +38,7 @@ inputs:
     source_db_password_env: "NETBOX_DB_PASSWORD"
 
     # Target DB contract (HA DB by default)
-    target_db_state_ref: "platform/onprem/postgresql-ha"
+    target_db_state_ref: "platform/postgresql-ha"
     target_db_state_env: ""
     target_db_app_key: "netbox"
     target_db_host: ""

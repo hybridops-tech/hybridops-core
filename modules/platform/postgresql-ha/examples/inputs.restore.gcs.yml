@@ -43,5 +43,7 @@ gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
 
 # Restore behavior
 restore_confirm: false
+restore_set: "" # Optional explicit pgBackRest backup label (e.g. 20260308-030002F)
+restore_target_timeline: "" # Optional target timeline (e.g. 7 or current)
 restore_target_time: "" # Optional PITR: "YYYY-MM-DD HH:MM:SS+00"
 restore_delta: false

@@ -33,7 +33,7 @@ Recommended flow:
 1. Apply infra module.
 2. Create IAM access key using AWS CLI.
 3. Store key/secret in runtime vault (`PG_BACKUP_S3_ACCESS_KEY_ID`, `PG_BACKUP_S3_SECRET_ACCESS_KEY`).
-4. Run `platform/onprem/postgresql-ha-backup` with `backend: s3`.
+4. Run `platform/postgresql-ha-backup` with `backend: s3`.
 
 ## Example
 

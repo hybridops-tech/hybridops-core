@@ -34,6 +34,8 @@ def _validate_inventory(data: dict[str, Any]) -> None:
     inventory_groups = data.get("inventory_groups")
     inventory_state_ref = data.get("inventory_state_ref")
     inventory_vm_groups = data.get("inventory_vm_groups")
+    provider = str(data.get("provider") or "").strip().lower()
+    powerdns_state_ref = str(data.get("powerdns_state_ref") or "").strip()
 
     if isinstance(inventory_groups, dict) and inventory_groups:
         group = inventory_groups.get("edge_control")
@@ -49,10 +51,14 @@ def _validate_inventory(data: dict[str, Any]) -> None:
             )
         return
 
+    if provider == "powerdns-api" and powerdns_state_ref:
+        return
+
     if not isinstance(inventory_state_ref, str) or not inventory_state_ref.strip():
         raise ValueError(
             "inputs.inventory_state_ref is required when inputs.inventory_groups is empty "
-            "(recommended: org/hetzner/shared-control-host#edge_control_host)"
+            "(recommended: org/hetzner/shared-control-host#edge_control_host, or set inputs.powerdns_state_ref "
+            "for provider=powerdns-api so HybridOps can derive the shared control host automatically)"
         )
     if not isinstance(inventory_vm_groups, dict) or not inventory_vm_groups:
         raise ValueError(
@@ -117,6 +123,8 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_non_empty_str(data.get("target_user"), "inputs.target_user")
     if data.get("target_port") is not None:
         _require_port(data.get("target_port"), "inputs.target_port")
+    if data.get("ssh_private_key_env") is not None and str(data.get("ssh_private_key_env")).strip():
+        _require_env_var_name(data.get("ssh_private_key_env"), "inputs.ssh_private_key_env")
     if data.get("become") is not None and not isinstance(data.get("become"), bool):
         raise ValueError("inputs.become must be a boolean when set")
     if data.get("become_user") is not None:
@@ -133,20 +141,28 @@ def validate(inputs: dict[str, Any]) -> None:
     if "REPLACE_" in provider.upper():
         raise ValueError("inputs.provider contains placeholder token")
 
-    if data.get("endpoint_state_ref") is not None and str(data.get("endpoint_state_ref")).strip():
+    has_endpoint_state_ref = bool(str(data.get("endpoint_state_ref") or "").strip())
+    if has_endpoint_state_ref:
         _require_non_empty_str(data.get("endpoint_state_ref"), "inputs.endpoint_state_ref")
     if data.get("endpoint_fqdn_output_key") is not None and str(data.get("endpoint_fqdn_output_key")).strip():
         _require_non_empty_str(data.get("endpoint_fqdn_output_key"), "inputs.endpoint_fqdn_output_key")
     if data.get("endpoint_target_output_key") is not None and str(data.get("endpoint_target_output_key")).strip():
         _require_non_empty_str(data.get("endpoint_target_output_key"), "inputs.endpoint_target_output_key")
 
-    zone = _require_non_empty_str(data.get("zone"), "inputs.zone")
-    if not _FQDN_RE.fullmatch(zone):
-        raise ValueError("inputs.zone must be a valid DNS zone")
+    has_powerdns_state_ref = bool(str(data.get("powerdns_state_ref") or "").strip())
+    zone = str(data.get("zone") or "").strip()
+    if zone:
+        if not _FQDN_RE.fullmatch(zone):
+            raise ValueError("inputs.zone must be a valid DNS zone")
+    elif not has_powerdns_state_ref:
+        raise ValueError("inputs.zone must be a non-empty string")
 
-    fqdn = _require_non_empty_str(data.get("record_fqdn"), "inputs.record_fqdn")
-    if not _FQDN_RE.fullmatch(fqdn):
-        raise ValueError("inputs.record_fqdn must be a valid FQDN")
+    fqdn = str(data.get("record_fqdn") or "").strip()
+    if fqdn:
+        if not _FQDN_RE.fullmatch(fqdn):
+            raise ValueError("inputs.record_fqdn must be a valid FQDN")
+    elif not has_endpoint_state_ref:
+        raise ValueError("inputs.record_fqdn must be a non-empty string")
 
     record_type = _require_non_empty_str(data.get("record_type"), "inputs.record_type").upper()
     if record_type not in {"A", "AAAA", "CNAME"}:
@@ -162,9 +178,15 @@ def validate(inputs: dict[str, Any]) -> None:
     if desired not in {"primary", "secondary"}:
         raise ValueError("inputs.desired must be one of: primary, secondary")
 
-    primary_targets = _validate_targets(record_type, data.get("primary_targets"), "inputs.primary_targets")
-    secondary_targets = _validate_targets(record_type, data.get("secondary_targets"), "inputs.secondary_targets")
-    if record_type == "CNAME":
+    primary_targets_raw = data.get("primary_targets")
+    secondary_targets_raw = data.get("secondary_targets")
+    primary_targets: list[str] = []
+    secondary_targets: list[str] = []
+    if primary_targets_raw or not has_endpoint_state_ref:
+        primary_targets = _validate_targets(record_type, primary_targets_raw, "inputs.primary_targets")
+    if secondary_targets_raw or not has_endpoint_state_ref:
+        secondary_targets = _validate_targets(record_type, secondary_targets_raw, "inputs.secondary_targets")
+    if record_type == "CNAME" and (primary_targets or secondary_targets):
         if len(primary_targets) != 1:
             raise ValueError("inputs.primary_targets must contain exactly one target for CNAME records")
         if len(secondary_targets) != 1:
@@ -190,10 +212,10 @@ def validate(inputs: dict[str, Any]) -> None:
     if provider != "powerdns-api":
         raise ValueError("inputs.provider must be one of: manual-command, powerdns-api")
 
-    if data.get("powerdns_state_ref") is not None and str(data.get("powerdns_state_ref")).strip():
+    if has_powerdns_state_ref:
         _require_non_empty_str(data.get("powerdns_state_ref"), "inputs.powerdns_state_ref")
 
-    if not str(data.get("powerdns_state_ref") or "").strip():
+    if not has_powerdns_state_ref:
         _require_http_url(data.get("powerdns_api_url"), "inputs.powerdns_api_url")
         _require_non_empty_str(data.get("powerdns_server_id"), "inputs.powerdns_server_id")
     elif str(data.get("powerdns_api_url") or "").strip():
@@ -213,4 +235,9 @@ def validate(inputs: dict[str, Any]) -> None:
     if dns_apply and key_env not in required_env:
         raise ValueError(
             f"inputs.required_env must include '{key_env}' when inputs.provider=powerdns-api and inputs.dns_apply=true"
+        )
+    ssh_key_env = str(data.get("ssh_private_key_env") or "").strip()
+    if ssh_key_env and ssh_key_env not in required_env:
+        raise ValueError(
+            f"inputs.required_env must include '{ssh_key_env}' when inputs.ssh_private_key_env is set"
         )

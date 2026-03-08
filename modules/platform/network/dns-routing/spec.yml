@@ -21,6 +21,7 @@ inputs:
     target_user: "root"
     target_port: 22
     ssh_private_key_file: ""
+    ssh_private_key_env: ""
     ssh_proxy_jump_auto: false
     ssh_proxy_jump_host: ""
     ssh_proxy_jump_user: "root"

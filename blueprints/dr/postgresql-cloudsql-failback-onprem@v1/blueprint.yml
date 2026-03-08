@@ -39,18 +39,13 @@ steps:
     requires:
       - failback_gate
     inputs:
-      inventory_state_ref: "platform/onprem/platform-vm#onprem_ops_runner"
-      inventory_vm_groups:
-        edge_control:
-          - "runner-01"
-      connectivity_check: false
       target_user: "opsadmin"
       target_port: 22
-      ssh_private_key_file: "~/.ssh/id_ed25519"
-      ssh_access_mode: "direct"
+      ssh_private_key_env: "WAN_EDGE_SSH_PRIVATE_KEY"
       load_vault_env: true
       required_env:
         - "POWERDNS_API_KEY"
+        - "WAN_EDGE_SSH_PRIVATE_KEY"
 
       provider: "powerdns-api"
       powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
