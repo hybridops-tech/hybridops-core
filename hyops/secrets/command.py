@@ -160,6 +160,12 @@ def add_secrets_subparser(sp: argparse._SubParsersAction) -> None:
         help="Copy keys from the current shell environment into the runtime vault.",
     )
     s.add_argument(
+        "--from-file",
+        nargs="+",
+        default=[],
+        help="Copy KEY=PATH pairs from local files into the runtime vault (safe for multiline secrets).",
+    )
+    s.add_argument(
         "pairs",
         nargs="*",
         help="KEY=VALUE pairs to write to the runtime vault.",
@@ -569,6 +575,41 @@ def run_set(ns) -> int:
             return CONFIG_INVALID
         updates[k] = v
 
+    raw_from_file = list(getattr(ns, "from_file", []) or [])
+    for idx, raw in enumerate(raw_from_file, start=1):
+        token = str(raw or "").strip()
+        if not token:
+            print(f"ERR: --from-file entry #{idx} is empty")
+            return CONFIG_INVALID
+        if "=" not in token:
+            print(f"ERR: invalid --from-file entry #{idx}: expected KEY=PATH")
+            return CONFIG_INVALID
+        k, path_raw = token.split("=", 1)
+        k = k.strip()
+        path_raw = path_raw.strip()
+        if not k:
+            print(f"ERR: invalid --from-file entry #{idx}: KEY is empty")
+            return CONFIG_INVALID
+        if not path_raw:
+            print(f"ERR: invalid --from-file entry #{idx}: PATH is empty")
+            return CONFIG_INVALID
+        path = Path(path_raw).expanduser().resolve()
+        if not path.exists():
+            print(f"ERR: --from-file {k} path not found: {path}")
+            return CONFIG_INVALID
+        if not path.is_file():
+            print(f"ERR: --from-file {k} path is not a file: {path}")
+            return CONFIG_INVALID
+        try:
+            value = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            print(f"ERR: failed to read --from-file {k} from {path}: {exc}")
+            return CONFIG_INVALID
+        if not str(value).strip():
+            print(f"ERR: --from-file {k} is empty in {path}")
+            return CONFIG_INVALID
+        updates[k] = value
+
     raw_pairs = list(getattr(ns, "pairs", []) or [])
     for idx, raw in enumerate(raw_pairs, start=1):
         token = str(raw or "").strip()
@@ -589,7 +630,7 @@ def run_set(ns) -> int:
         updates[k] = v
 
     if not updates:
-        print("ERR: no secrets provided. Use --from-env KEY... and/or KEY=VALUE pairs.")
+        print("ERR: no secrets provided. Use --from-env KEY..., --from-file KEY=PATH..., and/or KEY=VALUE pairs.")
         return CONFIG_INVALID
 
     auth = VaultAuth(
