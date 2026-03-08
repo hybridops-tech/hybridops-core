@@ -2,7 +2,7 @@
 
 Perform an explicit **NetBox database migration** from a source PostgreSQL contract
 (typically `platform/onprem/postgresql-core`) to a target PostgreSQL HA contract
-(typically `platform/onprem/postgresql-ha`) using `pg_dump` / `pg_restore`.
+(typically `platform/postgresql-ha`) using `pg_dump` / `pg_restore`.
 
 This module is **migration-only**:
 
@@ -46,7 +46,7 @@ hyops blueprint deploy --env shared --ref onprem/netbox-ha-cutover@v1 --execute
 Defaults assume the shared NetBox bootstrap path:
 
 - source: `platform/onprem/postgresql-core`
-- target: `platform/onprem/postgresql-ha`
+- target: `platform/postgresql-ha`
 - app key: `netbox`
 
 Advanced:

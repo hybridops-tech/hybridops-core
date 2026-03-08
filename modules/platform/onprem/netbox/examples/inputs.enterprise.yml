@@ -18,4 +18,4 @@ netbox_domain: "corp.example"
 install_docker_engine: true
 
 # Enterprise state-driven DB contract (HA).
-db_state_ref: "platform/onprem/postgresql-ha"
+db_state_ref: "platform/postgresql-ha"

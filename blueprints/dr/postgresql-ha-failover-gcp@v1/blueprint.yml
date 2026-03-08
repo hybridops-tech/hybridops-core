@@ -71,9 +71,11 @@ steps:
 
   - id: postgresql_restore
     module_ref: "platform/postgresql-ha"
+    state_instance: "postgresql_restore_gcp_dr"
     action: "deploy"
     phase: "operations"
     with_deps: false
+    skip_if_state_ok: true
     requires:
       - gcp_pg_vms
     contracts:
@@ -92,8 +94,10 @@ steps:
       # Restore mode (guarded)
       apply_mode: "restore"
       restore_confirm: false
+      restore_set: ""
+      restore_target_timeline: ""
       restore_target_time: ""
-      restore_delta: false
+      restore_delta: true
 
       # pgBackRest repository source (state-driven, no bucket duplication)
       repo_state_ref: "org/gcp/object-repo"
@@ -116,9 +120,11 @@ steps:
 
   - id: postgresql_backup_config
     module_ref: "platform/postgresql-ha-backup"
+    state_instance: "postgresql_backup_config_gcp_dr"
     action: "deploy"
     phase: "operations"
     with_deps: false
+    skip_if_state_ok: true
     requires:
       - postgresql_restore
     contracts:
@@ -152,30 +158,26 @@ steps:
 
   - id: postgresql_dns_cutover
     module_ref: "platform/network/dns-routing"
+    state_instance: "postgresql_dns_cutover_gcp_dr"
     action: "deploy"
     phase: "operations"
     with_deps: false
     requires:
       - postgresql_backup_config
     inputs:
-      inventory_state_ref: "platform/gcp/platform-vm#gcp_ops_runner"
-      inventory_vm_groups:
-        edge_control:
-          - "runner-01"
-      connectivity_check: false
       target_user: "opsadmin"
       target_port: 22
-      ssh_private_key_file: "~/.ssh/id_ed25519"
-      ssh_access_mode: "direct"
+      ssh_private_key_env: "WAN_EDGE_SSH_PRIVATE_KEY"
       load_vault_env: true
       required_env:
         - "POWERDNS_API_KEY"
+        - "WAN_EDGE_SSH_PRIVATE_KEY"
 
       provider: "powerdns-api"
       powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
-      endpoint_state_ref: "platform/postgresql-ha"
+      endpoint_state_ref: "platform/postgresql-ha#postgresql_restore_gcp_dr"
       endpoint_fqdn_output_key: "endpoint_dns_name"
-      endpoint_target_output_key: "endpoint_target"
+      endpoint_target_output_key: "endpoint_host"
       record_type: "A"
       ttl: 30
       desired: "primary"

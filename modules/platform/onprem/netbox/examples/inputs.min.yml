@@ -11,4 +11,4 @@ load_vault_env: true
 target_host: "10.12.0.11"
 
 # Minimal state-driven DB contract (preferred).
-db_state_ref: "platform/onprem/postgresql-ha"
+db_state_ref: "platform/postgresql-ha"

@@ -19,4 +19,4 @@ netbox_domain: "hybzone.local"
 install_docker_engine: true
 
 # Prefer HA DB contract from module state.
-db_state_ref: "platform/onprem/postgresql-ha"
+db_state_ref: "platform/postgresql-ha"

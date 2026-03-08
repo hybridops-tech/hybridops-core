@@ -272,6 +272,20 @@ def validate(inputs: dict[str, Any]) -> None:
             if "'" in restore_target_time:
                 raise ValueError("inputs.restore_target_time must not contain single quotes")
 
+        restore_set = str(data.get("restore_set") or "").strip()
+        if restore_set:
+            if "\n" in restore_set or "\r" in restore_set:
+                raise ValueError("inputs.restore_set must not contain newlines")
+            if any(ch.isspace() for ch in restore_set):
+                raise ValueError("inputs.restore_set must not contain whitespace")
+
+        restore_target_timeline = str(data.get("restore_target_timeline") or "").strip().lower()
+        if restore_target_timeline:
+            if restore_target_timeline not in {"current", "latest"} and not restore_target_timeline.isdigit():
+                raise ValueError(
+                    "inputs.restore_target_timeline must be a numeric timeline, 'current', or 'latest'"
+                )
+
         if data.get("restore_delta") is not None and not isinstance(data.get("restore_delta"), bool):
             raise ValueError("inputs.restore_delta must be a boolean when set")
 

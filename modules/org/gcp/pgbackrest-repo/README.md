@@ -6,7 +6,7 @@ This module is intentionally infra-only:
 
 - It creates the bucket and IAM bindings.
 - It does **not** create service account keys (to avoid storing secrets in Terraform state).
-- It does **not** configure PostgreSQL or pgBackRest itself (use `platform/onprem/postgresql-ha-backup`).
+- It does **not** configure PostgreSQL or pgBackRest itself (use `platform/postgresql-ha-backup`).
 
 For generic object storage use-cases (artifacts, logs, non-PostgreSQL backups), prefer `org/gcp/object-repo`. This module keeps pgBackRest-oriented defaults.
 
@@ -92,6 +92,6 @@ hyops secrets set --env dev --from-env PG_BACKUP_GCS_SA_JSON
 
 ```bash
 hyops apply --env dev \
-  --module platform/onprem/postgresql-ha-backup \
-  --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.gcs.yml
+  --module platform/postgresql-ha-backup \
+  --inputs modules/platform/postgresql-ha-backup/examples/inputs.gcs.yml
 ```
