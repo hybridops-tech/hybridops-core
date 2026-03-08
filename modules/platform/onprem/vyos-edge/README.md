@@ -33,14 +33,15 @@ Unlike generic Linux VMs, VyOS VMs must provide explicit first-boot intent via `
 - `cloud_init_network_data` is optional; when provided it must be cloud-init v1 format (`version: 1` + `config:`).
 - `cloud_init_meta_data` must include `instance-id` and `local-hostname`.
 
-This module therefore expects a cloud-init-capable VyOS template, normally produced by `core/shared/vyos-image-artifact` (state contract) plus `core/onprem/vyos-template-seed`. It fails fast if no explicit VyOS user-data is provided.
+This module therefore expects a cloud-init-capable VyOS template, normally produced by `core/shared/vyos-image-build` plus `core/onprem/vyos-template-seed`. `core/shared/vyos-image-artifact` remains the registration-only compatibility path when the artifact already exists outside the default build module. It fails fast if no explicit VyOS user-data is provided.
 
 On the current Proxmox/VyOS template path, the primary NIC enumerates as `eth0` (not `eth1`). Write bootstrap interface commands against `eth0` unless you intentionally changed interface naming in your template.
 
-`platform/onprem/vyos-edge` also requires explicit SSH key material:
+`platform/onprem/vyos-edge` requires SSH key material, but the default path is now init-driven:
 
-- Set `ssh_keys` (preferred) or `ssh_public_key`.
-- Placeholder values are rejected.
+- `ssh_keys_from_init: true` with `ssh_keys_init_target: proxmox` consumes the public key published by `hyops init proxmox`.
+- Set explicit `ssh_keys` or `ssh_public_key` only when you intentionally override that init-discovered key.
+- Placeholder values are rejected, and mixed sources of truth are rejected.
 - HyOps injects the effective key set into VM cloud-init user-data for the configured `ssh_username` (default `vyos`) so key-based access remains deterministic.
 
 ## Outputs

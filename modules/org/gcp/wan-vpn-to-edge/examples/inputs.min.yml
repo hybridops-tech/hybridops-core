@@ -10,5 +10,7 @@ peer_ip_a: "198.51.100.10"
 peer_ip_b: "198.51.100.11"
 peer_asn: 65010
 
-shared_secret_a: "CHANGE_ME_PSK_A"
-shared_secret_b: "CHANGE_ME_PSK_B"
+required_env:
+  - "WAN_IPSEC_PSK"
+shared_secret_a_env: "WAN_IPSEC_PSK"
+shared_secret_b_env: "WAN_IPSEC_PSK"

@@ -20,8 +20,10 @@ Files:
 - `vyos-qemu.auto.pkrvars.hcl.example`
   - starting-point variables including a conservative `boot_command`
 
-The default helper path is:
+Authoritative cloud-init helper path:
 
-- `${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/packs/images/packer/shared/qemu/images/10-vyos-image-build@v1.0/stack/vyos-qemu.pkr.hcl`
+- `${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/assets/cc_vyos.py`
+
+This stack must consume that canonical helper, not carry a divergent copy under the pack directory.
 
 Treat the vars file as a release-specific scaffold, not a guaranteed universal unattended install sequence.

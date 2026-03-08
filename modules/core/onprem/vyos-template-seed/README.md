@@ -10,6 +10,8 @@ Default behavior:
 - If `artifact_state_ref` is set, HyOps resolves the shared VyOS artifact contract from upstream state first and uses that artifact URL by default.
 - Firmware mode is normalized to `seabios` during seed. If an existing template at the same VMID is not `seabios`, HyOps fails fast unless `rebuild_if_exists=true`.
 - After seed/rebuild, HyOps runs a template smoke gate by default: an ephemeral clone boots with cloud-init and HyOps verifies the expected marker landed in `config.boot` before publishing success.
+- The smoke gate is transient by design. On success it must leave only the target template in Proxmox; leftover `smoke-*` VMs, `hyops-vyos-smoke-*` snippets, or `/var/tmp/hyops-vyos-smoke-mnt-*` directories indicate stale debug residue and should be cleaned before further work.
+- The authoritative `cc_vyos.py` lives under `tools/build/vyos/assets/cc_vyos.py`. Seed and build paths must consume that single source of truth.
 
 ## Usage
 
@@ -41,7 +43,11 @@ HybridOps defaults to a shared artifact-first contract:
 - register/publish it into HyOps state
 - let Proxmox and Hetzner seed modules consume that state
 
-Direct `image_source_url` is the override path when you intentionally bypass the shared artifact contract.
+Recommended operator path:
+
+- build and publish with `core/shared/vyos-image-build`
+- consume that state via `artifact_state_ref`
+- use direct `image_source_url` only as the override path when you intentionally bypass the shared artifact contract
 
 HybridOps does not prescribe how you build or store the image. The clean contract is:
 

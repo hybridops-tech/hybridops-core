@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from .base import TerragruntModuleContract
 from .gcp_project_factory import GcpProjectFactoryContract
+from .gcp_wan_vpn_to_edge import GcpWanVpnToEdgeContract
 from .network_sdn import NetworkSdnContract
 from .proxmox_vm import ProxmoxVmContract
 
 
 _proxmox_vm = ProxmoxVmContract()
 _gcp_project_factory = GcpProjectFactoryContract()
+_gcp_wan_vpn_to_edge = GcpWanVpnToEdgeContract()
 _CONTRACTS = {
     "core/onprem/network-sdn": NetworkSdnContract(),
     "platform/onprem/platform-vm": _proxmox_vm,
@@ -23,6 +25,7 @@ _CONTRACTS = {
     "platform/onprem/postgresql-core": _proxmox_vm,
     "platform/onprem/eve-ng": _proxmox_vm,
     "org/gcp/project-factory": _gcp_project_factory,
+    "org/gcp/wan-vpn-to-edge": _gcp_wan_vpn_to_edge,
 }
 
 

@@ -18,12 +18,9 @@ required_env:
 local_asn: 65010
 peer_asn: 64514
 
-advertise_prefixes:
-  - 10.10.0.0/24
-  - 10.11.0.0/24
-  - 10.12.0.0/24
-  - 10.20.0.0/24
-  - 10.21.0.0/24
+# Leave this empty for the baseline GCP<->Hetzner underlay.
+# Add spoke/on-prem prefixes only after those routes actually exist on the edge.
+advertise_prefixes: []
 
 import_allow_prefixes:
   - 10.70.0.0/20

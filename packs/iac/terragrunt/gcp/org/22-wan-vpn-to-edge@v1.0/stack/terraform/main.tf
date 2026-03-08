@@ -70,7 +70,7 @@ resource "google_compute_router_interface" "if_a" {
   project    = var.project_id
   region     = var.region
   router     = var.router_name
-  ip_range   = var.tunnel_a_inside_cidr
+  ip_range   = "${local.tunnel_a_gcp_ip}/${split("/", var.tunnel_a_inside_cidr)[1]}"
   vpn_tunnel = google_compute_vpn_tunnel.tunnel_a.name
 }
 
@@ -79,7 +79,7 @@ resource "google_compute_router_interface" "if_b" {
   project    = var.project_id
   region     = var.region
   router     = var.router_name
-  ip_range   = var.tunnel_b_inside_cidr
+  ip_range   = "${local.tunnel_b_gcp_ip}/${split("/", var.tunnel_b_inside_cidr)[1]}"
   vpn_tunnel = google_compute_vpn_tunnel.tunnel_b.name
 }
 
@@ -89,8 +89,13 @@ resource "google_compute_router_peer" "bgp_a" {
   region          = var.region
   router          = var.router_name
   interface       = google_compute_router_interface.if_a.name
+  ip_address      = local.tunnel_a_gcp_ip
   peer_asn        = var.peer_asn
   peer_ip_address = local.tunnel_a_peer_ip
+
+  lifecycle {
+    replace_triggered_by = [google_compute_router_interface.if_a]
+  }
 
   advertise_mode            = "CUSTOM"
   advertised_route_priority = var.advertised_route_priority
@@ -109,8 +114,13 @@ resource "google_compute_router_peer" "bgp_b" {
   region          = var.region
   router          = var.router_name
   interface       = google_compute_router_interface.if_b.name
+  ip_address      = local.tunnel_b_gcp_ip
   peer_asn        = var.peer_asn
   peer_ip_address = local.tunnel_b_peer_ip
+
+  lifecycle {
+    replace_triggered_by = [google_compute_router_interface.if_b]
+  }
 
   advertise_mode            = "CUSTOM"
   advertised_route_priority = var.advertised_route_priority

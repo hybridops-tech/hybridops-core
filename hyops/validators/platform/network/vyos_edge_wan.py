@@ -59,8 +59,10 @@ def _normalize_required_env(value: Any, field: str) -> list[str]:
     return out
 
 
-def _require_cidr_list(value: Any, field: str) -> list[str]:
-    if not isinstance(value, list) or not value:
+def _require_cidr_list(value: Any, field: str, *, allow_empty: bool = False) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list")
+    if not value and not allow_empty:
         raise ValueError(f"{field} must be a non-empty list")
     out: list[str] = []
     for idx, item in enumerate(value, start=1):
@@ -170,8 +172,23 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ValueError("inputs.edge_ssh_connectivity_timeout_s must be an integer")
         if int(data.get("edge_ssh_connectivity_timeout_s")) < 1 or int(data.get("edge_ssh_connectivity_timeout_s")) > 60:
             raise ValueError("inputs.edge_ssh_connectivity_timeout_s must be between 1 and 60")
-    _require_non_empty_str(data.get("vyos_ssh_key_file"), "inputs.vyos_ssh_key_file")
-    _require_non_empty_str(data.get("vyos_ssh_private_key_env"), "inputs.vyos_ssh_private_key_env")
+
+    if data.get("edge_ssh_connectivity_wait_s") is not None:
+        if isinstance(data.get("edge_ssh_connectivity_wait_s"), bool) or not isinstance(data.get("edge_ssh_connectivity_wait_s"), int):
+            raise ValueError("inputs.edge_ssh_connectivity_wait_s must be an integer")
+        if int(data.get("edge_ssh_connectivity_wait_s")) < 1 or int(data.get("edge_ssh_connectivity_wait_s")) > 900:
+            raise ValueError("inputs.edge_ssh_connectivity_wait_s must be between 1 and 900")
+    vyos_ssh_key_file = str(data.get("vyos_ssh_key_file") or "").strip()
+    vyos_ssh_private_key_env = str(data.get("vyos_ssh_private_key_env") or "").strip()
+    if not vyos_ssh_key_file and not vyos_ssh_private_key_env:
+        raise ValueError(
+            "one of inputs.vyos_ssh_key_file or inputs.vyos_ssh_private_key_env must be set "
+            "for control-host -> VyOS authentication"
+        )
+    if vyos_ssh_key_file:
+        _require_non_empty_str(vyos_ssh_key_file, "inputs.vyos_ssh_key_file")
+    if vyos_ssh_private_key_env:
+        _require_non_empty_str(vyos_ssh_private_key_env, "inputs.vyos_ssh_private_key_env")
 
     vyos_ssh_opts = data.get("vyos_ssh_opts")
     if vyos_ssh_opts is not None:
@@ -215,7 +232,7 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_asn(data.get("local_asn"), "inputs.local_asn")
     _require_asn(data.get("peer_asn"), "inputs.peer_asn")
 
-    _require_cidr_list(data.get("advertise_prefixes"), "inputs.advertise_prefixes")
+    _require_cidr_list(data.get("advertise_prefixes"), "inputs.advertise_prefixes", allow_empty=True)
     _require_cidr_list(data.get("import_allow_prefixes"), "inputs.import_allow_prefixes")
 
     _require_non_empty_str(data.get("ipsec_ike_group"), "inputs.ipsec_ike_group")
@@ -227,3 +244,18 @@ def validate(inputs: dict[str, Any]) -> None:
 
     if data.get("validate_post_apply") is not None and not isinstance(data.get("validate_post_apply"), bool):
         raise ValueError("inputs.validate_post_apply must be a boolean when set")
+
+    if data.get("status_convergence_retries") is not None:
+        if isinstance(data.get("status_convergence_retries"), bool) or not isinstance(data.get("status_convergence_retries"), int):
+            raise ValueError("inputs.status_convergence_retries must be an integer")
+        if int(data.get("status_convergence_retries")) < 1 or int(data.get("status_convergence_retries")) > 120:
+            raise ValueError("inputs.status_convergence_retries must be between 1 and 120")
+
+    if data.get("status_convergence_delay_s") is not None:
+        if isinstance(data.get("status_convergence_delay_s"), bool) or not isinstance(data.get("status_convergence_delay_s"), int):
+            raise ValueError("inputs.status_convergence_delay_s must be an integer")
+        if int(data.get("status_convergence_delay_s")) < 1 or int(data.get("status_convergence_delay_s")) > 120:
+            raise ValueError("inputs.status_convergence_delay_s must be between 1 and 120")
+
+    if data.get("vyos_wan_no_log_sensitive") is not None and not isinstance(data.get("vyos_wan_no_log_sensitive"), bool):
+        raise ValueError("inputs.vyos_wan_no_log_sensitive must be a boolean when set")

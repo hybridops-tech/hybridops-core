@@ -51,8 +51,8 @@ steps:
       image_key: "vyos-1.5"
       # Set image_ref when the Hetzner custom image already exists.
       image_ref: ""
-      image_version: "1.5"
-      image_description: "hyops-vyos-1-5"
+      image_version: ""
+      image_description: ""
       # HyOps consumes the shared VyOS artifact state by default.
       # Set image_source_url only when you intentionally bypass the shared artifact contract.
       image_source_url: ""

@@ -132,7 +132,7 @@ build {
   sources = ["source.qemu.vyos"]
 
   provisioner "file" {
-    source      = "${path.root}/assets/cc_vyos.py"
+    source      = "${path.root}/../../../../../../../../tools/build/vyos/assets/cc_vyos.py"
     destination = "/tmp/cc_vyos.py"
   }
 
@@ -153,7 +153,7 @@ build {
       "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y cloud-init cloud-guest-utils qemu-guest-agent",
       "if ! command -v cloud-init >/dev/null 2>&1; then echo 'cloud-init install did not produce a cloud-init binary' >&2; exit 1; fi",
       "if ! dpkg-query -W -f='$${Status}' qemu-guest-agent 2>/dev/null | grep -q 'install ok installed'; then echo 'qemu-guest-agent package is required for Proxmox cloud images' >&2; exit 1; fi",
-      "if [ ! -f /usr/lib/python3/dist-packages/cloudinit/config/cc_vyos.py ] && [ -f /tmp/cc_vyos.py ]; then sudo -n install -D -m 0644 /tmp/cc_vyos.py /usr/lib/python3/dist-packages/cloudinit/config/cc_vyos.py; fi",
+      "if [ -f /tmp/cc_vyos.py ]; then sudo -n install -D -m 0644 /tmp/cc_vyos.py /usr/lib/python3/dist-packages/cloudinit/config/cc_vyos.py; fi",
       "if [ ! -f /usr/lib/python3/dist-packages/cloudinit/config/cc_vyos.py ]; then echo 'VyOS cloud-init module (cc_vyos.py) is missing; this artifact will not process vyos_config_commands correctly. Use the official vyos-vm-images cloud_init=true builder path.' >&2; exit 1; fi",
       "sudo -n python3 - <<'PY'\nfrom pathlib import Path\n\npath = Path('/etc/cloud/cloud.cfg')\ntext = path.read_text(encoding='utf-8')\nlines = text.splitlines()\n\nif any(line.strip() == '- vyos' for line in lines):\n    raise SystemExit(0)\n\nstart = None\nfor idx, line in enumerate(lines):\n    if line.strip() == 'cloud_config_modules:':\n        start = idx\n        break\n\nif start is None:\n    lines.extend(['', 'cloud_config_modules:', ' - vyos'])\nelse:\n    insert_at = start + 1\n    while insert_at < len(lines):\n        row = lines[insert_at]\n        stripped = row.strip()\n        if stripped == '' or row.startswith(' - ') or row.startswith('- '):\n            insert_at += 1\n            continue\n        break\n    lines.insert(insert_at, ' - vyos')\n\npath.write_text('\\n'.join(lines) + '\\n', encoding='utf-8')\nPY",
       "sudo -n install -d -m 0755 /etc/cloud/cloud.cfg.d",
@@ -162,7 +162,7 @@ build {
       "if command -v systemctl >/dev/null 2>&1; then sudo -n systemctl enable cloud-init-local.service cloud-init.service cloud-config.service cloud-final.service qemu-guest-agent.service; fi",
       "sudo -n cloud-init clean --logs",
       "sudo -n rm -rf /var/lib/cloud/instance /var/lib/cloud/instances /var/lib/cloud/data /var/lib/cloud/sem",
-      "if command -v python3 >/dev/null 2>&1 && [ -f /config/config.boot ]; then sudo -n cp /config/config.boot /config/config.boot.hyops-pre-template; sudo -n python3 - <<'PY'\nfrom pathlib import Path\nimport re\n\npath = Path('/config/config.boot')\ntext = path.read_text(encoding='utf-8').splitlines()\nout: list[str] = []\nstack: list[str] = []\nskip_depth: int | None = None\nopen_re = re.compile(r'^([A-Za-z0-9_-]+)(?:\\s+(?:\"[^\"]+\"|[^\\s{]+))?\\s*\\{$')\n\nfor line in text:\n    stripped = line.strip()\n    match = open_re.match(stripped)\n    is_close = stripped == '}'\n\n    if skip_depth is not None:\n        if match:\n            stack.append(match.group(1))\n            continue\n        if is_close:\n            if stack:\n                stack.pop()\n            if len(stack) < skip_depth:\n                skip_depth = None\n            continue\n        continue\n\n    if match:\n        key = match.group(1)\n        if stack and stack[-1] == 'interfaces' and key == 'ethernet':\n            stack.append(key)\n            skip_depth = len(stack)\n            continue\n        out.append(line)\n        stack.append(key)\n        continue\n\n    if is_close:\n        out.append(line)\n        if stack:\n            stack.pop()\n        continue\n\n    out.append(line)\n\npath.write_text('\\n'.join(out) + '\\n', encoding='utf-8')\nPY\nfi",
+      "# Preserve baseline interface DHCP config written during stage-2 console bootstrap.",
       "if [ ! -d /etc/cloud ] || [ ! -f /etc/cloud/cloud.cfg.d/99-hybridops.cfg ]; then echo 'cloud-init configuration was not written to /etc/cloud in the image build context' >&2; exit 1; fi",
       "sudo -n sync",
     ]

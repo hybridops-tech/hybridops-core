@@ -10,10 +10,17 @@ import ipaddress
 import re
 from typing import Any
 
+from hyops.validators.common import normalize_required_env
 from hyops.validators.registry import ModuleValidationError
 
 
 _PROJECT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+
+
+def _reject_placeholder(value: str, field: str) -> None:
+    marker = value.strip().upper()
+    if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
+        raise ModuleValidationError(f"{field} must not contain placeholder values (found {value!r})")
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
@@ -21,6 +28,15 @@ def _req_str(inputs: dict[str, Any], key: str) -> str:
     if not isinstance(v, str) or not v.strip():
         raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
     return v.strip()
+
+
+def _opt_str(inputs: dict[str, Any], key: str) -> str:
+    value = inputs.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ModuleValidationError(f"inputs.{key} must be a string when set")
+    return value.strip()
 
 
 def _req_ipv4(inputs: dict[str, Any], key: str) -> str:
@@ -97,5 +113,25 @@ def validate(inputs: dict[str, Any]) -> None:
     if int(priority) < 0:
         raise ModuleValidationError("inputs.advertised_route_priority must be >= 0")
 
-    _req_str(inputs, "shared_secret_a")
-    _req_str(inputs, "shared_secret_b")
+    required_env = normalize_required_env(inputs.get("required_env"), "inputs.required_env")
+
+    for suffix in ("a", "b"):
+        secret_field = f"shared_secret_{suffix}"
+        env_field = f"shared_secret_{suffix}_env"
+        secret_value = _opt_str(inputs, secret_field)
+        env_value = _opt_str(inputs, env_field)
+
+        if secret_value:
+            _reject_placeholder(secret_value, f"inputs.{secret_field}")
+        if env_value:
+            _reject_placeholder(env_value, f"inputs.{env_field}")
+
+        if not secret_value and not env_value:
+            raise ModuleValidationError(
+                f"one of inputs.{secret_field} or inputs.{env_field} is required"
+            )
+        if not secret_value and env_value and env_value not in required_env:
+            raise ModuleValidationError(
+                f"inputs.required_env must include: {env_value} "
+                f"(referenced by inputs.{env_field})"
+            )

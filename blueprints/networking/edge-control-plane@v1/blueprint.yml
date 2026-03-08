@@ -32,7 +32,7 @@ steps:
     artifact_local_path: /tmp/vyos-1.5.qcow2
     # Set this to your object-repo state for publish backend discovery.
     # Override in env blueprint overlay when using a non-default repo instance.
-    repo_state_ref: org/gcp/object-repo
+    repo_state_ref: org/gcp/object-repo#vyos_artifacts
     build_command: ${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh
     smoke_verify_required: true
     publish_command: ${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/publish-vyos-artifact.sh
@@ -49,8 +49,8 @@ steps:
     artifact_key: vyos-1.5
     image_key: vyos-1.5
     image_ref: ""
-    image_version: "1.5"
-    image_description: hyops-vyos-1-5
+    image_version: ""
+    image_description: ""
     image_source_url: ""
     seed_wrapper_public_base_url: ""
     seed_if_missing: true
@@ -122,6 +122,7 @@ steps:
   action: deploy
   phase: bootstrap
   with_deps: true
+  # Edge rebuilds can change public peer IPs; always reconcile this step on blueprint reruns.
   skip_if_state_ok: false
   requires:
   - hetzner_edge_foundation
@@ -140,8 +141,10 @@ steps:
     advertised_prefixes:
     - 10.70.0.0/20
     advertised_route_priority: 100
-    shared_secret_a: CHANGE_ME_PSK_A
-    shared_secret_b: CHANGE_ME_PSK_B
+    required_env:
+    - WAN_IPSEC_PSK
+    shared_secret_a_env: WAN_IPSEC_PSK
+    shared_secret_b_env: WAN_IPSEC_PSK
 - id: vyos_edge_day2
   module_ref: platform/network/vyos-edge-wan
   action: deploy
@@ -163,12 +166,9 @@ steps:
     - WAN_EDGE_SSH_PRIVATE_KEY
     local_asn: 65010
     peer_asn: 64514
-    advertise_prefixes:
-    - 10.10.0.0/24
-    - 10.11.0.0/24
-    - 10.12.0.0/24
-    - 10.20.0.0/24
-    - 10.21.0.0/24
+    # Keep the WAN baseline honest: do not advertise spoke/on-prem prefixes
+    # until the upstream spoke routes actually exist on the edge.
+    advertise_prefixes: []
     import_allow_prefixes:
     - 10.70.0.0/20
     - 10.70.16.0/20

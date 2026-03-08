@@ -1,8 +1,10 @@
 # core/shared/vyos-image-artifact
 
-Publish one canonical VyOS disk artifact contract into HyOps state so both Proxmox and Hetzner seed modules consume the same source by default.
+Register one canonical VyOS disk artifact contract into HyOps state so both Proxmox and Hetzner seed modules consume the same source by default.
 
-This module is intentionally lightweight. It does not build the image itself; it registers the pinned artifact URL and metadata that downstream seed modules can resolve state-first.
+This is the lightweight compatibility path. It does not build the image itself; it registers the pinned artifact URL and metadata that downstream seed modules can resolve state-first.
+
+For the default build-and-publish path, use `core/shared/vyos-image-build`.
 
 Typical usage:
 

@@ -5,13 +5,21 @@
   gather_facts: false
   vars:
     hyops_out_file: "{{ hyops_outputs_file }}"
+    hcloud_credentials_file_env: "{{ lookup('env', 'HYOPS_HETZNER_CREDENTIALS_FILE') | default('', true) | trim }}"
+    hcloud_tfvars_env: "{{ lookup('env', 'HYOPS_HETZNER_TFVARS') | default('', true) | trim }}"
     hcloud_credentials_dir: "{{ lookup('env', 'HYOPS_CREDENTIALS_DIR') | default('', true) | trim }}"
     hcloud_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) | trim }}"
+    hcloud_runtime_root_input: "{{ hyops_runtime_root | default('', true) | trim }}"
     hcloud_env_name: "{{ lookup('env', 'HYOPS_ENV') | default('', true) | trim }}"
     hcloud_home_dir: "{{ lookup('env', 'HOME') | default('', true) | trim }}"
     hcloud_tfvars_path: >-
       {{
-        (lookup('env', 'HYOPS_HETZNER_TFVARS') | default('', true) | trim)
+        hcloud_tfvars_env
+        or hcloud_credentials_file_env
+        or (
+          (hcloud_runtime_root_input | length > 0)
+          | ternary(hcloud_runtime_root_input ~ '/credentials/hetzner.credentials.tfvars', '')
+        )
         or (
           (hcloud_credentials_dir | length > 0)
           | ternary(hcloud_credentials_dir ~ '/hetzner.credentials.tfvars', '')
@@ -25,21 +33,10 @@
           | ternary(hcloud_home_dir ~ '/.hybridops/envs/' ~ hcloud_env_name ~ '/credentials/hetzner.credentials.tfvars', '')
         )
       }}
-    hcloud_tfvars_raw: "{{ lookup('file', hcloud_tfvars_path, errors='ignore') | default('', true) }}"
-    hcloud_token_from_tfvars: >-
-      {{
-        (
-          hcloud_tfvars_raw
-          | regex_findall('(?m)^hcloud_token\\s*=\\s*\"([^\"]+)\"')
-          | first
-          | default('')
-        ) | string | trim
-      }}
-    hcloud_token: >-
+    hcloud_token_env: >-
       {{
         (lookup('env', 'HCLOUD_TOKEN') | default('', true) | trim)
         or (lookup('env', 'hcloud_token') | default('', true) | trim)
-        or hcloud_token_from_tfvars
       }}
     hcloud_api_url: "https://api.hetzner.cloud/v1"
     image_source_url_effective: "{{ image_source_url | default('', true) | trim }}"
@@ -57,7 +54,18 @@
     seed_wrapper_public_base_url_effective: "{{ seed_wrapper_public_base_url | default('', true) | trim }}"
     seed_wrapper_bind_port_effective: "{{ (seed_wrapper_bind_port | default(18080)) | int }}"
     seed_wrapper_script: "{{ playbook_dir }}/bin/seed-vyos-hetzner-from-qcow2.sh"
-    image_description_effective: "{{ (image_description | default('', true) | trim) or ('hyops-vyos-' ~ image_key) }}"
+    image_version_effective: "{{ image_version | default('', true) | trim }}"
+    image_description_effective: >-
+      {{
+        (image_description | default('', true) | trim)
+        or (
+          'hyops-' ~ image_key
+          ~ (
+              (image_version_effective | length > 0)
+              | ternary('-' ~ image_version_effective, '')
+            )
+        )
+      }}
     image_name_effective: "{{ image_name | default('', true) | trim }}"
     image_labels_effective: >-
       {{
@@ -73,6 +81,38 @@
       {{- "," if not loop.first else "" -}}{{ item.key }}={{ item.value }}
       {%- endfor -%}
   tasks:
+    - name: Extract Hetzner token from tfvars when env is not set
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import pathlib
+            import re
+            import sys
+            path = pathlib.Path(sys.argv[1])
+            if not path.exists():
+                raise SystemExit(0)
+            text = path.read_text(encoding="utf-8")
+            match = re.search(r'(?m)^hcloud_token\s*=\s*"?([^"\s#]+)"?', text)
+            if match:
+                print(match.group(1))
+          - "{{ hcloud_tfvars_path }}"
+      register: hcloud_token_probe
+      changed_when: false
+      failed_when: false
+      when:
+        - hcloud_token_env | length == 0
+        - hcloud_tfvars_path | length > 0
+
+    - name: Resolve effective Hetzner token
+      ansible.builtin.set_fact:
+        hcloud_token: >-
+          {{
+            hcloud_token_env
+            or (hcloud_token_probe.stdout | default('', true) | trim)
+          }}
+
     - name: Fail when Hetzner token is not available
       ansible.builtin.fail:
         msg: >-
@@ -196,6 +236,7 @@
           }}
       when:
         - image_source_probe_head is defined
+        - (seed_command | default('', true) | trim) | length == 0
 
     - name: Fail when image source URL is unreachable or invalid
       ansible.builtin.fail:
@@ -208,6 +249,7 @@
           and consume its artifact_state_ref/artifact_key outputs.
       when:
         - image_source_probe_head is defined
+        - (seed_command | default('', true) | trim) | length == 0
         - not (image_source_probe_ok | default(false))
 
     - name: Build effective seeding command
@@ -339,7 +381,7 @@
           image_ref: "{{ resolved_image.id | string }}"
           image_name: "{{ resolved_image.name | default('') }}"
           image_description: "{{ resolved_image.description | default(image_description_effective) }}"
-          image_version: "{{ image_version | default('') }}"
+          image_version: "{{ image_version_effective }}"
           image_source_url: "{{ image_source_url | default('') }}"
           image_seeded: "{{ (seed_result is defined) | bool }}"
           images: >-
@@ -349,7 +391,7 @@
                   'image_ref': (resolved_image.id | string),
                   'image_name': (resolved_image.name | default('')),
                   'image_description': (resolved_image.description | default(image_description_effective)),
-                  'image_version': (image_version | default('')),
+                  'image_version': image_version_effective,
                   'image_source_url': (image_source_url | default(''))
                 }
               }

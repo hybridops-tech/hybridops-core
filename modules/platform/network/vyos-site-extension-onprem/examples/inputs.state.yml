@@ -1,0 +1,33 @@
+# State-driven example (recommended)
+# Assumes upstream module states exist in this env:
+#   - platform/onprem/vyos-edge#vyos_edge_vm
+#   - org/hetzner/vyos-edge-foundation
+
+target_state_ref: platform/onprem/vyos-edge#vyos_edge_vm
+target_vm_key: edge-01
+
+required_env:
+  - SITE_EXTENSION_IPSEC_PSK
+  - ONPREM_EDGE_SSH_PRIVATE_KEY
+
+# Use the same stable identity value that the Hetzner-side module expects as
+# onprem_peer_id.
+onprem_local_id: onprem-site.example.net
+
+# If the public Hetzner peers do not naturally resolve via the VyOS WAN bind
+# interface, pin them to the correct upstream next hop.
+public_peer_route_next_hop: ""
+
+advertise_prefixes:
+  - 10.10.0.0/24
+  - 10.12.0.0/24
+
+# Install static routes for any advertised internal prefixes that are not already
+# directly connected on the on-prem VyOS.
+static_route_prefixes:
+  - 10.12.0.0/24
+internal_route_next_hop: 10.10.0.1
+
+import_allow_prefixes:
+  - 10.70.0.0/20
+  - 10.70.16.0/20

@@ -24,6 +24,21 @@ Default placement:
 - Defaults target `location=ash` / `home_location=ash` with `server_type=cpx21`, which is a known working combo for the current VyOS image flow.
 - Override `location`, `home_location`, and `server_type` together when your Hetzner project has different regional capacity.
 
+First-boot networking:
+
+- The foundation cloud-init config now pins Hetzner's standard public host route and default route via `172.31.1.1` on `eth0`.
+- This keeps custom VyOS images aligned with Hetzner's routed public network model and avoids relying on implicit DHCP route behavior alone.
+- Hetzner Cloud Networks are also routed. The private NIC is therefore configured as `private_ip/32`, with an explicit route to `private_network_cidr` via the standard private gateway (`cidrhost(private_network_cidr, 1)`).
+- The foundation also performs one intentional first-boot reboot after cloud-init writes `config.boot`.
+- This is required because `vyos_config_commands` persist the target config for the next VyOS boot; without that second boot the public/private edge interfaces may not be active yet.
+
+IPsec firewall allowlist:
+
+- `ipsec_source_cidrs` must include every public peer that will terminate IPsec on the Hetzner edges.
+- For the baseline GCP HA VPN path, include the Cloud VPN public gateway IPs.
+- For the on-prem site-extension path, also include the on-prem peer endpoint (for example `198.51.100.10/32`).
+- If a peer is omitted here, the VyOS responder will never answer IKE even if the day-2 config is otherwise correct.
+
 Example:
 
 ```bash

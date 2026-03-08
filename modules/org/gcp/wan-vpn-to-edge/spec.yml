@@ -12,6 +12,8 @@ requirements:
 
 inputs:
   defaults:
+    required_env:
+      - "WAN_IPSEC_PSK"
     name_prefix: ""
     context_id: ""
 
@@ -37,6 +39,8 @@ inputs:
 
     shared_secret_a: ""
     shared_secret_b: ""
+    shared_secret_a_env: "WAN_IPSEC_PSK"
+    shared_secret_b_env: "WAN_IPSEC_PSK"
 
 execution:
   driver: "iac/terragrunt"

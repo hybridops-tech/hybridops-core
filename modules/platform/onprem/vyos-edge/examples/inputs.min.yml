@@ -2,8 +2,9 @@ template_state_ref: "core/onprem/vyos-template-seed"
 template_key: "vyos-1.5"
 require_ipam: false
 ssh_username: "vyos"
-ssh_keys:
-  - "CHANGE_ME_SSH_PUBLIC_KEY"
+ssh_keys_from_init: true
+ssh_keys_init_target: "proxmox"
+ssh_keys: []
 guest_agent_enabled: false
 
 vms:

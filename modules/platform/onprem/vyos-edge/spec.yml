@@ -31,6 +31,9 @@ inputs:
     require_ipam: false
     allow_vm_set_replace: false
     ssh_username: "vyos"
+    ssh_keys_from_init: true
+    ssh_keys_init_target: "proxmox"
+    ssh_keys: []
     post_apply_ssh_readiness:
       enabled: true
       required: true
