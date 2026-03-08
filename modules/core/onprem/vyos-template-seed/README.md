@@ -84,4 +84,4 @@ template_key: "vyos-1.5"
 
 Compatibility:
 
-- Use [`core/onprem/vyos-template-import`](/home/user/hybridops-studio/hybridops-core/modules/core/onprem/vyos-template-import/README.md) when the Proxmox template is managed entirely outside HyOps and you only want to register it into state.
+- Use [`core/onprem/vyos-template-import`](../vyos-template-import/README.md) when the Proxmox template is managed entirely outside HyOps and you only want to register it into state.
