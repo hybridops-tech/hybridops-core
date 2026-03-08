@@ -65,4 +65,4 @@ hyops validate --env dev --skip-preflight \
 
 Compatibility:
 
-- Use [`core/hetzner/vyos-image-register`](/home/user/hybridops-studio/hybridops-core/modules/core/hetzner/vyos-image-register/README.md) when you already seeded a Hetzner image outside HyOps and only want to register it into state.
+- Use [`core/hetzner/vyos-image-register`](../vyos-image-register/README.md) when you already seeded a Hetzner image outside HyOps and only want to register it into state.
