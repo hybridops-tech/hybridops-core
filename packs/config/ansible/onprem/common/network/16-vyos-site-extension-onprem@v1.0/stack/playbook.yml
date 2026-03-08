@@ -1,0 +1,30 @@
+---
+- name: platform/network/vyos-site-extension-onprem (configure)
+  hosts: localhost
+  connection: local
+  any_errors_fatal: true
+  become: false
+  gather_facts: true
+
+  vars:
+    vyos_site_extension_onprem_role_fqcn: "{{ vyos_site_extension_onprem_role_fqcn | default('hybridops.common.vyos_site_extension_onprem') }}"
+
+  tasks:
+    - name: Run VyOS site-extension on-prem role
+      ansible.builtin.include_role:
+        name: "{{ vyos_site_extension_onprem_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'onprem.target_host': (target_host | string),
+            'vyos.edge01.bgp_neighbor': (edge01_inside_peer_ip | string),
+            'vyos.edge02.bgp_neighbor': (edge02_inside_peer_ip | string),
+            'cap.network.vyos_site_extension_onprem': ((vyos_site_extension_state | default('present') | lower) == 'absent') | ternary('absent', 'ready')
+          } | to_json }}

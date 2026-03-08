@@ -4,8 +4,9 @@ locals {
   prefix_2   = replace(local.prefix_1, "/-+/", "-")
   prefix     = trim(local.prefix_2, "-")
 
-  vm_name       = local.prefix != "" ? "${local.prefix}-${var.host_name}" : var.host_name
-  firewall_name = local.prefix != "" ? "${local.prefix}-${var.firewall_name}" : var.firewall_name
+  vm_name            = local.prefix != "" ? "${local.prefix}-${var.host_name}" : var.host_name
+  firewall_name      = local.prefix != "" ? "${local.prefix}-${var.firewall_name}" : var.firewall_name
+  private_gateway_ip = cidrhost(var.private_network_cidr, 1)
 
   cloud_init = <<-EOT
     #cloud-config
@@ -17,6 +18,36 @@ locals {
         sudo: ALL=(ALL) NOPASSWD:ALL
         ssh_authorized_keys:
 ${join("\n", [for key in var.ssh_keys : "          - ${key}"])}
+    write_files:
+      - path: /usr/local/sbin/hyops-config-private-net.sh
+        permissions: "0755"
+        owner: root:root
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          default_iface="$$(ip route show default 0.0.0.0/0 | awk '{print $$5; exit}')"
+          private_iface="$$(ip -o link show | awk -F': ' '$$2 != \"lo\" {gsub(/@.*/, \"\", $$2); print $$2}' | grep -vx "$$default_iface" | head -n1)"
+          if [ -z "$$private_iface" ]; then
+            echo "HyOps: failed to detect Hetzner private interface" >&2
+            exit 1
+          fi
+          cat > /etc/netplan/61-hybridops-private.yaml <<NETPLAN
+          network:
+            version: 2
+            ethernets:
+              $${private_iface}:
+                dhcp4: false
+                dhcp6: false
+                addresses:
+                  - ${var.private_ip}/32
+                routes:
+                  - to: ${var.private_network_cidr}
+                    via: ${local.private_gateway_ip}
+                    on-link: true
+          NETPLAN
+          netplan apply
+    runcmd:
+      - [ bash, -lc, /usr/local/sbin/hyops-config-private-net.sh ]
     package_update: true
     package_upgrade: false
   EOT

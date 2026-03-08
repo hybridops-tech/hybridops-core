@@ -1,0 +1,30 @@
+# State-driven example (recommended)
+# Assumes upstream module states exist in this env:
+#   - org/hetzner/shared-control-host#edge_control_host
+#   - org/hetzner/vyos-edge-foundation
+
+inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+inventory_vm_groups:
+  edge_control:
+    - control-01
+
+target_user: opsadmin
+
+required_env:
+  - SITE_EXTENSION_IPSEC_PSK
+  - WAN_EDGE_SSH_PRIVATE_KEY
+
+# Use a stable IPv4 or a DNS name when the on-prem public IP can change.
+onprem_peer_remote_address: onprem-site.example.net
+onprem_peer_id: onprem-site.example.net
+
+local_asn: 65010
+peer_asn: 65010
+
+advertise_prefixes:
+  - 10.70.0.0/20
+  - 10.70.16.0/20
+
+import_allow_prefixes:
+  - 10.10.0.0/24
+  - 10.12.0.0/24

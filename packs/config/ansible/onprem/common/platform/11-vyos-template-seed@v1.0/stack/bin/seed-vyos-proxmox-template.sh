@@ -29,6 +29,15 @@ SSH_OPTS=(
   -i "${PROXMOX_SSH_KEY}"
 )
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CORE_ROOT="$(cd "${SCRIPT_DIR}/../../../../../../../../.." && pwd)"
+CANONICAL_CC_VYOS="${HYOPS_CC_VYOS_SOURCE:-${CORE_ROOT}/tools/build/vyos/assets/cc_vyos.py}"
+
+if [[ ! -f "${CANONICAL_CC_VYOS}" ]]; then
+  echo "Canonical cc_vyos.py not found: ${CANONICAL_CC_VYOS}" >&2
+  exit 9
+fi
+
 REMOTE="${PROXMOX_SSH_USER}@${PROXMOX_HOST}"
 REMOTE_TMP="/var/tmp/hyops-vyos-template-${TEMPLATE_VMID}"
 REBUILD_IF_EXISTS="${REBUILD_IF_EXISTS:-false}"
@@ -175,6 +184,9 @@ download_source_artifact() {
       fi
       ;;
     https://storage.googleapis.com/*)
+      if curl -fsSL "$url" -o "$output_file"; then
+        return 0
+      fi
       local bucket_and_path bucket object_name
       bucket_and_path="${url#https://storage.googleapis.com/}"
       bucket="${bucket_and_path%%/*}"
@@ -186,7 +198,7 @@ download_source_artifact() {
       elif command -v gsutil >/dev/null 2>&1; then
         gsutil cp "gs://${bucket_and_path}" "$output_file"
       else
-        echo "Private GCS source requires gcloud/gsutil or HYOPS_VYOS_GCS_SA_JSON_FILE" >&2
+        echo "GCS source could not be downloaded via curl and no authenticated GCS client is available" >&2
         exit 7
       fi
       ;;
@@ -269,6 +281,7 @@ if [[ "${REMOTE_SOURCE}" -eq 0 ]]; then
 fi
 
 ssh_run "REMOTE_TMP='${REMOTE_TMP}' bash -lc $(printf '%q' "${REMOTE_PREP}")"
+scp_to_remote "${CANONICAL_CC_VYOS}" "${REMOTE_TMP}/cc_vyos.py"
 if [[ "${REMOTE_SOURCE}" -eq 0 ]]; then
   scp_to_remote "${LOCAL_DISK}" "${REMOTE_TMP}/disk"
 fi
@@ -343,8 +356,8 @@ if [[ -z "${RW_ROOT}" ]]; then
 fi
 CLOUD_CFG="${RW_ROOT}/etc/cloud/cloud.cfg"
 CC_VYOS="${RW_ROOT}/usr/lib/python3/dist-packages/cloudinit/config/cc_vyos.py"
-if [[ ! -f "${CC_VYOS}" ]]; then
-  echo "missing ${CC_VYOS}; vyos cloud-init module is required for vyos_config_commands" >&2
+if [[ ! -f "${REMOTE_TMP}/cc_vyos.py" ]]; then
+  echo "missing canonical cc_vyos.py in ${REMOTE_TMP}" >&2
   exit 31
 fi
 if [[ ! -f "${CLOUD_CFG}" ]]; then
@@ -382,107 +395,31 @@ else:
 
 path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
+install -D -m 0644 "${REMOTE_TMP}/cc_vyos.py" "${CC_VYOS}"
 python3 - "${CC_VYOS}" <<'PY'
 from pathlib import Path
-import re
+import py_compile
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-source_patch = (
-    "try:\n"
-    "    from cloudinit.sources import INSTANCE_JSON_FILE\n"
-    "except ImportError:\n"
-    "    INSTANCE_JSON_FILE = 'instance-data.json'\n"
-)
-if source_patch not in text:
-    needle = "from cloudinit.sources import INSTANCE_JSON_FILE\n"
-    if needle in text:
-        text = text.replace(needle, source_patch, 1)
-    else:
-        text = text.replace(
-            "from cloudinit.settings import PER_INSTANCE\n",
-            "from cloudinit.settings import PER_INSTANCE\n" + source_patch,
-            1,
+required_markers = [
+    "def apply_vyos_config_boot",
+    "def apply_vyos_commands",
+    "normalize_vyos_config_commands",
+    "cfg.get('vyos_config_commands')",
+    "parse_commands(vyos_command)",
+    "config.delete_value(",
+    "config.to_string()",
+]
+missing = [marker for marker in required_markers if marker not in text]
+if missing:
+    raise SystemExit(
+        "cc_vyos.py is missing required HybridOps markers: {}".format(
+            ", ".join(missing)
         )
-
-if "from cloudinit.distros import ALL_DISTROS\n" not in text:
-    text = text.replace(
-        "from cloudinit.distros import ug_util\n",
-        "from cloudinit.distros import ug_util\nfrom cloudinit.distros import ALL_DISTROS\n",
-        1,
     )
-if "from cloudinit.config.schema import MetaSchema, get_meta_doc\n" not in text:
-    text = text.replace(
-        "from cloudinit.settings import PER_INSTANCE\n",
-        "from cloudinit.config.schema import MetaSchema, get_meta_doc\nfrom cloudinit.settings import PER_INSTANCE\n",
-        1,
-    )
-
-meta_block = (
-    "MODULE_DESCRIPTION = \"Apply VyOS-specific cloud-init configuration.\"\n"
-    "MODULE_EXAMPLES = [\n"
-    "    \"\"\"#cloud-config\\n"
-    "vyos_config_commands:\\n"
-    "  - set interfaces ethernet eth0 address 'dhcp'\\n"
-    "\"\"\"\n"
-    "]\n\n"
-    "meta: MetaSchema = {\n"
-    "    \"id\": \"cc_vyos\",\n"
-    "    \"name\": \"VyOS\",\n"
-    "    \"title\": \"Apply VyOS cloud-init configuration\",\n"
-    "    \"description\": MODULE_DESCRIPTION,\n"
-    "    \"examples\": MODULE_EXAMPLES,\n"
-    "    \"distros\": [ALL_DISTROS],\n"
-    "    \"frequency\": PER_INSTANCE,\n"
-    "    \"activate_by_schema_keys\": [\"vyos_config_commands\"],\n"
-    "}\n\n"
-    "__doc__ = get_meta_doc(meta)\n\n"
-)
-if "meta: MetaSchema" not in text:
-    text = text.replace("frequency = PER_INSTANCE\n\n", "frequency = PER_INSTANCE\n\n" + meta_block, 1)
-else:
-    if "MODULE_EXAMPLES" not in text:
-        text = text.replace(
-            "MODULE_DESCRIPTION = \"Apply VyOS-specific cloud-init configuration.\"\n",
-            "MODULE_DESCRIPTION = \"Apply VyOS-specific cloud-init configuration.\"\n"
-            "MODULE_EXAMPLES = [\n"
-            "    \"\"\"#cloud-config\\n"
-            "vyos_config_commands:\\n"
-            "  - set interfaces ethernet eth0 address 'dhcp'\\n"
-            "\"\"\"\n"
-            "]\n",
-            1,
-        )
-    meta_match = re.search(r"meta:\s*MetaSchema\s*=\s*\{.*?\n\}", text, re.S)
-    if meta_match and "\"examples\"" not in meta_match.group(0):
-        patched = meta_match.group(0)
-        if "\"description\": MODULE_DESCRIPTION,\n" in patched:
-            patched = patched.replace(
-                "\"description\": MODULE_DESCRIPTION,\n",
-                "\"description\": MODULE_DESCRIPTION,\n    \"examples\": MODULE_EXAMPLES,\n",
-                1,
-            )
-        elif "\"distros\": [ALL_DISTROS],\n" in patched:
-            patched = patched.replace(
-                "\"distros\": [ALL_DISTROS],\n",
-                "\"examples\": MODULE_EXAMPLES,\n    \"distros\": [ALL_DISTROS],\n",
-                1,
-            )
-        text = text[:meta_match.start()] + patched + text[meta_match.end():]
-
-legacy_hostname_unpack = "(hostname, fqdn) = get_hostname_fqdn(cfg, cloud, metadata_only=True)\n"
-modern_hostname_unpack = (
-    "hostname_info = get_hostname_fqdn(cfg, cloud, metadata_only=True)\n"
-    "    hostname = getattr(hostname_info, 'hostname', None)\n"
-    "    fqdn = getattr(hostname_info, 'fqdn', None)\n"
-    "    if hostname is None and isinstance(hostname_info, (tuple, list)) and len(hostname_info) >= 2:\n"
-    "        hostname, fqdn = hostname_info[0], hostname_info[1]\n"
-)
-if legacy_hostname_unpack in text and modern_hostname_unpack not in text:
-    text = text.replace(legacy_hostname_unpack, modern_hostname_unpack, 1)
-
-path.write_text(text, encoding="utf-8")
+py_compile.compile(str(path), doraise=True)
 PY
 rm -rf "${RW_ROOT}/var/lib/cloud/instances" "${RW_ROOT}/var/lib/cloud/instance" "${RW_ROOT}/var/lib/cloud/sem" || true
 cleanup_template_mount
@@ -554,6 +491,7 @@ manage_etc_hosts: true
 network:
   config: disabled
 vyos_config_commands:
+  - "set system domain-name '${SMOKE_MARKER}.hyops.internal'"
   - "set interfaces ethernet eth0 address 'dhcp'"
   - "set service ssh port '22'"
 USERDATA
@@ -616,6 +554,11 @@ if ! grep -q "host-name \"${SMOKE_MARKER}\"" "${CONFIG_BOOT}"; then
   echo "smoke gate: expected host-name marker '${SMOKE_MARKER}' not found in config.boot" >&2
   sed -n '1,220p' "${CONFIG_BOOT}" >&2 || true
   exit 26
+fi
+if ! grep -q "domain-name \"${SMOKE_MARKER}\\.hyops\\.internal\"" "${CONFIG_BOOT}"; then
+  echo "smoke gate: expected vyos_config_commands marker '${SMOKE_MARKER}' not found in config.boot" >&2
+  sed -n '1,220p' "${CONFIG_BOOT}" >&2 || true
+  exit 27
 fi
 
 RESULT_JSON="${RW_ROOT}/var/lib/cloud/data/result.json"

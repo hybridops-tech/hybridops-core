@@ -55,6 +55,7 @@ inputs:
     # Vault/env wiring
     required_env:
       - "WAN_IPSEC_PSK"
+      - "WAN_EDGE_SSH_PRIVATE_KEY"
     required_env_destroy: []
     load_vault_env: false
 
@@ -69,6 +70,7 @@ inputs:
     vyos_ssh_key_file: "/home/opsadmin/.ssh/id_ed25519"
     vyos_ssh_private_key_env: "WAN_EDGE_SSH_PRIVATE_KEY"
     edge_ssh_connectivity_timeout_s: 8
+    edge_ssh_connectivity_wait_s: 180
     vyos_ssh_opts:
       - "-o StrictHostKeyChecking=no"
       - "-o UserKnownHostsFile=/dev/null"
@@ -102,12 +104,7 @@ inputs:
     local_asn: 65010
     peer_asn: 64514
 
-    advertise_prefixes:
-      - "10.10.0.0/24"
-      - "10.11.0.0/24"
-      - "10.12.0.0/24"
-      - "10.20.0.0/24"
-      - "10.21.0.0/24"
+    advertise_prefixes: []
     import_allow_prefixes:
       - "10.70.0.0/20"
       - "10.70.16.0/20"
@@ -120,6 +117,11 @@ inputs:
     bgp_import_route_map: "HYOPS-GCP-IMPORT"
 
     validate_post_apply: true
+    status_convergence_retries: 24
+    status_convergence_delay_s: 10
+
+    # Keep sensitive command output redacted by default.
+    vyos_wan_no_log_sensitive: true
 
 execution:
   driver: "config/ansible"

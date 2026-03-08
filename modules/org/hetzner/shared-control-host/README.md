@@ -12,6 +12,9 @@ The module creates:
 - one `hcloud_server`
 - one SSH-only firewall on the public interface
 - cloud-init to create a stable `opsadmin` automation user
+- first-boot netplan normalization for the Hetzner private NIC using the routed
+  cloud-network model (`private_ip/32` plus route to `private_network_cidr`
+  via the network gateway)
 
 The module intentionally avoids creating duplicate Hetzner project SSH key objects. Access is established through cloud-init using the public key resolved from `hyops init hetzner` or explicitly supplied in `inputs.ssh_keys`.
 

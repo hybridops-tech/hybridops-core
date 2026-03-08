@@ -1,7 +1,9 @@
 image_key: "vyos-1.5"
 image_ref: ""
-image_version: "1.5"
-image_description: "hyops-vyos-1-5"
+# Leave these empty when consuming a shared artifact contract so HyOps can
+# version the Hetzner snapshot identity from the upstream artifact state.
+image_version: ""
+image_description: ""
 # Use the same operator-managed qcow2 artifact you intend to use for Proxmox.
 # If you already published a shared artifact contract, prefer artifact_state_ref/artifact_key in your blueprint instead.
 # HyOps will auto-wrap qcow2(.xz/.gz/.bz2) into a Hetzner-friendly raw image when seeding.

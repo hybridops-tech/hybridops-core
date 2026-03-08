@@ -48,6 +48,10 @@ def _has_eth1_static_override(payload: str) -> bool:
 
 
 def _validate_ssh_key_inputs(inputs: dict[str, Any]) -> None:
+    ssh_keys_from_init = inputs.get("ssh_keys_from_init")
+    if ssh_keys_from_init is not None and not isinstance(ssh_keys_from_init, bool):
+        raise ModuleValidationError("inputs.ssh_keys_from_init must be a boolean")
+
     keys: list[str] = []
 
     raw_keys = inputs.get("ssh_keys")
@@ -65,10 +69,24 @@ def _validate_ssh_key_inputs(inputs: dict[str, Any]) -> None:
             raise ModuleValidationError("inputs.ssh_public_key must be a non-empty string when set")
         keys.append(raw_single.strip())
 
-    if not keys:
+    raw_init_target = inputs.get("ssh_keys_init_target")
+    if raw_init_target is not None and str(raw_init_target).strip():
+        init_target = str(raw_init_target).strip()
+        marker = init_target.upper()
+        if "CHANGE_ME" in marker or "<" in init_target or "EXAMPLE" in marker:
+            raise ModuleValidationError("inputs.ssh_keys_init_target must not contain placeholder values")
+
+    if ssh_keys_from_init and keys:
         raise ModuleValidationError(
-            "platform/onprem/vyos-edge requires explicit SSH key material. "
-            "Set inputs.ssh_keys (preferred) or inputs.ssh_public_key."
+            "inputs.ssh_keys_from_init=true cannot be combined with explicit inputs.ssh_keys or inputs.ssh_public_key. "
+            "Choose one source of truth: set ssh_keys_from_init=false to use explicit keys, "
+            "or remove the explicit key inputs to consume the init-discovered key."
+        )
+
+    if not ssh_keys_from_init and not keys:
+        raise ModuleValidationError(
+            "platform/onprem/vyos-edge requires SSH key material. "
+            "Set inputs.ssh_keys (preferred), inputs.ssh_public_key, or enable inputs.ssh_keys_from_init=true."
         )
 
     pubkey_re = re.compile(

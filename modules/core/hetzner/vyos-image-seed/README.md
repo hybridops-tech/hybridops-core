@@ -7,7 +7,7 @@ Default behavior:
 - If `image_ref` is provided, HyOps verifies and publishes that image reference.
 - If `image_ref` is empty, HyOps looks for an existing snapshot using the effective image description.
 - If no matching image exists and `seed_if_missing=true`, HyOps runs the seeding tool once, captures the created image id, and publishes it.
-- If `artifact_state_ref` is set, HyOps resolves the shared VyOS artifact contract from upstream state first and uses that artifact URL by default.
+- If `artifact_state_ref` is set, HyOps resolves the shared VyOS artifact contract from upstream state first and treats it as authoritative for the artifact URL, SHA, and versioned seed inputs.
 
 The default seeding path expects the `hcloud-upload-image` helper to be installed on the execution host.
 
@@ -19,6 +19,13 @@ Practical note for VyOS:
 - if your image virtual disk is larger than the default import server disk, set `seed_server_type` (for example `cpx21` for 80G) so the temporary import server has enough disk
 - if your only upstream source is an installer ISO, keep `image_source_url` empty and provide a custom `seed_command` that performs the ISO-to-image workflow before snapshot creation
 
+Versioning guidance:
+
+- When you consume `artifact_state_ref`, leave `image_version` and `image_description` empty unless you are intentionally pinning a custom Hetzner snapshot identity.
+- Leave `seed_command` empty as well so HyOps can generate the correct wrapper/import command from the current shared artifact contract.
+- HyOps will resolve `image_version` from the upstream artifact contract and derive a versioned `image_description` automatically.
+- If you want to bypass that contract on purpose, omit `artifact_state_ref` and provide `image_source_url` or `seed_command` explicitly.
+
 HybridOps defaults to a shared artifact-first contract:
 
 - build and publish one canonical VyOS disk artifact
@@ -29,7 +36,7 @@ Recommended upstream state reference:
 
 - `artifact_state_ref: core/shared/vyos-image-build#vyos_default_build`
 
-Direct `image_source_url` is the override path when you intentionally bypass the shared artifact contract.
+Direct `image_source_url` is the override path when you intentionally bypass the shared artifact contract. Do not set both `artifact_state_ref` and a competing `image_source_url` unless you expect the shared artifact contract to win.
 
 HybridOps does not prescribe how you build or store that disk image. The clean contract is:
 

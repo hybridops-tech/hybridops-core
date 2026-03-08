@@ -35,9 +35,14 @@ monitor_device = "unix:/tmp/vyos-stage1-monitor.sock,server,nowait"
 
 # Stage-1 console install scaffold for VyOS BIOS boot.
 # Packer's active VNC connection prevents GRUB's 10s auto-boot countdown
-# from completing.  We therefore set boot_wait=5s (just long enough for the
+# from completing. We therefore set boot_wait=5s (just long enough for the
 # GRUB menu to appear), send Enter to boot "KVM console" (entry 0), then
-# wait 120 s for VyOS live to finish booting before typing login creds.
+# wait for VyOS live to finish booting before typing login creds.
+#
+# The installer has one late prompt after partitioning:
+#   Which file would you like as boot config? (Default: 1)
+# That prompt can appear well after the earlier disk-confirmation answers on
+# KVM builders, so we intentionally keep a dedicated delayed Enter for it.
 boot_command = [
   "<enter><wait120>",
   "<enter><wait5>",
@@ -48,13 +53,13 @@ boot_command = [
   "<enter><wait3>",
   "vyos<enter><wait3>",
   "vyos<enter><wait6>",
-  "K<enter><wait8>",
-  "<enter><wait3>",
-  "y<enter><wait3>",
-  "Y<enter><wait120>",
-  "1<enter><wait180>",
-  "poweroff<enter><wait2>",
-  "y<enter><wait5>"
+  # Disk probing and confirmation prompts can take longer on some builders.
+  "K<enter><wait20>",
+  "<enter><wait8>",
+  "y<enter><wait8>",
+  "Y<enter><wait180>",
+  "<enter><wait180>",
+  "echo vyos | sudo -S poweroff<enter><wait10>"
 ]
 
 # Stage-2 console bootstrap on the installed disk.
@@ -70,6 +75,12 @@ installed_boot_command = [
   "configure<enter><wait3>",
   "delete interfaces ethernet eth0 address<enter><wait2>",
   "set interfaces ethernet eth0 address dhcp<enter><wait3>",
+  "delete interfaces ethernet eth1 address<enter><wait2>",
+  "set interfaces ethernet eth1 address dhcp<enter><wait3>",
+  "delete interfaces ethernet ens10 address<enter><wait2>",
+  "set interfaces ethernet ens10 address dhcp<enter><wait3>",
+  "delete interfaces ethernet ens11 address<enter><wait2>",
+  "set interfaces ethernet ens11 address dhcp<enter><wait3>",
   "set service ssh port 22<enter><wait2>",
   "set service ssh listen-address 0.0.0.0<enter><wait2>",
   "delete service ssh disable-password-authentication<enter><wait2>",

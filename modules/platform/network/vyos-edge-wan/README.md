@@ -15,12 +15,31 @@ It intentionally replaces the legacy Linux strongSwan/FRR `platform/network/wan-
   - VTI interfaces with inside /30 addresses
   - BGP peering and route policy
 
-## Required Secret
+Baseline routing note:
+
+- Keep `advertise_prefixes: []` for the initial GCP <-> Hetzner underlay.
+- Only add spoke or on-prem prefixes after those routes actually exist on the edge.
+- Do not advertise future prefixes speculatively just to make Cloud Router show learned routes.
+
+Convergence note:
+
+- Cloud VPN/BGP convergence on one edge can lag the other during day-2 reruns.
+- The default post-apply convergence window is intentionally longer than the initial
+  underlay bring-up so HyOps does not report a false failure while the slower leg
+  finishes re-establishing.
+
+## Required Secrets
 
 - `WAN_IPSEC_PSK` (via env or vault when `load_vault_env=true`)
+- `WAN_EDGE_SSH_PRIVATE_KEY` for reproducible control-host -> edge access
 - SSH key source for control-host -> VyOS access:
   - preferred: `WAN_EDGE_SSH_PRIVATE_KEY` env (transient, module writes/removes temp key on control host), or
   - fallback: key file present on control host at `vyos_ssh_key_file`
+
+For shipped/reusable runs, keep both env keys in `required_env` so HyOps can
+reconstruct access from vault without relying on manual controller state. Only
+remove `WAN_EDGE_SSH_PRIVATE_KEY` from `required_env` if you deliberately manage
+`vyos_ssh_key_file` out of band on the control host.
 
 ## Usage
 

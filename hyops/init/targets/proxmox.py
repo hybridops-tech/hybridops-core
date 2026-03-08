@@ -282,6 +282,61 @@ def _parse_proxmox_url_host_port(raw_url: str) -> tuple[str, str]:
     return host, port
 
 
+def _backfill_values_from_local_runtime(
+    values: dict[str, str],
+    *,
+    meta_dir: Path,
+    cred_path: Path,
+) -> dict[str, str]:
+    """Recover stable proxmox init values from existing local readiness/credentials."""
+    out = dict(values)
+
+    try:
+        marker = read_marker(meta_dir, "proxmox")
+    except Exception:
+        marker = {}
+
+    context = marker.get("context") if isinstance(marker.get("context"), dict) else {}
+    runtime = marker.get("runtime") if isinstance(marker.get("runtime"), dict) else {}
+
+    if str(out.get("host") or "").strip() == "pve.example.local":
+        recovered_host = str(runtime.get("api_ip") or "").strip()
+        if not recovered_host and cred_path.is_file():
+            try:
+                tfvars = parse_tfvars(cred_path)
+            except Exception:
+                tfvars = {}
+            recovered_host, recovered_port = _parse_proxmox_url_host_port(str(tfvars.get("proxmox_url") or ""))
+            if recovered_port and not str(out.get("port") or "").strip():
+                out["port"] = recovered_port
+        if recovered_host:
+            out["host"] = recovered_host
+
+    if not str(out.get("ssh_public_key") or "").strip():
+        recovered_key = str(context.get("ssh_public_key") or "").strip()
+        if not recovered_key and cred_path.is_file():
+            try:
+                tfvars = parse_tfvars(cred_path)
+            except Exception:
+                tfvars = {}
+            recovered_key = str(tfvars.get("ssh_public_key") or "").strip()
+        if not recovered_key:
+            recovered_key = _read_first_pubkey()
+        if recovered_key:
+            out["ssh_public_key"] = recovered_key
+
+    if not str(out.get("http_bind_address") or "").strip() and cred_path.is_file():
+        try:
+            tfvars = parse_tfvars(cred_path)
+        except Exception:
+            tfvars = {}
+        recovered_bind = str(tfvars.get("http_bind_address") or "").strip()
+        if recovered_bind:
+            out["http_bind_address"] = recovered_bind
+
+    return out
+
+
 def _find_reusable_proxmox_token_secret(
     *,
     runtime_root: Path,
@@ -538,7 +593,13 @@ def run(ns) -> int:
         print("config template created; continuing with bootstrap using CLI overrides.")
 
     try:
-        values = _normalize_values(_apply_overrides(_load_and_validate(cfg_path), ns))
+        values = _normalize_values(
+            _backfill_values_from_local_runtime(
+                _apply_overrides(_load_and_validate(cfg_path), ns),
+                meta_dir=paths.meta_dir,
+                cred_path=cred_path,
+            )
+        )
     except Exception as e:
         print(f"config invalid: {e}")
         return CONFIG_INVALID
@@ -797,6 +858,9 @@ def run(ns) -> int:
     rendered = _write_tfvars(cred_path, values, token_id, token_secret, runtime)
     if not str(rendered.get("ssh_public_key") or "").strip():
         print("warning: ssh_public_key is empty; packer builds may fail. Set proxmox.ssh_public_key or run ssh-keygen.")
+        print(
+            "hint: platform/onprem/vyos-edge with ssh_keys_from_init=true will fail until a key is present in proxmox.ready.json"
+        )
     if not str(rendered.get("http_bind_address") or "").strip():
         print(
             "warning: http_bind_address is empty; packer builds may fail. "
@@ -812,6 +876,9 @@ def run(ns) -> int:
             "vault": str(vault_path),
             "credentials": str(cred_path),
             "evidence_dir": str(evidence_dir),
+        },
+        "context": {
+            "ssh_public_key": str(rendered.get("ssh_public_key") or "").strip(),
         },
         "runtime": {
             "node": runtime["node"],

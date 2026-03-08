@@ -1,0 +1,78 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "networking/onprem-site-extension@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem Site Extension"
+  description: "Extend the static Hetzner Site-A edge pair back into the on-prem VyOS edge using a dual-tunnel site-extension layer."
+  outcome: "The on-prem VyOS edge exchanges approved prefixes with the Hetzner edge pair inside Site-A ASN 65010."
+  notes:
+    - "This blueprint does not change the existing Hetzner <-> GCP HA VPN baseline."
+    - "The edge side is configured first as the responder path; the on-prem side then initiates and validates the extension."
+    - "Use a stable on-prem identity and endpoint. For changing public IPs, prefer a DNS name/FQDN for the on-prem peer endpoint."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: site_extension_edge
+    module_ref: "platform/network/vyos-site-extension-edge"
+    action: "deploy"
+    phase: "operations"
+    with_deps: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "org/hetzner/shared-control-host#edge_control_host"
+      inventory_vm_groups:
+        edge_control:
+          - "control-01"
+      target_user: "opsadmin"
+      required_env:
+        - "SITE_EXTENSION_IPSEC_PSK"
+        - "WAN_EDGE_SSH_PRIVATE_KEY"
+      onprem_peer_remote_address: ""
+      onprem_peer_id: ""
+      local_asn: 65010
+      peer_asn: 65010
+      advertise_prefixes:
+        - "10.70.0.0/20"
+        - "10.70.16.0/20"
+      import_allow_prefixes:
+        - "10.10.0.0/24"
+        - "10.12.0.0/24"
+      validate_post_apply: false
+
+  - id: site_extension_onprem
+    module_ref: "platform/network/vyos-site-extension-onprem"
+    action: "deploy"
+    phase: "operations"
+    with_deps: true
+    requires:
+      - site_extension_edge
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      target_state_ref: "platform/onprem/vyos-edge#vyos_edge_vm"
+      target_vm_key: "edge-01"
+      required_env:
+        - "SITE_EXTENSION_IPSEC_PSK"
+        - "ONPREM_EDGE_SSH_PRIVATE_KEY"
+      onprem_local_id: ""
+      public_peer_route_next_hop: ""
+      local_asn: 65010
+      peer_asn: 65010
+      advertise_prefixes:
+        - "10.10.0.0/24"
+        - "10.12.0.0/24"
+      static_route_prefixes:
+        - "10.12.0.0/24"
+      internal_route_next_hop: "10.10.0.1"
+      import_allow_prefixes:
+        - "10.70.0.0/20"
+        - "10.70.16.0/20"
+      validate_post_apply: true

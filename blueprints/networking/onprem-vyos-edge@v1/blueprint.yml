@@ -51,8 +51,9 @@ steps:
       disk_size_gb: 40
       guest_agent_enabled: false
       ssh_username: "vyos"
-      ssh_keys:
-        - "CHANGE_ME_SSH_PUBLIC_KEY"
+      ssh_keys_from_init: true
+      ssh_keys_init_target: "proxmox"
+      ssh_keys: []
       vms:
         edge-01:
           role: "wan-edge"

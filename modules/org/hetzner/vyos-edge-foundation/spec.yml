@@ -75,6 +75,7 @@ outputs:
     - floating_target
     - private_network_id
     - private_network_cidr
+    - ipsec_source_cidrs
     - vms
     - ipv4_configured_primary
     - ipv4_addresses_all
