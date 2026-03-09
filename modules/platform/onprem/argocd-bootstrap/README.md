@@ -23,9 +23,20 @@ hyops apply --env dev \
 Default workloads repo URL:
 - `https://github.com/hybridops-tech/hybridops-workloads.git`
 
-Override `workloads_repo_url` only if you run a fork or private mirror.
+Use the public workloads repo for customer-facing and baseline deployments.
+
+Override `workloads_repo_url` when you intentionally consume a private canonical
+workloads repo. The Argo CD contract stays the same:
+- public/exported workloads repo: `workloads_target_path = clusters/<target>`
+- private/canonical workloads repo: `workloads_target_path = .internal/clusters/<target>`
 
 `kubeconfig_path` can be imported automatically from `platform/onprem/rke2-cluster` state using `spec.dependencies`.
+
+For the public workloads repo, `workloads_target_path` should remain under
+`clusters/`, e.g. `clusters/onprem-stage1` or `clusters/onprem`.
+
+For a private canonical workloads repo, point `workloads_target_path` at the
+internal target instead, e.g. `.internal/clusters/onprem-learn-stage1`.
 
 ## Outputs
 

@@ -99,6 +99,6 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      workloads_repo_url: "https://github.com/hybridops-studio/hybridops-workloads.git"
+      workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
       workloads_revision: "main"
       workloads_target_path: "clusters/onprem"
