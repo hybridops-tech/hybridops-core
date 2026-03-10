@@ -45,6 +45,15 @@ hyops secrets gsm-persist --env dev --scope build
 This is the preferred way to make `HYOPS_VYOS_GCS_SA_JSON` available to a
 runner-driven VyOS image build without depending on a local shell export.
 
+Education-stage workloads follow the same pattern:
+
+```bash
+hyops secrets gsm-persist --env dev --scope education
+```
+
+This is the preferred way to seed Moodle-related secrets into GCP Secret
+Manager before ESO projects them into the cluster.
+
 ## Mapping file
 
 Default map file:
