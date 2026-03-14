@@ -63,7 +63,7 @@
           create secret generic {{ secret_name | quote }} \
           --from-file={{ bundle_key | quote }}={{ bundle_source_path | quote }} \
           --dry-run=client -o yaml | \
-        {{ kubectl_bin }} --kubeconfig {{ kubeconfig_path | quote }} apply --server-side -f -
+        {{ kubectl_bin }} --kubeconfig {{ kubeconfig_path | quote }} apply --server-side --force-conflicts -f -
       args:
         executable: /bin/bash
       register: _hyops_secret_apply
