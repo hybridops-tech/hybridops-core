@@ -54,6 +54,15 @@ hyops secrets gsm-persist --env dev --scope education
 This is the preferred way to seed Moodle-related secrets into GCP Secret
 Manager before ESO projects them into the cluster.
 
+Cloudflare Tunnel follows the same pattern:
+
+```bash
+hyops secrets gsm-persist --env dev --scope cloudflare
+```
+
+Use this when the tunnel token must be projected into the cluster through ESO
+instead of a hand-applied long-lived `Secret`.
+
 ## Mapping file
 
 Default map file:
