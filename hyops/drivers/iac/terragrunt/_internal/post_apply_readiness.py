@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 import ipaddress
+import re
 import shutil
 import time
 
@@ -20,6 +21,9 @@ from hyops.drivers.config.ansible.connectivity import (
 )
 from hyops.runtime.coerce import as_bool, as_int
 from hyops.runtime.proc import run_capture
+
+
+_GCP_VM_ID_RE = re.compile(r"^projects/(?P<project>[^/]+)/zones/(?P<zone>[^/]+)/instances/(?P<name>[^/]+)$")
 
 
 def _as_mapping(value: Any) -> dict[str, Any]:
@@ -88,6 +92,20 @@ def _pick_vm_ipv4_host(vm: dict[str, Any]) -> str:
     return ""
 
 
+def _resolve_gcp_iap_contract(vm: dict[str, Any]) -> dict[str, str]:
+    vm_id = str(vm.get("vm_id") or "").strip()
+    if not vm_id:
+        return {}
+    match = _GCP_VM_ID_RE.fullmatch(vm_id)
+    if not match:
+        return {}
+    return {
+        "gcp_iap_instance": str(match.group("name") or "").strip(),
+        "gcp_iap_project_id": str(match.group("project") or "").strip(),
+        "gcp_iap_zone": str(match.group("zone") or "").strip(),
+    }
+
+
 def _collect_platform_vm_targets(outputs: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]]:
     targets: list[dict[str, str]] = []
     warnings: list[str] = []
@@ -109,12 +127,14 @@ def _collect_platform_vm_targets(outputs: dict[str, Any]) -> tuple[list[dict[str
                 f"post-apply SSH readiness skipped VM with no IPv4 host in outputs.vms: {name}"
             )
             continue
-        targets.append({"name": name, "host": host})
+        target = {"name": name, "host": host}
+        target.update(_resolve_gcp_iap_contract(vm))
+        targets.append(target)
 
     return targets, warnings
 
 
-def _resolve_readiness_config(inputs: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def _resolve_readiness_config(inputs: dict[str, Any], *, module_ref: str) -> tuple[dict[str, Any], str]:
     raw_cfg = inputs.get("post_apply_ssh_readiness")
     cfg: dict[str, Any]
     if raw_cfg is None:
@@ -127,13 +147,14 @@ def _resolve_readiness_config(inputs: dict[str, Any]) -> tuple[dict[str, Any], s
         return {}, "inputs.post_apply_ssh_readiness must be a boolean or mapping when set"
 
     out: dict[str, Any] = {}
+    gcp_platform_vm = str(module_ref or "").strip() == "platform/gcp/platform-vm"
     out["enabled"] = as_bool(cfg.get("enabled"), default=True)
     out["required"] = as_bool(cfg.get("required"), default=True)
     out["target_user"] = str(cfg.get("target_user") or inputs.get("ssh_username") or "opsadmin").strip() or "opsadmin"
     out["target_port"] = max(1, as_int(cfg.get("target_port"), default=22))
     out["connectivity_timeout_s"] = max(1, as_int(cfg.get("connectivity_timeout_s"), default=5))
     out["connectivity_wait_s"] = max(0, as_int(cfg.get("connectivity_wait_s"), default=300))
-    out["ssh_proxy_jump_auto"] = as_bool(cfg.get("ssh_proxy_jump_auto"), default=True)
+    out["ssh_proxy_jump_auto"] = as_bool(cfg.get("ssh_proxy_jump_auto"), default=not gcp_platform_vm)
     out["ssh_proxy_jump_host"] = str(cfg.get("ssh_proxy_jump_host") or "").strip()
     out["ssh_proxy_jump_user"] = str(cfg.get("ssh_proxy_jump_user") or "").strip()
     out["ssh_proxy_jump_port"] = max(1, as_int(cfg.get("ssh_proxy_jump_port"), default=22))
@@ -556,7 +577,7 @@ def run_post_apply_ssh_readiness(
         return None, [], ""
 
     warnings: list[str] = []
-    cfg, cfg_err = _resolve_readiness_config(inputs)
+    cfg, cfg_err = _resolve_readiness_config(inputs, module_ref=module_ref_value)
     if cfg_err:
         return None, warnings, cfg_err
 
@@ -597,6 +618,8 @@ def run_post_apply_ssh_readiness(
         "connectivity_wait_s": int(cfg.get("connectivity_wait_s") or 300),
         "ssh_proxy_jump_auto": bool(cfg.get("ssh_proxy_jump_auto")),
     }
+    if module_ref_value == "platform/gcp/platform-vm":
+        probe_inputs["ssh_access_mode"] = "gcp-iap"
     if str(cfg.get("ssh_private_key_file") or "").strip():
         probe_inputs["ssh_private_key_file"] = str(cfg.get("ssh_private_key_file") or "").strip()
     if str(cfg.get("ssh_proxy_jump_host") or "").strip():

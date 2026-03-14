@@ -72,6 +72,8 @@ def _build_gcp_iap_common_args(
     )
     return (
         f"-o ProxyCommand=\"{proxy_cmd}\" "
+        "-o ConnectTimeout=30 "
+        "-o ConnectionAttempts=3 "
         "-o StrictHostKeyChecking=no "
         "-o UserKnownHostsFile=/dev/null"
     )

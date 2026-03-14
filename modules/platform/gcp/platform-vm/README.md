@@ -7,6 +7,8 @@ This module is infrastructure-only:
 - It does **not** configure services on the VM (pair with `config/ansible` modules).
 - It does **not** manage firewall rules (bring your own network policy).
 
+It can also enable nested virtualization for workloads that need KVM in the guest, such as EVE-NG.
+
 ## Prereqs
 
 - `hyops init gcp --env <env>` completed (writes runtime credentials tfvars).
@@ -38,6 +40,10 @@ Fresh cloud VMs can also be gated before downstream steps consume them:
 Use this when a blueprint creates GCP VMs and immediately hands off to an Ansible/config module. That keeps the
 handoff one-pass and avoids racing the guest boot/SSH availability window.
 
+For private GCP VMs, the readiness probe now uses the VM's GCP instance identity for IAP-aware SSH checks by
+default. It does not inherit an unrelated bastion or proxy path unless you set one explicitly in
+`post_apply_ssh_readiness`.
+
 Example:
 
 ```yaml
@@ -63,6 +69,20 @@ This keeps cloud VM blueprints DRY and env-scoped:
 - network/subnet selection comes from the selected `--env` state
 - reruns do not depend on copied/transient `work/` files
 - public key material stays env-scoped in runtime init metadata instead of being baked into shipped blueprint files
+
+## Nested Virtualization
+
+Set `enable_nested_virtualization: true` at the module level or per VM when the guest will run nested workloads.
+
+Example:
+
+```yaml
+zone: europe-west2-a
+enable_nested_virtualization: true
+vms:
+  eve-ng-01:
+    role: eve-ng
+```
 
 ## Usage
 

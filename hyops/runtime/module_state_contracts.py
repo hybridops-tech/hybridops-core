@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 import ipaddress
 import re
+import yaml
 
 from hyops.runtime.coerce import as_bool
 from hyops.runtime.readiness import read_marker
@@ -25,6 +26,55 @@ from hyops.runtime.module_state import (
 _INPUT_SEG_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _GCP_VM_ID_RE = re.compile(r"^projects/(?P<project>[^/]+)/zones/(?P<zone>[^/]+)/instances/(?P<name>[^/]+)$")
 _PGHA_STATE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
+
+
+def _infer_inventory_target_user_from_state(state: dict[str, Any]) -> str:
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    for key in ("target_user", "control_user", "ssh_username"):
+        token = str(outputs.get(key) or "").strip()
+        if token and token != "root":
+            return token
+
+    raw_contract = state.get("input_contract")
+    contract = raw_contract if isinstance(raw_contract, dict) else {}
+    for key in ("target_user", "ssh_username"):
+        token = str(contract.get(key) or "").strip()
+        if token and token != "root":
+            return token
+
+    rerun_inputs_file = str(state.get("rerun_inputs_file") or "").strip()
+    if not rerun_inputs_file:
+        return ""
+
+    try:
+        rerun_path = Path(rerun_inputs_file).expanduser().resolve()
+    except Exception:
+        return ""
+    if not rerun_path.is_file():
+        return ""
+
+    try:
+        payload = yaml.safe_load(rerun_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+
+    for key in ("target_user", "ssh_username"):
+        token = str(payload.get(key) or "").strip()
+        if token and token != "root":
+            return token
+
+    raw_readiness = payload.get("post_apply_ssh_readiness")
+    readiness = raw_readiness if isinstance(raw_readiness, dict) else {}
+    token = str(readiness.get("target_user") or "").strip()
+    if token and token != "root":
+        return token
+
+    return ""
 
 
 def ipv4_from_token(raw: Any) -> str | None:
@@ -383,6 +433,16 @@ def resolve_inventory_groups_from_state(
         out[group] = hosts
 
     inputs["inventory_groups"] = out
+    current_target_user = str(inputs.get("target_user") or "").strip()
+    if not current_target_user or current_target_user == "root":
+        inferred_target_user = _infer_inventory_target_user_from_state(state)
+        if inferred_target_user:
+            inputs["target_user"] = inferred_target_user
+    current_ssh_access_mode = str(inputs.get("ssh_access_mode") or "").strip().lower()
+    if not current_ssh_access_mode:
+        inventory_base_ref, _inventory_instance = split_module_state_ref(inventory_state_ref)
+        if inventory_base_ref == "platform/gcp/platform-vm":
+            inputs["ssh_access_mode"] = "gcp-iap"
 
 
 def resolve_hetzner_foundation_contract_from_state(
