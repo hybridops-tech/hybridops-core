@@ -22,6 +22,9 @@ hyops setup all --sudo
   - `<runtime_root>/state/ansible/galaxy_collections`
   - `<runtime_root>/state/ansible/roles`
   - `<runtime_root>/state/ansible/modules/<module_id>/galaxy_collections` (module-scoped sets)
+- The default shared dependency set explicitly pins the released `hybridops.common`,
+  `hybridops.helper`, and `hybridops.app` collections in
+  [tools/setup/requirements/ansible.galaxy.yml](./requirements/ansible.galaxy.yml).
 - Drivers and modules do not install dependencies automatically; they fail fast and instruct which `hyops setup` command to run.
 
 ## Documentation
