@@ -1,0 +1,4 @@
+kubeconfig_state_ref: "platform/gcp/gke-kubeconfig#gke_burst_kubeconfig"
+namespace: "example"
+secret_name: "example-runtime"
+bundle_source_path: "/tmp/example-runtime.tar.gz"

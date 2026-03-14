@@ -1,0 +1,107 @@
+---
+- name: platform/k8s/runtime-bundle-secret (apply)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    target_namespace: "{{ namespace | default('') }}"
+    ensure_namespace: "{{ ensure_namespace | default(true) | bool }}"
+    secret_name: "{{ secret_name | default('') }}"
+    bundle_source_path: "{{ bundle_source_path | default('') }}"
+    bundle_key: "{{ bundle_key | default('dist.tgz') }}"
+    kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
+
+  tasks:
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Require kubeconfig to exist
+      ansible.builtin.assert:
+        that:
+          - _hyops_kubeconfig_stat.stat.exists
+          - _hyops_kubeconfig_stat.stat.isreg
+        fail_msg: "Resolved kubeconfig_path does not exist: {{ kubeconfig_path }}"
+
+    - name: Check bundle source exists
+      ansible.builtin.stat:
+        path: "{{ bundle_source_path }}"
+        checksum_algorithm: sha256
+      register: _hyops_bundle_stat
+
+    - name: Require bundle source file
+      ansible.builtin.assert:
+        that:
+          - _hyops_bundle_stat.stat.exists
+          - _hyops_bundle_stat.stat.isreg
+          - (_hyops_bundle_stat.stat.checksum | default('') | length) > 0
+        fail_msg: "bundle_source_path must be an existing file: {{ bundle_source_path }}"
+
+    - name: Ensure target namespace exists
+      when: ensure_namespace
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ kubectl_bin }} --kubeconfig {{ kubeconfig_path | quote }} create namespace {{ target_namespace | quote }} --dry-run=client -o yaml | \
+        {{ kubectl_bin }} --kubeconfig {{ kubeconfig_path | quote }} apply -f -
+      args:
+        executable: /bin/bash
+      register: _hyops_namespace_apply
+      changed_when: >-
+        (_hyops_namespace_apply.stdout is defined and (
+          'created' in _hyops_namespace_apply.stdout or
+          'configured' in _hyops_namespace_apply.stdout
+        ))
+
+    - name: Apply runtime bundle Secret
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ kubectl_bin }} --kubeconfig {{ kubeconfig_path | quote }} -n {{ target_namespace | quote }} \
+          create secret generic {{ secret_name | quote }} \
+          --from-file={{ bundle_key | quote }}={{ bundle_source_path | quote }} \
+          --dry-run=client -o yaml | \
+        {{ kubectl_bin }} --kubeconfig {{ kubeconfig_path | quote }} apply --server-side -f -
+      args:
+        executable: /bin/bash
+      register: _hyops_secret_apply
+      changed_when: >-
+        (_hyops_secret_apply.stdout is defined and (
+          'created' in _hyops_secret_apply.stdout or
+          'configured' in _hyops_secret_apply.stdout
+        ))
+
+    - name: Annotate runtime bundle Secret with SHA-256
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ target_namespace }}"
+          - annotate
+          - --overwrite
+          - secret
+          - "{{ secret_name }}"
+          - "hyops.bundle-sha256={{ _hyops_bundle_stat.stat.checksum }}"
+      register: _hyops_secret_annotate
+      changed_when: >-
+        (_hyops_secret_annotate.stdout is defined and (
+          'annotated' in _hyops_secret_annotate.stdout or
+          'configured' in _hyops_secret_annotate.stdout
+        ))
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'namespace': (target_namespace | string),
+            'secret_name': (secret_name | string),
+            'bundle_key': (bundle_key | string),
+            'bundle_sha256': (_hyops_bundle_stat.stat.checksum | string),
+            'cap.k8s.runtime_bundle_secret': 'ready'
+          } | to_json }}

@@ -1,0 +1,57 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/k8s/runtime-bundle-secret"
+
+metadata:
+  title: "Runtime Bundle Secret (Kubernetes)"
+  description: "Syncs a local runtime bundle file into a Kubernetes Secret so private application payloads can be delivered without embedding that build logic in the public workloads repo."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    kubeconfig_path: ""
+    kubeconfig_state_ref: ""
+    kubeconfig_state_env: ""
+
+    namespace: ""
+    ensure_namespace: true
+    secret_name: ""
+    bundle_source_path: ""
+    bundle_key: "dist.tgz"
+
+    kubectl_bin: "kubectl"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/56-runtime-bundle-secret@v1.0"
+
+dependencies:
+  - module_ref: "platform/gcp/gke-kubeconfig"
+    required: false
+    imports:
+      kubeconfig_path: "kubeconfig_path"
+
+outputs:
+  publish:
+    - namespace
+    - secret_name
+    - bundle_key
+    - bundle_sha256
+    - cap.k8s.runtime_bundle_secret
+
+probes: []
+constraints: []

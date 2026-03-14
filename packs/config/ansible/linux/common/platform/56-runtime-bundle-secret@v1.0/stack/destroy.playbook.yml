@@ -1,0 +1,49 @@
+---
+- name: platform/k8s/runtime-bundle-secret (destroy)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    target_namespace: "{{ namespace | default('') }}"
+    secret_name: "{{ secret_name | default('') }}"
+    bundle_key: "{{ bundle_key | default('dist.tgz') }}"
+    kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
+
+  tasks:
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Delete runtime bundle Secret (best effort)
+      when: _hyops_kubeconfig_stat.stat.exists
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ target_namespace }}"
+          - delete
+          - secret
+          - "{{ secret_name }}"
+          - --ignore-not-found=true
+      register: _hyops_secret_delete
+      changed_when: >-
+        (_hyops_secret_delete.stdout is defined and 'deleted' in _hyops_secret_delete.stdout)
+      failed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'namespace': (target_namespace | string),
+            'secret_name': (secret_name | string),
+            'bundle_key': (bundle_key | string),
+            'cap.k8s.runtime_bundle_secret': 'absent'
+          } | to_json }}
