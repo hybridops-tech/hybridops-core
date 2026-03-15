@@ -55,5 +55,10 @@ def _validate_post_apply_ssh_readiness(inputs: dict[str, Any]) -> None:
 
 
 def validate(inputs: dict[str, Any]) -> None:
+    data = inputs if isinstance(inputs, dict) else {}
+    lifecycle = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    if lifecycle == "destroy":
+        return
+
     validate_vm_pool_inputs(inputs)
     _validate_post_apply_ssh_readiness(inputs)
