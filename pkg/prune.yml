@@ -1,9 +1,19 @@
-# Purpose: Prune rules to exclude non-shippable content.
-# Architecture Decision: ADR-0622
-# Maintainer: HybridOps.Studio
+# purpose: Prune rules to exclude non-shippable content from release bundles.
+# adr: ADR-0622
+# maintainer: HybridOps.Studio
 
 exclude_globs:
-  - "**/__pycache__/**"
+  - "**/__pycache__"
   - "**/*.pyc"
+  - "**/*.pyo"
   - "**/.DS_Store"
-  - "output/**"
+  - "**/.pytest_cache"
+  - "**/.mypy_cache"
+  - "**/*.egg-info"
+  - "**/*.egg-info/**"
+  - ".venv"
+  - "build"
+  - "dist"
+  - "hybridops_core.egg-info"
+  - "pkg/release-files.sha256"
+  - "wheels/*.tmp"

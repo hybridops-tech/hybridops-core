@@ -1,0 +1,60 @@
+# purpose: CI for HybridOps.Core release-bundle integrity.
+# adr: ADR-0622
+# maintainer: HybridOps.Studio
+
+name: HybridOps.Core CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify-bundle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build release bundle
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            export HYOPS_RELEASE_LABEL="${GITHUB_REF_NAME#v}"
+          else
+            export HYOPS_RELEASE_LABEL="${GITHUB_SHA::12}"
+          fi
+          bash pkg/build_release.sh
+
+      - name: Verify release bundle
+        shell: bash
+        run: |
+          TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
+          bash pkg/verify_release.sh "${TARBALL}"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hybridops-core-release-bundle
+          path: |
+            dist/releases/*.tar.gz
+            dist/releases/*.tar.gz.sha256

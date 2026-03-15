@@ -1,0 +1,46 @@
+# purpose: Publish HybridOps.Core release bundles on version tags.
+# adr: ADR-0622
+# maintainer: HybridOps.Studio
+
+name: Publish HybridOps.Core Release Bundle
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-bundle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build release bundle
+        shell: bash
+        run: |
+          export HYOPS_RELEASE_LABEL="${GITHUB_REF_NAME#v}"
+          bash pkg/build_release.sh
+
+      - name: Verify release bundle
+        shell: bash
+        run: |
+          TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
+          bash pkg/verify_release.sh "${TARBALL}"
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/releases/*.tar.gz
+            dist/releases/*.tar.gz.sha256
+          generate_release_notes: true

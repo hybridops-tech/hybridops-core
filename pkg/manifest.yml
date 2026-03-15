@@ -1,12 +1,12 @@
-# Purpose: Package manifest for HybridOps.Core releases.
-# Architecture Decision: ADR-0622
-# Maintainer: HybridOps.Studio
+# purpose: Package manifest for HybridOps.Core release bundles.
+# adr: ADR-0622
+# maintainer: HybridOps.Studio
 
 include:
   - install.sh
-  - LICENSE.txt
-  - README.md
-  - CHANGELOG.md
+  - LICENSE
+  - README
+  - CHANGELOG
   - bin/
   - hyops/
   - modules/
@@ -15,6 +15,3 @@ include:
   - tools/
   - pkg/
   - pyproject.toml
-exclude:
-  - output/
-  - .git/
