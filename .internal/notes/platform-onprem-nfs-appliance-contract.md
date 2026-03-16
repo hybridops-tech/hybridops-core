@@ -1,8 +1,9 @@
 # platform/onprem/nfs-appliance Contract
 
 Status
-- Internal contract note only.
-- Do not add a shipped `modules/platform/onprem/nfs-appliance` module until the appliance configuration role and smoke coverage exist.
+- Internal contract note plus current shipped thin-module boundary.
+- `modules/platform/onprem/nfs-appliance` now exists as the VM/bootstrap surface.
+- Dedicated provider outputs and a day-2 appliance configuration role are still future work.
 
 Purpose
 - Codify a repeatable on-prem NFS storage appliance pattern on Proxmox.
@@ -23,7 +24,7 @@ Recommended module shape
 
 Module boundary
 
-The future `platform/onprem/nfs-appliance` module should own:
+The current thin `platform/onprem/nfs-appliance` module owns:
 - VM intent for one or more on-prem storage appliance VMs on Proxmox
 - appliance bootstrap and configuration
 - NFS export definition and allowed-client policy
@@ -37,9 +38,10 @@ It should not own:
 - vendor-specific UI or operational wording in the shipped product surface
 
 Current repo reality
-- `platform/onprem/platform-vm` already provides the right VM lifecycle baseline.
-- The repo does not currently ship a dedicated HybridOps NFS export/appliance role.
-- Because of that, this stays an internal contract note until the configuration role and tests exist.
+- `platform/onprem/platform-vm` provides the VM lifecycle baseline.
+- `platform/onprem/nfs-appliance` now ships as a thin module that bootstraps the export through explicit cloud-init intent.
+- The repo still does not ship a dedicated HybridOps NFS day-2 export/appliance role.
+- Because of that, this note remains the place for the fuller provider contract until the configuration role and stronger publish semantics exist.
 
 Proposed high-level inputs
 - `provider_kind`
@@ -85,7 +87,8 @@ Current renderer target
 - That renderer already accepts:
   - `NFS_SERVER`
   - `NFS_EXPORT_PATH`
-- When the future module exists, those values should be sourced from its published outputs rather than entered by hand.
+- In the current shipped module, derive `NFS_SERVER` from the appliance primary IPv4 and keep `NFS_EXPORT_PATH` aligned with the explicit export path declared in module input intent.
+- Dedicated provider outputs should replace that manual mapping later.
 
 DR integration contract
 - DR automation should not care whether the provider implementation is Synology-backed or another virtual NAS form.
@@ -101,12 +104,12 @@ DR integration contract
 Composition chain
 1. `core/onprem/template-image` or another approved appliance image source prepares the VM image path.
 2. `platform/onprem/platform-vm` creates the appliance VM.
-3. Future `platform/onprem/nfs-appliance` configures the export and publishes stable outputs.
+3. `platform/onprem/nfs-appliance` provisions the VM and bootstraps the export through explicit cloud-init intent.
 4. Internal workload tooling renders the static PV/PVC set from those outputs.
 5. Future DR automation consumes the same provider outputs plus backup/restore metadata.
 
 Anti-drift rules
-- Do not create a shipped module stub in `modules/` before the configuration role exists.
+- Do not grow the shipped module beyond VM lifecycle and explicit bootstrap intent until the dedicated configuration role exists.
 - Do not make Synology the product contract.
 - Do not let workloads consume raw NAS coordinates from handwritten notes or one-off shell history.
 - Do not present local snapshots as the DR authority.

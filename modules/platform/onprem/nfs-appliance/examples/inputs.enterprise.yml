@@ -1,0 +1,61 @@
+name_prefix: "corp"
+context_id: "academy-a"
+template_state_ref: "core/onprem/template-image"
+template_key: "ubuntu-24.04"
+require_ipam: true
+ssh_keys_from_init: true
+ssh_keys_init_target: "proxmox"
+addressing:
+  mode: "ipam"
+  ipam:
+    provider: "netbox"
+node_name: "pve02"
+datastore_id: "fast-lvm"
+snippets_datastore_id: "local"
+cpu_cores: 4
+memory_mb: 12288
+disk_size_gb: 500
+dns_domain: "corp.example"
+dns_servers:
+  - "10.20.0.53"
+  - "10.20.0.54"
+tags:
+  - "platform"
+  - "onprem"
+  - "storage"
+  - "nfs-appliance"
+  - "enterprise"
+post_apply_ssh_readiness:
+  enabled: true
+  required: true
+  target_user: "opsadmin"
+  connectivity_timeout_s: 5
+  connectivity_wait_s: 900
+vms:
+  academy-nas-01:
+    role: "storage-appliance"
+    interfaces:
+      - bridge: "vnetmgmt"
+    cloud_init_user_data: |
+      #cloud-config
+      package_update: true
+      package_upgrade: false
+      packages:
+        - nfs-kernel-server
+      write_files:
+        - path: /etc/exports.d/hybridops-academy.exports
+          permissions: '0644'
+          content: |
+            /srv/nfs/hybridops/academy/moodledata 10.20.40.0/24(rw,sync,no_subtree_check,no_root_squash)
+            /srv/nfs/hybridops/academy/shared 10.20.40.0/24(rw,sync,no_subtree_check,no_root_squash)
+      runcmd:
+        - mkdir -p /srv/nfs/hybridops/academy/moodledata
+        - mkdir -p /srv/nfs/hybridops/academy/shared
+        - chown nobody:nogroup /srv/nfs/hybridops/academy/moodledata /srv/nfs/hybridops/academy/shared
+        - chmod 0775 /srv/nfs/hybridops/academy/moodledata /srv/nfs/hybridops/academy/shared
+        - systemctl enable --now nfs-kernel-server
+        - exportfs -ra
+        - touch /var/lib/cloud/instance/ansible-ready
+    cloud_init_meta_data: |
+      instance-id: academy-nas-01
+      local-hostname: academy-nas-01

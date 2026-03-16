@@ -42,6 +42,7 @@ from hyops.validators.platform.onprem import (
     postgresql_ha,
     postgresql_ha_backup,
     netbox_db_migrate,
+    nfs_appliance,
     rke2_cluster,
     vyos_edge,
 )
@@ -94,5 +95,6 @@ def register_all() -> None:
     register("platform/postgresql-ha-backup", postgresql_ha_backup.validate)
     register("platform/onprem/postgresql-ha-backup", postgresql_ha_backup.validate)
     register("platform/onprem/netbox-db-migrate", netbox_db_migrate.validate)
+    register("platform/onprem/nfs-appliance", nfs_appliance.validate)
     register("platform/onprem/rke2-cluster", rke2_cluster.validate)
     register("platform/onprem/vyos-edge", vyos_edge.validate)

@@ -1,0 +1,34 @@
+template_state_ref: "core/onprem/template-image"
+template_key: "ubuntu-24.04"
+require_ipam: true
+ssh_keys_from_init: true
+ssh_keys_init_target: "proxmox"
+addressing:
+  mode: "ipam"
+  ipam:
+    provider: "netbox"
+vms:
+  nfs-01:
+    role: "storage-appliance"
+    interfaces:
+      - bridge: "vnetmgmt"
+    cloud_init_user_data: |
+      #cloud-config
+      package_update: true
+      packages:
+        - nfs-kernel-server
+      write_files:
+        - path: /etc/exports.d/hybridops-academy.exports
+          permissions: '0644'
+          content: |
+            /srv/nfs/hybridops/academy/moodledata 10.10.40.0/24(rw,sync,no_subtree_check,no_root_squash)
+      runcmd:
+        - mkdir -p /srv/nfs/hybridops/academy/moodledata
+        - chown nobody:nogroup /srv/nfs/hybridops/academy/moodledata
+        - chmod 0775 /srv/nfs/hybridops/academy/moodledata
+        - systemctl enable --now nfs-kernel-server
+        - exportfs -ra
+        - touch /var/lib/cloud/instance/ansible-ready
+    cloud_init_meta_data: |
+      instance-id: nfs-01
+      local-hostname: nfs-01
