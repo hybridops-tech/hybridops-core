@@ -33,9 +33,20 @@ actions:
     inventory_vm_groups:
       edge_control:
       - control-01
+  module_state_guards:
+    cutover:
+    - state_ref: platform/postgresql-ha#postgresql_restore_gcp_dr
+      require_status: ok
+      outputs_non_empty:
+      - endpoint_host
+    - state_ref: platform/k8s/longhorn-dr-volume#moodle_restore_gcp_dr
+      require_status: ok
+      outputs_equal:
+        restore_volume_ready: true
 dry_run: true
 decision_enable_actions: false
 decision_require_signal_readiness: true
 decision_require_fresh_signals: true
 decision_max_signal_age_s: 180
 decision_min_ready_checks: 2
+decision_require_action_state_guards: true

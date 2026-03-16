@@ -32,8 +32,10 @@ This keeps decision latency low and avoids direct bucket API dependencies in con
   - confirm/stable timers
   - cooldown guard
   - signal readiness/freshness guards (when enabled)
+  - module state guards (when enabled or configured)
 
-Actions currently target `platform/network/dns-routing` with base inputs in:
+Actions can target any module ref the edge runtime can execute. The common current case
+is `platform/network/dns-routing`, with base inputs in:
 - `actions.module_inputs`
 - `actions.module_inputs` must include dns-routing inventory contract (`inventory_groups` or `inventory_state_ref` + `inventory_vm_groups`).
 
@@ -47,6 +49,29 @@ Use these inputs to fail closed:
 - `decision_min_ready_checks` (default: `1`)
 
 When guards fail, the service records `signal_ready=false` and blocks actions.
+
+## Module State Guards
+
+Use these inputs to block actions until prerequisite module states are ready:
+
+- `decision_require_action_state_guards` (default: `false`)
+- `decision_runtime_root` (optional explicit runtime root override)
+- `actions.module_state_guards.cutover`
+- `actions.module_state_guards.failback`
+
+If `decision_runtime_root` is unset, the service reads module state from:
+- `~/.hybridops/envs/<decision_runtime_env>`
+
+Each guard item supports:
+- `state_ref`
+- `require_status` (default: `ok`)
+- `outputs_equal`
+- `outputs_non_empty`
+
+Typical use:
+- require PostgreSQL restore state to be `ok`
+- require Longhorn restore state to publish `restore_volume_ready=true`
+- require DNS cutover targets to stay blocked until those guards pass
 
 ## Usage
 

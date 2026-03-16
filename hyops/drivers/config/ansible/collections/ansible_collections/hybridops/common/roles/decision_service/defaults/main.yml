@@ -19,12 +19,14 @@ decision_policy: {}
 decision_actions: {}
 decision_hyops_bin: "/usr/local/bin/hyops"
 decision_runtime_env: "dev"
+decision_runtime_root: ""
 decision_action_timeout_s: 600
 decision_signal_query_timeout_s: 5
 decision_require_signal_readiness: true
 decision_require_fresh_signals: true
 decision_max_signal_age_s: 180
 decision_min_ready_checks: 1
+decision_require_action_state_guards: false
 
 decision_dry_run: true
 decision_enable_actions: false

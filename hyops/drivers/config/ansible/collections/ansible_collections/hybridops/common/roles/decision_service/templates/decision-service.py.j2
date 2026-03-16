@@ -48,6 +48,75 @@ def _append_log(payload: dict) -> None:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
+def _normalize_module_ref(value: str) -> str:
+    token = str(value or "").strip().replace(".", "/")
+    while "//" in token:
+        token = token.replace("//", "/")
+    token = token.strip("/")
+    return token
+
+
+def _module_id_from_ref(module_ref: str) -> str:
+    return _normalize_module_ref(module_ref).replace("/", "__")
+
+
+def _split_state_ref(value: str) -> tuple[str, str]:
+    token = str(value or "").strip()
+    if "#" in token:
+        base, instance = token.split("#", 1)
+        return _normalize_module_ref(base), str(instance or "").strip()
+    return _normalize_module_ref(token), ""
+
+
+def _resolve_runtime_root(config: dict) -> Path:
+    explicit = str(config.get("runtime_root") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    env_name = str(config.get("runtime_env") or "").strip()
+    return (Path.home() / ".hybridops" / "envs" / env_name).resolve()
+
+
+def _read_module_state(config: dict, state_ref: str) -> tuple[dict | None, str]:
+    module_ref, instance = _split_state_ref(state_ref)
+    if not module_ref:
+        return None, "invalid_state_ref"
+    state_root = _resolve_runtime_root(config) / "state" / "modules" / _module_id_from_ref(module_ref)
+    path = state_root / "instances" / f"{instance}.json" if instance else state_root / "latest.json"
+    if not path.exists():
+        return None, f"state_not_found:{path}"
+    try:
+        payload = _read_json(path)
+    except Exception as exc:
+        return None, f"state_read_error:{exc}"
+    if not isinstance(payload, dict):
+        return None, "state_invalid"
+    return payload, ""
+
+
+def _lookup_output(outputs: dict, key: str) -> object:
+    token = str(key or "").strip()
+    if not token or not isinstance(outputs, dict):
+        return None
+    if token in outputs:
+        return outputs.get(token)
+    current: object = outputs
+    for part in token.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current.get(part)
+    return current
+
+
+def _is_non_empty(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) > 0
+    return True
+
+
 def _to_float(value: object) -> float | None:
     try:
         if isinstance(value, bool):
@@ -323,6 +392,97 @@ def _run_action(action_name: str, module_ref: str, desired: str, config: dict, a
     }
 
 
+def _evaluate_action_state_guards(action_name: str, config: dict, actions: dict) -> dict:
+    guards_raw = actions.get("module_state_guards")
+    require_guards = bool(config.get("require_action_state_guards", False))
+
+    if not isinstance(guards_raw, dict):
+        if require_guards:
+            return {"ready": False, "reason": "missing_state_guards", "checks": []}
+        return {"ready": True, "reason": "state_guards_not_configured", "checks": []}
+
+    guards = guards_raw.get(action_name)
+    if guards in (None, ""):
+        guards = []
+    if not isinstance(guards, list):
+        return {"ready": False, "reason": "invalid_state_guards", "checks": []}
+    if not guards:
+        if require_guards:
+            return {"ready": False, "reason": "state_guards_empty", "checks": []}
+        return {"ready": True, "reason": "state_guards_not_required", "checks": []}
+
+    checks: list[dict] = []
+    all_ok = True
+    for item in guards:
+        if not isinstance(item, dict):
+            checks.append({"ok": False, "reason": "guard_invalid"})
+            all_ok = False
+            continue
+        state_ref = str(item.get("state_ref") or "").strip()
+        require_status = str(item.get("require_status") or "ok").strip()
+        outputs_equal = item.get("outputs_equal")
+        outputs_non_empty = item.get("outputs_non_empty")
+        if not isinstance(outputs_equal, dict):
+            outputs_equal = {}
+        if not isinstance(outputs_non_empty, list):
+            outputs_non_empty = []
+
+        state_payload, state_err = _read_module_state(config, state_ref)
+        if state_err:
+            checks.append({"state_ref": state_ref, "ok": False, "reason": state_err})
+            all_ok = False
+            continue
+
+        actual_status = str((state_payload or {}).get("status") or "")
+        outputs = (state_payload or {}).get("outputs")
+        if not isinstance(outputs, dict):
+            outputs = {}
+
+        result = {
+            "state_ref": state_ref,
+            "ok": True,
+            "reason": "ok",
+            "actual_status": actual_status,
+        }
+
+        if require_status and actual_status != require_status:
+            result["ok"] = False
+            result["reason"] = "status_mismatch"
+            result["expected_status"] = require_status
+
+        missing_non_empty: list[str] = []
+        for key in outputs_non_empty:
+            actual = _lookup_output(outputs, str(key))
+            if not _is_non_empty(actual):
+                missing_non_empty.append(str(key))
+
+        unequal_outputs: dict[str, dict] = {}
+        for key, expected in outputs_equal.items():
+            actual = _lookup_output(outputs, str(key))
+            if actual != expected:
+                unequal_outputs[str(key)] = {"expected": expected, "actual": actual}
+
+        if missing_non_empty:
+            result["ok"] = False
+            result["reason"] = "outputs_non_empty_failed"
+            result["outputs_non_empty_failed"] = missing_non_empty
+
+        if unequal_outputs:
+            result["ok"] = False
+            result["reason"] = "outputs_equal_failed"
+            result["outputs_equal_failed"] = unequal_outputs
+
+        if not bool(result.get("ok")):
+            all_ok = False
+        checks.append(result)
+
+    return {
+        "ready": all_ok,
+        "reason": "state_guards_ready" if all_ok else "state_guards_blocked",
+        "checks": checks,
+    }
+
+
 def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
     now_epoch = float(time.time())
     mode = str(prior.get("mode") or policy.get("mode") or "PRIMARY").strip().upper()
@@ -369,6 +529,7 @@ def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
     recommended_action = "none"
     action_executed = "none"
     action_result = {}
+    action_state_eval = {"ready": True, "reason": "not_evaluated", "checks": []}
     actions = policy.get("actions")
     if not isinstance(actions, dict):
         actions = {}
@@ -406,6 +567,7 @@ def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
 
     if trigger:
         recommended_action = trigger
+        action_state_eval = _evaluate_action_state_guards(trigger, config, actions_effective)
         cooldown_remaining = 0
         if last_action_epoch > 0 and cooldown_seconds > 0:
             elapsed_since_last = int(max(0.0, now_epoch - last_action_epoch))
@@ -417,6 +579,8 @@ def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
             reason = f"trigger={trigger} blocked: enable_actions=false"
         elif require_signal_readiness and not signal_ready:
             reason = f"trigger={trigger} blocked: signal_not_ready ({signal_ready_reason})"
+        elif not bool(action_state_eval.get("ready", False)):
+            reason = f"trigger={trigger} blocked: action_state_not_ready ({str(action_state_eval.get('reason') or '')})"
         elif cooldown_remaining > 0:
             reason = f"trigger={trigger} blocked: cooldown_active={cooldown_remaining}s"
         else:
@@ -464,6 +628,9 @@ def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
         "enable_actions": enable_actions,
         "signal_ready": signal_ready,
         "signal_ready_reason": signal_ready_reason,
+        "action_state_ready": bool(action_state_eval.get("ready", True)),
+        "action_state_reason": str(action_state_eval.get("reason") or ""),
+        "action_state_checks": action_state_eval.get("checks") if isinstance(action_state_eval.get("checks"), list) else [],
         "require_signal_readiness": require_signal_readiness,
         "require_fresh_signals": require_fresh_signals,
         "max_signal_age_s": max_signal_age_s,

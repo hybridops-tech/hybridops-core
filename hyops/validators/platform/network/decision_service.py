@@ -51,6 +51,12 @@ def _validate_module_ref(value: str, field: str) -> None:
         raise ValueError(f"{field} must be a canonical module ref")
 
 
+def _validate_state_ref(value: Any, field: str) -> None:
+    token = _require_non_empty_str(value, field)
+    base = token.split("#", 1)[0].strip()
+    _validate_module_ref(base, field)
+
+
 def _validate_inventory(data: dict[str, Any]) -> None:
     inventory_groups = data.get("inventory_groups")
     inventory_state_ref = data.get("inventory_state_ref")
@@ -157,6 +163,65 @@ def _validate_dns_routing_base_inputs(base: dict[str, Any]) -> None:
         raise ValueError(f"inputs.actions.module_inputs invalid for platform/network/dns-routing: {exc}") from exc
 
 
+def _validate_module_state_guards(actions: dict[str, Any]) -> None:
+    guards = actions.get("module_state_guards")
+    if guards is None:
+        return
+    if not isinstance(guards, dict):
+        raise ValueError("inputs.actions.module_state_guards must be a mapping when set")
+
+    for action_name in ("cutover", "failback"):
+        items = guards.get(action_name, [])
+        if items in (None, ""):
+            items = []
+        if not isinstance(items, list):
+            raise ValueError(f"inputs.actions.module_state_guards.{action_name} must be a list when set")
+        for idx, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"inputs.actions.module_state_guards.{action_name}[{idx}] must be a mapping"
+                )
+            _validate_state_ref(
+                item.get("state_ref"),
+                f"inputs.actions.module_state_guards.{action_name}[{idx}].state_ref",
+            )
+            require_status = item.get("require_status")
+            if require_status is not None:
+                _require_non_empty_str(
+                    require_status,
+                    f"inputs.actions.module_state_guards.{action_name}[{idx}].require_status",
+                )
+
+            outputs_equal = item.get("outputs_equal")
+            if outputs_equal is not None:
+                if not isinstance(outputs_equal, dict):
+                    raise ValueError(
+                        f"inputs.actions.module_state_guards.{action_name}[{idx}].outputs_equal must be a mapping"
+                    )
+                for key, value in outputs_equal.items():
+                    _require_non_empty_str(
+                        key,
+                        f"inputs.actions.module_state_guards.{action_name}[{idx}].outputs_equal key",
+                    )
+                    if isinstance(value, (dict, list)):
+                        raise ValueError(
+                            f"inputs.actions.module_state_guards.{action_name}[{idx}].outputs_equal.{key} "
+                            "must be a scalar value"
+                        )
+
+            outputs_non_empty = item.get("outputs_non_empty")
+            if outputs_non_empty is not None:
+                if not isinstance(outputs_non_empty, list):
+                    raise ValueError(
+                        f"inputs.actions.module_state_guards.{action_name}[{idx}].outputs_non_empty must be a list"
+                    )
+                for out_idx, key in enumerate(outputs_non_empty, start=1):
+                    _require_non_empty_str(
+                        key,
+                        f"inputs.actions.module_state_guards.{action_name}[{idx}].outputs_non_empty[{out_idx}]",
+                    )
+
+
 def validate(inputs: dict[str, Any]) -> None:
     data = inputs or {}
     if not isinstance(data, dict):
@@ -230,6 +295,9 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_non_empty_str(data.get("decision_log_level"), "inputs.decision_log_level")
     _require_non_empty_str(data.get("decision_hyops_bin"), "inputs.decision_hyops_bin")
     _require_non_empty_str(data.get("decision_runtime_env"), "inputs.decision_runtime_env")
+    runtime_root = data.get("decision_runtime_root")
+    if runtime_root is not None and str(runtime_root).strip():
+        _require_non_empty_str(runtime_root, "inputs.decision_runtime_root")
     _require_int_ge(data.get("decision_action_timeout_s"), "inputs.decision_action_timeout_s", 30)
     _require_int_ge(data.get("decision_signal_query_timeout_s"), "inputs.decision_signal_query_timeout_s", 1)
 
@@ -244,6 +312,12 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_int_ge(data.get("decision_max_signal_age_s"), "inputs.decision_max_signal_age_s", 5)
     _require_int_ge(data.get("decision_min_ready_checks"), "inputs.decision_min_ready_checks", 1)
 
+    require_action_state_guards = data.get("decision_require_action_state_guards")
+    if not isinstance(require_action_state_guards, bool):
+        raise ValueError("inputs.decision_require_action_state_guards must be a boolean")
+
+    _validate_module_state_guards(actions)
+
     if enable_actions and not dry_run:
         base_inputs = actions.get("module_inputs")
         if not isinstance(base_inputs, dict) or not base_inputs:
@@ -252,3 +326,9 @@ def validate(inputs: dict[str, Any]) -> None:
             )
         if "platform/network/dns-routing" in {cutover_ref, failback_ref}:
             _validate_dns_routing_base_inputs(base_inputs)
+        if require_action_state_guards:
+            guards = actions.get("module_state_guards")
+            if not isinstance(guards, dict):
+                raise ValueError(
+                    "inputs.actions.module_state_guards must be configured when decision_require_action_state_guards=true"
+                )
