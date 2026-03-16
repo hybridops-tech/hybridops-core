@@ -6,25 +6,51 @@ Status
 
 Current platform reality
 - The current on-prem platform is a single server, not a clustered Proxmox estate.
-- Because of that, real resilience currently comes from:
-  - backup and restore
+- Because of that, the current resilience story is hybrid, not local-cluster HA.
+- Real service continuity currently comes from:
+  - durable primary file state on the on-prem site
+  - backup and restore of PostgreSQL and `moodledata`
   - cloud DR provisioning
   - workload reprovisioning through Argo CD
   - DNS cutover
-- Do not claim local storage clustering that the current hardware topology cannot support.
+
+Resilience posture
+- This is not a placeholder or lab-only posture.
+- It is a valid resilience design when it is documented and operated honestly as:
+  - single-site primary runtime
+  - cloud DR for continuity
+  - tested restore automation
+- Do not describe it as zero-downtime local HA.
+- Do describe it as a hybrid resilience and disaster-recovery model with explicit RTO/RPO targets.
 
 Current Moodle storage posture
 - `education-moodle-data` remains a validation bridge only.
 - It is not the final production file-state path.
 - The next production step is a durable single-site file-state path that fits the actual topology.
+- Current preferred provider shape:
+  - virtual NAS-backed shared file export for `moodledata`
+- The provider may be Synology-backed today, but the workload contract must stay generic.
 
 Storage decision notes
 - Do not adopt CephFS on the current single-host platform.
 - Revisit CephFS only when the on-prem topology has enough nodes and failure domains to justify it.
 - Until then, keep the production discussion grounded in:
-  - single-site durable storage
+  - durable single-site file storage
   - strong backup/export of `moodledata`
   - restore-driven cloud recovery
+
+DR service lanes
+- Baseline lane:
+  - restore-driven cloud failover
+  - provision cloud resources
+  - restore PostgreSQL
+  - restore `moodledata`
+  - reconcile workloads
+  - cut over DNS
+- Enhanced lane:
+  - warm standby cloud posture
+  - pre-provision selected cloud dependencies so failover reduces restore/provisioning time
+- Keep both lanes as explicit operating profiles, not hand-wavy aspirations.
 
 DR automation boundary
 - The Moodle workload should continue to define runtime only:
@@ -38,6 +64,14 @@ DR automation boundary
   - smoke checks
   - DNS cutover
 - Do not add an executable Moodle DR blueprint until the restore path is real.
+
+What makes this enterprise-grade
+- explicit RTO and RPO targets
+- off-site backups for both database and file state
+- deterministic reprovisioning through GitOps
+- repeatable failover and failback procedures
+- decision-service gates based on backup freshness and restore readiness
+- tested drills with evidence
 
 Future options to revisit
 - CephFS as the on-prem primary RWX storage plane once the platform is multi-node.
