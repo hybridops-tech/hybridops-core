@@ -73,6 +73,9 @@ Typical use:
 - require Longhorn restore state to publish `restore_volume_ready=true`
 - require DNS cutover targets to stay blocked until those guards pass
 
+See:
+- `modules/platform/network/decision-service/examples/inputs.dr-gates.yml`
+
 ## Usage
 
 ```bash
