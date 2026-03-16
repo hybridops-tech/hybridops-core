@@ -271,7 +271,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
 
     materialized_ssh_key = ""
     try:
-        materialized_ssh_key = materialize_ssh_private_key_from_env(
+        materialized_ssh_key = _materialize_ssh_private_key_from_env(
             inputs=inputs,
             env=env,
             workdir=workdir,
