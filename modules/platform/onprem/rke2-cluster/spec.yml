@@ -64,6 +64,8 @@ inputs:
     # Default false so node-side download works even when the operator workstation
     # has restricted egress.
     rke2_stage_images_from_controller: false
+    # Install node-level prerequisites required by Longhorn before the RKE2 role runs.
+    enable_longhorn_prereqs: false
     # Per-file timeout for controller-side tarball download.
     rke2_image_download_timeout_s: 120
     rke2_role_vars: {}

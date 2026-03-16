@@ -21,10 +21,38 @@
     rke2_server_role_fqcn: "{{ rke2_server_role_fqcn | default(rke2_role_fqcn | default('rancherfederal.rke2_ansible.rke2_server')) }}"
     rke2_role_vars: "{{ rke2_role_vars | default({}) }}"
     rke2_token_env: "{{ rke2_token_env | default('RKE2_TOKEN') }}"
+    enable_longhorn_prereqs: "{{ enable_longhorn_prereqs | default(false) }}"
     rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
     rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
 
   pre_tasks:
+    - name: Ensure Longhorn prerequisite packages on Red Hat servers
+      when:
+        - (enable_longhorn_prereqs | bool)
+        - ansible_os_family == 'RedHat'
+      ansible.builtin.package:
+        name:
+          - iscsi-initiator-utils
+          - nfs-utils
+        state: present
+
+    - name: Ensure Longhorn prerequisite packages on Debian servers
+      when:
+        - (enable_longhorn_prereqs | bool)
+        - ansible_os_family == 'Debian'
+      ansible.builtin.package:
+        name:
+          - open-iscsi
+          - nfs-common
+        state: present
+
+    - name: Enable iSCSI service for Longhorn on servers
+      when: enable_longhorn_prereqs | bool
+      ansible.builtin.service:
+        name: iscsid
+        enabled: true
+        state: started
+
     - name: Build role vars
       no_log: true
       vars:
@@ -143,10 +171,38 @@
     rke2_agent_role_fqcn: "{{ rke2_agent_role_fqcn | default('rancherfederal.rke2_ansible.rke2_agent') }}"
     rke2_role_vars: "{{ rke2_role_vars | default({}) }}"
     rke2_token_env: "{{ rke2_token_env | default('RKE2_TOKEN') }}"
+    enable_longhorn_prereqs: "{{ enable_longhorn_prereqs | default(false) }}"
     rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
     rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
 
   pre_tasks:
+    - name: Ensure Longhorn prerequisite packages on Red Hat agents
+      when:
+        - (enable_longhorn_prereqs | bool)
+        - ansible_os_family == 'RedHat'
+      ansible.builtin.package:
+        name:
+          - iscsi-initiator-utils
+          - nfs-utils
+        state: present
+
+    - name: Ensure Longhorn prerequisite packages on Debian agents
+      when:
+        - (enable_longhorn_prereqs | bool)
+        - ansible_os_family == 'Debian'
+      ansible.builtin.package:
+        name:
+          - open-iscsi
+          - nfs-common
+        state: present
+
+    - name: Enable iSCSI service for Longhorn on agents
+      when: enable_longhorn_prereqs | bool
+      ansible.builtin.service:
+        name: iscsid
+        enabled: true
+        state: started
+
     - name: Build role vars
       no_log: true
       vars:

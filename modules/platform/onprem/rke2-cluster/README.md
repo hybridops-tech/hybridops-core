@@ -38,3 +38,11 @@ Operational note:
 - `rke2_servers`
 - `rke2_agents`
 - `cap.k8s.rke2 = ready`
+
+## Optional node storage prerequisites
+
+- Set `enable_longhorn_prereqs: true` when the cluster will run Longhorn.
+- Current tasks install the required node packages and enable `iscsid` before the RKE2 roles execute.
+- Current package mapping:
+  - Red Hat family: `iscsi-initiator-utils`, `nfs-utils`
+  - Debian family: `open-iscsi`, `nfs-common`
