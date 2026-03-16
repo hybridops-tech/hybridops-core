@@ -61,26 +61,6 @@ def select_published_outputs(all_outputs: dict[str, Any], publish: list[str]) ->
     return out
 
 
-def _first_nfs_server(raw_vms: dict[str, Any]) -> str:
-    for logical_name in sorted(raw_vms.keys()):
-        vm_payload = raw_vms.get(logical_name)
-        if not isinstance(vm_payload, dict):
-            continue
-        configured = str(vm_payload.get("ipv4_configured_primary") or "").strip()
-        if configured:
-            return configured.split("/", 1)[0].strip()
-        addresses = vm_payload.get("ipv4_addresses")
-        if isinstance(addresses, list):
-            for group in addresses:
-                if not isinstance(group, list):
-                    continue
-                for candidate in group:
-                    token = str(candidate or "").strip()
-                    if token and token != "127.0.0.1":
-                        return token
-    return ""
-
-
 def normalize_published_outputs(module_ref: str, outputs: dict[str, Any]) -> dict[str, Any]:
     """Normalize published outputs for stable downstream/operator semantics."""
     if not outputs:
@@ -88,7 +68,7 @@ def normalize_published_outputs(module_ref: str, outputs: dict[str, Any]) -> dic
 
     out = deepcopy(outputs)
     normalized_ref = normalize_module_ref(module_ref)
-    if normalized_ref not in ("platform/onprem/platform-vm", "platform/gcp/platform-vm", "platform/onprem/nfs-appliance"):
+    if normalized_ref not in ("platform/onprem/platform-vm", "platform/gcp/platform-vm"):
         return out
 
     raw_vms = out.get("vms")
@@ -112,10 +92,6 @@ def normalize_published_outputs(module_ref: str, outputs: dict[str, Any]) -> dic
     if vm_names:
         # vm_names should reflect the actual physical resource names presented to operators.
         out["vm_names"] = vm_names
-    if normalized_ref == "platform/onprem/nfs-appliance":
-        nfs_server = _first_nfs_server(raw_vms)
-        if nfs_server:
-            out["nfs_server"] = nfs_server
     return out
 
 
@@ -158,21 +134,6 @@ def build_input_contract(inputs: dict[str, Any]) -> dict[str, Any]:
     inventory_requires_ipam = inputs.get("inventory_requires_ipam")
     if isinstance(inventory_requires_ipam, bool):
         out["inventory_requires_ipam"] = inventory_requires_ipam
-
-    for key in ("provider_kind", "nfs_export_path", "snapshot_profile", "backup_profile"):
-        raw = str(inputs.get(key) or "").strip()
-        if raw:
-            out[key] = raw
-
-    raw_mount_options = inputs.get("nfs_mount_options")
-    if isinstance(raw_mount_options, list):
-        normalized_mount_options: list[str] = []
-        for item in raw_mount_options:
-            token = str(item or "").strip()
-            if token:
-                normalized_mount_options.append(token)
-        if normalized_mount_options:
-            out["nfs_mount_options"] = normalized_mount_options
 
     return out
 

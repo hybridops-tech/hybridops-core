@@ -71,23 +71,6 @@ def _validate_ssh_key_inputs(inputs: dict[str, Any]) -> None:
             )
 
 
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ModuleValidationError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_str_list(value: Any, field: str) -> list[str]:
-    if not isinstance(value, list) or not value:
-        raise ModuleValidationError(f"{field} must be a non-empty list")
-    out: list[str] = []
-    for idx, item in enumerate(value, start=1):
-        if not isinstance(item, str) or not item.strip():
-            raise ModuleValidationError(f"{field}[{idx}] must be a non-empty string")
-        out.append(item.strip())
-    return out
-
-
 def _has_required_meta_data(payload: str) -> bool:
     text = str(payload or "")
     has_instance_id = re.search(r"(?im)^\s*instance-id\s*:\s*\S+", text) is not None
@@ -104,12 +87,6 @@ def _has_nfs_bootstrap(payload: str) -> bool:
 
 
 def _validate_vm_bootstrap(inputs: dict[str, Any]) -> None:
-    declared_export_path = _require_non_empty_str(inputs.get("nfs_export_path"), "inputs.nfs_export_path")
-    mount_options = _require_str_list(inputs.get("nfs_mount_options"), "inputs.nfs_mount_options")
-    _require_non_empty_str(inputs.get("provider_kind"), "inputs.provider_kind")
-    _require_non_empty_str(inputs.get("snapshot_profile"), "inputs.snapshot_profile")
-    _require_non_empty_str(inputs.get("backup_profile"), "inputs.backup_profile")
-
     module_payload = str(inputs.get("cloud_init_user_data") or "").strip()
     module_meta_payload = str(inputs.get("cloud_init_meta_data") or "").strip()
     vms = inputs.get("vms")
@@ -133,7 +110,7 @@ def _validate_vm_bootstrap(inputs: dict[str, Any]) -> None:
             if not meta_payload:
                 missing_meta.append(logical_name)
                 continue
-            if not _has_nfs_bootstrap(payload) or declared_export_path not in payload:
+            if not _has_nfs_bootstrap(payload):
                 invalid_payload.append(logical_name)
                 continue
             if not _has_required_meta_data(meta_payload):
@@ -168,9 +145,9 @@ def _validate_vm_bootstrap(inputs: dict[str, Any]) -> None:
             raise ModuleValidationError(
                 "inputs.cloud_init_meta_data is required for platform/onprem/nfs-appliance single-VM mode"
             )
-        if not _has_nfs_bootstrap(module_payload) or declared_export_path not in module_payload:
+        if not _has_nfs_bootstrap(module_payload):
             raise ModuleValidationError(
-                "inputs.cloud_init_user_data must include real NFS bootstrap intent and the declared inputs.nfs_export_path"
+                "inputs.cloud_init_user_data must include real NFS bootstrap intent (cloud-config + NFS server package + export definition/reload)"
             )
         if not _has_required_meta_data(module_meta_payload):
             raise ModuleValidationError(

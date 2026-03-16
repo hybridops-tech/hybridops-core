@@ -34,11 +34,6 @@ inputs:
     ssh_keys_from_init: true
     ssh_keys_init_target: "proxmox"
     ssh_keys: []
-    provider_kind: "virtual-nas"
-    nfs_export_path: ""
-    nfs_mount_options: ["nfsvers=4.1", "hard", "timeo=600", "retrans=2"]
-    snapshot_profile: "local-snapshots"
-    backup_profile: "cloud-object-export"
     post_apply_ssh_readiness:
       enabled: true
       required: true
