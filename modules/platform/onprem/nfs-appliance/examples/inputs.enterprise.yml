@@ -5,6 +5,15 @@ template_key: "ubuntu-24.04"
 require_ipam: true
 ssh_keys_from_init: true
 ssh_keys_init_target: "proxmox"
+provider_kind: "virtual-nas"
+nfs_export_path: "/srv/nfs/hybridops/academy/moodledata"
+nfs_mount_options:
+  - "nfsvers=4.1"
+  - "hard"
+  - "timeo=600"
+  - "retrans=2"
+snapshot_profile: "local-snapshots"
+backup_profile: "cloud-object-export"
 addressing:
   mode: "ipam"
   ipam:

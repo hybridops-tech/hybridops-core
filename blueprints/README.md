@@ -25,6 +25,7 @@ They package repeatable outcomes, not low-level implementation details.
 - `onprem/netbox-ha-cutover@v1`: re-point NetBox from bootstrap PostgreSQL core to PostgreSQL HA.
 - `onprem/authoritative-foundation@v1`: SDN + NetBox + IPAM-gated platform VMs.
 - `onprem/eve-ng@v1`: EVE-NG foundation chain with optional post-config intent.
+- `onprem/nfs-appliance@v1`: Ubuntu-based on-prem NFS appliance chain for internal workload file-state providers.
 - `networking/wan-hub-edge@v1`: Hetzner edge + GCP hub WAN baseline (network/router/HA VPN BGP).
 - `networking/gcp-ops-runner@v1`: private GCP runner VM in the hub core subnet for runner-local DR/burst execution.
 - `networking/onprem-ops-runner@v1`: on-prem runner VM on the management network for runner-local failback and platform execution.

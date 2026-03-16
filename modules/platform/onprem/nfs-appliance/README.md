@@ -43,10 +43,25 @@ The default SSH path is init-driven:
 This first implementation publishes the same generic VM outputs as `platform/onprem/platform-vm`.
 
 Use them like this until dedicated provider outputs are added:
-- `NFS_SERVER`: derive from the appliance primary IPv4 published in module state
-- `NFS_EXPORT_PATH`: keep aligned with the explicit export path declared in the module input intent
+- `NFS_SERVER`: use `outputs.nfs_server` from module state
+- `NFS_EXPORT_PATH`: use `input_contract.nfs_export_path` from module state
+- `NFS_MOUNT_OPTIONS`: use `input_contract.nfs_mount_options` from module state when the workload renderer supports it
 
 That keeps the workload-side Kubernetes claim contract stable while allowing the provider module to evolve later.
+
+
+## State contract
+
+Current published state contract:
+- output `nfs_server` is normalized from the appliance primary IPv4
+- input contract persists:
+  - `provider_kind`
+  - `nfs_export_path`
+  - `nfs_mount_options`
+  - `snapshot_profile`
+  - `backup_profile`
+
+This is the contract the internal Moodle NFS renderer should consume.
 
 ## Example bootstrap pattern
 
