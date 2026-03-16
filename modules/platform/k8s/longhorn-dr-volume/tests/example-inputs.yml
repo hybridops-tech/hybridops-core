@@ -1,4 +1,4 @@
-kubeconfig_path: /tmp/cluster.kubeconfig
+kubeconfig_path: /dev/null
 longhorn_namespace: longhorn-system
 backup_name: academy-moodle-hourly
 restore_volume_name: academy-moodle-restore
