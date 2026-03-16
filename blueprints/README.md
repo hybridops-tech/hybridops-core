@@ -32,6 +32,9 @@ They package repeatable outcomes, not low-level implementation details.
 - `dr/postgresql-cloudsql-promote-gcp@v1`: explicit promotion gate plus DNS cutover to the managed Cloud SQL endpoint.
 - `dr/postgresql-cloudsql-failback-onprem@v1`: explicit failback gate plus DNS cutback to the on-prem PostgreSQL HA endpoint.
 
+## Planned Internal Blueprint Designs
+- `dr/academy-moodle-failover-gcp@v1`: design-only contract for internal Academy Moodle failover. This blueprint must compose existing PostgreSQL DR outputs, restore `moodledata`, sync the cloud Moodle workload target, and execute DNS cutover without duplicating Moodle runtime/chart configuration. See `blueprints/dr/academy-moodle-failover-gcp@v1/DESIGN.md`.
+
 ## CLI Usage
 - Validate:
   - `hyops blueprint validate --ref onprem/bootstrap-netbox@v1 --blueprints-root blueprints`
