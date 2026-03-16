@@ -1,8 +1,8 @@
 # platform/onprem/nfs-appliance Contract
 
 Status
-- Internal contract note plus current shipped thin-module boundary.
-- `modules/platform/onprem/nfs-appliance` now exists as the VM/bootstrap surface.
+- Internal contract note only.
+- `platform/onprem/nfs-appliance` is not part of the shipped `main` release surface or safe tarball yet.
 - Dedicated provider outputs and a day-2 appliance configuration role are still future work.
 
 Purpose
@@ -39,7 +39,7 @@ It should not own:
 
 Current repo reality
 - `platform/onprem/platform-vm` provides the VM lifecycle baseline.
-- `platform/onprem/nfs-appliance` now ships as a thin module that bootstraps the export through explicit cloud-init intent.
+- `platform/onprem/nfs-appliance` is currently a design target, not shipped `main` surface.
 - The repo still does not ship a dedicated HybridOps NFS day-2 export/appliance role.
 - Because of that, this note remains the place for the fuller provider contract until the configuration role and stronger publish semantics exist.
 
@@ -109,7 +109,7 @@ Composition chain
 5. Future DR automation consumes the same provider outputs plus backup/restore metadata.
 
 Anti-drift rules
-- Do not grow the shipped module beyond VM lifecycle and explicit bootstrap intent until the dedicated configuration role exists.
+- Do not treat this note as proof that the module is shipped. Promotion still requires a real implementation branch, validation, and release review.
 - Do not make Synology the product contract.
 - Do not let workloads consume raw NAS coordinates from handwritten notes or one-off shell history.
 - Do not present local snapshots as the DR authority.

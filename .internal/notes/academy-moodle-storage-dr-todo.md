@@ -39,7 +39,7 @@ Provider contract
   - `ReadWriteMany` access mode
   - `Retain` reclaim policy
 - Keep NAS host, export path, and mount options in the storage manifest layer, not in Moodle application values.
-- Preferred current provider surface for those storage coordinates:
+- Preferred future provider surface for those storage coordinates:
   - `platform/onprem/nfs-appliance`
 - Current mapping:
   - derive `nfs_server` from the appliance primary IPv4
