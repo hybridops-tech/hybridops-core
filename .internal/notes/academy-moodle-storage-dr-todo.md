@@ -28,8 +28,17 @@ Current Moodle storage posture
 - It is not the final production file-state path.
 - The next production step is a durable single-site file-state path that fits the actual topology.
 - Current preferred provider shape:
-  - virtual NAS-backed shared file export for `moodledata`
-- The provider may be Synology-backed today, but the workload contract must stay generic.
+  - virtual NAS-backed NFS export for `moodledata`
+- The provider may be Synology-backed today, but the workload contract must stay generic at the Kubernetes boundary.
+
+Provider contract
+- Kubernetes should see a stable claim for `moodledata`, not NAS-specific paths.
+- Current intended implementation:
+  - static NFS-backed `PersistentVolume`
+  - stable `PersistentVolumeClaim` name: `education-moodle-data`
+  - `ReadWriteMany` access mode
+  - `Retain` reclaim policy
+- Keep NAS host, export path, and mount options in the storage manifest layer, not in Moodle application values.
 
 Storage decision notes
 - Do not adopt CephFS on the current single-host platform.
@@ -40,22 +49,21 @@ Storage decision notes
   - restore-driven cloud recovery
 
 DR service lanes
-- Baseline lane:
-  - restore-driven cloud failover
-  - provision cloud resources
+- Baseline lane (`restore-baseline`):
+  - provision cloud resources during failover
   - restore PostgreSQL
-  - restore `moodledata`
+  - restore `moodledata` into cloud file storage
   - reconcile workloads
   - cut over DNS
-- Enhanced lane:
-  - warm standby cloud posture
-  - pre-provision selected cloud dependencies so failover reduces restore/provisioning time
+- Enhanced lane (`warm-standby`):
+  - pre-provision selected cloud dependencies
+  - reduce restore or provisioning time ahead of cutover
 - Keep both lanes as explicit operating profiles, not hand-wavy aspirations.
 
 DR automation boundary
 - The Moodle workload should continue to define runtime only:
   - chart/image/OIDC/ingress/secret contract
-  - PVC interface
+  - stable PVC interface for `moodledata`
   - backup/export contract for `moodledata`
 - Core DR automation should eventually own:
   - restore sequencing
