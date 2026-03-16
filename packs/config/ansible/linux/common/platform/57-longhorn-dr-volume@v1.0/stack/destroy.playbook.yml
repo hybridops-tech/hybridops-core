@@ -1,0 +1,94 @@
+---
+- name: platform/k8s/longhorn-dr-volume (destroy)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
+    longhorn_namespace: "{{ longhorn_namespace | default('longhorn-system') }}"
+    restore_volume_name: "{{ restore_volume_name | default('') }}"
+    wait_timeout_s: "{{ wait_timeout_s | default(300) | int }}"
+    wait_poll_interval_s: "{{ wait_poll_interval_s | default(5) | int }}"
+
+  tasks:
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Require kubeconfig to exist
+      ansible.builtin.assert:
+        that:
+          - _hyops_kubeconfig_stat.stat.exists
+          - _hyops_kubeconfig_stat.stat.isreg
+          - restore_volume_name | length > 0
+        fail_msg: "Resolved kubeconfig_path must exist and inputs.restore_volume_name must be set"
+
+    - name: Check whether Longhorn volume exists
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - get
+          - volume.longhorn.io
+          - "{{ restore_volume_name }}"
+          - -o
+          - name
+      register: _hyops_restore_exists
+      failed_when: false
+      changed_when: false
+
+    - name: Delete Longhorn DR volume
+      when: _hyops_restore_exists.rc == 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - delete
+          - volume.longhorn.io
+          - "{{ restore_volume_name }}"
+          - --wait=false
+      register: _hyops_restore_delete
+      changed_when: true
+
+    - name: Wait for Longhorn DR volume to disappear
+      when: _hyops_restore_exists.rc == 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - get
+          - volume.longhorn.io
+          - "{{ restore_volume_name }}"
+          - -o
+          - name
+      register: _hyops_restore_gone
+      failed_when: false
+      until: _hyops_restore_gone.rc != 0
+      retries: "{{ ((wait_timeout_s + wait_poll_interval_s - 1) // wait_poll_interval_s) | int }}"
+      delay: "{{ wait_poll_interval_s }}"
+      changed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'longhorn_namespace': (longhorn_namespace | string),
+            'restore_volume_name': (restore_volume_name | string),
+            'destroyed': (_hyops_restore_exists.rc == 0),
+            'cap.k8s.longhorn_dr_volume': 'removed'
+          } | to_json }}

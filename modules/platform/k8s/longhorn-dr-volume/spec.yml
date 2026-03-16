@@ -1,0 +1,81 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/k8s/longhorn-dr-volume"
+
+metadata:
+  title: "Longhorn DR Volume (Kubernetes)"
+  description: "Observes Longhorn backup state and manages Longhorn DR/restore volumes from backup URLs on an existing Kubernetes cluster."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    kubeconfig_path: ""
+    kubectl_bin: "kubectl"
+    longhorn_namespace: "longhorn-system"
+
+    # Operation mode:
+    # - observe: resolve backup metadata/freshness only
+    # - standby: create/update a Longhorn standby DR volume from the backup URL
+    # - restore: create/update an active Longhorn restore volume from the backup URL
+    # - activate: promote an existing standby volume by clearing Standby and enabling frontend
+    operation_mode: "observe"
+
+    backup_name: ""
+    backup_url: ""
+    restore_volume_name: ""
+    restore_size: ""
+    restore_access_mode: "rwo"
+    restore_number_of_replicas: 1
+    restore_data_engine: "v1"
+    restore_backup_target_name: ""
+    restore_labels: {}
+
+    wait_restore_complete: true
+    wait_timeout_s: 900
+    wait_poll_interval_s: 5
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/57-longhorn-dr-volume@v1.0"
+
+outputs:
+  publish:
+    - longhorn_namespace
+    - operation_mode
+    - backup_name
+    - backup_url
+    - backup_state
+    - backup_created_at
+    - backup_last_synced_at
+    - backup_target_name
+    - source_longhorn_volume_name
+    - source_pvc_namespace
+    - source_pvc_name
+    - restore_volume_name
+    - restore_volume_size
+    - restore_volume_state
+    - restore_volume_robustness
+    - restore_condition_status
+    - restore_volume_is_standby
+    - restore_volume_restore_required
+    - restore_volume_restore_initiated
+    - restore_volume_ready
+    - restore_volume_ready_reason
+    - cap.k8s.longhorn_dr_volume
+
+probes: []
+constraints: []

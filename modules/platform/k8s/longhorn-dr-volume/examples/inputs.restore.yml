@@ -1,0 +1,9 @@
+# Create or update an active restore volume from a Longhorn backup.
+
+kubeconfig_path: "/path/to/cluster.kubeconfig"
+longhorn_namespace: "longhorn-system"
+operation_mode: "restore"
+backup_name: "moodle-cutover-20260316t1622z-backup"
+restore_volume_name: "academy-moodle-restore"
+restore_number_of_replicas: 1
+wait_restore_complete: true

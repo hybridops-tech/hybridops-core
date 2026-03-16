@@ -24,6 +24,7 @@ from hyops.validators.org.gcp import (
 )
 from hyops.validators.org.hetzner import shared_control_host, vyos_edge_foundation, wan_edge_foundation
 from hyops.validators.platform.azure import container_registry
+from hyops.validators.platform.k8s import longhorn_dr_volume, runtime_bundle_secret
 from hyops.validators.platform.network import (
     decision_service,
     dns_routing,
@@ -83,6 +84,8 @@ def register_all() -> None:
     register("platform/network/dns-routing", dns_routing.validate)
     register("platform/onprem/argocd-bootstrap", argocd_bootstrap.validate)
     register("platform/k8s/argocd-bootstrap", argocd_bootstrap.validate)
+    register("platform/k8s/runtime-bundle-secret", runtime_bundle_secret.validate)
+    register("platform/k8s/longhorn-dr-volume", longhorn_dr_volume.validate)
     register("platform/onprem/control-node", control_node.validate)
     register("platform/onprem/eve-ng", eve_ng.validate)
     register("platform/onprem/netbox", netbox.validate)

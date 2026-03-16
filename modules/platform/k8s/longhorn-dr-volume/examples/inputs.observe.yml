@@ -1,0 +1,5 @@
+# Resolve Longhorn backup metadata only.
+
+kubeconfig_path: "/path/to/cluster.kubeconfig"
+longhorn_namespace: "longhorn-system"
+backup_name: "moodle-cutover-20260316t1622z-backup"

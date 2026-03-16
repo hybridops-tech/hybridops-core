@@ -1,8 +1,9 @@
 # Academy Moodle Storage and DR TODO
 
 Status
-- Internal planning note only.
-- Keep this out of the shipped blueprint surface until the storage and restore modules exist.
+- Internal planning note.
+- The first Core recovery primitive candidate in this integration branch is `platform/k8s/longhorn-dr-volume`.
+- Keep executable Moodle DR blueprints out of the shipped surface until cluster bring-up and DNS cutover steps are equally real.
 
 Current platform reality
 - The current on-prem platform is a single server, not a clustered Proxmox estate.
@@ -24,39 +25,34 @@ Resilience posture
 - Do describe it as a hybrid resilience and disaster-recovery model with explicit RTO/RPO targets.
 
 Current Moodle storage posture
-- `education-moodle-data` remains a validation bridge only.
-- It is not the final production file-state path.
-- The next production step is a durable single-site file-state path that fits the actual topology.
-- Current preferred provider shape:
-  - virtual NAS-backed NFS export for `moodledata`
-- The provider may be Synology-backed today, but the workload contract must stay generic at the Kubernetes boundary.
+- `education-moodle-data` is now a Longhorn-backed claim in the live Stage 2 lane.
+- Longhorn backup state is available in-cluster through `Backup`, `BackupVolume`, and `Volume` CRs.
+- The first Core recovery primitive candidate is the Longhorn DR volume module, which can:
+  - observe backup freshness and metadata
+  - create standby DR volumes
+  - create restore volumes
+  - activate an existing standby volume
+- The remaining gap is full cluster bring-up, workload rebind, and DNS cutover automation around that primitive.
 
 Provider contract
-- Kubernetes should see a stable claim for `moodledata`, not NAS-specific paths.
-- Current intended implementation:
-  - static NFS-backed `PersistentVolume`
+- Kubernetes should continue to see a stable claim for `moodledata`, not provider-specific workload values.
+- Current implementation:
   - stable `PersistentVolumeClaim` name: `education-moodle-data`
-  - `ReadWriteMany` access mode
-  - `Retain` reclaim policy
-- Keep NAS host, export path, and mount options in the storage manifest layer, not in Moodle application values.
-- Preferred future provider surface for those storage coordinates:
-  - `platform/onprem/nfs-appliance`
-- Current mapping:
-  - derive `nfs_server` from the appliance primary IPv4
-  - keep `nfs_export_path` aligned with the declared export path in module input intent
-- Preferred later published outputs:
-  - `nfs_server`
-  - `nfs_export_path`
-  - `backup_profile`
-- See `platform-onprem-nfs-appliance-contract.md` for the provider/module boundary.
+  - `ReadWriteOnce` access mode
+  - Longhorn-backed `StorageClass`: `longhorn-moodle`
+  - off-site Longhorn backup target in cloud object storage
+- Keep provider-specific backup and restore controls in the platform layer, not in Moodle application values.
+- Current candidate Core primitive in this branch:
+  - `platform/k8s/longhorn-dr-volume`
+- That primitive publishes backup freshness and restore state without baking Moodle-specific logic into Core.
 
 Storage decision notes
-- Do not adopt CephFS on the current single-host platform.
-- Revisit CephFS only when the on-prem topology has enough nodes and failure domains to justify it.
-- Until then, keep the production discussion grounded in:
+- Do not present Longhorn on the current single-host platform as local HA.
+- Do use Longhorn as the truthful current file-state provider because it matches the existing RKE2 and GitOps operating model.
+- Keep the resilience discussion grounded in:
   - durable single-site file storage
-  - strong backup/export of `moodledata`
-  - restore-driven cloud recovery
+  - strong off-site backup of `moodledata`
+  - restore-driven or warm-standby cloud recovery
 
 DR service lanes
 - Baseline lane (`restore-baseline`):

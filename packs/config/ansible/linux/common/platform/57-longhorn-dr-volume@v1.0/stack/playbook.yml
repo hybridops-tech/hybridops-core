@@ -1,0 +1,415 @@
+---
+- name: platform/k8s/longhorn-dr-volume (apply)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
+    longhorn_namespace: "{{ longhorn_namespace | default('longhorn-system') }}"
+    operation_mode: "{{ operation_mode | default('observe') }}"
+    backup_name: "{{ backup_name | default('') }}"
+    backup_url: "{{ backup_url | default('') }}"
+    restore_volume_name: "{{ restore_volume_name | default('') }}"
+    restore_size: "{{ restore_size | default('') }}"
+    restore_access_mode: "{{ restore_access_mode | default('rwo') }}"
+    restore_number_of_replicas: "{{ restore_number_of_replicas | default(1) | int }}"
+    restore_data_engine: "{{ restore_data_engine | default('v1') }}"
+    restore_backup_target_name: "{{ restore_backup_target_name | default('') }}"
+    restore_labels: "{{ restore_labels | default({}) }}"
+    wait_restore_complete: "{{ wait_restore_complete | default(true) | bool }}"
+    wait_timeout_s: "{{ wait_timeout_s | default(900) | int }}"
+    wait_poll_interval_s: "{{ wait_poll_interval_s | default(5) | int }}"
+
+  tasks:
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Require kubeconfig to exist
+      ansible.builtin.assert:
+        that:
+          - _hyops_kubeconfig_stat.stat.exists
+          - _hyops_kubeconfig_stat.stat.isreg
+        fail_msg: "Resolved kubeconfig_path does not exist: {{ kubeconfig_path }}"
+
+    - name: Verify kubectl client is available
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - version
+          - --client=true
+          - --output=yaml
+      changed_when: false
+
+    - name: Verify Kubernetes cluster is reachable
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - cluster-info
+      changed_when: false
+
+    - name: Require supported apply mode
+      ansible.builtin.assert:
+        that:
+          - operation_mode in ['observe', 'standby', 'restore', 'activate']
+        fail_msg: "inputs.operation_mode must be one of: observe, standby, restore, activate"
+
+    - name: Resolve Longhorn backup by name
+      when: backup_name | length > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - get
+          - backup.longhorn.io
+          - "{{ backup_name }}"
+          - -o
+          - json
+      register: _hyops_backup_get
+      changed_when: false
+
+    - name: Parse Longhorn backup payload
+      when: backup_name | length > 0
+      ansible.builtin.set_fact:
+        _hyops_backup: "{{ _hyops_backup_get.stdout | from_json }}"
+      changed_when: false
+
+    - name: Require completed Longhorn backup when backup_name is used
+      when: backup_name | length > 0
+      ansible.builtin.assert:
+        that:
+          - ((_hyops_backup.status | default({})).get('state') | default('')) == 'Completed'
+          - (((_hyops_backup.status | default({})).get('url') | default('')) | length) > 0
+        fail_msg: >-
+          Longhorn backup {{ backup_name }} is not ready. Expected state=Completed and a populated status.url.
+
+    - name: Derive backup metadata
+      ansible.builtin.set_fact:
+        _hyops_backup_status: "{{ (_hyops_backup.status | default({})) if (_hyops_backup is defined and _hyops_backup is mapping) else {} }}"
+        _hyops_backup_labels: "{{ ((_hyops_backup.status | default({})).get('labels') | default({})) if (_hyops_backup is defined and _hyops_backup is mapping) else {} }}"
+        _hyops_backup_state: "{{ ((_hyops_backup.status | default({})).get('state') | default('')) if (_hyops_backup is defined and _hyops_backup is mapping) else '' }}"
+        _hyops_backup_created_at: "{{ ((_hyops_backup.status | default({})).get('backupCreatedAt') | default('')) if (_hyops_backup is defined and _hyops_backup is mapping) else '' }}"
+        _hyops_backup_last_synced_at: "{{ ((_hyops_backup.status | default({})).get('lastSyncedAt') | default('')) if (_hyops_backup is defined and _hyops_backup is mapping) else '' }}"
+        _hyops_backup_url_resolved: >-
+          {{
+            (backup_url | string)
+            if (backup_url | string | length > 0)
+            else (((_hyops_backup.status | default({})).get('url') | default('')) if (_hyops_backup is defined and _hyops_backup is mapping) else '')
+          }}
+        _hyops_backup_target_name_resolved: >-
+          {{
+            (restore_backup_target_name | string)
+            if (restore_backup_target_name | string | length > 0)
+            else (((_hyops_backup.status | default({})).get('backupTargetName') | default('default')) if (_hyops_backup is defined and _hyops_backup is mapping) else 'default')
+          }}
+        _hyops_source_volume_name: >-
+          {{
+            (((_hyops_backup.status | default({})).get('volumeName') | default('')) if (_hyops_backup is defined and _hyops_backup is mapping) else '')
+          }}
+        _hyops_restore_size_resolved: >-
+          {{
+            (restore_size | string)
+            if (restore_size | string | length > 0)
+            else (((_hyops_backup.status | default({})).get('volumeSize') | default('')) if (_hyops_backup is defined and _hyops_backup is mapping) else '')
+          }}
+        _hyops_backup_volume_resource_name: >-
+          {{
+            (
+              ((_hyops_backup.metadata | default({})).get('ownerReferences') | default([]))
+              | selectattr('kind', 'equalto', 'BackupVolume')
+              | map(attribute='name')
+              | list
+              | first
+            )
+            if (_hyops_backup is defined and _hyops_backup is mapping)
+            else ''
+          }}
+      changed_when: false
+
+    - name: Resolve Longhorn BackupVolume for source metadata
+      when: _hyops_backup_volume_resource_name | default('') | length > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - get
+          - backupvolume.longhorn.io
+          - "{{ _hyops_backup_volume_resource_name }}"
+          - -o
+          - json
+      register: _hyops_backup_volume_get
+      changed_when: false
+
+    - name: Parse Longhorn BackupVolume payload
+      when: _hyops_backup_volume_get is defined and (_hyops_backup_volume_get.stdout | default('') | length > 0)
+      ansible.builtin.set_fact:
+        _hyops_backup_volume: "{{ _hyops_backup_volume_get.stdout | from_json }}"
+      changed_when: false
+
+    - name: Resolve raw Kubernetes status labels
+      ansible.builtin.set_fact:
+        _hyops_backup_kubernetes_status_raw: "{{ (_hyops_backup_labels.get('KubernetesStatus', '') if (_hyops_backup_labels is mapping) else '') | string }}"
+        _hyops_backup_volume_kubernetes_status_raw: "{{ (((_hyops_backup_volume.status | default({})).get('labels') | default({})).get('KubernetesStatus', '') if (_hyops_backup_volume is defined and _hyops_backup_volume is mapping) else '') | string }}"
+      changed_when: false
+
+    - name: Parse source Kubernetes status from Longhorn labels
+      ansible.builtin.set_fact:
+        _hyops_source_kubernetes_status: >-
+          {{
+            (_hyops_backup_kubernetes_status_raw | from_json)
+            if (_hyops_backup_kubernetes_status_raw | length > 0)
+            else (
+              (_hyops_backup_volume_kubernetes_status_raw | from_json)
+              if (_hyops_backup_volume_kubernetes_status_raw | length > 0)
+              else {}
+            )
+          }}
+      changed_when: false
+
+    - name: Require effective backup URL
+      when: operation_mode in ['observe', 'standby', 'restore']
+      ansible.builtin.assert:
+        that:
+          - (_hyops_backup_url_resolved | default('') | length) > 0
+        fail_msg: "Unable to resolve a Longhorn backup URL. Set inputs.backup_name or inputs.backup_url."
+
+    - name: Require restore volume name for volume operations
+      when: operation_mode in ['standby', 'restore', 'activate']
+      ansible.builtin.assert:
+        that:
+          - restore_volume_name | length > 0
+        fail_msg: "inputs.restore_volume_name is required when operation_mode is standby, restore, or activate"
+
+    - name: Require restore size when creating a restore volume
+      when: operation_mode in ['standby', 'restore']
+      ansible.builtin.assert:
+        that:
+          - (_hyops_restore_size_resolved | default('') | length) > 0
+        fail_msg: >-
+          Unable to resolve restore size for volume {{ restore_volume_name }}. Set inputs.restore_size or use inputs.backup_name.
+
+    - name: Build Longhorn DR volume labels
+      when: operation_mode in ['standby', 'restore']
+      ansible.builtin.set_fact:
+        _hyops_restore_labels: "{{ {'hyops.managed-by': 'hyops', 'hyops.module': 'platform-k8s-longhorn-dr-volume', 'hyops.mode': operation_mode} | combine((restore_labels if restore_labels is mapping else {}), recursive=True) }}"
+      changed_when: false
+
+    - name: Render Longhorn DR volume manifest
+      when: operation_mode in ['standby', 'restore']
+      ansible.builtin.copy:
+        dest: "{{ (hyops_outputs_file | dirname) ~ '/longhorn-dr-volume.yaml' }}"
+        mode: "0600"
+        content: |
+          apiVersion: longhorn.io/v1beta2
+          kind: Volume
+          metadata:
+            name: {{ restore_volume_name }}
+            namespace: {{ longhorn_namespace }}
+            labels:
+          {% for item in (_hyops_restore_labels | dict2items | sort(attribute='key')) %}
+              {{ item.key }}: {{ item.value | to_json }}
+          {% endfor %}
+          spec:
+            accessMode: {{ restore_access_mode }}
+            numberOfReplicas: {{ restore_number_of_replicas }}
+            size: {{ _hyops_restore_size_resolved | to_json }}
+            fromBackup: {{ _hyops_backup_url_resolved | to_json }}
+            backupTargetName: {{ _hyops_backup_target_name_resolved | to_json }}
+            dataEngine: {{ restore_data_engine | to_json }}
+            frontend: {{ ('' if operation_mode == 'standby' else 'blockdev') | to_json }}
+            Standby: {{ (operation_mode == 'standby') | to_json }}
+      changed_when: false
+
+    - name: Apply Longhorn DR volume manifest
+      when: operation_mode in ['standby', 'restore']
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - apply
+          - --server-side
+          - --force-conflicts
+          - -f
+          - "{{ (hyops_outputs_file | dirname) ~ '/longhorn-dr-volume.yaml' }}"
+      register: _hyops_restore_apply
+      changed_when: >-
+        (_hyops_restore_apply.stdout is defined and (
+          'created' in _hyops_restore_apply.stdout or
+          'configured' in _hyops_restore_apply.stdout
+        ))
+
+    - name: Activate standby Longhorn volume
+      when: operation_mode == 'activate'
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - patch
+          - volume.longhorn.io
+          - "{{ restore_volume_name }}"
+          - --type
+          - merge
+          - -p
+          - '{"spec":{"Standby":false,"frontend":"blockdev"}}'
+      register: _hyops_restore_activate
+      changed_when: >-
+        (_hyops_restore_activate.stdout is defined and (
+          'patched' in _hyops_restore_activate.stdout or
+          'configured' in _hyops_restore_activate.stdout
+        ))
+
+    - name: Wait for Longhorn restore to settle
+      when:
+        - wait_restore_complete
+        - operation_mode in ['standby', 'restore', 'activate']
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - get
+          - volume.longhorn.io
+          - "{{ restore_volume_name }}"
+          - -o
+          - jsonpath={range .status.conditions[?(@.type=="Restore")]}{.status}{end}
+      register: _hyops_restore_wait_condition
+      until: >-
+        (_hyops_restore_wait_condition.rc == 0) and
+        ((_hyops_restore_wait_condition.stdout | trim | lower) == 'false')
+      retries: "{{ ((wait_timeout_s + wait_poll_interval_s - 1) // wait_poll_interval_s) | int }}"
+      delay: "{{ wait_poll_interval_s }}"
+      changed_when: false
+
+    - name: Read final Longhorn volume state
+      when: restore_volume_name | length > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - get
+          - volume.longhorn.io
+          - "{{ restore_volume_name }}"
+          - -o
+          - json
+      register: _hyops_restore_final_get
+      changed_when: false
+
+    - name: Read final Longhorn restore condition
+      when: restore_volume_name | length > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ longhorn_namespace }}"
+          - get
+          - volume.longhorn.io
+          - "{{ restore_volume_name }}"
+          - -o
+          - jsonpath={range .status.conditions[?(@.type=="Restore")]}{.status}{end}
+      register: _hyops_restore_condition_get
+      changed_when: false
+
+    - name: Parse final Longhorn volume payload
+      when: restore_volume_name | length > 0
+      ansible.builtin.set_fact:
+        _hyops_restore_final: "{{ _hyops_restore_final_get.stdout | from_json }}"
+      changed_when: false
+
+    - name: Derive final Longhorn volume facts
+      ansible.builtin.set_fact:
+        _hyops_restore_spec: "{{ (_hyops_restore_final.get('spec', {}) if (_hyops_restore_final is defined and (_hyops_restore_final is mapping)) else {}) }}"
+        _hyops_restore_status: "{{ (_hyops_restore_final.get('status', {}) if (_hyops_restore_final is defined and (_hyops_restore_final is mapping)) else {}) }}"
+        _hyops_restore_conditions: "{{ ((_hyops_restore_final.get('status', {}) if (_hyops_restore_final is defined and (_hyops_restore_final is mapping)) else {}).get('conditions', [])) }}"
+      changed_when: false
+
+    - name: Derive final Longhorn restore condition status
+      ansible.builtin.set_fact:
+        _hyops_restore_condition_complete: "{{ ((_hyops_restore_condition_get.stdout | default('') | trim | lower) == 'false') if (_hyops_restore_condition_get is defined) else false }}"
+      changed_when: false
+
+    - name: Derive restore readiness
+      ansible.builtin.set_fact:
+        _hyops_restore_state: "{{ (_hyops_restore_status.get('state', '') if (_hyops_restore_status is mapping) else '') | string }}"
+        _hyops_restore_robustness: "{{ (_hyops_restore_status.get('robustness', '') if (_hyops_restore_status is mapping) else '') | string }}"
+        _hyops_restore_is_standby: "{{ (_hyops_restore_status.get('isStandby', false) if (_hyops_restore_status is mapping) else false) | bool }}"
+        _hyops_restore_required: "{{ (_hyops_restore_status.get('restoreRequired', false) if (_hyops_restore_status is mapping) else false) | bool }}"
+        _hyops_restore_initiated: "{{ (_hyops_restore_status.get('restoreInitiated', false) if (_hyops_restore_status is mapping) else false) | bool }}"
+        _hyops_restore_size_final: "{{ ((_hyops_restore_spec.get('size', (_hyops_restore_size_resolved | default(''))) if (_hyops_restore_spec is mapping) else (_hyops_restore_size_resolved | default(''))) | string) }}"
+        _hyops_restore_ready: >-
+          {{
+            (_hyops_restore_condition_complete | bool)
+            if (_hyops_restore_final is defined and (_hyops_restore_final is mapping))
+            else (operation_mode == 'observe')
+          }}
+        _hyops_restore_ready_reason: >-
+          {{
+            'backup_observed'
+            if operation_mode == 'observe'
+            else (
+              (
+                'standby_synchronized'
+                if operation_mode == 'standby'
+                else 'restore_settled'
+              )
+              if (_hyops_restore_condition_complete | bool)
+              else (
+                'standby_sync_pending'
+                if operation_mode == 'standby'
+                else 'restore_pending'
+              )
+            )
+          }}
+      changed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'longhorn_namespace': (longhorn_namespace | string),
+            'operation_mode': (operation_mode | string),
+            'backup_name': ((backup_name | string) if (backup_name | string | length > 0) else ''),
+            'backup_url': (_hyops_backup_url_resolved | default('') | string),
+            'backup_state': (_hyops_backup_state | default('') | string),
+            'backup_created_at': (_hyops_backup_created_at | default('') | string),
+            'backup_last_synced_at': (_hyops_backup_last_synced_at | default('') | string),
+            'backup_target_name': (_hyops_backup_target_name_resolved | default('default') | string),
+            'source_longhorn_volume_name': (_hyops_source_volume_name | default('') | string),
+            'source_pvc_namespace': (((_hyops_source_kubernetes_status.get('namespace') | default('', true)) if (_hyops_source_kubernetes_status is mapping) else '') | string),
+            'source_pvc_name': (((_hyops_source_kubernetes_status.get('pvcName') | default('', true)) if (_hyops_source_kubernetes_status is mapping) else '') | string),
+            'restore_volume_name': (restore_volume_name | string),
+            'restore_volume_size': (_hyops_restore_size_final | default('') | string),
+            'restore_volume_state': (_hyops_restore_state | default('') | string),
+            'restore_volume_robustness': (_hyops_restore_robustness | default('') | string),
+            'restore_condition_status': (((_hyops_restore_condition_get.stdout | default('') | trim) if (_hyops_restore_condition_get is defined) else '') | string),
+            'restore_volume_is_standby': (_hyops_restore_is_standby | default(false) | bool),
+            'restore_volume_restore_required': (_hyops_restore_required | default(false) | bool),
+            'restore_volume_restore_initiated': (_hyops_restore_initiated | default(false) | bool),
+            'restore_volume_ready': (_hyops_restore_ready | bool),
+            'restore_volume_ready_reason': (_hyops_restore_ready_reason | string),
+            'cap.k8s.longhorn_dr_volume': 'ready'
+          } | to_json }}
