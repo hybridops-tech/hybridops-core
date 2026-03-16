@@ -39,6 +39,13 @@ Provider contract
   - `ReadWriteMany` access mode
   - `Retain` reclaim policy
 - Keep NAS host, export path, and mount options in the storage manifest layer, not in Moodle application values.
+- Preferred future source of truth for those storage coordinates:
+  - `platform/onprem/nfs-appliance` internal contract
+  - published outputs:
+    - `nfs_server`
+    - `nfs_export_path`
+    - `backup_profile`
+- See `platform-onprem-nfs-appliance-contract.md` for the provider/module boundary.
 
 Storage decision notes
 - Do not adopt CephFS on the current single-host platform.

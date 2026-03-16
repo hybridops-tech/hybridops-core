@@ -1,0 +1,112 @@
+# platform/onprem/nfs-appliance Contract
+
+Status
+- Internal contract note only.
+- Do not add a shipped `modules/platform/onprem/nfs-appliance` module until the appliance configuration role and smoke coverage exist.
+
+Purpose
+- Codify a repeatable on-prem NFS storage appliance pattern on Proxmox.
+- Expose a stable provider contract to workloads and DR automation without binding the product surface to a specific NAS vendor.
+
+Why this boundary exists
+- The current implementation may be Synology-backed, but the product contract should be the storage appliance role, not the vendor brand.
+- Moodle and future internal workloads need stable Kubernetes storage inputs, not appliance-specific admin details.
+- DR automation needs provider outputs it can reason about during backup, restore, and cutover.
+
+Recommended module shape
+- Future shape should follow the thin-module pattern used by `platform/onprem/vyos-edge`.
+- Reuse the existing generic Proxmox VM lifecycle instead of creating a second VM stack.
+- Compose:
+  - `platform/onprem/platform-vm` for the VM lifecycle and inventory/state
+  - a future appliance configuration role for export creation, snapshots, and backup/export policy
+- Do not build this as a generic workload module inside `hybridops-workloads`.
+
+Module boundary
+
+The future `platform/onprem/nfs-appliance` module should own:
+- VM intent for one or more on-prem storage appliance VMs on Proxmox
+- appliance bootstrap and configuration
+- NFS export definition and allowed-client policy
+- snapshot and backup/export profile metadata
+- state-published provider outputs consumed by workload tooling and DR automation
+
+It should not own:
+- application `PersistentVolume` or `PersistentVolumeClaim` manifests
+- Moodle Helm values
+- cloud DR orchestration or DNS cutover
+- vendor-specific UI or operational wording in the shipped product surface
+
+Current repo reality
+- `platform/onprem/platform-vm` already provides the right VM lifecycle baseline.
+- The repo does not currently ship a dedicated HybridOps NFS export/appliance role.
+- Because of that, this stays an internal contract note until the configuration role and tests exist.
+
+Proposed high-level inputs
+- `provider_kind`
+  - example values:
+    - `virtual-nas`
+    - `generic-linux-nfs`
+- `template_state_ref`
+- `template_key`
+- standard VM sizing and network intent reused from the Proxmox VM module
+- `exports`
+  - keyed map of named exports such as `moodledata`
+  - each export should define:
+    - `export_path`
+    - `allowed_clients`
+    - optional `mount_options`
+    - optional `snapshot_profile`
+    - optional `backup_profile`
+- `backup_profile`
+  - should identify the off-site export contract, not just local snapshots
+- `snapshot_profile`
+  - local operational convenience only
+
+Proposed published outputs
+- `nfs_server`
+- `nfs_export_path`
+- `nfs_mount_options`
+- `provider_kind`
+- `snapshot_profile`
+- `backup_profile`
+- `cap.storage.nfs = ready`
+
+These are the only outputs the workload and DR layers should depend on directly.
+
+Workload integration contract
+- Moodle should continue to consume only the stable Kubernetes claim `education-moodle-data`.
+- The site-specific PV/PVC renderer should consume:
+  - `NFS_SERVER <- nfs_server`
+  - `NFS_EXPORT_PATH <- nfs_export_path`
+- Keep all vendor-specific provider details out of the workload repo.
+
+Current renderer target
+- `hybridops-workloads-internal/.internal/tools/onprem-learn-stage2/render-moodle-nfs-storage.sh`
+- That renderer already accepts:
+  - `NFS_SERVER`
+  - `NFS_EXPORT_PATH`
+- When the future module exists, those values should be sourced from its published outputs rather than entered by hand.
+
+DR integration contract
+- DR automation should not care whether the provider implementation is Synology-backed or another virtual NAS form.
+- DR automation should care about:
+  - backup freshness
+  - restore readiness
+  - export coordinates needed to rebuild the workload storage contract
+- Future Moodle DR orchestration should consume:
+  - `backup_profile`
+  - `provider_kind`
+  - `cap.storage.nfs`
+
+Composition chain
+1. `core/onprem/template-image` or another approved appliance image source prepares the VM image path.
+2. `platform/onprem/platform-vm` creates the appliance VM.
+3. Future `platform/onprem/nfs-appliance` configures the export and publishes stable outputs.
+4. Internal workload tooling renders the static PV/PVC set from those outputs.
+5. Future DR automation consumes the same provider outputs plus backup/restore metadata.
+
+Anti-drift rules
+- Do not create a shipped module stub in `modules/` before the configuration role exists.
+- Do not make Synology the product contract.
+- Do not let workloads consume raw NAS coordinates from handwritten notes or one-off shell history.
+- Do not present local snapshots as the DR authority.
