@@ -36,12 +36,13 @@ workloads repo. The Argo CD contract stays the same:
 `workloads_target_path` should map to your cluster target in `hybridops-workloads`, e.g.:
 - `clusters/onprem-stage1`
 - `clusters/burst`
-- `clusters/dr`
+- `clusters/<published-target>`
 
 If you consume a private canonical workloads repo, point `workloads_target_path`
 at the internal target instead, e.g.:
 - `.internal/clusters/onprem-learn-stage1`
 - `.internal/clusters/onprem-ci-stage1`
+- `.internal/clusters/<internal-target>`
 
 ## Outputs
 

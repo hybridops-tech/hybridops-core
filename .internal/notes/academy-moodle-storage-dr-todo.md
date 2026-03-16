@@ -5,6 +5,14 @@ Status
 - The first Core recovery primitive candidate in this integration branch is `platform/k8s/longhorn-dr-volume`.
 - Keep executable Moodle DR blueprints out of the shipped surface until cluster bring-up and DNS cutover steps are equally real.
 
+Promotion gates for `main`
+- The reusable Core primitives can merge before the full Moodle DR blueprint.
+- Do not merge a Moodle-specific executable DR blueprint until:
+  - the workloads repo exposes a real cloud recovery target path
+  - the target cluster bootstrap path is real, not implied
+  - restore drills cover workload rebind and smoke validation, not only volume restore
+  - DNS cutover is gated on both PostgreSQL and Longhorn readiness
+
 Current platform reality
 - The current on-prem platform is a single server, not a clustered Proxmox estate.
 - Because of that, the current resilience story is hybrid, not local-cluster HA.

@@ -1,3 +1,7 @@
+# Illustrative existing-cluster example only.
+# Replace repo URL, revision, and target path with the real DR workloads target
+# before apply. This repository does not currently ship a generic `clusters/dr`
+# target by contract.
 kubeconfig_path: "~/.hybridops/envs/dev/state/kubeconfigs/rke2-dr.yaml"
 
 workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"

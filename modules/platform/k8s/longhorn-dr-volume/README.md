@@ -21,6 +21,11 @@ What it does not do:
 - it does not cut DNS
 - it does not replace application-specific recovery validation
 
+Promotion boundary:
+- this module is a reusable restore primitive, not a complete application failover workflow
+- merge it on its own merits
+- add application-specific DR blueprints only when the target cluster and workloads recovery path are real
+
 ## Operation Modes
 
 - `observe`
@@ -120,4 +125,12 @@ HYOPS_INPUT_operation_mode=activate \
 hyops apply --env <env> \
   --module platform/k8s/longhorn-dr-volume \
   --inputs modules/platform/k8s/longhorn-dr-volume/examples/inputs.standby.yml
+```
+
+Validator smoke example:
+
+```bash
+hyops validate --env <env> --skip-preflight \
+  --module platform/k8s/longhorn-dr-volume \
+  --inputs modules/platform/k8s/longhorn-dr-volume/tests/example-inputs.yml
 ```

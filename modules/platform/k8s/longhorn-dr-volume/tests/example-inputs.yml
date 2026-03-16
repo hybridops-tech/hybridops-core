@@ -1,0 +1,6 @@
+kubeconfig_path: /tmp/cluster.kubeconfig
+longhorn_namespace: longhorn-system
+backup_name: academy-moodle-hourly
+restore_volume_name: academy-moodle-restore
+restore_number_of_replicas: 1
+wait_restore_complete: false
