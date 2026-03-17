@@ -21,10 +21,13 @@ inputs:
     target_port: 22
     become: false
     connectivity_check: false
+    load_vault_env: true
 
     # Kubernetes access
     # Prefer dependency import from a cluster module state when available.
     kubeconfig_path: ""
+    kubeconfig_state_ref: ""
+    kubeconfig_state_env: ""
 
     # Argo CD bootstrap behavior
     install_argocd: true
@@ -42,8 +45,13 @@ inputs:
     destination_server: "https://kubernetes.default.svc"
 
     workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
-    workloads_revision: "v0.1.0-stage1"
-    workloads_target_path: "clusters/onprem-stage1"
+    workloads_revision: "d19d389c769bc4ebbbc38bc791f808285dbf9e10"
+    workloads_target_path: "clusters/onprem"
+    repo_access_mode: "public"
+    repo_secret_name: "hyops-workloads-repo"
+    repo_ssh_private_key_env: "ARGOCD_REPO_SSH_PRIVATE_KEY"
+    repo_ssh_known_hosts: ""
+    repo_insecure_ignore_host_key: false
 
     sync_automated_prune: true
     sync_automated_self_heal: true
@@ -76,6 +84,8 @@ outputs:
     - workloads_repo_url
     - workloads_revision
     - workloads_target_path
+    - repo_access_mode
+    - repo_secret_name
     - cap.gitops.argocd
 
 probes: []
