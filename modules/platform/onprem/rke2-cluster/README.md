@@ -30,7 +30,7 @@ Use examples:
 Operational note:
 
 - Fresh converge after destroy is usually slower because nodes pull RKE2/runtime images and wait for CNI readiness.
-- This is expected on cold nodes and is visible in evidence `ansible.log`.
+- This is expected on cold nodes and is visible in the run record `ansible.log`.
 
 ## Outputs
 
@@ -46,3 +46,12 @@ Operational note:
 - Current package mapping:
   - Red Hat family: `iscsi-initiator-utils`, `nfs-utils`
   - Debian family: `open-iscsi`, `nfs-common`
+
+Operational note:
+
+- The exported kubeconfig rewrites the default localhost server endpoint to the
+  first control-plane node management IP.
+- If your workstation is not routed to that management subnet, use a bastion or
+  temporary SSH tunnel before running `kubectl` locally.
+- For control-plane host verification, use the bundled RKE2 client path:
+  `/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml`.

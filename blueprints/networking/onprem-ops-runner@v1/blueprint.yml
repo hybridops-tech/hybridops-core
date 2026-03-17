@@ -15,16 +15,18 @@ policy:
   ipam_authority: "none"
 
 steps:
-  - id: template_image_rocky9
+  - id: template_image_ubuntu_22_04
     module_ref: "core/onprem/template-image"
+    state_instance: "template_image_ubuntu_22_04"
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     contracts:
       addressing_mode: "static"
     inputs:
-      template_key: "rocky-9"
+      template_key: "ubuntu-22.04"
 
   - id: onprem_ops_runner_vm
     module_ref: "platform/onprem/platform-vm"
@@ -32,17 +34,18 @@ steps:
     action: "deploy"
     phase: "bootstrap"
     requires:
-      - template_image_rocky9
+      - template_image_ubuntu_22_04
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     contracts:
       addressing_mode: "static"
     inputs:
       name_prefix: "platform"
       context_id: "shared"
       require_ipam: false
-      template_state_ref: "core/onprem/template-image"
-      template_key: "rocky-9"
+      template_state_ref: "core/onprem/template-image#template_image_ubuntu_22_04"
+      template_key: "ubuntu-22.04"
       ssh_username: "opsadmin"
       tags:
         - "platform"
@@ -71,7 +74,7 @@ steps:
     requires:
       - onprem_ops_runner_vm
     with_deps: true
-    skip_if_state_ok: true
+    skip_if_state_ok: false
     inputs:
       inventory_state_ref: "platform/onprem/platform-vm#onprem_ops_runner"
       inventory_vm_groups:

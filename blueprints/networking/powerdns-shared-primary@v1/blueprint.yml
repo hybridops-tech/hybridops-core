@@ -21,7 +21,9 @@ steps:
     action: "deploy"
     phase: "operations"
     with_deps: true
-    skip_if_state_ok: true
+    # This is an operational service on the shared control host. Reconcile it on
+    # every deploy so host drift or package drift cannot hide behind stale state.
+    skip_if_state_ok: false
     inputs:
       inventory_state_ref: "org/hetzner/shared-control-host#edge_control_host"
       inventory_vm_groups:

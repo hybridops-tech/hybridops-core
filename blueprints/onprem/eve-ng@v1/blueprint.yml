@@ -17,6 +17,7 @@ policy:
 steps:
   - id: template_image_jammy
     module_ref: "core/onprem/template-image"
+    state_instance: "template_image_ubuntu_22_04"
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
@@ -24,6 +25,9 @@ steps:
       addressing_mode: "static"
     inputs:
       template_key: "ubuntu-22.04"
+      post_build_smoke:
+        enabled: true
+        required: true
 
   - id: eve_ng_vm
     module_ref: "platform/onprem/platform-vm"
@@ -38,7 +42,7 @@ steps:
       requires_authority: "netbox"
     inputs:
       require_ipam: true
-      template_state_ref: "core/onprem/template-image"
+      template_state_ref: "core/onprem/template-image#template_image_ubuntu_22_04"
       template_key: "ubuntu-22.04"
       cpu_cores: 8
       memory_mb: 32768
@@ -56,7 +60,7 @@ steps:
             - bridge: "vnetmgmt"
 
   - id: eve_ng_config
-    module_ref: "platform/onprem/eve-ng"
+    module_ref: "platform/linux/eve-ng"
     action: "deploy"
     phase: "operations"
     with_deps: false
@@ -65,10 +69,39 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      target_state_ref: "platform/onprem/platform-vm#eve_ng_vm"
-      target_vm_key: "eve-ng-01"
+      inventory_state_ref: "platform/onprem/platform-vm#eve_ng_vm"
+      inventory_vm_groups:
+        targets:
+          - "eve-ng-01"
       target_user: "opsadmin"
       ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
       become: true
       become_user: "root"
       eveng_resource_profile: "standard"
+
+  - id: eve_ng_healthcheck
+    module_ref: "platform/linux/eve-ng-healthcheck"
+    state_instance: "eve_ng_healthcheck"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    skip_if_state_ok: false
+    requires:
+      - eve_ng_config
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#eve_ng_vm"
+      inventory_vm_groups:
+        targets:
+          - "eve-ng-01"
+      target_user: "opsadmin"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      become: true
+      become_user: "root"
+      load_vault_env: true
+      required_env:
+        - "EVENG_ADMIN_PASSWORD"
+      health_check_level: "basic"

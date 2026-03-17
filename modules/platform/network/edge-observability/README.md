@@ -3,6 +3,9 @@
 Deploy edge observability services (Thanos, Grafana, Alertmanager) on Linux edge nodes.
 
 This module configures runtime services only. It does not provision infrastructure.
+The apply path now verifies that enabled containers stay running and that the
+published HTTP endpoints for Thanos Query, Grafana, and Alertmanager are healthy
+before module state is marked `ok`.
 
 ## What it does
 
@@ -51,3 +54,10 @@ hyops apply --env <env> \
   --module platform/network/edge-observability \
   --inputs "$HYOPS_CORE_ROOT/modules/platform/network/edge-observability/examples/inputs.state.yml"
 ```
+
+## Operational notes
+
+- Grafana and Alertmanager use non-root container users. The module reconciles
+  bind-mounted host paths to the expected service ownership before startup.
+- If the module reports `ok`, the enabled services are not only started through
+  Docker Compose; they have also passed the built-in readiness checks.

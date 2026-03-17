@@ -28,6 +28,11 @@ variable "image" {
   type = string
 }
 
+variable "private_network_id" {
+  type    = string
+  default = ""
+}
+
 variable "edge01_name" {
   type = string
 }

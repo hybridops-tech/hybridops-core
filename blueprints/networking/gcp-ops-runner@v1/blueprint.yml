@@ -22,6 +22,7 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     inputs:
       router_state_ref: "org/gcp/wan-cloud-router"
       network_state_ref: "org/gcp/wan-hub-network"
@@ -43,6 +44,7 @@ steps:
       - gcp_ops_runner_egress
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     contracts:
       addressing_mode: "static"
     inputs:
@@ -80,7 +82,7 @@ steps:
       - gcp_ops_runner_egress
       - gcp_ops_runner_vm
     with_deps: true
-    skip_if_state_ok: true
+    skip_if_state_ok: false
     inputs:
       inventory_state_ref: "platform/gcp/platform-vm#gcp_ops_runner"
       inventory_vm_groups:

@@ -35,19 +35,29 @@ Inputs:
 - `source_iso_url`: source artifact URL (qcow2/raw preferred; ISO is opt-in)
 - `artifact_local_path`: local build output path, for example `/tmp/vyos-1.5.qcow2`
 - `repo_state_ref`: optional object-repo state used by publish helpers to discover the target bucket/container
+- `required_env`: optional env keys that HyOps must hydrate from the runtime vault or controller environment before build/publish
 - `build_command`: local command that creates `artifact_local_path`
-- `smoke_verify_command`: optional command that validates the built local artifact before publish (when omitted, the packaged default smoke helper is used)
+- `smoke_verify_command`: optional command that validates the built local artifact before publish (when omitted, HyOps derives the packaged default smoke helper from the active `build_command` path so runner-local builds do not resolve controller-only paths)
 - `smoke_verify_required`: whether smoke verification is a hard gate (default: `true`)
 - `publish_command`: optional local command that uploads the built artifact
 - `artifact_url`: final downloadable artifact URL; if omitted and `publish_command` is set, HyOps expects the command to print the URL on stdout
 - `allow_iso_build`: optional boolean (default `false`); set `true` only when intentionally using ISO/Packer build flow
 
+Packaged wrapper contract:
+
+- if `build_command` is the packaged `build-vyos-qcow2.sh` wrapper and `artifact_url` is empty,
+  `source_iso_url` is mandatory
+- that path must also set `allow_iso_build: true`
+- a working reusable build path normally also sets a pinned `artifact_version`, a stable
+  `build_workdir`, and an execution target through `inventory_state_ref`
+
 For GCS publishing without `gcloud`/`gsutil`:
 
-- the packaged publish helper now supports direct upload to GCS with a service-account JSON
-- provide one of:
+- the packaged publish helper supports direct upload to GCS with a service-account JSON
+- declare one of these env keys in `required_env` so HyOps hydrates it before the publish step:
   - `HYOPS_VYOS_GCS_SA_JSON`
   - `HYOPS_VYOS_GCS_SA_JSON_FILE`
+- the standard HyOps vault-backed path uses `HYOPS_VYOS_GCS_SA_JSON`
 - this keeps the builder path tarball-safe and avoids requiring Google CLI tools on the build runner
 
 For ISO sources (opt-in):
@@ -145,8 +155,9 @@ Recommended first-run sequence:
 
 1. Apply the target object-repo module.
 2. Store the upload credential in the selected secret source or env runtime vault.
-3. Apply `core/shared/vyos-image-build`.
-4. Consume the resulting artifact state from the Proxmox and Hetzner seed modules.
+3. Set `required_env`, usually `HYOPS_VYOS_GCS_SA_JSON`, on the build module inputs or blueprint step.
+4. Apply `core/shared/vyos-image-build`.
+5. Consume the resulting artifact state from the Proxmox and Hetzner seed modules.
 
 Examples:
 

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
-from hyops.runtime.exitcodes import OPERATOR_ERROR
+from hyops.drivers.iac.terragrunt.contracts import get_contract
+from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.root import require_runtime_selection
@@ -17,6 +19,7 @@ from hyops.runtime.source_roots import resolve_blueprints_root
 
 from .contracts import (
     enforce_step_contracts,
+    explicit_step_inputs_changed,
     module_state_ok,
     module_state_status,
     resolved_step_inputs_file,
@@ -127,6 +130,19 @@ def _step_failure_detail(item: dict[str, Any]) -> str:
     return ""
 
 
+def _evaluate_step_state_skip(step: dict[str, Any], paths) -> tuple[str, str]:
+    contract = get_contract(step["module_ref"])
+    return contract.evaluate_state_skip(
+        command_name="deploy",
+        module_ref=step["module_ref"],
+        state_root=paths.state_dir,
+        state_instance=str(step.get("state_instance") or "").strip() or None,
+        credentials_dir=paths.credentials_dir,
+        runtime_root=paths.root,
+        env={str(k): str(v) for k, v in os.environ.items()},
+    )
+
+
 def _collect_deploy_risk_signals(payload: dict[str, Any], paths) -> list[dict[str, str]]:
     signals: list[dict[str, str]] = []
     for step in payload.get("steps", []):
@@ -196,7 +212,7 @@ def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
         answer = input("Proceed with blueprint deploy? [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
-        return OPERATOR_ERROR
+        return CANCELLED
     if answer not in {"y", "yes"}:
         print("ERR: blueprint deploy cancelled by operator")
         return OPERATOR_ERROR
@@ -533,6 +549,7 @@ def run_deploy(ns) -> int:
     step_results: list[dict[str, Any]] = []
     required_failures: list[str] = []
     optional_failures: list[str] = []
+    cancelled = False
 
     for step_id in payload["order"]:
         step = by_id[step_id]
@@ -560,11 +577,64 @@ def run_deploy(ns) -> int:
             and step["action"] in ("apply", "deploy")
             and module_state_ok(paths.state_dir, step_state_ref(step))
         ):
-            result = dict(base)
-            result.update({"status": "skipped", "reason": "state-ok", "rc": 0})
-            step_results.append(result)
-            print(f"step={step_id} status=skipped reason=state-ok")
-            continue
+            inputs_changed, inputs_detail = explicit_step_inputs_changed(step, payload, paths)
+            if inputs_changed:
+                drift_detail = "inputs-drift"
+                if inputs_detail:
+                    drift_detail = f"inputs-drift ({inputs_detail})"
+                print(f"step={step_id} status=rerun reason={drift_detail}")
+            else:
+                verify_state_on_skip = bool(step.get("verify_state_on_skip", False))
+                if not verify_state_on_skip:
+                    result = dict(base)
+                    result.update({"status": "skipped", "reason": "state-ok", "rc": 0})
+                    step_results.append(result)
+                    print(f"step={step_id} status=skipped reason=state-ok")
+                    continue
+
+                try:
+                    skip_status, skip_detail = _evaluate_step_state_skip(step, paths)
+                except Exception as exc:
+                    skip_status = "error"
+                    skip_detail = f"live state verification failed: {exc}"
+
+                if skip_status == "safe":
+                    detail = "state-ok"
+                    if skip_detail:
+                        detail = f"state-ok ({skip_detail})"
+                    result = dict(base)
+                    result.update({"status": "skipped", "reason": detail, "rc": 0})
+                    step_results.append(result)
+                    print(f"step={step_id} status=skipped reason={detail}")
+                    continue
+
+                if skip_status == "error":
+                    result = dict(base)
+                    result.update(
+                        {
+                            "status": "failed",
+                            "reason": skip_detail or "live state verification failed",
+                            "rc": OPERATOR_ERROR,
+                        }
+                    )
+                    if step["optional"]:
+                        result["status"] = "failed-optional"
+                        optional_failures.append(step_id)
+                        step_results.append(result)
+                        print(f"step={step_id} status=failed-optional reason={result['reason']}")
+                        continue
+
+                    required_failures.append(step_id)
+                    step_results.append(result)
+                    print(f"step={step_id} status=failed reason={result['reason']}")
+                    if fail_fast:
+                        break
+                    continue
+
+                drift_detail = "live-state-drift"
+                if skip_detail:
+                    drift_detail = f"live-state-drift ({skip_detail})"
+                print(f"step={step_id} status=rerun reason={drift_detail}")
 
         try:
             enforce_step_contracts(step, payload, paths)
@@ -588,6 +658,9 @@ def run_deploy(ns) -> int:
         print(f"step={step_id} status=running action={step['action']} module={step['module_ref']}")
         try:
             rc = run_step_module_command(step, payload, ns, paths)
+        except KeyboardInterrupt:
+            rc = CANCELLED
+            err = "cancelled by user"
         except Exception as exc:
             rc = OPERATOR_ERROR
             err = str(exc)
@@ -603,6 +676,12 @@ def run_deploy(ns) -> int:
 
         result = dict(base)
         result.update({"status": "failed", "rc": int(rc), "reason": err or "step command failed"})
+        if int(rc) == CANCELLED:
+            result["status"] = "cancelled"
+            step_results.append(result)
+            cancelled = True
+            print(f"step={step_id} status=cancelled rc={rc}")
+            break
         if step["optional"]:
             result["status"] = "failed-optional"
             optional_failures.append(step_id)
@@ -617,6 +696,8 @@ def run_deploy(ns) -> int:
             break
 
     final_status = "ok" if not required_failures else "failed"
+    if cancelled:
+        final_status = "cancelled"
     output = {
         "blueprint_ref": payload["blueprint_ref"],
         "mode": payload["mode"],
@@ -643,6 +724,8 @@ def run_deploy(ns) -> int:
         if optional_failures:
             print(f"optional_failures: {', '.join(optional_failures)}")
 
+    if cancelled:
+        return CANCELLED
     return 0 if not required_failures else OPERATOR_ERROR
 
 

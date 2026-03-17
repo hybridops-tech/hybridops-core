@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import os
 from typing import Any
 
+from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.source_roots import resolve_module_root
 from hyops.preflight.command import run_module_driver_preflight
 
 from .contracts import (
     enforce_step_contracts,
+    explicit_step_inputs_changed,
     module_state_ok,
     resolved_step_inputs_file,
     step_state_ref,
@@ -33,6 +36,7 @@ def run_step_module_command(step: dict[str, Any], payload: dict[str, Any], ns, p
         deps_force=bool(getattr(ns, "deps_force", False)),
         out_dir=getattr(ns, "out_dir", None),
         state_instance=str(step.get("state_instance") or "").strip() or None,
+        allow_state_drift_recreate=bool(step.get("verify_state_on_skip", False)),
     )
     return int(module_command.run(step_ns))
 
@@ -74,15 +78,83 @@ def preflight_step(
         and step["action"] in ("apply", "deploy")
         and module_state_ok(paths.state_dir, step_state_ref(step))
     ):
-        result["status"] = "skipped"
-        result["checks"].append(
-            {
-                "name": "state_skip",
-                "ok": True,
-                "detail": "skip_if_state_ok=true and module state is ok",
-            }
-        )
-        return result
+        inputs_changed, inputs_detail = explicit_step_inputs_changed(step, payload, paths)
+        if inputs_changed:
+            result["checks"].append(
+                {
+                    "name": "state_skip",
+                    "ok": True,
+                    "detail": (
+                        "existing state will not be skipped because explicit step inputs changed"
+                        + (f": {inputs_detail}" if inputs_detail else "")
+                    ),
+                }
+            )
+        else:
+            verify_state_on_skip = bool(step.get("verify_state_on_skip", False))
+            if not verify_state_on_skip:
+                result["status"] = "skipped"
+                result["checks"].append(
+                    {
+                        "name": "state_skip",
+                        "ok": True,
+                        "detail": "skip_if_state_ok=true and module state is ok",
+                    }
+                )
+                return result
+
+            skip_status = "safe"
+            skip_detail = ""
+            try:
+                contract = get_contract(step["module_ref"])
+                skip_status, skip_detail = contract.evaluate_state_skip(
+                    command_name="preflight",
+                    module_ref=step["module_ref"],
+                    state_root=paths.state_dir,
+                    state_instance=str(step.get("state_instance") or "").strip() or None,
+                    credentials_dir=paths.credentials_dir,
+                    runtime_root=paths.root,
+                    env={str(k): str(v) for k, v in os.environ.items()},
+                )
+            except Exception as exc:
+                skip_status = "error"
+                skip_detail = f"state skip verification failed: {exc}"
+
+            if skip_status == "safe":
+                result["status"] = "skipped"
+                result["checks"].append(
+                    {
+                        "name": "state_skip",
+                        "ok": True,
+                        "detail": (
+                            "skip_if_state_ok=true and live state verification passed"
+                            + (f": {skip_detail}" if skip_detail else "")
+                        ),
+                    }
+                )
+                return result
+
+            if skip_status == "error":
+                result["status"] = "blocked"
+                result["checks"].append(
+                    {
+                        "name": "state_skip",
+                        "ok": False,
+                        "detail": skip_detail or "live state verification failed",
+                    }
+                )
+                return result
+
+            result["checks"].append(
+                {
+                    "name": "state_skip",
+                    "ok": True,
+                    "detail": (
+                        "existing state will not be skipped because live verification detected drift"
+                        + (f": {skip_detail}" if skip_detail else "")
+                    ),
+                }
+            )
 
     try:
         enforce_step_contracts(step, payload, paths, assumed_state_ok=assumed_state_ok)
@@ -99,6 +171,8 @@ def preflight_step(
             module_root,
             inputs_file,
             state_dir=paths.state_dir,
+            runtime_root=paths.root,
+            invocation_command="preflight",
             assumed_state_ok=assumed_state_ok,
         )
         result["checks"].append({"name": "module_resolve", "ok": True, "detail": "ok"})
@@ -134,6 +208,10 @@ def preflight_step(
             lifecycle_command=str(step["action"] or "").strip().lower() or None,
             state_instance=str(step.get("state_instance") or "").strip() or None,
             assumed_state_ok=assumed_state_ok,
+            allow_state_drift_recreate=(
+                bool(step.get("verify_state_on_skip", False))
+                and any(check.get("name") == "state_skip" for check in result["checks"])
+            ),
         )
         result["driver_preflight"] = driver_preflight
         driver_status = str(driver_preflight.get("status") or "").strip().lower()

@@ -37,3 +37,19 @@ output "subnet_workloads_self_link" {
 output "subnet_workloads_cidr" {
   value = google_compute_subnetwork.workloads.ip_cidr_range
 }
+
+output "subnet_workloads_pods_secondary_range_name" {
+  value = var.enable_workloads_gke_secondary_ranges ? var.subnet_workloads_pods_secondary_range_name : ""
+}
+
+output "subnet_workloads_pods_secondary_range_cidr" {
+  value = var.enable_workloads_gke_secondary_ranges ? var.subnet_workloads_pods_secondary_range_cidr : ""
+}
+
+output "subnet_workloads_services_secondary_range_name" {
+  value = var.enable_workloads_gke_secondary_ranges ? var.subnet_workloads_services_secondary_range_name : ""
+}
+
+output "subnet_workloads_services_secondary_range_cidr" {
+  value = var.enable_workloads_gke_secondary_ranges ? var.subnet_workloads_services_secondary_range_cidr : ""
+}

@@ -22,6 +22,7 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     inputs:
       artifact_key: "vyos-1.5"
       artifact_format: "qcow2"
@@ -32,7 +33,9 @@ steps:
       artifact_local_path: "/tmp/vyos-1.5.qcow2"
       # Set this to your object-repo state for publish backend discovery.
       # Override in env blueprint overlay when using a non-default repo instance.
-      repo_state_ref: "org/gcp/object-repo"
+      repo_state_ref: "org/gcp/object-repo#vyos_artifacts"
+      required_env:
+        - "HYOPS_VYOS_GCS_SA_JSON"
       build_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh"
       smoke_verify_required: true
       publish_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/publish-vyos-artifact.sh"
@@ -43,11 +46,14 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     requires:
       - vyos_artifact_build
     inputs:
       artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
       artifact_key: "vyos-1.5"
+      required_env:
+        - "HYOPS_VYOS_GCS_SA_JSON"
       image_key: "vyos-1.5"
       # Set image_ref when the Hetzner custom image already exists.
       image_ref: ""
@@ -69,18 +75,40 @@ steps:
       # Override seed_command if you need an ISO-to-image workflow or another custom wrapper.
       seed_tool: "hcloud-upload-image"
 
+  - id: hetzner_shared_network
+    module_ref: "org/hetzner/shared-private-network"
+    state_instance: "shared_network"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    inputs:
+      name_prefix: ""
+      context_id: ""
+      network_zone: "eu-central"
+      private_network_name: "net-hyops-vyos-edge"
+      private_network_cidr: "10.80.0.0/24"
+
   - id: hetzner_vyos_edge
     module_ref: "org/hetzner/vyos-edge-foundation"
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
     requires:
       - vyos_image
+      - hetzner_shared_network
     contracts:
       addressing_mode: "static"
     inputs:
+      name_prefix: ""
+      context_id: ""
+      foundation_state_ref: "org/hetzner/shared-private-network#shared_network"
       image_state_ref: "core/hetzner/vyos-image-seed"
       image_key: "vyos-1.5"
+      network_zone: "eu-central"
       # Keep location and server type aligned with known-available defaults.
       location: "ash"
       home_location: "ash"
@@ -88,7 +116,7 @@ steps:
       server_type: "cpx21"
       edge01_name: "edge-a"
       edge02_name: "edge-b"
-      ssh_key_name: "hyops-vyos-edge"
+      ssh_key_name: "hyops-vyos-edge-r3"
       # Optional when ssh_key_name already exists in Hetzner.
       # Required only when HyOps must create the SSH key.
       ssh_public_key: ""

@@ -30,6 +30,7 @@
     runner_installed_hyops_path: "{{ runner_install_root_clean }}/venv/bin/hyops"
     runner_installed_app_path: "{{ runner_install_root_clean }}/app"
     runner_release_marker_path: "{{ runner_install_root_clean }}/.hyops-release.sha256"
+    runner_ssh_service_name: "{{ 'ssh' if (ansible_facts.os_family | default('')) == 'Debian' else 'sshd' }}"
     runner_controller_python: >-
       {{
         ((lookup('env', 'VIRTUAL_ENV') | default('', true)) ~ '/bin/python')
@@ -511,14 +512,41 @@
       when: runner_setup_cloud_gcp | default(false)
       changed_when: true
 
-    - name: Run setup-cloud-azure on runner
+
+    - name: Ensure HybridOps SSH daemon override directory exists
       become: true
-      ansible.builtin.command:
-        argv:
-          - bash
-          - "{{ runner_setup_root }}/setup-cloud-azure.sh"
-      when: runner_setup_cloud_azure | default(false)
-      changed_when: true
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        mode: "0755"
+
+    - name: Manage HybridOps runner SSH daemon override
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/90-hybridops-runner.conf
+        mode: "0644"
+        content: |
+          AllowTcpForwarding yes
+          GatewayPorts yes
+      register: _runner_sshd_override
+      when: runner_sshd_gateway_ports | default(false)
+
+    - name: Remove HybridOps runner SSH daemon override when disabled
+      become: true
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/90-hybridops-runner.conf
+        state: absent
+      register: _runner_sshd_override_absent
+      when: not (runner_sshd_gateway_ports | default(false))
+
+    - name: Restart SSH daemon when HybridOps runner override changes
+      become: true
+      ansible.builtin.service:
+        name: "{{ runner_ssh_service_name }}"
+        state: restarted
+      when:
+        - (_runner_sshd_override is defined and (_runner_sshd_override is changed))
+          or (_runner_sshd_override_absent is defined and (_runner_sshd_override_absent is changed))
 
     - name: Run setup-ansible on runner as target user
       become: true

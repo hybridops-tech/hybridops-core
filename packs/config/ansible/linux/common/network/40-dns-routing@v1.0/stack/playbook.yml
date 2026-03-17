@@ -4,14 +4,17 @@
   any_errors_fatal: true
   become: true
   gather_facts: true
+  collections:
+    - hybridops.common
 
   vars:
     dns_role_fqcn: "{{ dns_role_fqcn | default('hybridops.common.dns_routing') }}"
+    dns_role_name: "{{ dns_role_fqcn | regex_replace('^hybridops\\.common\\.', '') }}"
 
   tasks:
     - name: Run DNS routing role
       ansible.builtin.include_role:
-        name: "{{ dns_role_fqcn }}"
+        name: "{{ dns_role_name }}"
 
   post_tasks:
     - name: Compute effective targets for outputs

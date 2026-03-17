@@ -41,6 +41,31 @@ variable "subnet_workloads_cidr" {
   type = string
 }
 
+variable "enable_workloads_gke_secondary_ranges" {
+  type    = bool
+  default = false
+}
+
+variable "subnet_workloads_pods_secondary_range_name" {
+  type    = string
+  default = ""
+}
+
+variable "subnet_workloads_pods_secondary_range_cidr" {
+  type    = string
+  default = ""
+}
+
+variable "subnet_workloads_services_secondary_range_name" {
+  type    = string
+  default = ""
+}
+
+variable "subnet_workloads_services_secondary_range_cidr" {
+  type    = string
+  default = ""
+}
+
 variable "enable_iap_ssh" {
   type    = bool
   default = true

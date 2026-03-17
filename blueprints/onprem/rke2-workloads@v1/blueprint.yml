@@ -7,7 +7,7 @@ mode: "hybrid"
 metadata:
   title: "On-Prem RKE2 + Workloads Bootstrap"
   description: "Consume shared SDN/NetBox authority, build template image, provision RKE2 VMs, install RKE2, then bootstrap Argo CD root workloads app."
-  outcome: "RKE2 is ready and Argo CD root application points to workloads repo."
+  outcome: "RKE2 is ready, Argo CD root application points to the workloads repo, and the GSM service account secret is provisioned for External Secrets Operator."
 
 policy:
   fail_fast: true
@@ -100,5 +100,15 @@ steps:
       addressing_mode: "static"
     inputs:
       workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
-      workloads_revision: "main"
+      workloads_revision: "d19d389c769bc4ebbbc38bc791f808285dbf9e10"
       workloads_target_path: "clusters/onprem"
+
+  - id: gsm_bootstrap
+    module_ref: "platform/k8s/gsm-bootstrap"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gitops_workloads
+    contracts:
+      addressing_mode: "static"

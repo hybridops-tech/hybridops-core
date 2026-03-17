@@ -18,6 +18,8 @@ steps:
   - id: template_image_rocky9
     module_ref: "core/onprem/template-image"
     action: "deploy"
+    skip_if_state_ok: true
+    verify_state_on_skip: true
     phase: "bootstrap"
     with_deps: true
     contracts:
@@ -29,6 +31,8 @@ steps:
     module_ref: "platform/onprem/platform-vm"
     state_instance: "rke2_vms"
     action: "deploy"
+    skip_if_state_ok: true
+    verify_state_on_skip: true
     phase: "bootstrap"
     with_deps: true
     requires:

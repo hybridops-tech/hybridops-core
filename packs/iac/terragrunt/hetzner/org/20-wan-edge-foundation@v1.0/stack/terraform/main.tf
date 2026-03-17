@@ -4,22 +4,25 @@ locals {
   prefix_2   = replace(local.prefix_1, "/-+/", "-")
   prefix     = trim(local.prefix_2, "-")
 
-  edge01_name          = local.prefix != "" ? "${local.prefix}-${var.edge01_name}" : var.edge01_name
-  edge02_name          = local.prefix != "" ? "${local.prefix}-${var.edge02_name}" : var.edge02_name
-  ssh_key_name         = local.prefix != "" ? "${local.prefix}-${var.ssh_key_name}" : var.ssh_key_name
-  firewall_name        = local.prefix != "" ? "${local.prefix}-${var.firewall_name}" : var.firewall_name
-  floating_ip_name     = local.prefix != "" ? "${local.prefix}-${var.floating_ip_name}" : var.floating_ip_name
-  private_network_name = local.prefix != "" ? "${local.prefix}-${var.private_network_name}" : var.private_network_name
-  private_gateway_ip   = cidrhost(var.private_network_cidr, 1)
-  edge01_private_cidr  = "${var.edge01_private_ip}/32"
-  edge02_private_cidr  = "${var.edge02_private_ip}/32"
+  edge01_name                      = local.prefix != "" ? "${local.prefix}-${var.edge01_name}" : var.edge01_name
+  edge02_name                      = local.prefix != "" ? "${local.prefix}-${var.edge02_name}" : var.edge02_name
+  ssh_key_name                     = local.prefix != "" ? "${local.prefix}-${var.ssh_key_name}" : var.ssh_key_name
+  firewall_name                    = local.prefix != "" ? "${local.prefix}-${var.firewall_name}" : var.firewall_name
+  floating_ip_name                 = local.prefix != "" ? "${local.prefix}-${var.floating_ip_name}" : var.floating_ip_name
+  private_network_name             = local.prefix != "" ? "${local.prefix}-${var.private_network_name}" : var.private_network_name
+  create_private_network           = trimspace(var.private_network_id) == ""
+  effective_private_network_id     = local.create_private_network ? tostring(hcloud_network.edge[0].id) : trimspace(var.private_network_id)
+  effective_private_network_id_num = tonumber(local.effective_private_network_id)
+  private_gateway_ip               = cidrhost(var.private_network_cidr, 1)
+  edge01_private_cidr              = "${var.edge01_private_ip}/32"
+  edge02_private_cidr              = "${var.edge02_private_ip}/32"
 
   ssh_public_key_trimmed    = trimspace(var.ssh_public_key)
   existing_ssh_keys_by_name = [for k in data.hcloud_ssh_keys.existing.ssh_keys : k if k.name == local.ssh_key_name]
   ssh_key_exists            = length(local.existing_ssh_keys_by_name) > 0
   ssh_key_mismatch          = length(local.existing_ssh_keys_by_name) > 0 && local.ssh_public_key_trimmed != "" && trimspace(local.existing_ssh_keys_by_name[0].public_key) != local.ssh_public_key_trimmed
-  must_create_ssh_key       = local.ssh_public_key_trimmed != ""
-  effective_ssh_key_name    = local.ssh_key_name
+  must_create_ssh_key       = !local.ssh_key_exists && local.ssh_public_key_trimmed != ""
+  effective_ssh_key_name    = local.must_create_ssh_key ? hcloud_ssh_key.edge[0].name : local.ssh_key_name
   effective_ssh_public_key  = length(local.existing_ssh_keys_by_name) > 0 ? trimspace(local.existing_ssh_keys_by_name[0].public_key) : local.ssh_public_key_trimmed
 
   edge01_cloud_init = <<-EOT
@@ -99,14 +102,16 @@ EOT
 data "hcloud_ssh_keys" "existing" {}
 
 resource "hcloud_network" "edge" {
+  count    = local.create_private_network ? 1 : 0
   name     = local.private_network_name
   ip_range = var.private_network_cidr
   labels   = var.labels
 }
 
 resource "hcloud_network_subnet" "edge" {
+  count        = local.create_private_network ? 1 : 0
   type         = "cloud"
-  network_id   = hcloud_network.edge.id
+  network_id   = hcloud_network.edge[0].id
   network_zone = var.network_zone
   ip_range     = var.private_network_cidr
 }
@@ -251,7 +256,7 @@ resource "hcloud_server" "edge01" {
   }
 
   network {
-    network_id = hcloud_network.edge.id
+    network_id = local.effective_private_network_id_num
     ip         = var.edge01_private_ip
   }
 }
@@ -266,7 +271,7 @@ resource "hcloud_server" "edge02" {
   labels      = merge(var.labels, { role = "wan-edge" })
 
   network {
-    network_id = hcloud_network.edge.id
+    network_id = local.effective_private_network_id_num
     ip         = var.edge02_private_ip
   }
 }

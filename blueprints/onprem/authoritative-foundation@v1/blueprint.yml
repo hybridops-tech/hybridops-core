@@ -21,6 +21,7 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     contracts:
       addressing_mode: "static"
     inputs:
@@ -30,10 +31,20 @@ steps:
       dns_domain: "hybridops.local"
       vnets:
         vnetmgmt:
-          vlan_id: 12
+          vlan_id: 10
           description: "Management network"
           subnets:
             submgmt:
+              cidr: "10.10.0.0/24"
+              gateway: "10.10.0.1"
+              dhcp_range_start: "10.10.0.120"
+              dhcp_range_end: "10.10.0.220"
+              dhcp_dns_server: "8.8.8.8"
+        vnetdata:
+          vlan_id: 12
+          description: "Shared services/data network"
+          subnets:
+            subdata:
               cidr: "10.12.0.0/24"
               gateway: "10.12.0.1"
               dhcp_range_start: "10.12.0.120"
@@ -45,14 +56,24 @@ steps:
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
-    skip_if_state_ok: true
+    # NetBox is the authority gate for downstream IPAM-driven provisioning.
+    # Reconcile it on deploy so service drift cannot hide behind stale state.
+    skip_if_state_ok: false
     requires:
       - network_sdn
     contracts:
       addressing_mode: "static"
     inputs:
+      target_state_ref: "platform/onprem/platform-vm#platform_vms"
+      target_vm_key: "netbox-01"
+      ssh_proxy_jump_auto: true
+      connectivity_timeout_s: 5
+      connectivity_wait_s: 180
+      load_vault_env: true
       db_state_ref: "platform/onprem/postgresql-core"
       allow_legacy_pgcore: true
+      seed_foundation_netbox_sync: true
+      seed_foundation_netbox_wait_s: 120
 
   - id: control_plane_vm
     module_ref: "platform/onprem/control-node"

@@ -25,6 +25,7 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     inputs:
       artifact_key: "vyos-1.5"
       artifact_format: "qcow2"
@@ -35,7 +36,9 @@ steps:
       artifact_local_path: "/tmp/vyos-1.5.qcow2"
       # Set this to your object-repo state for publish backend discovery.
       # Override in env blueprint overlay when using a non-default repo instance.
-      repo_state_ref: "org/gcp/object-repo"
+      repo_state_ref: "org/gcp/object-repo#vyos_artifacts"
+      required_env:
+        - "HYOPS_VYOS_GCS_SA_JSON"
       build_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh"
       smoke_verify_required: true
       publish_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/publish-vyos-artifact.sh"
@@ -46,11 +49,14 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     requires:
       - vyos_artifact_build
     inputs:
       artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
       artifact_key: "vyos-1.5"
+      required_env:
+        - "HYOPS_VYOS_GCS_SA_JSON"
       image_key: "vyos-1.5"
       image_ref: ""
       image_version: ""
@@ -66,6 +72,7 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     requires:
       - vyos_image
     contracts:
@@ -94,12 +101,15 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     contracts:
       addressing_mode: "static"
     inputs:
+      name_prefix: "platform"
+      context_id: "dev"
       project_id: "change-me-gcp-project"
       region: "europe-west2"
-      network_name: "hybridops-hub"
+      network_name: "hub"
       subnet_core_name: "hub-core"
       subnet_core_cidr: "10.70.0.0/20"
       subnet_workloads_name: "hub-workloads"
@@ -110,12 +120,16 @@ steps:
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
     requires:
       - gcp_wan_hub_network
     contracts:
       addressing_mode: "static"
     inputs:
-      router_name: "hybridops-hub-router-europe-west2"
+      name_prefix: "platform"
+      context_id: "dev"
+      router_name: "hub-router-europe-west2"
       bgp_asn: 64514
 
   - id: gcp_wan_vpn_to_edge
@@ -132,8 +146,10 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      ha_vpn_gateway_name: "hybridops-hub-havpn-europe-west2"
-      external_vpn_gateway_name: "hybridops-edge-extgw"
+      name_prefix: "platform"
+      context_id: "dev"
+      ha_vpn_gateway_name: "hub-havpn-europe-west2"
+      external_vpn_gateway_name: "edge-extgw"
       peer_asn: 65010
       tunnel_a_inside_cidr: "169.254.10.0/30"
       tunnel_b_inside_cidr: "169.254.10.4/30"

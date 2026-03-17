@@ -20,10 +20,13 @@ hyops apply --env dev \
 
 - `target_host` (required): SSH target IP/DNS.
 - `db_state_ref` (recommended): upstream DB module state ref (preferred: `platform/postgresql-ha`).
-- `db_state_env` (optional): HyOps env name to resolve `db_state_ref` from (for example `dev` when running NetBox cutover in `shared`).
+- `db_state_env` (optional): HyOps env name to resolve `db_state_ref` from.
+  Same-env resolution is the default and `shared` is the only normal cross-env authority.
+  If you intentionally point at another non-`shared` env for a controlled migration/test, also set `allow_cross_env_state=true`.
 - `db_host`, `db_port`, `db_name`, `db_user` (fallback): external PostgreSQL connection when not using `db_state_ref`.
 - `db_password_env`, `secret_key_env`: env-var names used to read secrets.
 - `netbox_version`, `netbox_http_host_port`, `netbox_hostname`, `netbox_domain`
+- `netbox_readiness_retries`, `netbox_readiness_delay` (optional): first-bootstrap API wait budget for clean-database migrations
 - `seed_foundation_netbox_sync` (optional): sync-only import of exported SDN/VM foundation datasets into NetBox after NetBox is online (bootstrap use-case)
 - `seed_foundation_netbox_wait_s` (optional): controller-side API wait window before sync-only seed (default `60`)
 
@@ -44,6 +47,12 @@ By default, secrets are supplied via environment variables (optionally from runt
 By default, apply treats `NETBOX_SUPERUSER_PASSWORD` as authoritative and reconciles
 the existing `admin` user's password to this value (idempotent). This keeps
 bootstrap/redeploy login credentials deterministic.
+
+Operational note:
+
+- First-run NetBox migrations on a clean database can take several minutes before the API starts returning a valid HTTP status.
+  If your platform is slower than the default wait window, tune `netbox_readiness_retries` or `netbox_readiness_delay`.
+- When `seed_foundation_netbox_sync=true`, the controller reaches the NetBox API through the same SSH path used for host configuration, so sync-only bootstrap does not require direct controller routing to the NetBox management IP.
 
 ## Outputs
 

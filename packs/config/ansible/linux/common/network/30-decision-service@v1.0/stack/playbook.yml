@@ -4,9 +4,12 @@
   any_errors_fatal: true
   become: true
   gather_facts: true
+  collections:
+    - hybridops.common
 
   vars:
     decision_role_fqcn: "{{ decision_role_fqcn | default('hybridops.common.decision_service') }}"
+    decision_role_name: "{{ decision_role_fqcn | regex_replace('^hybridops\\.common\\.', '') }}"
 
   pre_tasks:
     - name: Assert required decision policy and actions
@@ -23,12 +26,13 @@
   tasks:
     - name: Run decision service role
       ansible.builtin.include_role:
-        name: "{{ decision_role_fqcn }}"
+        name: "{{ decision_role_name }}"
       vars:
         decision_state: "{{ decision_state | default('present') }}"
         decision_thanos_query_url: "{{ thanos_query_url }}"
         decision_policy: "{{ policy }}"
         decision_actions: "{{ actions }}"
+        decision_execution_mode: "{{ decision_execution_mode | default('emit-only') }}"
         decision_hyops_bin: "{{ decision_hyops_bin | default('/usr/local/bin/hyops') }}"
         decision_runtime_env: "{{ decision_runtime_env | default('dev') }}"
         decision_runtime_root: "{{ decision_runtime_root | default('') }}"
@@ -48,6 +52,35 @@
         decision_log_level: "{{ decision_log_level | default('INFO') }}"
 
   post_tasks:
+    - name: Wait for decision state file
+      run_once: true
+      ansible.builtin.wait_for:
+        path: "/opt/hybridops/decision-service/state/state.json"
+        state: present
+        timeout: 15
+      register: __decision_state_wait
+      failed_when: false
+
+    - name: Read decision state
+      run_once: true
+      ansible.builtin.slurp:
+        path: "/opt/hybridops/decision-service/state/state.json"
+      register: __decision_state_raw
+      failed_when: false
+      when: __decision_state_wait is succeeded
+
+    - name: Normalize decision state
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.set_fact:
+        __decision_state_payload: >-
+          {{
+            ((__decision_state_raw.content | b64decode) | from_json)
+            if (__decision_state_raw is defined and __decision_state_raw.content is defined)
+            else {}
+          }}
+
     - name: Write HyOps outputs
       run_once: true
       delegate_to: localhost
@@ -58,8 +91,10 @@
         content: |
           {{ {
             'decision_service.status': 'ready',
-            'decision_service.last_tick': '',
-            'decision_service.last_action': 'none',
-            'decision_service.signal_ready': '',
+            'decision_service.last_tick': (__decision_state_payload.timestamp_utc | default('')),
+            'decision_service.last_action': (__decision_state_payload.last_action | default('none')),
+            'decision_service.signal_ready': (__decision_state_payload.signal_ready | default('')),
+            'decision_service.execution_mode': (__decision_state_payload.execution_mode | default(decision_execution_mode | default('emit-only'))),
+            'decision_service.last_decision_id': (__decision_state_payload.last_decision_id | default('')),
             'cap.control.decision_service': 'ready'
           } | to_json }}

@@ -21,11 +21,14 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     contracts:
       addressing_mode: "static"
     inputs:
       artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
       artifact_key: "vyos-1.5"
+      required_env:
+        - "HYOPS_VYOS_GCS_SA_JSON"
       template_key: "vyos-1.5"
       template_vm_id: 9205
       template_name: "vyos-1.5-template"

@@ -39,7 +39,7 @@ output "floating_target" {
 }
 
 output "private_network_id" {
-  value = hcloud_network.edge.id
+  value = local.effective_private_network_id
 }
 
 output "private_network_cidr" {

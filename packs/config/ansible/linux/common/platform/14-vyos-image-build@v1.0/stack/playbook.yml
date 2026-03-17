@@ -1,16 +1,28 @@
 ---
 - name: "core/shared/vyos-image-build"
-  hosts: localhost
-  connection: local
+  hosts: targets
   gather_facts: false
+  any_errors_fatal: true
   vars:
     hyops_out_file: "{{ hyops_outputs_file }}"
     smoke_verify_command_default: >-
-      /usr/bin/env bash {{
+      {{
         (
-          playbook_dir ~
-          '/../../../../../../../../tools/build/vyos/verify-vyos-artifact.sh'
-        ) | realpath
+          '/usr/bin/env bash ' ~
+          (
+            (build_command | default('', true) | trim)
+            | regex_replace('/build-vyos-qcow2\.sh$', '/verify-vyos-artifact.sh')
+          )
+        )
+        if ((build_command | default('', true) | trim) | regex_search('/build-vyos-qcow2\.sh$'))
+        else
+        (
+          '/usr/bin/env bash ' ~
+          (
+            playbook_dir ~
+            '/../../../../../../../../tools/build/vyos/verify-vyos-artifact.sh'
+          ) | realpath
+        )
       }}
     smoke_verify_command_effective: >-
       {{
@@ -52,6 +64,15 @@
     publish_sa_json_inline: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON') | default('', true) }}"
     publish_sa_json_file_input: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON_FILE') | default('', true) }}"
   tasks:
+    - name: Assert exactly one build target is selected
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts_all | length == 1
+        fail_msg: >-
+          core/shared/vyos-image-build requires exactly one execution target.
+          Provide one localhost builder or one runner host via inventory_groups or
+          inventory_state_ref + inventory_vm_groups.
+
     - name: Ensure build workdir exists when requested
       ansible.builtin.file:
         path: "{{ build_workdir }}"
@@ -261,8 +282,11 @@
               }
             }}
 
-    - name: Write HyOps outputs
+    - name: Write HyOps outputs on controller
       ansible.builtin.copy:
         dest: "{{ hyops_out_file }}"
         mode: "0600"
-        content: "{{ hyops_outputs | to_nice_json }}"
+        content: "{{ hostvars[inventory_hostname].hyops_outputs | to_nice_json }}"
+      delegate_to: localhost
+      become: false
+      run_once: true

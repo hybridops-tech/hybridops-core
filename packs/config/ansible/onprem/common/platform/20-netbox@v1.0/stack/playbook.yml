@@ -55,7 +55,10 @@
           ansible.builtin.set_fact:
             hyops_seed_hyops_executable: "{{ lookup('env', 'HYOPS_EXECUTABLE') | default('hyops', true) }}"
             hyops_seed_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) }}"
-            hyops_seed_netbox_api_url: "http://{{ hostvars[inventory_hostname].ansible_host | default('') }}:{{ netbox_http_host_port | int }}/api/"
+            hyops_seed_netbox_target_host: "{{ hostvars[inventory_hostname].ansible_host | default('') }}"
+            hyops_seed_netbox_target_user: "{{ hostvars[inventory_hostname].ansible_user | default('root') }}"
+            hyops_seed_netbox_target_port: "{{ hostvars[inventory_hostname].ansible_port | default(22) }}"
+            hyops_seed_netbox_ssh_common_args: "{{ hostvars[inventory_hostname].ansible_ssh_common_args | default('') }}"
             hyops_seed_ipam_dataset: "{{ (lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true)) ~ '/state/netbox/network/ipam-prefixes.auto.json' }}"
             hyops_seed_vm_dataset: "{{ (lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true)) ~ '/state/netbox/vms/vms.auto.json' }}"
 
@@ -65,62 +68,114 @@
               - hyops_seed_runtime_root | length > 0
             fail_msg: "HYOPS_RUNTIME_ROOT is not set; cannot run sync-only NetBox foundation seed."
 
-        - name: Wait for NetBox API to be reachable from controller before seed sync
-          ansible.builtin.uri:
-            url: "{{ hyops_seed_netbox_api_url }}"
-            method: GET
-            status_code: 200
-            timeout: 5
-          register: hyops_seed_api_wait
-          retries: "{{ [1, (((seed_foundation_netbox_wait_s | int) + 4) // 5)] | max }}"
-          delay: 5
-          until: hyops_seed_api_wait.status == 200
-
-        - name: Check seed datasets exist
-          ansible.builtin.stat:
-            path: "{{ item }}"
-          loop:
-            - "{{ hyops_seed_ipam_dataset }}"
-            - "{{ hyops_seed_vm_dataset }}"
-          register: hyops_seed_dataset_stats
-
-        - name: Assert seed datasets are present
-          ansible.builtin.assert:
-            that:
-              - (hyops_seed_dataset_stats.results | selectattr('stat.exists', 'equalto', false) | list | length) == 0
-            fail_msg: >-
-              NetBox foundation seed dataset missing. Expected exported datasets at
-              {{ hyops_seed_ipam_dataset }} and {{ hyops_seed_vm_dataset }}.
-
-        - name: Sync foundation IPAM prefixes into NetBox (strict)
+        - name: Allocate controller-local NetBox tunnel port
           ansible.builtin.command:
             argv:
-              - "{{ hyops_seed_hyops_executable }}"
-              - "inventory"
-              - "sync-netbox"
-              - "--dataset"
-              - "{{ hyops_seed_ipam_dataset }}"
-              - "--kind"
-              - "ipam-prefixes"
-              - "--ipam-target"
-              - "onprem-sdn"
-          environment:
-            NETBOX_API_URL: "{{ hyops_seed_netbox_api_url }}"
-            NETBOX_API_TOKEN: "{{ lookup('env', api_token_env) }}"
+              - python3
+              - -c
+              - "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()"
+          register: hyops_seed_tunnel_port_cmd
+          changed_when: false
 
-        - name: Sync foundation VM inventory into NetBox (strict)
-          ansible.builtin.command:
-            argv:
-              - "{{ hyops_seed_hyops_executable }}"
-              - "inventory"
-              - "sync-netbox"
-              - "--dataset"
-              - "{{ hyops_seed_vm_dataset }}"
-              - "--kind"
-              - "vms"
-          environment:
-            NETBOX_API_URL: "{{ hyops_seed_netbox_api_url }}"
-            NETBOX_API_TOKEN: "{{ lookup('env', api_token_env) }}"
+        - name: Set controller-local NetBox tunnel facts
+          ansible.builtin.set_fact:
+            hyops_seed_tunnel_port: "{{ hyops_seed_tunnel_port_cmd.stdout | trim }}"
+            hyops_seed_tunnel_control_path: >-
+              /tmp/hyops-netbox-seed-{{ inventory_hostname | regex_replace('[^A-Za-z0-9_.-]', '_') }}.ctl
+            hyops_seed_netbox_api_url: "http://127.0.0.1:{{ hyops_seed_tunnel_port_cmd.stdout | trim }}/api/"
+
+        - name: Seed NetBox through controller-local SSH tunnel
+          block:
+            - name: Remove stale seed tunnel control socket
+              ansible.builtin.file:
+                path: "{{ hyops_seed_tunnel_control_path }}"
+                state: absent
+
+            - name: Start controller-local SSH tunnel to NetBox API
+              ansible.builtin.shell: >-
+                ssh -f -N
+                -o BatchMode=yes
+                -o ExitOnForwardFailure=yes
+                -o ControlMaster=yes
+                -o ControlPersist=60
+                -o ControlPath={{ hyops_seed_tunnel_control_path }}
+                -p {{ hyops_seed_netbox_target_port | int }}
+                {{ hyops_seed_netbox_ssh_common_args }}
+                -L 127.0.0.1:{{ hyops_seed_tunnel_port }}:127.0.0.1:{{ netbox_http_host_port | int }}
+                {{ hyops_seed_netbox_target_user }}@{{ hyops_seed_netbox_target_host }}
+              changed_when: false
+
+            - name: Wait for NetBox API to be reachable from controller before seed sync
+              ansible.builtin.uri:
+                url: "{{ hyops_seed_netbox_api_url }}"
+                method: GET
+                status_code: [200, 302, 401, 403]
+                timeout: 5
+              register: hyops_seed_api_wait
+              retries: "{{ [1, (((seed_foundation_netbox_wait_s | int) + 4) // 5)] | max }}"
+              delay: 5
+              until: hyops_seed_api_wait.status in [200, 302, 401, 403]
+
+            - name: Check seed datasets exist
+              ansible.builtin.stat:
+                path: "{{ item }}"
+              loop:
+                - "{{ hyops_seed_ipam_dataset }}"
+                - "{{ hyops_seed_vm_dataset }}"
+              register: hyops_seed_dataset_stats
+
+            - name: Assert seed datasets are present
+              ansible.builtin.assert:
+                that:
+                  - (hyops_seed_dataset_stats.results | selectattr('stat.exists', 'equalto', false) | list | length) == 0
+                fail_msg: >-
+                  NetBox foundation seed dataset missing. Expected exported datasets at
+                  {{ hyops_seed_ipam_dataset }} and {{ hyops_seed_vm_dataset }}.
+
+            - name: Sync foundation IPAM prefixes into NetBox (strict)
+              ansible.builtin.command:
+                argv:
+                  - "{{ hyops_seed_hyops_executable }}"
+                  - "inventory"
+                  - "sync-netbox"
+                  - "--dataset"
+                  - "{{ hyops_seed_ipam_dataset }}"
+                  - "--kind"
+                  - "ipam-prefixes"
+                  - "--ipam-target"
+                  - "onprem-sdn"
+              environment:
+                NETBOX_API_URL: "{{ hyops_seed_netbox_api_url }}"
+                NETBOX_API_TOKEN: "{{ lookup('env', api_token_env) }}"
+
+            - name: Sync foundation VM inventory into NetBox (strict)
+              ansible.builtin.command:
+                argv:
+                  - "{{ hyops_seed_hyops_executable }}"
+                  - "inventory"
+                  - "sync-netbox"
+                  - "--dataset"
+                  - "{{ hyops_seed_vm_dataset }}"
+                  - "--kind"
+                  - "vms"
+              environment:
+                NETBOX_API_URL: "{{ hyops_seed_netbox_api_url }}"
+                NETBOX_API_TOKEN: "{{ lookup('env', api_token_env) }}"
+          always:
+            - name: Stop controller-local SSH tunnel to NetBox API
+              ansible.builtin.shell: >-
+                ssh -S {{ hyops_seed_tunnel_control_path }}
+                -O exit
+                -p {{ hyops_seed_netbox_target_port | int }}
+                {{ hyops_seed_netbox_ssh_common_args }}
+                {{ hyops_seed_netbox_target_user }}@{{ hyops_seed_netbox_target_host }}
+              changed_when: false
+              failed_when: false
+
+            - name: Remove seed tunnel control socket
+              ansible.builtin.file:
+                path: "{{ hyops_seed_tunnel_control_path }}"
+                state: absent
 
     - name: Write HyOps outputs
       delegate_to: localhost

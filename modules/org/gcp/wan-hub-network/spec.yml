@@ -15,6 +15,7 @@ inputs:
     name_prefix: ""
     context_id: ""
 
+    project_state_ref: ""
     project_id: ""
     region: ""
 
@@ -26,6 +27,11 @@ inputs:
 
     subnet_workloads_name: "hub-workloads"
     subnet_workloads_cidr: "10.70.16.0/20"
+    enable_workloads_gke_secondary_ranges: false
+    subnet_workloads_pods_secondary_range_name: "gke-pods"
+    subnet_workloads_pods_secondary_range_cidr: "10.74.0.0/18"
+    subnet_workloads_services_secondary_range_name: "gke-services"
+    subnet_workloads_services_secondary_range_cidr: "10.74.64.0/22"
 
     enable_iap_ssh: true
     internal_allow_cidrs:
@@ -59,6 +65,10 @@ outputs:
     - subnet_workloads_name
     - subnet_workloads_self_link
     - subnet_workloads_cidr
+    - subnet_workloads_pods_secondary_range_name
+    - subnet_workloads_pods_secondary_range_cidr
+    - subnet_workloads_services_secondary_range_name
+    - subnet_workloads_services_secondary_range_cidr
 
 probes: []
 constraints: []

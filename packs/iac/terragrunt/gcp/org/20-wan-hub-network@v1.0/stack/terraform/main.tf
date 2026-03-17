@@ -4,8 +4,8 @@ locals {
   prefix_2   = replace(local.prefix_1, "/-+/", "-")
   prefix     = trim(local.prefix_2, "-")
 
-  network_name = local.prefix != "" ? "${local.prefix}-${var.network_name}" : var.network_name
-  subnet_core_name = local.prefix != "" ? "${local.prefix}-${var.subnet_core_name}-${var.region}" : "${var.subnet_core_name}-${var.region}"
+  network_name          = local.prefix != "" ? "${local.prefix}-${var.network_name}" : var.network_name
+  subnet_core_name      = local.prefix != "" ? "${local.prefix}-${var.subnet_core_name}-${var.region}" : "${var.subnet_core_name}-${var.region}"
   subnet_workloads_name = local.prefix != "" ? "${local.prefix}-${var.subnet_workloads_name}-${var.region}" : "${var.subnet_workloads_name}-${var.region}"
 }
 
@@ -32,6 +32,23 @@ resource "google_compute_subnetwork" "workloads" {
   network                  = google_compute_network.hub.id
   ip_cidr_range            = var.subnet_workloads_cidr
   private_ip_google_access = true
+
+  dynamic "secondary_ip_range" {
+    for_each = var.enable_workloads_gke_secondary_ranges ? [
+      {
+        range_name    = var.subnet_workloads_pods_secondary_range_name
+        ip_cidr_range = var.subnet_workloads_pods_secondary_range_cidr
+      },
+      {
+        range_name    = var.subnet_workloads_services_secondary_range_name
+        ip_cidr_range = var.subnet_workloads_services_secondary_range_cidr
+      },
+    ] : []
+    content {
+      range_name    = secondary_ip_range.value.range_name
+      ip_cidr_range = secondary_ip_range.value.ip_cidr_range
+    }
+  }
 }
 
 resource "google_compute_firewall" "allow_iap_ssh" {

@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 
 import yaml
 
+from hyops.commands._apply_helpers import sanitize_rerun_inputs
 from hyops.runtime.module_state import read_module_state
 from hyops.runtime.netbox_env import (
     hydrate_netbox_env,
@@ -116,6 +117,95 @@ def load_inputs_file(path: Path, field: str) -> dict[str, Any]:
     return as_mapping(payload, field)
 
 
+def _load_skip_baseline_inputs(state_root: Path, module_ref: str) -> dict[str, Any]:
+    try:
+        state = read_module_state(state_root, module_ref)
+    except Exception:
+        return {}
+
+    candidates: list[Path] = []
+    for key in ("resolved_inputs_file", "rerun_inputs_file"):
+        raw = str(state.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            candidates.append(Path(raw).expanduser().resolve())
+        except Exception:
+            continue
+
+    evidence_dir = str(state.get("evidence_dir") or "").strip()
+    if evidence_dir:
+        try:
+            candidates.append((Path(evidence_dir).expanduser().resolve() / "resolved.inputs.yml").resolve())
+        except Exception:
+            pass
+
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            payload = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return sanitize_rerun_inputs(payload)
+
+    return {}
+
+
+def _explicit_input_drift_detail(current: Any, baseline: Any, *, path: str) -> str:
+    if isinstance(current, dict):
+        if not isinstance(baseline, dict):
+            return f"{path} changed"
+        for key, value in current.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if key not in baseline:
+                return f"{child_path} changed"
+            detail = _explicit_input_drift_detail(value, baseline.get(key), path=child_path)
+            if detail:
+                return detail
+        return ""
+
+    if isinstance(current, list):
+        if not isinstance(baseline, list) or current != baseline:
+            return f"{path} changed"
+        return ""
+
+    if current != baseline:
+        return f"{path} changed"
+    return ""
+
+
+def _prune_empty_explicit_inputs(value: Any) -> Any:
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, raw_value in value.items():
+            pruned = _prune_empty_explicit_inputs(raw_value)
+            if pruned is None:
+                continue
+            if isinstance(pruned, str) and not pruned.strip():
+                continue
+            if isinstance(pruned, (dict, list)) and not pruned:
+                continue
+            out[str(key)] = pruned
+        return out
+
+    if isinstance(value, list):
+        out_list = []
+        for item in value:
+            pruned = _prune_empty_explicit_inputs(item)
+            if pruned is None:
+                continue
+            if isinstance(pruned, str) and not pruned.strip():
+                continue
+            if isinstance(pruned, (dict, list)) and not pruned:
+                continue
+            out_list.append(pruned)
+        return out_list
+
+    return value
+
+
 def resolved_step_inputs_file(step: dict[str, Any], payload: dict[str, Any], paths) -> Path | None:
     inline_inputs = step.get("inputs") if isinstance(step.get("inputs"), dict) else None
     inputs_file_ref = str(step.get("inputs_file") or "").strip()
@@ -144,6 +234,30 @@ def resolved_step_inputs_file(step: dict[str, Any], payload: dict[str, Any], pat
     out_path.write_text(yaml.safe_dump(merged, sort_keys=False), encoding="utf-8")
     os.chmod(out_path, 0o600)
     return out_path
+
+
+def explicit_step_inputs_changed(step: dict[str, Any], payload: dict[str, Any], paths) -> tuple[bool, str]:
+    inputs_file = resolved_step_inputs_file(step, payload, paths)
+    if inputs_file is None or not inputs_file.is_file():
+        return False, ""
+
+    current_inputs = _prune_empty_explicit_inputs(
+        sanitize_rerun_inputs(
+        load_inputs_file(inputs_file, f"steps.{step['id']}.resolved_inputs")
+        )
+    )
+    if not current_inputs:
+        return False, ""
+
+    baseline_inputs = _load_skip_baseline_inputs(paths.state_dir, step_state_ref(step))
+    if not baseline_inputs:
+        return False, ""
+
+    detail = _explicit_input_drift_detail(current_inputs, baseline_inputs, path="")
+    if not detail:
+        return False, ""
+
+    return True, detail
 
 
 def enforce_step_contracts(

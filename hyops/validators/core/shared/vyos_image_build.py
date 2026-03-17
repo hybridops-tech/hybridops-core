@@ -1,7 +1,7 @@
 """hyops.validators.core.shared.vyos_image_build
 
 purpose: Validate inputs for core/shared/vyos-image-build.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -9,11 +9,20 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from hyops.validators.common import normalize_required_env
 from hyops.validators.registry import ModuleValidationError
 
 
 _ARTIFACT_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,62}$")
 _FORMAT_RE = re.compile(r"^(qcow2|raw|img)$")
+_GCS_PUBLISH_ENV_KEYS = (
+    "HYOPS_VYOS_GCS_SA_JSON",
+    "HYOPS_VYOS_GCS_SA_JSON_FILE",
+)
+_GCS_ARTIFACT_URL_PREFIXES = (
+    "gs://",
+    "https://storage.googleapis.com/",
+)
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
@@ -50,6 +59,17 @@ def _opt_bool(inputs: dict[str, Any], key: str) -> bool:
     return value
 
 
+def _derive_publish_backend(*, inputs: dict[str, Any], repo_state_ref: str, artifact_url: str) -> str:
+    backend = _opt_str(inputs, "backend").lower()
+    if backend:
+        return backend
+    if repo_state_ref.startswith("org/gcp/object-repo"):
+        return "gcs"
+    if artifact_url.startswith(_GCS_ARTIFACT_URL_PREFIXES):
+        return "gcs"
+    return ""
+
+
 def validate(inputs: dict[str, Any]) -> None:
     artifact_key = _req_str(inputs, "artifact_key")
     if not _ARTIFACT_KEY_RE.fullmatch(artifact_key):
@@ -58,6 +78,11 @@ def validate(inputs: dict[str, Any]) -> None:
     artifact_format = _req_str(inputs, "artifact_format")
     if not _FORMAT_RE.fullmatch(artifact_format):
         raise ModuleValidationError("inputs.artifact_format must be one of: qcow2,raw,img")
+
+    try:
+        required_env = normalize_required_env(inputs.get("required_env"), "inputs.required_env")
+    except ValueError as exc:
+        raise ModuleValidationError(str(exc)) from exc
 
     source_iso_url = _opt_str(inputs, "source_iso_url")
     if source_iso_url and "://" not in source_iso_url:
@@ -81,7 +106,6 @@ def validate(inputs: dict[str, Any]) -> None:
     _opt_str(inputs, "publish_workdir")
     _opt_str(inputs, "artifact_version")
     _opt_str(inputs, "notes")
-    smoke_verify_required = _opt_bool(inputs, "smoke_verify_required")
 
     artifact_sha256 = _opt_str(inputs, "artifact_sha256")
     if artifact_sha256 and (
@@ -98,6 +122,16 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ModuleValidationError("inputs.artifact_local_path must point to a file, not a directory")
     if artifact_url and "://" not in artifact_url:
         raise ModuleValidationError("inputs.artifact_url must look like a URL when set")
+    if build_command.endswith("/build-vyos-qcow2.sh") and not artifact_url:
+        if not source_iso_url:
+            raise ModuleValidationError(
+                "inputs.source_iso_url is required when using the packaged build-vyos-qcow2.sh wrapper "
+                "without a pre-published inputs.artifact_url"
+            )
+        if not allow_iso_build:
+            raise ModuleValidationError(
+                "inputs.allow_iso_build must be true when using the packaged build-vyos-qcow2.sh wrapper"
+            )
     if repo_state_ref and "/" not in repo_state_ref:
         raise ModuleValidationError("inputs.repo_state_ref must look like a module state ref when set")
     if artifact_local_path and not build_command and not artifact_url and not publish_command:
@@ -112,5 +146,11 @@ def validate(inputs: dict[str, Any]) -> None:
             "inputs.publish_command without inputs.artifact_url should usually be paired with inputs.repo_state_ref "
             "or a publish command that prints the final URL on stdout",
         )
+    if publish_command and _derive_publish_backend(inputs=inputs, repo_state_ref=repo_state_ref, artifact_url=artifact_url) == "gcs":
+        if not any(env_key in required_env for env_key in _GCS_PUBLISH_ENV_KEYS):
+            raise ModuleValidationError(
+                "inputs.required_env must include HYOPS_VYOS_GCS_SA_JSON or HYOPS_VYOS_GCS_SA_JSON_FILE "
+                "when the publish path targets a GCS-backed object repo"
+            )
     if smoke_verify_command and "\n" in smoke_verify_command:
         raise ModuleValidationError("inputs.smoke_verify_command must be a single shell command when set")
