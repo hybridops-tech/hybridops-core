@@ -4,9 +4,14 @@ Provision GCP HA VPN + Cloud Router BGP peers to external edge endpoints.
 
 This module can import:
 
-- hub network contract from `org/gcp/wan-hub-network`
-- router name from `org/gcp/wan-cloud-router`
-- edge public IPs from `org/hetzner/vyos-edge-foundation`
+- `project_id` and `network_self_link` from `org/gcp/wan-hub-network`
+- `router_name` from `org/gcp/wan-cloud-router`
+- `peer_ip_a` and `peer_ip_b` from `org/hetzner/vyos-edge-foundation`
+
+Those imported values are the normal state-driven path for durable env overlays.
+Keep the explicit fields only when you intentionally need to override upstream state.
+
+Published state includes the resolved `project_id` and `network_self_link`, so recovery flows can detect when an env has moved to a different GCP project before reusing old Terraform Cloud state.
 
 PSKs are required for both tunnels.
 

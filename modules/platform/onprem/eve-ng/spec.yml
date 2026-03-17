@@ -14,20 +14,43 @@ inputs:
   defaults:
     # SSH target (existing VM or host)
     target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
     target_user: "opsadmin"
     target_port: 22
     ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
     become: true
     become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
 
     # Vault/env wiring
     required_env:
       - "EVENG_ROOT_PASSWORD"
       - "EVENG_ADMIN_PASSWORD"
-    load_vault_env: false
+    required_env_destroy: []
+    load_vault_env: true
 
     # EVE-NG settings
+    eveng_role_fqcn: "hybridops.app.eveng"
     eveng_resource_profile: "standard"  # minimal|standard|performance
+    eveng_environment_name: ""
+    eveng_domain: "lab.local"
+    eveng_users: []
+    eveng_force_reinstall: false
     eveng_root_password_env: "EVENG_ROOT_PASSWORD"
     eveng_admin_password_env: "EVENG_ADMIN_PASSWORD"
 

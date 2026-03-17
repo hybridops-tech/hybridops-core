@@ -1,11 +1,11 @@
 ---
 # purpose: Role metadata for dns_routing
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 galaxy_info:
-  author: HybridOps.Studio
+  author: HybridOps.Tech
   description: Publish and optionally apply DNS routing intent.
-  company: HybridOps.Studio
+  company: HybridOps.Tech
   license: MIT
   min_ansible_version: "2.15"
   platforms:

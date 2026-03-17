@@ -1,3 +1,11 @@
+output "project_id" {
+  value = var.project_id
+}
+
+output "network_self_link" {
+  value = var.network_self_link
+}
+
 output "ha_vpn_gateway_self_link" {
   value = google_compute_ha_vpn_gateway.hub.self_link
 }

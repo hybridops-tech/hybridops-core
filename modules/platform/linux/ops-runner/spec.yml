@@ -50,6 +50,7 @@ inputs:
     runner_setup_ansible: true
     runner_setup_cloud_gcp: false
     runner_setup_cloud_azure: false
+    runner_sshd_gateway_ports: false
     runner_state: "present"
     runner_archive_excludes:
       - ".git"

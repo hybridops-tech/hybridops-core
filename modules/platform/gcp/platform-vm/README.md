@@ -41,8 +41,10 @@ Use this when a blueprint creates GCP VMs and immediately hands off to an Ansibl
 handoff one-pass and avoids racing the guest boot/SSH availability window.
 
 For private GCP VMs, the readiness probe now uses the VM's GCP instance identity for IAP-aware SSH checks by
-default. It does not inherit an unrelated bastion or proxy path unless you set one explicitly in
-`post_apply_ssh_readiness`.
+default. It does not inherit an unrelated bastion/proxy path unless you set one explicitly in
+`post_apply_ssh_readiness`. When that path is used, the VM must be reachable through the network policy that
+permits IAP TCP forwarding. In the shipped WAN-hub pattern, that normally means including the `allow-iap-ssh`
+tag on the target VM or providing an explicit proxy jump instead.
 
 Example:
 
@@ -70,6 +72,9 @@ This keeps cloud VM blueprints DRY and env-scoped:
 - reruns do not depend on copied/transient `work/` files
 - public key material stays env-scoped in runtime init metadata instead of being baked into shipped blueprint files
 
+The Terraform pack also sets `allow_stopping_for_update = true` on the compute instance resources. That keeps
+state-driven project/network corrections from failing when GCE requires a stop/start cycle to apply an in-place
+instance update.
 ## Nested Virtualization
 
 Set `enable_nested_virtualization: true` at the module level or per VM when the guest will run nested workloads.

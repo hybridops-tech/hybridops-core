@@ -23,6 +23,13 @@ onprem_local_address: "any"
 onprem_bind_interface: "eth1"
 internal_route_next_hop: ""
 static_route_prefixes: []
+consumer_snat_enabled: false
+consumer_snat_rule_base: 4300
+consumer_snat_rule_slots: 16
+consumer_snat_source_cidrs: []
+consumer_snat_destination_cidrs: []
+consumer_snat_translation_address: ""
+consumer_snat_outbound_interface: ""
 
 edge01_name: "edge-a"
 edge02_name: "edge-b"

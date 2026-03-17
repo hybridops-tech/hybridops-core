@@ -75,6 +75,8 @@ dependencies:
 
 outputs:
   publish:
+    - project_id
+    - network_self_link
     - ha_vpn_gateway_self_link
     - ha_vpn_gateway_ip_a
     - ha_vpn_gateway_ip_b

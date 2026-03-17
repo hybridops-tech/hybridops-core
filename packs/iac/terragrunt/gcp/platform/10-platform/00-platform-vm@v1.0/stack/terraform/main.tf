@@ -44,9 +44,10 @@ data "google_compute_image" "img" {
 resource "google_compute_instance" "vm" {
   for_each = var.vms
 
-  name         = local.vm_name_norm_4[each.key]
-  zone         = coalesce(try(each.value.zone, null), var.zone)
-  machine_type = coalesce(try(each.value.machine_type, null), var.machine_type)
+  name                      = local.vm_name_norm_4[each.key]
+  zone                      = coalesce(try(each.value.zone, null), var.zone)
+  machine_type              = coalesce(try(each.value.machine_type, null), var.machine_type)
+  allow_stopping_for_update = true
 
   tags = distinct(compact(concat(
     var.tags,
@@ -68,9 +69,25 @@ resource "google_compute_instance" "vm" {
     }
   }
 
+  advanced_machine_features {
+    enable_nested_virtualization = coalesce(
+      try(each.value.enable_nested_virtualization, null),
+      var.enable_nested_virtualization,
+    )
+  }
+
   network_interface {
-    network    = var.network
+    network = (
+      trimspace(var.network_project_id) != "" && trimspace(var.subnetwork) != ""
+      ? null
+      : var.network
+    )
     subnetwork = trimspace(var.subnetwork) != "" ? var.subnetwork : null
+    subnetwork_project = (
+      trimspace(var.network_project_id) != "" && trimspace(var.subnetwork) != ""
+      ? var.network_project_id
+      : null
+    )
 
     dynamic "access_config" {
       for_each = (coalesce(try(each.value.assign_public_ip, null), var.assign_public_ip) ? [1] : [])

@@ -32,6 +32,7 @@ inputs:
     source_image_project: "rocky-linux-cloud"
     source_image_family: "rocky-linux-9"
     assign_public_ip: false
+    enable_nested_virtualization: false
 
     # SSH access
     ssh_username: "opsadmin"

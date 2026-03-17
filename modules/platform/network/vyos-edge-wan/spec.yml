@@ -18,6 +18,7 @@ dependencies:
       edge02_public_ip: "edge02_public_ip"
       edge01_private_ip: "edge01_ssh_host"
       edge02_private_ip: "edge02_ssh_host"
+      ipsec_source_cidrs: "edge_ipsec_source_cidrs"
 
   - module_ref: "org/gcp/wan-vpn-to-edge"
     required: false
@@ -85,6 +86,7 @@ inputs:
     edge02_public_ip: ""
     edge01_peer_public_ip: ""
     edge02_peer_public_ip: ""
+    edge_ipsec_source_cidrs: []
 
     # Inside tunnel addresses from GCP HA VPN outputs
     edge01_inside_local_ip: "169.254.10.1"

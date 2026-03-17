@@ -26,6 +26,6 @@
         mode: "0600"
         content: |
           {{ {
-            'eveng_url': ('https://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ '/'),
+            'eveng_url': ('http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ '/'),
             'cap.lab.eveng': 'ready'
           } | to_json }}

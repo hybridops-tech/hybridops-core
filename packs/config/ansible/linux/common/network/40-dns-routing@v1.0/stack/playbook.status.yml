@@ -1,0 +1,154 @@
+---
+- name: platform/network/dns-routing (status)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: false
+  gather_facts: false
+
+  vars:
+    _hyops_powerdns_zone_id_effective: "{{ (powerdns_zone_id | default('', true) | string | trim) or (zone | string | trim) }}"
+    _hyops_powerdns_record_name_effective: "{{ (record_fqdn | string).endswith('.') | ternary((record_fqdn | string), ((record_fqdn | string) ~ '.')) }}"
+    _hyops_dns_expected_targets_raw: "{{ ((desired | lower) == 'primary') | ternary((primary_targets | default([])), (secondary_targets | default([]))) }}"
+
+  pre_tasks:
+    - name: Require status apply mode
+      ansible.builtin.assert:
+        that:
+          - (apply_mode | default('bootstrap') | string | lower) == 'status'
+        fail_msg: "inputs.apply_mode must be status for this playbook"
+
+    - name: Require present DNS state
+      ansible.builtin.assert:
+        that:
+          - (dns_state | default('present') | string | lower) == 'present'
+        fail_msg: "inputs.dns_state must be present for status checks"
+
+    - name: Require PowerDNS provider
+      ansible.builtin.assert:
+        that:
+          - (provider | string | lower) == 'powerdns-api'
+        fail_msg: "inputs.provider must be powerdns-api for DNS live status checks"
+
+    - name: Resolve PowerDNS API key from environment
+      ansible.builtin.set_fact:
+        _hyops_powerdns_api_key_effective: "{{ lookup('ansible.builtin.env', powerdns_api_key_env) | default('', true) | string }}"
+      changed_when: false
+
+    - name: Assert PowerDNS API key is available
+      ansible.builtin.assert:
+        that:
+          - _hyops_powerdns_api_key_effective | length > 0
+        fail_msg: "PowerDNS API key was not found in env var {{ powerdns_api_key_env }}."
+
+  tasks:
+    - name: Read live rrsets from PowerDNS API
+      ansible.builtin.uri:
+        url: "{{ (powerdns_api_url | regex_replace('/+$', '')) ~ '/api/v1/servers/' ~ (powerdns_server_id | urlencode) ~ '/zones/' ~ (_hyops_powerdns_zone_id_effective | urlencode) }}"
+        method: GET
+        headers:
+          X-API-Key: "{{ _hyops_powerdns_api_key_effective }}"
+        status_code: 200
+        return_content: true
+        validate_certs: "{{ powerdns_validate_tls | bool }}"
+      register: _hyops_powerdns_zone
+      changed_when: false
+
+    - name: Select live rrset for the requested record
+      ansible.builtin.set_fact:
+        _hyops_dns_live_rrsets: >-
+          {{
+            (_hyops_powerdns_zone.json.rrsets | default([]))
+            | selectattr('name', 'equalto', _hyops_powerdns_record_name_effective)
+            | selectattr('type', 'equalto', (record_type | upper))
+            | list
+          }}
+      changed_when: false
+
+    - name: Assert exactly one live rrset was found
+      ansible.builtin.assert:
+        that:
+          - (_hyops_dns_live_rrsets | length) == 1
+        fail_msg: >-
+          Live PowerDNS rrset lookup failed for {{ _hyops_powerdns_record_name_effective }}
+          type {{ record_type | upper }} in zone {{ _hyops_powerdns_zone_id_effective }}.
+          Observed matches={{ _hyops_dns_live_rrsets | length }}.
+
+    - name: Normalize live rrset payload
+      ansible.builtin.set_fact:
+        _hyops_dns_live_rrset: "{{ (_hyops_dns_live_rrsets | first) | default({}) }}"
+        _hyops_dns_observed_targets_raw: "{{ ((_hyops_dns_live_rrsets | first).records | default([])) | map(attribute='content') | map('string') | list }}"
+        _hyops_dns_observed_ttl: "{{ ((_hyops_dns_live_rrsets | first).ttl | default(ttl)) | int }}"
+      changed_when: false
+
+    - name: Normalize expected DNS targets
+      ansible.builtin.set_fact:
+        _hyops_dns_expected_targets: "{{ _hyops_dns_expected_targets_raw | map('string') | list }}"
+      changed_when: false
+      when: (record_type | upper) != "CNAME"
+
+    - name: Normalize expected DNS CNAME targets
+      ansible.builtin.set_fact:
+        _hyops_dns_expected_targets: >-
+          {{
+            _hyops_dns_expected_targets_raw
+            | map('string')
+            | map('regex_replace', '^(.*[^.])$', '\\1.')
+            | list
+          }}
+      changed_when: false
+      when: (record_type | upper) == "CNAME"
+
+    - name: Normalize observed DNS targets
+      ansible.builtin.set_fact:
+        _hyops_dns_observed_targets: "{{ _hyops_dns_observed_targets_raw | map('string') | list }}"
+      changed_when: false
+      when: (record_type | upper) != "CNAME"
+
+    - name: Normalize observed DNS CNAME targets
+      ansible.builtin.set_fact:
+        _hyops_dns_observed_targets: >-
+          {{
+            _hyops_dns_observed_targets_raw
+            | map('string')
+            | map('regex_replace', '^(.*[^.])$', '\\1.')
+            | list
+          }}
+      changed_when: false
+      when: (record_type | upper) == "CNAME"
+
+    - name: Assert live PowerDNS rrset matches desired DNS routing
+      ansible.builtin.assert:
+        that:
+          - (_hyops_dns_observed_ttl | int) == (ttl | int)
+          - (_hyops_dns_observed_targets | sort) == (_hyops_dns_expected_targets | sort)
+        fail_msg: >-
+          Live PowerDNS rrset does not match desired DNS routing for {{ record_fqdn }}.
+          observed_targets={{ _hyops_dns_observed_targets | default([]) | join(',') }}
+          expected_targets={{ _hyops_dns_expected_targets | default([]) | join(',') }}
+          observed_ttl={{ _hyops_dns_observed_ttl | int }}
+          expected_ttl={{ ttl | int }}
+
+  post_tasks:
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'dns.status': 'live-ok',
+            'dns.provider': (provider | string),
+            'dns.zone': (zone | string),
+            'dns.record_fqdn': (record_fqdn | string),
+            'dns.record_type': (record_type | upper | string),
+            'dns.desired': (desired | lower | string),
+            'dns.targets': (_hyops_dns_observed_targets | default([])),
+            'dns.expected_targets': (_hyops_dns_expected_targets | default([])),
+            'dns.observed_targets': (_hyops_dns_observed_targets | default([])),
+            'dns.observed_ttl': (_hyops_dns_observed_ttl | int),
+            'dns.record_exists': true,
+            'dns.matches_desired': true,
+            'cap.network.dns_routing': 'ready'
+          } | to_json }}

@@ -64,6 +64,14 @@ The control host inventory should usually come from:
 
 - `org/hetzner/shared-control-host#edge_control_host`
 
+Firewall dependency note:
+
+- This module now consumes `ipsec_source_cidrs` from `org/hetzner/vyos-edge-foundation`
+  when that state is available.
+- If the current GCP HA VPN public IPs (`edge01_peer_public_ip` / `edge02_peer_public_ip`)
+  are not included in that allowlist, validation fails before any VyOS day-2 changes are applied.
+- This prevents false day-2 churn when the real issue is a stale Hetzner firewall policy.
+
 ## Outputs
 
 - `vyos.edge01.peer_ip`

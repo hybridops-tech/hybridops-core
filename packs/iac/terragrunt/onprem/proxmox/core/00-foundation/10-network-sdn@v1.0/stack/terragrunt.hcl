@@ -5,7 +5,7 @@ include "root" {
 
 locals {
   inputs = include.root.inputs
-  module_source = "tfr://registry.terraform.io/hybridops-tech/sdn/proxmox?version=0.1.4"
+  module_source = "tfr://registry.terraform.io/hybridops-tech/sdn/proxmox?version=0.1.5"
 
   # HyOps writes validated + defaulted module inputs to hyops.inputs.json.
   # Keep pack locals as normalization only (no policy/default duplication).

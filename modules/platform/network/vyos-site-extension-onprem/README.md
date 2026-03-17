@@ -17,6 +17,8 @@ Use it together with `platform/network/vyos-site-extension-edge`.
 - configures the on-prem VyOS as the initiator side
 - optionally installs static routes for internal prefixes that must be originated into BGP
 - exports approved on-prem prefixes and imports only approved cloud-side prefixes
+- optionally source-NATs selected cloud-side consumers when the downstream on-prem
+  subnet does not return traffic through the site-extension edge
 
 ## Important
 
@@ -36,6 +38,24 @@ If the Hetzner public peer IPs do not resolve out the same uplink as
 That installs explicit `/32` routes for the public peers so the site-extension
 initiator leaves through the intended WAN path instead of a management/default
 route.
+
+If the downstream on-prem database or application subnet returns traffic through
+an upstream gateway that is outside HyOps control, enable the optional consumer
+SNAT path:
+
+- `consumer_snat_enabled`
+- `consumer_snat_source_cidrs`
+- `consumer_snat_destination_cidrs`
+- `consumer_snat_translation_address`
+- `consumer_snat_outbound_interface`
+
+This is the correct pattern for managed DR consumers such as the GCP reverse-SSH
+runner when the source subnet does not route cloud prefixes back through the
+on-prem VyOS edge. For Cloud SQL standby lanes, include any Cloud SQL private
+service access range that can appear as the effective source on the on-prem
+side, not only the runner subnet. Reserve the configured
+`consumer_snat_rule_base` to
+`consumer_snat_rule_base + consumer_snat_rule_slots - 1` range for this module.
 
 ## Required Secrets
 
