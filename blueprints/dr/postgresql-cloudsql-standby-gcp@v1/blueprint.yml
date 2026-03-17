@@ -27,14 +27,10 @@ steps:
       apply_mode: "assess"
       dr_mode: "managed-cloudsql"
 
-      inventory_state_ref: "platform/postgresql-ha"
-      inventory_requires_ipam: true
-      db_state_ref: "platform/postgresql-ha"
+      inventory_state_ref: "platform/onprem/postgresql-ha"
+      inventory_requires_ipam: false
+      db_state_ref: "platform/onprem/postgresql-ha"
       db_app_key: "netbox"
-
-      load_vault_env: true
-      required_env:
-        - "NETBOX_DB_PASSWORD"
 
   - id: cloudsql_managed_standby
     module_ref: "org/gcp/cloudsql-external-replica"
@@ -64,12 +60,15 @@ steps:
       migration_job_type: "CONTINUOUS"
       start_migration_job: true
       migration_objects_mode: "single-database"
+      load_vault_env: true
+      required_env:
+        - "PATRONI_REPLICATION_PASSWORD"
 
       # The destination connection profile name becomes the managed Cloud SQL
       # target instance name created by DMS.
 
       source_replication_user: ""
-      source_replication_password_env: "PG_REPLICATION_PASSWORD"
+      source_replication_password_env: "PATRONI_REPLICATION_PASSWORD"
       source_ssl_type: "NONE"
       destination_root_password_env: ""
 
@@ -79,3 +78,18 @@ steps:
       gcloud_copy_default_config: true
       gcloud_runtime_config_dir: ""
       gcloud_active_account: ""
+
+  - id: managed_standby_status
+    module_ref: "org/gcp/cloudsql-external-replica"
+    state_instance: "managed_standby_status"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    skip_if_state_ok: false
+    requires:
+      - cloudsql_managed_standby
+    inputs:
+      apply_mode: "status"
+      replica_state_ref: "org/gcp/cloudsql-external-replica#managed_standby"
+      required_migration_job_states:
+        - "RUNNING"

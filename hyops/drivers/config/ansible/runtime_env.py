@@ -23,6 +23,54 @@ _MODULE_ID_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+def _append_search_path(out: list[str], raw_path: str) -> None:
+    """Append a search-path entry once, preserving non-existent default locations."""
+    raw = str(raw_path or "").strip()
+    if not raw:
+        return
+    candidate = str(Path(raw).expanduser())
+    if candidate not in out:
+        out.append(candidate)
+
+
+def _extend_search_path(out: list[str], raw_path: str) -> None:
+    """Split a colon-delimited search path and append each entry once."""
+    for token in str(raw_path or "").split(":"):
+        _append_search_path(out, token)
+
+
+def _iter_collection_role_dirs(collection_roots: list[str]) -> list[str]:
+    """Derive collection role directories for use as a robust role-resolution fallback.
+
+    Some remote-play contexts in ansible-core 2.18 can fail to resolve collection
+    roles reliably via include_role/FQCN even when ANSIBLE_COLLECTIONS_PATH is set
+    correctly. Adding discovered collection role directories to ANSIBLE_ROLES_PATH
+    gives the driver a deterministic fallback without changing pack authorship.
+    """
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for token in collection_roots:
+        base = Path(token).expanduser()
+        candidates = [base] if base.name == "ansible_collections" else [base / "ansible_collections"]
+        for candidate in candidates:
+            if not candidate.is_dir():
+                continue
+            for namespace_dir in sorted(candidate.iterdir()):
+                if not namespace_dir.is_dir():
+                    continue
+                for collection_dir in sorted(namespace_dir.iterdir()):
+                    roles_dir = collection_dir / "roles"
+                    if not roles_dir.is_dir():
+                        continue
+                    resolved = str(roles_dir)
+                    if resolved in seen:
+                        continue
+                    seen.add(resolved)
+                    out.append(resolved)
+    return out
+
+
 def resolve_ansible_controller_python(ansible_bin: str) -> str:
     """Best-effort resolve of the Python interpreter used by ansible-playbook."""
     resolved = str(shutil.which(ansible_bin) or ansible_bin).strip()
@@ -68,6 +116,7 @@ def prepare_ansible_controller_env(*, env: dict[str, str], runtime_root: Path, a
     # Use a world-writable base so tasks can switch become_user (e.g. postgres).
     env.setdefault("ANSIBLE_REMOTE_TEMP", "/tmp")
     env.setdefault("ANSIBLE_HOST_KEY_CHECKING", "False")
+    env.setdefault("ANSIBLE_TIMEOUT", "30")
 
     # Some Ansible filters (notably json_query) require Python deps like jmespath.
     # Autobase references json_query even in tasks that will be skipped, so the
@@ -177,10 +226,10 @@ def configure_ansible_search_paths(
     for candidate_module_id in module_ids:
         module_roles = runtime_root / "state" / "ansible" / "modules" / candidate_module_id / "roles"
         if module_roles.is_dir():
-            roles_path_parts.append(str(module_roles))
+            _append_search_path(roles_path_parts, str(module_roles))
     runtime_roles = runtime_root / "state" / "ansible" / "roles"
     if runtime_roles.is_dir():
-        roles_path_parts.append(str(runtime_roles))
+        _append_search_path(roles_path_parts, str(runtime_roles))
 
     # Workstation install flow typically installs shared deps into ~/.hybridops (global).
     # When running with --env, include global fallback paths so operators don't need to
@@ -190,22 +239,10 @@ def configure_ansible_search_paths(
         for candidate_module_id in module_ids:
             global_module_roles = global_root / "state" / "ansible" / "modules" / candidate_module_id / "roles"
             if global_module_roles.is_dir():
-                roles_path_parts.append(str(global_module_roles))
+                _append_search_path(roles_path_parts, str(global_module_roles))
         global_roles = global_root / "state" / "ansible" / "roles"
         if global_roles.is_dir():
-            roles_path_parts.append(str(global_roles))
-
-    # Preserve operator overrides if present, otherwise include sane defaults.
-    # Note: setting ANSIBLE_ROLES_PATH overrides Ansible defaults, so we must
-    # keep default locations in the search path.
-    roles_path_tail = str(env.get("ANSIBLE_ROLES_PATH") or "").strip()
-    if not roles_path_tail:
-        roles_path_tail = f"{Path.home()}/.ansible/roles:/etc/ansible/roles"
-    if roles_path_tail:
-        roles_path_parts.append(roles_path_tail)
-
-    if roles_path_parts:
-        env["ANSIBLE_ROLES_PATH"] = ":".join(roles_path_parts)
+            _append_search_path(roles_path_parts, str(global_roles))
 
     collections_path_parts: list[str] = []
     for candidate_module_id in module_ids:
@@ -213,13 +250,19 @@ def configure_ansible_search_paths(
         if not module_collections.is_dir():
             module_collections = runtime_root / "state" / "ansible" / "modules" / candidate_module_id / "collections"
         if module_collections.is_dir():
-            collections_path_parts.append(str(module_collections))
+            _append_search_path(collections_path_parts, str(module_collections))
+
+    # Prefer the bundled runtime collection payload over cached Galaxy installs.
+    # That keeps source and installed runtime behavior aligned when the cache still
+    # contains older HybridOps collection content from previous releases.
+    if vendored_collections_dir.is_dir():
+        _append_search_path(collections_path_parts, str(vendored_collections_dir))
 
     runtime_collections = runtime_root / "state" / "ansible" / "galaxy_collections"
     if not runtime_collections.is_dir():
         runtime_collections = runtime_root / "state" / "ansible" / "collections"
     if runtime_collections.is_dir():
-        collections_path_parts.append(str(runtime_collections))
+        _append_search_path(collections_path_parts, str(runtime_collections))
 
     if global_root != runtime_root:
         for candidate_module_id in module_ids:
@@ -227,26 +270,36 @@ def configure_ansible_search_paths(
             if not global_module_collections.is_dir():
                 global_module_collections = global_root / "state" / "ansible" / "modules" / candidate_module_id / "collections"
             if global_module_collections.is_dir():
-                collections_path_parts.append(str(global_module_collections))
+                _append_search_path(collections_path_parts, str(global_module_collections))
 
         global_collections = global_root / "state" / "ansible" / "galaxy_collections"
         if not global_collections.is_dir():
             global_collections = global_root / "state" / "ansible" / "collections"
         if global_collections.is_dir():
-            collections_path_parts.append(str(global_collections))
-    if vendored_collections_dir.is_dir():
-        collections_path_parts.append(str(vendored_collections_dir))
-
+            _append_search_path(collections_path_parts, str(global_collections))
     # Preserve operator overrides if present, otherwise include sane defaults.
     collections_path_tail = str(env.get("ANSIBLE_COLLECTIONS_PATH") or env.get("ANSIBLE_COLLECTIONS_PATHS") or "").strip()
     if not collections_path_tail:
         collections_path_tail = f"{Path.home()}/.ansible/collections:/usr/share/ansible/collections"
-    if collections_path_tail:
-        collections_path_parts.append(collections_path_tail)
+    _extend_search_path(collections_path_parts, collections_path_tail)
 
     if collections_path_parts:
         env["ANSIBLE_COLLECTIONS_PATH"] = ":".join(collections_path_parts)
         env.pop("ANSIBLE_COLLECTIONS_PATHS", None)
+
+    for collection_roles_dir in _iter_collection_role_dirs(collections_path_parts):
+        _append_search_path(roles_path_parts, collection_roles_dir)
+
+    # Preserve operator overrides if present, otherwise include sane defaults.
+    # Note: setting ANSIBLE_ROLES_PATH overrides Ansible defaults, so we must
+    # keep default locations in the search path.
+    roles_path_tail = str(env.get("ANSIBLE_ROLES_PATH") or "").strip()
+    if not roles_path_tail:
+        roles_path_tail = f"{Path.home()}/.ansible/roles:/etc/ansible/roles"
+    _extend_search_path(roles_path_parts, roles_path_tail)
+
+    if roles_path_parts:
+        env["ANSIBLE_ROLES_PATH"] = ":".join(roles_path_parts)
 
     apply_collection_hotfixes(ev=ev, result=result, env=env)
 
@@ -276,3 +329,42 @@ def missing_env(env: dict[str, str], required: list[str]) -> list[str]:
         if not (env.get(key) or "").strip():
             missing.append(key)
     return missing
+
+
+def materialize_ssh_private_key_from_env(
+    *,
+    inputs: dict[str, Any],
+    env: dict[str, str],
+    workdir: Path,
+) -> str:
+    key_file_raw = str(inputs.get("ssh_private_key_file") or "").strip()
+    key_env_name = str(inputs.get("ssh_private_key_env") or "").strip()
+
+    if not key_env_name:
+        return ""
+
+    key_value = str(env.get(key_env_name) or "").strip()
+    if not key_value:
+        return ""
+
+    if (
+        "\\n" in key_value
+        and "-----BEGIN " in key_value
+        and " PRIVATE KEY-----" in key_value
+    ):
+        key_value = key_value.replace("\\r", "").replace("\\n", "\n").strip()
+
+    existing_ok = False
+    if key_file_raw:
+        try:
+            existing_ok = Path(key_file_raw).expanduser().exists()
+        except Exception:
+            existing_ok = False
+    if existing_ok:
+        return ""
+
+    key_path = (workdir / "runtime.ssh.key").resolve()
+    key_path.write_text(key_value + ("\n" if not key_value.endswith("\n") else ""), encoding="utf-8")
+    os.chmod(key_path, 0o600)
+    inputs["ssh_private_key_file"] = str(key_path)
+    return str(key_path)

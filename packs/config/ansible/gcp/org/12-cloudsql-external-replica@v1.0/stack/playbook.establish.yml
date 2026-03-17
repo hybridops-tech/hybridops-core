@@ -14,7 +14,7 @@
     source_leader_name: "{{ source_leader_name | default('') }}"
     source_replication_candidate: "{{ source_replication_candidate | default(false) | bool }}"
     source_replication_user: "{{ source_replication_user | default('') }}"
-    source_replication_password_env: "{{ source_replication_password_env | default('PG_REPLICATION_PASSWORD') }}"
+    source_replication_password_env: "{{ source_replication_password_env | default('PATRONI_REPLICATION_PASSWORD') }}"
     source_ssl_type: "{{ source_ssl_type | default('NONE') }}"
     source_ca_certificate_env: "{{ source_ca_certificate_env | default('') }}"
     source_client_certificate_env: "{{ source_client_certificate_env | default('') }}"
@@ -42,6 +42,7 @@
     connectivity_mode: "{{ connectivity_mode | default('static-ip') }}"
     reverse_ssh_vm: "{{ reverse_ssh_vm | default('') }}"
     reverse_ssh_vm_ip: "{{ reverse_ssh_vm_ip | default('') }}"
+    reverse_ssh_vm_zone: "{{ reverse_ssh_vm_zone | default('') }}"
     reverse_ssh_vm_port: "{{ reverse_ssh_vm_port | default(0) | int }}"
     reverse_ssh_vpc: "{{ reverse_ssh_vpc | default('') }}"
 
@@ -111,10 +112,11 @@
         that:
           - (reverse_ssh_vm | string | length) > 0
           - (reverse_ssh_vm_ip | string | length) > 0
+          - (reverse_ssh_vm_zone | string | length) > 0
           - (reverse_ssh_vm_port | int) > 0
           - ((reverse_ssh_vpc | string | length) > 0) or ((private_network | string | length) > 0)
         fail_msg: >-
-          inputs.reverse_ssh_vm, inputs.reverse_ssh_vm_ip, inputs.reverse_ssh_vm_port, and
+          inputs.reverse_ssh_vm, inputs.reverse_ssh_vm_ip, inputs.reverse_ssh_vm_zone, inputs.reverse_ssh_vm_port, and
           inputs.reverse_ssh_vpc/private_network are required when inputs.connectivity_mode=reverse-ssh.
       when: (connectivity_mode | string | lower) == 'reverse-ssh'
 
@@ -188,6 +190,51 @@
           Observed={{ _hyops_gcloud_active_account.stdout | trim }} expected={{ gcloud_active_account | trim }}
       when: (gcloud_active_account | string | length) > 0
 
+    - name: Check Database Migration API enablement
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - services
+          - list
+          - --enabled
+          - --project={{ project_id }}
+          - --filter=config.name:datamigration.googleapis.com
+          - --format=value(config.name)
+      register: _hyops_datamigration_service
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Fail when Database Migration API is disabled
+      ansible.builtin.assert:
+        that:
+          - (_hyops_datamigration_service.stdout | trim) == 'datamigration.googleapis.com'
+        fail_msg: >-
+          datamigration.googleapis.com is not enabled in project {{ project_id }}.
+          Enable it before apply, for example:
+          gcloud services enable datamigration.googleapis.com --project={{ project_id }}
+          If the project is HyOps-managed through project-factory, add the service to activate_apis there.
+
+    - name: Verify reverse SSH bastion can reach source database
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - compute
+          - ssh
+          - "{{ reverse_ssh_vm }}"
+          - --project={{ project_id }}
+          - --zone={{ reverse_ssh_vm_zone }}
+          - --command=nc -zv -w 5 {{ source_host }} {{ source_port | int }}
+      register: _hyops_reverse_ssh_source_connectivity
+      changed_when: false
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (connectivity_mode | string | lower) == 'reverse-ssh'
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
     - name: Load replication and optional TLS secrets from environment
       ansible.builtin.set_fact:
         _hyops_source_replication_password: "{{ lookup('env', source_replication_password_env) | default('', true) }}"
@@ -258,13 +305,13 @@
               '--database=' ~ source_db_name,
               '--username=' ~ source_replication_user,
               '--password=' ~ _hyops_source_replication_password,
-              '--ssl-type=' ~ (source_ssl_type | upper),
               '--no-async'
             ]
             + (((connectivity_mode | string | lower) == 'static-ip') | ternary(['--static-ip-connectivity'], []))
-            + ((_hyops_source_ca_certificate | length > 0) | ternary(['--ca-certificate=' ~ _hyops_source_ca_certificate], []))
-            + ((_hyops_source_client_certificate | length > 0) | ternary(['--client-certificate=' ~ _hyops_source_client_certificate], []))
-            + ((_hyops_source_private_key | length > 0) | ternary(['--private-key=' ~ _hyops_source_private_key], []))
+            + (((source_ssl_type | upper) != 'NONE') | ternary(['--ssl-type=' ~ (source_ssl_type | upper)], []))
+            + ((((source_ssl_type | upper) != 'NONE') and ((_hyops_source_ca_certificate | length) > 0)) | ternary(['--ca-certificate=' ~ _hyops_source_ca_certificate], []))
+            + ((((source_ssl_type | upper) != 'NONE') and ((_hyops_source_client_certificate | length) > 0)) | ternary(['--client-certificate=' ~ _hyops_source_client_certificate], []))
+            + ((((source_ssl_type | upper) != 'NONE') and ((_hyops_source_private_key | length) > 0)) | ternary(['--private-key=' ~ _hyops_source_private_key], []))
           }}
       no_log: true
       when:
@@ -275,7 +322,10 @@
       ansible.builtin.command:
         argv: "{{ _hyops_source_cp_create_argv }}"
       register: _hyops_source_cp_create
-      changed_when: true
+      changed_when: (_hyops_source_cp_create.rc | int) == 0
+      failed_when: >-
+        (_hyops_source_cp_create.rc | int) != 0
+        and ('already exists' not in ((_hyops_source_cp_create.stderr | default('')) | lower))
       no_log: true
       when:
         - (apply_mode | string | lower) == 'establish'
@@ -336,7 +386,10 @@
       ansible.builtin.command:
         argv: "{{ _hyops_destination_cp_create_argv }}"
       register: _hyops_destination_cp_create
-      changed_when: true
+      changed_when: (_hyops_destination_cp_create.rc | int) == 0
+      failed_when: >-
+        (_hyops_destination_cp_create.rc | int) != 0
+        and ('already exists' not in ((_hyops_destination_cp_create.stderr | default('')) | lower))
       no_log: true
       when:
         - (apply_mode | string | lower) == 'establish'
@@ -359,6 +412,84 @@
       register: _hyops_migration_job_describe
       changed_when: false
       failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Normalize current migration job when present
+      ansible.builtin.set_fact:
+        _hyops_migration_job_existing: "{{ _hyops_migration_job_describe.stdout | from_json }}"
+      changed_when: false
+      when: (_hyops_migration_job_describe.rc | int) == 0
+
+    - name: Detect reverse SSH drift on existing migration job
+      ansible.builtin.set_fact:
+        _hyops_recreate_migration_job: >-
+          {{
+            ((_hyops_migration_job_describe.rc | int) == 0)
+            and ((connectivity_mode | string | lower) == 'reverse-ssh')
+            and (
+              ((_hyops_migration_job_existing.reverseSshConnectivity.vm | default('') | string) != (reverse_ssh_vm | string))
+              or ((_hyops_migration_job_existing.reverseSshConnectivity.vmIp | default('') | string) != (reverse_ssh_vm_ip | string))
+              or ((_hyops_migration_job_existing.reverseSshConnectivity.vmPort | default(0) | int) != (reverse_ssh_vm_port | int))
+              or ((_hyops_migration_job_existing.reverseSshConnectivity.vpc | default('') | string) != (((reverse_ssh_vpc | string) if (reverse_ssh_vpc | string | length) > 0 else private_network) | string))
+            )
+          }}
+      changed_when: false
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (_hyops_migration_job_describe.rc | int) == 0
+
+    - name: Delete migration job when reverse SSH settings drift
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - delete
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --quiet
+      register: _hyops_migration_job_delete
+      changed_when: (_hyops_migration_job_delete.rc | int) == 0
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - _hyops_recreate_migration_job | default(false) | bool
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Reset migration job description after delete
+      ansible.builtin.set_fact:
+        _hyops_migration_job_describe:
+          rc: 1
+          stdout: "{}"
+      changed_when: false
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - _hyops_recreate_migration_job | default(false) | bool
+
+    - name: Wait for migration job deletion to complete
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - describe
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_migration_job_delete_wait
+      changed_when: false
+      failed_when: false
+      until: (_hyops_migration_job_delete_wait.rc | int) != 0
+      retries: 24
+      delay: 5
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - _hyops_recreate_migration_job | default(false) | bool
       environment:
         CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
         CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
@@ -396,7 +527,10 @@
       ansible.builtin.command:
         argv: "{{ _hyops_migration_job_create_argv }}"
       register: _hyops_migration_job_create
-      changed_when: true
+      changed_when: (_hyops_migration_job_create.rc | int) == 0
+      failed_when: >-
+        (_hyops_migration_job_create.rc | int) != 0
+        and ('already exists' not in ((_hyops_migration_job_create.stderr | default('')) | lower))
       when:
         - (apply_mode | string | lower) == 'establish'
         - (_hyops_migration_job_describe.rc | int) != 0
@@ -418,9 +552,148 @@
       register: _hyops_migration_job_current
       changed_when: false
       failed_when: false
+      until: (_hyops_migration_job_current.rc | int) == 0
+      retries: 24
+      delay: 5
       environment:
         CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
         CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Write runner reverse SSH bootstrap script to runtime cache
+      ansible.builtin.copy:
+        dest: "{{ hyops_runtime_root }}/cache/gcloud/{{ migration_job_name }}-reverse-ssh-runner.sh"
+        mode: "0700"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          RUNNER_USER="$(id -un)"
+          RUNNER_HOME="$(getent passwd "${RUNNER_USER}" | cut -d: -f6)"
+          KEY_PATH="${RUNNER_HOME}/.ssh/id_ed25519_hyops_reverse"
+          AUTHORIZED_KEYS="${RUNNER_HOME}/.ssh/authorized_keys"
+          UNIT_NAME="hyops-dms-reverse-ssh-{{ migration_job_name }}.service"
+
+          mkdir -p "${RUNNER_HOME}/.ssh"
+          chmod 700 "${RUNNER_HOME}/.ssh"
+
+          if [[ ! -f "${KEY_PATH}" ]]; then
+            ssh-keygen -t ed25519 -N "" -f "${KEY_PATH}" >/dev/null
+          fi
+
+          PUB_KEY="$(cat "${KEY_PATH}.pub")"
+          touch "${AUTHORIZED_KEYS}"
+          grep -qxF "${PUB_KEY}" "${AUTHORIZED_KEYS}" || echo "${PUB_KEY}" >> "${AUTHORIZED_KEYS}"
+          chmod 600 "${AUTHORIZED_KEYS}" "${KEY_PATH}"
+          chmod 644 "${KEY_PATH}.pub"
+          pkill -f 'ssh .* -R {{ reverse_ssh_vm_port | int }}:{{ source_host }}:{{ source_port | int }} localhost' || true
+          sleep 1
+
+          cat <<UNIT | sudo tee "/etc/systemd/system/${UNIT_NAME}" >/dev/null
+          [Unit]
+          Description=HybridOps DMS reverse SSH tunnel for {{ migration_job_name }}
+          After=network-online.target ssh.service
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=${RUNNER_USER}
+          Environment=HOME=${RUNNER_HOME}
+          ExecStart=/usr/bin/ssh -i ${KEY_PATH} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -N -R {{ reverse_ssh_vm_port | int }}:{{ source_host }}:{{ source_port | int }} localhost
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now "${UNIT_NAME}" >/dev/null
+          sudo systemctl restart "${UNIT_NAME}" >/dev/null
+          ss -ltn | grep ':{{ reverse_ssh_vm_port | int }}' || true
+          sudo systemctl is-active "${UNIT_NAME}"
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (connectivity_mode | string | lower) == 'reverse-ssh'
+        - start_migration_job | bool
+        - (_hyops_migration_job_current.rc | int) == 0
+        - (((_hyops_migration_job_current.stdout | default('{}')) | from_json).state | default('') | upper) not in ['RUNNING', 'STARTING']
+
+    - name: Copy reverse SSH bootstrap script to bastion VM
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - compute
+          - scp
+          - "{{ hyops_runtime_root }}/cache/gcloud/{{ migration_job_name }}-reverse-ssh-runner.sh"
+          - "{{ reverse_ssh_vm }}:/tmp/{{ migration_job_name }}-reverse-ssh-runner.sh"
+          - --project={{ project_id }}
+          - --zone={{ reverse_ssh_vm_zone }}
+      register: _hyops_reverse_ssh_script_copy
+      changed_when: (_hyops_reverse_ssh_script_copy.rc | int) == 0
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (connectivity_mode | string | lower) == 'reverse-ssh'
+        - start_migration_job | bool
+        - (_hyops_migration_job_current.rc | int) == 0
+        - (((_hyops_migration_job_current.stdout | default('{}')) | from_json).state | default('') | upper) not in ['RUNNING', 'STARTING']
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Bootstrap reverse SSH service on bastion VM
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - compute
+          - ssh
+          - "{{ reverse_ssh_vm }}"
+          - --project={{ project_id }}
+          - --zone={{ reverse_ssh_vm_zone }}
+          - --command=bash /tmp/{{ migration_job_name }}-reverse-ssh-runner.sh
+      register: _hyops_reverse_ssh_run
+      changed_when: >-
+        ('active' in ((_hyops_reverse_ssh_run.stdout | default('')) | lower))
+        or ((':' ~ (reverse_ssh_vm_port | int | string)) in (_hyops_reverse_ssh_run.stdout | default('')))
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (connectivity_mode | string | lower) == 'reverse-ssh'
+        - start_migration_job | bool
+        - (_hyops_migration_job_current.rc | int) == 0
+        - (((_hyops_migration_job_current.stdout | default('{}')) | from_json).state | default('') | upper) not in ['RUNNING', 'STARTING']
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Remove reverse SSH bootstrap script from bastion VM
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - compute
+          - ssh
+          - "{{ reverse_ssh_vm }}"
+          - --project={{ project_id }}
+          - --zone={{ reverse_ssh_vm_zone }}
+          - --command=rm -f /tmp/{{ migration_job_name }}-reverse-ssh-runner.sh
+      changed_when: false
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (connectivity_mode | string | lower) == 'reverse-ssh'
+        - start_migration_job | bool
+        - (_hyops_migration_job_current.rc | int) == 0
+        - (((_hyops_migration_job_current.stdout | default('{}')) | from_json).state | default('') | upper) not in ['RUNNING', 'STARTING']
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Remove local reverse SSH bootstrap script from runtime cache
+      ansible.builtin.file:
+        path: "{{ hyops_runtime_root }}/cache/gcloud/{{ migration_job_name }}-reverse-ssh-runner.sh"
+        state: absent
+      when:
+        - (apply_mode | string | lower) == 'establish'
+        - (connectivity_mode | string | lower) == 'reverse-ssh'
+        - start_migration_job | bool
+        - (_hyops_migration_job_current.rc | int) == 0
+        - (((_hyops_migration_job_current.stdout | default('{}')) | from_json).state | default('') | upper) not in ['RUNNING', 'STARTING']
 
     - name: Start migration job when requested and not already active
       ansible.builtin.command:
@@ -504,6 +777,60 @@
         _hyops_migration_job_json: "{{ _hyops_migration_job_final.stdout | from_json }}"
       changed_when: false
 
+    - name: Normalize required migration job states
+      ansible.builtin.set_fact:
+        _hyops_required_migration_job_states: >-
+          {{ required_migration_job_states | default([]) | map('string') | map('upper') | list }}
+      changed_when: false
+
+    - name: Assert migration job is in an allowed state when required
+      ansible.builtin.assert:
+        that:
+          - (_hyops_migration_job_json.state | default('UNKNOWN') | string | upper) in _hyops_required_migration_job_states
+        fail_msg: >-
+          Migration job {{ migration_job_name }} is not in an allowed state.
+          Required={{ _hyops_required_migration_job_states }},
+          observed={{ _hyops_migration_job_json.state | default('UNKNOWN') | string | upper }}.
+      when: (_hyops_required_migration_job_states | length) > 0
+
+    - name: Resolve managed Cloud SQL instance name from destination profile
+      ansible.builtin.set_fact:
+        _hyops_cloudsql_instance_name: >-
+          {{
+            (
+              _hyops_destination_cp_json.cloudsql.cloudSqlId
+              | default(destination_connection_profile_name, true)
+            ) | string
+          }}
+      changed_when: false
+
+    - name: Describe managed Cloud SQL instance
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - sql
+          - instances
+          - describe
+          - "{{ _hyops_cloudsql_instance_name }}"
+          - --project={{ project_id }}
+          - --format=json
+      register: _hyops_cloudsql_instance_final
+      changed_when: false
+      failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Normalize final Cloud SQL instance
+      ansible.builtin.set_fact:
+        _hyops_cloudsql_instance_json: >-
+          {{
+            (_hyops_cloudsql_instance_final.stdout | from_json)
+            if ((_hyops_cloudsql_instance_final.rc | int) == 0 and (_hyops_cloudsql_instance_final.stdout | default('') | trim | length) > 0)
+            else {}
+          }}
+      changed_when: false
+
 - name: org/gcp/cloudsql-external-replica (publish outputs)
   hosts: localhost
   connection: local
@@ -517,23 +844,38 @@
         content: |
           {% set job_state = (_hyops_migration_job_json.state | default('UNKNOWN') | string) %}
           {% set destination_cp = _hyops_destination_cp_json | default({}) %}
+          {% set cloudsql_instance = _hyops_cloudsql_instance_json | default({}) %}
+          {% set target_instance_name =
+               (_hyops_cloudsql_instance_name | default('') | string)
+               if ((_hyops_cloudsql_instance_name | default('') | string | length) > 0)
+               else (destination_connection_profile_name | string) %}
           {% set target_host =
                (destination_cp.cloudsql.privateIp | default(''))
-               if (destination_cp.cloudsql is defined)
-               else '' %}
+               if (destination_cp.cloudsql is defined and (destination_cp.cloudsql.privateIp | default('') | string | length) > 0)
+               else (
+                 (
+                   (cloudsql_instance.ipAddresses | default([]))
+                   | selectattr('type', 'equalto', 'PRIVATE')
+                   | map(attribute='ipAddress')
+                   | list
+                   | first
+                 ) | default('', true)
+               ) %}
           {% set endpoint_target =
                (endpoint_dns_name | string)
                if (endpoint_dns_name | string | length) > 0
                else target_host %}
           {% set established = (job_state | upper) not in ['FAILED', 'STOPPED', 'UNKNOWN'] %}
+          {% set ready_for_cutover = (job_state | upper) == 'RUNNING' %}
+          {% set cap_state = 'established' if established else 'assessed' %}
           {{
             {
               'target_project_id': (project_id | string),
               'target_region': (region | string),
-              'target_instance_name': (destination_connection_profile_name | string),
+              'target_instance_name': target_instance_name,
               'target_db_host': (target_host | string),
               'target_db_port': (target_db_port | int),
-              'target_connection_name': '',
+              'target_connection_name': (cloudsql_instance.connectionName | default('') | string),
               'endpoint_dns_name': (endpoint_dns_name | string),
               'endpoint_target': endpoint_target,
               'endpoint_target_type': ('dns' if (endpoint_dns_name | string | length) > 0 else 'host'),
@@ -548,10 +890,11 @@
               'destination_connection_profile_name': (destination_connection_profile_name | string),
               'migration_job_name': (migration_job_name | string),
               'migration_job_state': job_state,
+              'managed_replication_ready_for_cutover': ready_for_cutover,
               'connectivity_mode': (connectivity_mode | string),
               'managed_replication_mode': (replication_mode | string),
               'managed_replication_prereqs_ready': (source_replication_candidate | bool),
               'managed_replication_established': established,
-              'cap.db.managed_external_replica': 'established'
+              'cap.db.managed_external_replica': cap_state
             } | to_json
           }}

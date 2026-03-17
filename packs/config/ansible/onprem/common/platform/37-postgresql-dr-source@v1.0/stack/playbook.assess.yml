@@ -1,6 +1,6 @@
 ---
 - name: platform/onprem/postgresql-dr-source (assess source leader)
-  hosts: master
+  hosts: postgres_cluster
   become: true
   gather_facts: false
 
@@ -13,6 +13,7 @@
     db_name: "{{ db_name | default('netbox') }}"
     db_user: "{{ db_user | default('netbox') }}"
     db_password_env: "{{ db_password_env | default('NETBOX_DB_PASSWORD') }}"
+    source_replication_user: "{{ source_replication_user | default('replicator') }}"
     allowed_consumer_cidrs: "{{ allowed_consumer_cidrs | default([]) }}"
 
   pre_tasks:
@@ -28,14 +29,14 @@
           - (dr_mode | string | lower) in ['managed-cloudsql', 'export']
         fail_msg: "inputs.dr_mode must be one of: managed-cloudsql, export"
 
-    - name: "Preflight: source DB endpoint reachable from leader"
+    - name: "Preflight: source DB endpoint reachable from cluster nodes"
       ansible.builtin.wait_for:
         host: "{{ db_host }}"
         port: "{{ db_port | int }}"
         timeout: 10
 
   tasks:
-    - name: Collect source PostgreSQL posture from leader
+    - name: Collect source PostgreSQL posture from cluster node
       ansible.builtin.command:
         argv:
           - psql
@@ -43,7 +44,7 @@
           - -F
           - "|"
           - -d
-          - postgres
+          - "{{ db_name }}"
           - -c
           - >-
             SELECT
@@ -52,7 +53,36 @@
             current_setting('max_wal_senders'),
             current_setting('max_replication_slots'),
             current_setting('ssl'),
-            pg_is_in_recovery();
+            pg_is_in_recovery(),
+            current_setting('shared_preload_libraries', true),
+            EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'pglogical'),
+            EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pglogical'),
+            CASE
+              WHEN EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'pglogical')
+                THEN has_schema_privilege('{{ source_replication_user }}', 'pglogical', 'USAGE')
+              ELSE false
+            END,
+            CASE
+              WHEN EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'pglogical')
+                THEN COALESCE(
+                  (
+                    SELECT bool_and(
+                      has_table_privilege(
+                        '{{ source_replication_user }}',
+                        format('%I.%I', n.nspname, c.relname),
+                        'SELECT'
+                      )
+                    )
+                    FROM pg_class c
+                    JOIN pg_namespace n
+                      ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'pglogical'
+                      AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  ),
+                  true
+                )
+              ELSE false
+            END;
       become_user: postgres
       register: _hyops_pg_source_assessment
       changed_when: false
@@ -65,7 +95,7 @@
     - name: Assert assessment query returned expected fields
       ansible.builtin.assert:
         that:
-          - (_hyops_pg_source_parts | length) == 6
+          - (_hyops_pg_source_parts | length) == 11
         fail_msg: "Unable to normalize source PostgreSQL posture from psql output."
 
     - name: Set normalized source posture facts
@@ -76,15 +106,54 @@
         _hyops_pg_source_max_replication_slots: "{{ _hyops_pg_source_parts[3] | int }}"
         _hyops_pg_source_ssl: "{{ (_hyops_pg_source_parts[4] | string | lower) in ['on', 'true', 't', '1'] }}"
         _hyops_pg_source_in_recovery: "{{ (_hyops_pg_source_parts[5] | string | lower) in ['true', 't', '1'] }}"
+        _hyops_pg_source_shared_preload_libraries: "{{ _hyops_pg_source_parts[6] | string }}"
+        _hyops_pglogical_available: "{{ (_hyops_pg_source_parts[7] | string | lower) in ['true', 't', '1'] }}"
+        _hyops_pglogical_installed: "{{ (_hyops_pg_source_parts[8] | string | lower) in ['true', 't', '1'] }}"
+        _hyops_pglogical_schema_usage: "{{ (_hyops_pg_source_parts[9] | string | lower) in ['true', 't', '1'] }}"
+        _hyops_pglogical_table_select: "{{ (_hyops_pg_source_parts[10] | string | lower) in ['true', 't', '1'] }}"
       changed_when: false
 
-    - name: "Assert master group points to writable primary"
+    - name: Select writable primary from normalized posture
+      ansible.builtin.set_fact:
+        _hyops_source_primary_candidates: >-
+          {%- set ns = namespace(candidates=[]) -%}
+          {%- for node in ansible_play_hosts_all -%}
+          {%- if not (hostvars[node]._hyops_pg_source_in_recovery | default(true) | bool) -%}
+          {%- set _ = ns.candidates.append(node | string) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.candidates }}
+      run_once: true
+      delegate_to: localhost
+      delegate_facts: true
+      changed_when: false
+
+    - name: Assert exactly one writable primary was discovered
+      ansible.builtin.assert:
+        that:
+          - (hostvars['localhost']._hyops_source_primary_candidates | default([]) | length) == 1
+        fail_msg: >-
+          Unable to resolve a unique writable primary from postgres_cluster.
+          Observed writable candidates={{ hostvars['localhost']._hyops_source_primary_candidates | default([]) }}.
+          Reconcile the upstream platform/postgresql-ha lane before rerunning DR source assessment.
+      run_once: true
+      delegate_to: localhost
+
+    - name: Publish writable primary identity to localhost facts
+      ansible.builtin.set_fact:
+        _hyops_source_leader_name: "{{ (hostvars['localhost']._hyops_source_primary_candidates | first) | string }}"
+      run_once: true
+      delegate_to: localhost
+      delegate_facts: true
+      changed_when: false
+
+    - name: "Assert this node is the resolved writable primary when evaluated locally"
       ansible.builtin.assert:
         that:
           - not (_hyops_pg_source_in_recovery | bool)
         fail_msg: >-
-          The source leader candidate {{ inventory_hostname }} is in recovery. Reconcile the upstream
-          platform/postgresql-ha state and ensure groups.master points to the writable primary.
+          The resolved source leader candidate {{ inventory_hostname }} is in recovery.
+      when: inventory_hostname == (hostvars['localhost']._hyops_source_leader_name | default(''))
 
     - name: Compute source posture flags
       ansible.builtin.set_fact:
@@ -100,19 +169,49 @@
     - name: "Fail when managed Cloud SQL mode lacks minimum replication posture"
       ansible.builtin.assert:
         that:
-          - _hyops_source_replication_candidate | bool
+          - (hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_source_replication_candidate | default(false) | bool)
         fail_msg: >-
-          Source cluster leader {{ inventory_hostname }} does not meet the minimum managed DR replication posture.
+          Source cluster leader {{ hostvars['localhost']._hyops_source_leader_name }} does not meet the minimum managed DR replication posture.
           Expected wal_level in [replica, logical] and max_wal_senders > 0. Observed:
-          wal_level={{ _hyops_pg_source_wal_level }}, max_wal_senders={{ _hyops_pg_source_max_wal_senders }}.
+          wal_level={{ hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pg_source_wal_level }},
+          max_wal_senders={{ hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pg_source_max_wal_senders }}.
       when: (dr_mode | string | lower) == 'managed-cloudsql'
+      run_once: true
+      delegate_to: localhost
+
+    - name: "Fail when managed Cloud SQL mode lacks pglogical source prerequisites"
+      ansible.builtin.assert:
+        that:
+          - (hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_available | default(false) | bool)
+          - (hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_installed | default(false) | bool)
+          - (hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_schema_usage | default(false) | bool)
+          - (hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_table_select | default(false) | bool)
+          - "'pglogical' in ((hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pg_source_shared_preload_libraries | default('') | string).split(',') | map('trim') | list)"
+        fail_msg: >-
+          Source cluster leader {{ hostvars['localhost']._hyops_source_leader_name }} is not ready for managed Cloud SQL logical replication.
+          Required posture:
+          - pglogical package/extension files available on the source host
+          - pglogical extension installed in database {{ db_name }}
+          - replication user {{ source_replication_user }} has USAGE on schema pglogical
+          - replication user {{ source_replication_user }} has SELECT on pglogical catalog tables
+          - shared_preload_libraries contains pglogical
+          Observed:
+          shared_preload_libraries={{ hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pg_source_shared_preload_libraries | default('') }},
+          pglogical_available={{ hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_available | default(false) }},
+          pglogical_installed={{ hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_installed | default(false) }},
+          pglogical_schema_usage={{ hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_schema_usage | default(false) }},
+          pglogical_table_select={{ hostvars[hostvars['localhost']._hyops_source_leader_name]._hyops_pglogical_table_select | default(false) }}.
+          Reconcile the upstream platform/postgresql-ha lane with pglogical enabled before rerunning managed standby.
+      when: (dr_mode | string | lower) == 'managed-cloudsql'
+      run_once: true
+      delegate_to: localhost
 
 - name: platform/onprem/postgresql-dr-source (publish outputs)
   hosts: localhost
   gather_facts: false
 
   vars:
-    _hyops_source_leader_name: "{{ groups['master'][0] }}"
+    _hyops_source_leader_name: "{{ hostvars['localhost']._hyops_source_leader_name | default(groups['master'][0]) }}"
     _hyops_source_leader_host: >-
       {{
         hostvars[_hyops_source_leader_name].ansible_host
@@ -142,6 +241,7 @@
             'db_name': (db_name | string),
             'db_user': (db_user | string),
             'db_password_env': (db_password_env | string),
+            'source_replication_user': (source_replication_user | string),
             'allowed_consumer_cidrs': (allowed_consumer_cidrs | list),
             'inventory_state_ref': (inventory_state_ref | default('') | string),
             'db_state_ref': (db_state_ref | default('') | string),
@@ -153,7 +253,12 @@
               'max_wal_senders': (hostvars[leader]._hyops_pg_source_max_wal_senders | default(0) | int),
               'max_replication_slots': (hostvars[leader]._hyops_pg_source_max_replication_slots | default(0) | int),
               'ssl_enabled': (hostvars[leader]._hyops_pg_source_ssl | default(false) | bool),
-              'in_recovery': (hostvars[leader]._hyops_pg_source_in_recovery | default(false) | bool)
+              'in_recovery': (hostvars[leader]._hyops_pg_source_in_recovery | default(false) | bool),
+              'shared_preload_libraries': (hostvars[leader]._hyops_pg_source_shared_preload_libraries | default('') | string),
+              'pglogical_available': (hostvars[leader]._hyops_pglogical_available | default(false) | bool),
+              'pglogical_installed': (hostvars[leader]._hyops_pglogical_installed | default(false) | bool),
+              'pglogical_schema_usage': (hostvars[leader]._hyops_pglogical_schema_usage | default(false) | bool),
+              'pglogical_table_select': (hostvars[leader]._hyops_pglogical_table_select | default(false) | bool)
             }
           } %}
           {{
@@ -165,6 +270,7 @@
               'source_leader_host': leader_host,
               'source_export_ready': source.export_ready,
               'source_replication_candidate': source.replication_candidate,
+              'source_replication_user': (source_replication_user | string),
               'db_name': (db_name | string),
               'db_user': (db_user | string),
               'db_password_env': (db_password_env | string),

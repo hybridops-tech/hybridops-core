@@ -27,8 +27,8 @@ Inputs:
 
 - `gate_name`: short stable identifier for the decision point
 - `gate_message`: operator-facing statement of what must already be true
-- `confirm`: must be `true`
-- `assertions`: mapping of named boolean assertions; every provided assertion must be `true`
+- `confirm`: required to be `true` for `apply` or `deploy`; `validate` and `preflight` only check type and presence
+- `assertions`: mapping of named boolean assertions; every provided assertion must be `true` for `apply` or `deploy`
 - `evidence_notes`: optional list of brief human notes recorded in state
 
 Example use cases:

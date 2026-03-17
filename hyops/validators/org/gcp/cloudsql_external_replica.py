@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for module org/gcp/cloudsql-external-replica.
 Architecture Decision: ADR-0206 (module execution contract v1)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -72,6 +72,19 @@ def validate(inputs: dict[str, Any]) -> None:
     if source_contract_version != 1:
         raise ModuleValidationError("inputs.source_contract_version must be 1")
 
+    _ = _opt_str(inputs, "replica_state_ref")
+    _ = _opt_str(inputs, "replica_state_env")
+    required_job_states = inputs.get("required_migration_job_states")
+    if required_job_states is None:
+        required_job_states = []
+    if not isinstance(required_job_states, list):
+        raise ModuleValidationError("inputs.required_migration_job_states must be a list when set")
+    for idx, item in enumerate(required_job_states, start=1):
+        if not isinstance(item, str) or not item.strip():
+            raise ModuleValidationError(
+                f"inputs.required_migration_job_states[{idx}] must be a non-empty string"
+            )
+
     source_state_ref = _opt_str(inputs, "source_state_ref")
     source_host = _opt_str(inputs, "source_host")
     if not source_state_ref and not source_host:
@@ -90,27 +103,28 @@ def validate(inputs: dict[str, Any]) -> None:
     target_region = _opt_str(inputs, "target_region")
     target_instance_name = _opt_str(inputs, "target_instance_name")
 
-    if not target_state_ref and not (target_project_id and target_region and target_instance_name):
-        raise ModuleValidationError(
-            "one of inputs.managed_target_state_ref or the explicit target tuple "
-            "(target_project_id, target_region, target_instance_name) is required"
-        )
-
-    if target_project_id:
-        _reject_placeholder(target_project_id, "inputs.target_project_id")
-        if not _PROJECT_ID_RE.fullmatch(target_project_id):
-            raise ModuleValidationError("inputs.target_project_id is not a valid GCP project id format")
-
-    if target_instance_name:
-        _reject_placeholder(target_instance_name, "inputs.target_instance_name")
-        if not _INSTANCE_NAME_RE.fullmatch(target_instance_name):
+    if apply_mode == "assess":
+        if not target_state_ref and not (target_project_id and target_region and target_instance_name):
             raise ModuleValidationError(
-                "inputs.target_instance_name must match ^[a-z](?:[a-z0-9-]{0,96}[a-z0-9])?$"
+                "for apply_mode=assess, provide inputs.managed_target_state_ref or the explicit "
+                "target tuple (target_project_id, target_region, target_instance_name)"
             )
 
-    target_db_host = _opt_str(inputs, "target_db_host")
-    if target_db_host:
-        _validate_ipv4(target_db_host, "inputs.target_db_host")
+        if target_project_id:
+            _reject_placeholder(target_project_id, "inputs.target_project_id")
+            if not _PROJECT_ID_RE.fullmatch(target_project_id):
+                raise ModuleValidationError("inputs.target_project_id is not a valid GCP project id format")
+
+        if target_instance_name:
+            _reject_placeholder(target_instance_name, "inputs.target_instance_name")
+            if not _INSTANCE_NAME_RE.fullmatch(target_instance_name):
+                raise ModuleValidationError(
+                    "inputs.target_instance_name must match ^[a-z](?:[a-z0-9-]{0,96}[a-z0-9])?$"
+                )
+
+        target_db_host = _opt_str(inputs, "target_db_host")
+        if target_db_host:
+            _validate_ipv4(target_db_host, "inputs.target_db_host")
 
     _ = _opt_str(inputs, "target_connection_name")
     _ = _opt_str(inputs, "source_db_name")
@@ -121,6 +135,17 @@ def validate(inputs: dict[str, Any]) -> None:
     _ = _opt_str(inputs, "gcloud_runtime_config_dir")
     _ = _opt_str(inputs, "gcloud_active_account")
     _ = _opt_bool(inputs, "gcloud_copy_default_config")
+    _ = _opt_str(inputs, "reverse_ssh_state_ref")
+    required_env = inputs.get("required_env")
+    if required_env is None:
+        required_env = []
+    if not isinstance(required_env, list):
+        raise ModuleValidationError("inputs.required_env must be a list when set")
+    normalized_required_env: list[str] = []
+    for idx, item in enumerate(required_env, start=1):
+        if not isinstance(item, str) or not item.strip():
+            raise ModuleValidationError(f"inputs.required_env[{idx}] must be a non-empty string")
+        normalized_required_env.append(item.strip())
 
     if apply_mode in ("establish", "status"):
         project_id = _opt_str(inputs, "project_id")
@@ -178,10 +203,62 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ModuleValidationError(
                 "inputs.source_ssl_type must be one of: NONE, REQUIRED, SERVER_ONLY, SERVER_CLIENT"
             )
+        source_ca_certificate_env = _opt_str(inputs, "source_ca_certificate_env")
+        source_client_certificate_env = _opt_str(inputs, "source_client_certificate_env")
+        source_private_key_env = _opt_str(inputs, "source_private_key_env")
+
+        if ssl_type == "NONE":
+            if (
+                source_ca_certificate_env
+                or source_client_certificate_env
+                or source_private_key_env
+            ):
+                raise ModuleValidationError(
+                    "inputs.source_ssl_type=NONE cannot be combined with TLS certificate env fields"
+                )
+        else:
+            if not source_ca_certificate_env:
+                raise ModuleValidationError(
+                    "inputs.source_ca_certificate_env is required when inputs.source_ssl_type enables TLS"
+                )
+            if ssl_type == "SERVER_CLIENT":
+                if not source_client_certificate_env:
+                    raise ModuleValidationError(
+                        "inputs.source_client_certificate_env is required when inputs.source_ssl_type=SERVER_CLIENT"
+                    )
+                if not source_private_key_env:
+                    raise ModuleValidationError(
+                        "inputs.source_private_key_env is required when inputs.source_ssl_type=SERVER_CLIENT"
+                    )
+            tls_env_keys = [
+                key
+                for key in (
+                    source_ca_certificate_env,
+                    source_client_certificate_env,
+                    source_private_key_env,
+                )
+                if key
+            ]
+            missing_tls_env = [key for key in tls_env_keys if key not in normalized_required_env]
+            if missing_tls_env:
+                raise ModuleValidationError(
+                    "inputs.required_env must include TLS env key(s): " + ", ".join(missing_tls_env)
+                )
 
         if apply_mode == "establish":
             _req_str(inputs, "source_replication_user")
-            _req_str(inputs, "source_replication_password_env")
+            source_replication_password_env = _req_str(inputs, "source_replication_password_env")
+            if source_replication_password_env not in normalized_required_env:
+                raise ModuleValidationError(
+                    "inputs.required_env must include inputs.source_replication_password_env "
+                    f"({source_replication_password_env}) for apply_mode=establish"
+                )
+            destination_root_password_env = _opt_str(inputs, "destination_root_password_env")
+            if destination_root_password_env and destination_root_password_env not in normalized_required_env:
+                raise ModuleValidationError(
+                    "inputs.required_env must include inputs.destination_root_password_env "
+                    f"({destination_root_password_env}) when it is set"
+                )
 
             destination_database_version = _req_str(inputs, "destination_database_version").upper()
             if not destination_database_version.startswith("POSTGRES_"):
@@ -205,12 +282,28 @@ def validate(inputs: dict[str, Any]) -> None:
                 )
 
             if connectivity_mode == "reverse-ssh":
-                _req_str(inputs, "reverse_ssh_vm")
-                vm_ip = _req_str(inputs, "reverse_ssh_vm_ip")
-                _validate_ipv4(vm_ip, "inputs.reverse_ssh_vm_ip")
+                reverse_ssh_state_ref = _opt_str(inputs, "reverse_ssh_state_ref")
+                vm_name = _opt_str(inputs, "reverse_ssh_vm")
+                vm_ip = _opt_str(inputs, "reverse_ssh_vm_ip")
+                vm_zone = _opt_str(inputs, "reverse_ssh_vm_zone")
+                if not reverse_ssh_state_ref and not (vm_name and vm_ip and vm_zone):
+                    raise ModuleValidationError(
+                        "for inputs.connectivity_mode=reverse-ssh, provide inputs.reverse_ssh_state_ref "
+                        "or explicit inputs.reverse_ssh_vm, inputs.reverse_ssh_vm_ip, and inputs.reverse_ssh_vm_zone"
+                    )
+                if vm_name:
+                    _req_str(inputs, "reverse_ssh_vm")
+                if vm_ip:
+                    _validate_ipv4(vm_ip, "inputs.reverse_ssh_vm_ip")
+                if vm_zone:
+                    _req_str(inputs, "reverse_ssh_vm_zone")
                 vm_port = inputs.get("reverse_ssh_vm_port")
                 if isinstance(vm_port, bool) or not isinstance(vm_port, int) or vm_port <= 0:
                     raise ModuleValidationError("inputs.reverse_ssh_vm_port must be a positive integer")
+                if vm_port == 22:
+                    raise ModuleValidationError(
+                        "inputs.reverse_ssh_vm_port must be the reverse tunnel port on the bastion VM, not the SSH daemon port 22"
+                    )
                 if not _opt_str(inputs, "reverse_ssh_vpc") and not private_network and not _opt_str(inputs, "network_state_ref"):
                     raise ModuleValidationError(
                         "inputs.reverse_ssh_vpc or inputs.network_state_ref/private_network is required when inputs.connectivity_mode=reverse-ssh"

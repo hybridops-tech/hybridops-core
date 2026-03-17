@@ -17,6 +17,7 @@ policy:
 steps:
   - id: failback_gate
     module_ref: "core/shared/manual-gate"
+    state_instance: "postgresql_cloudsql_failback_onprem_gate"
     action: "deploy"
     phase: "operations"
     with_deps: false
@@ -33,6 +34,7 @@ steps:
 
   - id: postgresql_dns_cutback
     module_ref: "platform/network/dns-routing"
+    state_instance: "postgresql_dns_cutover_onprem_failback"
     action: "deploy"
     phase: "operations"
     with_deps: false
@@ -49,14 +51,43 @@ steps:
 
       provider: "powerdns-api"
       powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
-      endpoint_state_ref: "platform/postgresql-ha"
+      endpoint_state_ref: "platform/postgresql-ha#postgresql_restore_onprem_failback"
       endpoint_fqdn_output_key: "endpoint_dns_name"
-      endpoint_target_output_key: "endpoint_target"
+      endpoint_target_output_key: "endpoint_host"
       record_type: "A"
       ttl: 30
       desired: "primary"
       dry_run: false
       dns_apply: true
 
+      powerdns_account: "hyops"
+      powerdns_comment: "Managed by HybridOps Cloud SQL DR failback"
+
+  - id: postgresql_dns_status
+    module_ref: "platform/network/dns-routing"
+    state_instance: "postgresql_dns_status_cloudsql_failback_onprem"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    skip_if_state_ok: false
+    requires:
+      - postgresql_dns_cutback
+    inputs:
+      apply_mode: "status"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_env: "WAN_EDGE_SSH_PRIVATE_KEY"
+      load_vault_env: true
+      required_env:
+        - "POWERDNS_API_KEY"
+        - "WAN_EDGE_SSH_PRIVATE_KEY"
+      provider: "powerdns-api"
+      powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
+      endpoint_state_ref: "platform/postgresql-ha#postgresql_restore_onprem_failback"
+      endpoint_fqdn_output_key: "endpoint_dns_name"
+      endpoint_target_output_key: "endpoint_host"
+      record_type: "A"
+      ttl: 30
+      desired: "primary"
       powerdns_account: "hyops"
       powerdns_comment: "Managed by HybridOps Cloud SQL DR failback"

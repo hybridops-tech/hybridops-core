@@ -22,6 +22,7 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     inputs:
       router_state_ref: "org/gcp/wan-cloud-router"
       network_state_ref: "org/gcp/wan-hub-network"
@@ -43,6 +44,7 @@ steps:
       - gcp_pg_egress
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     contracts:
       addressing_mode: "static"
     inputs:
@@ -76,6 +78,7 @@ steps:
     phase: "operations"
     with_deps: false
     skip_if_state_ok: true
+    verify_state_on_skip: true
     requires:
       - gcp_pg_vms
     contracts:
@@ -94,13 +97,17 @@ steps:
       # Restore mode (guarded)
       apply_mode: "restore"
       restore_confirm: false
+      # Restore source must be explicit. Prefer backup_state_ref so HyOps resolves
+      # restore selectors from backup-run state instead of manual pinning.
+      backup_state_ref: ""
+      backup_state_env: ""
       restore_set: ""
       restore_target_timeline: ""
       restore_target_time: ""
       restore_delta: true
 
       # pgBackRest repository source (state-driven, no bucket duplication)
-      repo_state_ref: "org/gcp/object-repo"
+      repo_state_ref: "org/gcp/object-repo#pgbackrest_primary"
       repo_path: "/pgbackrest"
       gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
       gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
@@ -125,6 +132,7 @@ steps:
     phase: "operations"
     with_deps: false
     skip_if_state_ok: true
+    verify_state_on_skip: true
     requires:
       - postgresql_restore
     contracts:
@@ -140,7 +148,7 @@ steps:
         postgres_cluster: ["pgdr-01", "pgdr-02", "pgdr-03"]
 
       # Repository backend/location resolved from module state.
-      repo_state_ref: "org/gcp/object-repo"
+      repo_state_ref: "org/gcp/object-repo#pgbackrest_primary"
       repo_path: "/pgbackrest"
       gcs_sa_json_env: "PG_BACKUP_GCS_SA_JSON"
       gcs_sa_dest: "/var/lib/hybridops/pgbackrest/gcs-sa.json"
@@ -184,5 +192,34 @@ steps:
       dry_run: false
       dns_apply: true
 
+      powerdns_account: "hyops"
+      powerdns_comment: "Managed by HybridOps DR failover"
+
+  - id: postgresql_dns_status
+    module_ref: "platform/network/dns-routing"
+    state_instance: "postgresql_dns_status_ha_failover_gcp"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    skip_if_state_ok: false
+    requires:
+      - postgresql_dns_cutover
+    inputs:
+      apply_mode: "status"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_env: "WAN_EDGE_SSH_PRIVATE_KEY"
+      load_vault_env: true
+      required_env:
+        - "POWERDNS_API_KEY"
+        - "WAN_EDGE_SSH_PRIVATE_KEY"
+      provider: "powerdns-api"
+      powerdns_state_ref: "platform/network/powerdns-authority#shared_primary"
+      endpoint_state_ref: "platform/postgresql-ha#postgresql_restore_gcp_dr"
+      endpoint_fqdn_output_key: "endpoint_dns_name"
+      endpoint_target_output_key: "endpoint_host"
+      record_type: "A"
+      ttl: 30
+      desired: "primary"
       powerdns_account: "hyops"
       powerdns_comment: "Managed by HybridOps DR failover"

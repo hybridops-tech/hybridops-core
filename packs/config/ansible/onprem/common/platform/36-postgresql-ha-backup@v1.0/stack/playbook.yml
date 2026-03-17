@@ -280,6 +280,60 @@
     - role: vitabaks.autobase.pgbackrest
       when: pgbackrest_install | default(false) | bool
 
+- name: platform/postgresql-ha-backup (collect latest backup metadata)
+  hosts: primary
+  become: true
+  gather_facts: false
+
+  vars:
+    patroni_cluster_name: "{{ patroni_cluster_name | default('postgres-ha') }}"
+
+  tasks:
+    - name: Collect latest pgBackRest backup metadata (repo1)
+      become_user: postgres
+      ansible.builtin.shell: |
+        set -euo pipefail
+        pgbackrest --stanza={{ patroni_cluster_name }} --repo=1 info --output=json | python3 -c '
+        import json
+        import sys
+
+        data = json.load(sys.stdin)
+        stanza = data[0] if isinstance(data, list) and data else {}
+        backups = stanza.get("backup") or []
+        latest = backups[-1] if backups else {}
+        archive = latest.get("archive") or {}
+        timestamp = latest.get("timestamp") or {}
+        wal_stop = str(archive.get("stop") or archive.get("start") or "")
+        timeline = ""
+        if len(wal_stop) >= 8:
+            try:
+                timeline = str(int(wal_stop[:8], 16))
+            except Exception:
+                timeline = ""
+        out = {
+            "available": bool(latest),
+            "label": str(latest.get("label") or ""),
+            "type": str(latest.get("type") or ""),
+            "timeline": timeline,
+            "archive_start": str(archive.get("start") or ""),
+            "archive_stop": str(archive.get("stop") or ""),
+            "timestamp_start": timestamp.get("start"),
+            "timestamp_stop": timestamp.get("stop"),
+        }
+        print(json.dumps(out))
+        '
+      args:
+        executable: /bin/bash
+      register: _hyops_pgbackrest_latest_backup
+      changed_when: false
+      failed_when: false
+
+    - name: Persist latest pgBackRest backup metadata fact
+      ansible.builtin.set_fact:
+        hyops_pgbackrest_latest_backup: "{{ (_hyops_pgbackrest_latest_backup.stdout | default('{}')) | from_json }}"
+      changed_when: false
+      when: (_hyops_pgbackrest_latest_backup.stdout | default('') | length) > 0
+
 - name: platform/postgresql-ha-backup (publish outputs)
   hosts: localhost
   become: false
@@ -297,7 +351,23 @@
           {% set raw = (backend | default('s3') | string | lower) %}
           {% set repo_type = 'gcs' if raw in ['gcs', 'gcp'] else 'azure' if raw in ['azure', 'azblob', 'blob'] else 's3' if raw in ['s3'] else raw %}
           {% set bucket = (s3_bucket if repo_type == 's3' else gcs_bucket if repo_type == 'gcs' else azure_container if repo_type == 'azure' else '') | default('') | string %}
-          {% set ns = namespace(out={
+          {% set meta = namespace(latest={
+            'available': false,
+            'label': '',
+            'type': '',
+            'timeline': '',
+            'archive_start': '',
+            'archive_stop': '',
+            'timestamp_start': none,
+            'timestamp_stop': none
+          }) %}
+          {% for h in groups['postgres_cluster'] | default([]) %}
+          {% set candidate = hostvars[h].hyops_pgbackrest_latest_backup | default({}) %}
+          {% if candidate is mapping and (candidate.label | default('') | string | length) > 0 %}
+          {% set meta.latest = candidate %}
+          {% endif %}
+          {% endfor %}
+          {% set out = {
             'cap.db.postgresql_ha_backup': 'ready',
             'pgbackrest_repo': {
               'type': (repo_type | string),
@@ -327,6 +397,9 @@
                   secondary_repo_path | default(repo_path | default('/pgbackrest'), true) | string
                 )
               } if (secondary_enabled | default(false) | bool) else {'enabled': false})
-            }
-          }) %}
-          {{ ns.out | to_json }}
+            },
+            'pgbackrest_latest_backup': meta.latest,
+            'pgbackrest_latest_backup_set': (meta.latest.label | default('') | string),
+            'pgbackrest_latest_backup_timeline': (meta.latest.timeline | default('') | string)
+          } %}
+          {{ out | to_json }}

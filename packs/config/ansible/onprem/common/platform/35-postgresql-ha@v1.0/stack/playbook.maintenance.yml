@@ -11,7 +11,7 @@
 
 - name: platform/postgresql-ha (seed patroni passwords)
   hosts: postgres_cluster
-  gather_facts: false
+  gather_facts: true
   become: false
   tasks:
     - name: Seed Patroni passwords from environment
@@ -67,6 +67,7 @@
         postgresql_databases: []
         postgresql_users: []
         postgresql_privs: []
+        postgresql_extensions: []
         postgresql_pg_hba:
           - type: local
             database: all
@@ -140,6 +141,78 @@
         label: "{{ item.key }}"
       no_log: true
 
+    - name: Normalize managed Cloud SQL pglogical target databases
+      ansible.builtin.set_fact:
+        _hyops_pglogical_databases: >-
+          {{
+            (pglogical_databases | default([]) | list)
+            if ((pglogical_databases | default([]) | length) > 0)
+            else (
+              _hyops_pg_apps
+              | dict2items
+              | map(attribute='value.db_name')
+              | map('string')
+              | unique
+              | list
+            )
+          }}
+      when: pglogical_enable | default(false) | bool
+
+    - name: Determine pglogical package name for this OS family
+      ansible.builtin.set_fact:
+        _hyops_pglogical_package_name: >-
+          {{
+            ('postgresql-' ~ (postgresql_version | default(16) | int | string) ~ '-pglogical')
+            if ansible_os_family == 'Debian'
+            else ('pglogical_' ~ (postgresql_version | default(16) | int | string))
+          }}
+      when: pglogical_enable | default(false) | bool
+
+    - name: Install pglogical package on PostgreSQL nodes
+      become: true
+      ansible.builtin.package:
+        name: "{{ _hyops_pglogical_package_name }}"
+        state: present
+      when: pglogical_enable | default(false) | bool
+
+    - name: Ensure pglogical extension entries are present for requested databases
+      ansible.builtin.set_fact:
+        postgresql_extensions: >-
+          {{
+            postgresql_extensions
+            + [
+              {
+                'ext': 'pglogical',
+                'db': (item | string),
+                'schema': 'public'
+              }
+            ]
+          }}
+      loop: "{{ _hyops_pglogical_databases | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when: pglogical_enable | default(false) | bool
+
+    - name: Ensure replication user can use pglogical schema in requested databases
+      ansible.builtin.set_fact:
+        postgresql_privs: >-
+          {{
+            postgresql_privs
+            + [
+              {
+                'role': (patroni_replication_username | default('replicator') | string),
+                'db': (item | string),
+                'type': 'schema',
+                'objs': 'pglogical',
+                'privs': 'USAGE'
+              }
+            ]
+          }}
+      loop: "{{ _hyops_pglogical_databases | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when: pglogical_enable | default(false) | bool
+
     - name: "Preflight: validate allowed_clients entries"
       ansible.builtin.assert:
         that:
@@ -149,6 +222,39 @@
       loop: "{{ allowed_clients | default([]) }}"
       loop_control:
         label: "{{ item.cidr | default('') }}"
+
+    - name: Check Patroni service state on maintenance target
+      become: true
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - patroni
+      register: _hyops_patroni_service_state
+      changed_when: false
+      failed_when: false
+
+    - name: Record whether this node currently has active Patroni
+      ansible.builtin.set_fact:
+        _hyops_patroni_service_active: "{{ (_hyops_patroni_service_state.stdout | default('') | trim) == 'active' }}"
+
+    - name: "Preflight: ensure maintenance target already has an active Patroni member"
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              groups['postgres_cluster']
+              | map('extract', hostvars, '_hyops_patroni_service_active')
+              | select('equalto', true)
+              | list
+              | length
+            ) > 0
+        fail_msg: >-
+          inputs.apply_mode=maintenance expects an already-running Patroni cluster,
+          but Patroni is inactive on every postgres_cluster host. Start the cluster
+          first or rerun with bootstrap/restore as appropriate.
+      run_once: true
+      delegate_to: localhost
 
     - name: Add allowed_clients to postgresql_pg_hba
       ansible.builtin.set_fact:
@@ -190,9 +296,187 @@
 
     # Keep v1 simple: no pooler by default.
     pgbouncer_install: "{{ pgbouncer_install | default(false) | bool }}"
+    netdata_install: "{{ netdata_install | default(false) | bool }}"
+    pending_restart: "{{ pending_restart | default(false) | bool }}"
 
     # Secure-by-default host access (cluster nodes are always added separately by Autobase).
     postgresql_password_encryption_algorithm: "scram-sha-256"
+
+- name: platform/postgresql-ha (reconcile pglogical Patroni config)
+  hosts: master
+  gather_facts: false
+  become: true
+  vars:
+    _hyops_patronictl_cmd:
+      - sudo
+      - patronictl
+      - -c
+      - /etc/patroni/patroni.yml
+  tasks:
+    - name: Read current shared_preload_libraries from source primary
+      become_user: postgres
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -d
+          - postgres
+          - -c
+          - SHOW shared_preload_libraries;
+      register: _hyops_pglogical_shared_preload_query
+      changed_when: false
+      when: pglogical_enable | default(false) | bool
+
+    - name: Normalize desired shared_preload_libraries for pglogical
+      ansible.builtin.set_fact:
+        _hyops_current_shared_preload_libraries: >-
+          {{
+            (_hyops_pglogical_shared_preload_query.stdout | default('') | string)
+            .split(',')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+        _hyops_desired_shared_preload_libraries: >-
+          {{
+            (
+              (
+                (_hyops_pglogical_shared_preload_query.stdout | default('') | string)
+                .split(',')
+                | map('trim')
+                | reject('equalto', '')
+                | list
+              )
+              + ['pglogical']
+            )
+            | unique
+            | join(',')
+          }}
+      when: pglogical_enable | default(false) | bool
+
+    - name: Mark whether pglogical restart reconcile is required
+      ansible.builtin.set_fact:
+        _hyops_pglogical_restart_required: "{{ 'pglogical' not in (_hyops_current_shared_preload_libraries | default([])) }}"
+      when: pglogical_enable | default(false) | bool
+
+    - name: Update Patroni DCS config with pglogical in shared_preload_libraries
+      ansible.builtin.command:
+        argv: >-
+          {{
+            _hyops_patronictl_cmd
+            + [
+              'edit-config',
+              (patroni_cluster_name | default('postgres-ha') | string),
+              '--force',
+              '--pg',
+              'shared_preload_libraries=' ~ (_hyops_desired_shared_preload_libraries | string)
+            ]
+          }}
+      when:
+        - pglogical_enable | default(false) | bool
+        - _hyops_pglogical_restart_required | default(false) | bool
+
+- name: platform/postgresql-ha (restart replicas for pglogical)
+  hosts: replica
+  serial: 1
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Restart Patroni on replica to load pglogical
+      ansible.builtin.systemd:
+        name: patroni
+        state: restarted
+      when:
+        - pglogical_enable | default(false) | bool
+        - hostvars[groups['master'][0]]._hyops_pglogical_restart_required | default(false) | bool
+
+    - name: Wait for PostgreSQL port on restarted replica
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ postgresql_port | default(5432) | int }}"
+        timeout: 120
+        delay: 5
+      when:
+        - pglogical_enable | default(false) | bool
+        - hostvars[groups['master'][0]]._hyops_pglogical_restart_required | default(false) | bool
+
+- name: platform/postgresql-ha (restart leader for pglogical)
+  hosts: master
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Restart Patroni on leader to load pglogical
+      ansible.builtin.systemd:
+        name: patroni
+        state: restarted
+      when:
+        - pglogical_enable | default(false) | bool
+        - _hyops_pglogical_restart_required | default(false) | bool
+
+    - name: Wait for PostgreSQL port on restarted leader
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ postgresql_port | default(5432) | int }}"
+        timeout: 120
+        delay: 5
+      when:
+        - pglogical_enable | default(false) | bool
+        - _hyops_pglogical_restart_required | default(false) | bool
+
+- name: platform/postgresql-ha (ensure pglogical extension exists on writable primary)
+  hosts: postgres_cluster
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Detect whether this node is the writable primary
+      become_user: postgres
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -tAX
+          - -d
+          - postgres
+          - -c
+          - SELECT pg_is_in_recovery();
+      register: _hyops_pglogical_recovery_state
+      changed_when: false
+      when: pglogical_enable | default(false) | bool
+
+    - name: Ensure pglogical extension exists in requested databases
+      become_user: postgres
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -d
+          - "{{ item | string }}"
+          - -c
+          - CREATE EXTENSION IF NOT EXISTS pglogical;
+      loop: "{{ _hyops_pglogical_databases | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - pglogical_enable | default(false) | bool
+        - (_hyops_pglogical_recovery_state.stdout | default('t') | string | trim | lower) in ['false', 'f', '0']
+
+    - name: Ensure replication user can read pglogical catalog tables in requested databases
+      become_user: postgres
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -v
+          - ON_ERROR_STOP=1
+          - -d
+          - "{{ item | string }}"
+          - -c
+          - >-
+            GRANT USAGE ON SCHEMA pglogical TO "{{ patroni_replication_username | default('replicator') | string }}";
+            GRANT SELECT ON ALL TABLES IN SCHEMA pglogical TO "{{ patroni_replication_username | default('replicator') | string }}";
+      loop: "{{ _hyops_pglogical_databases | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - pglogical_enable | default(false) | bool
+        - (_hyops_pglogical_recovery_state.stdout | default('t') | string | trim | lower) in ['false', 'f', '0']
 
 - name: platform/postgresql-ha (ensure VIP is configured)
   hosts: postgres_cluster
@@ -294,7 +578,6 @@
       register: _hyops_patroni_members
       changed_when: false
       run_once: true
-      when: _hyops_use_vip | bool
 
     - name: Record current Patroni leader member
       ansible.builtin.set_fact:
@@ -308,17 +591,53 @@
             ) | default('')
           }}
       run_once: true
-      when: _hyops_use_vip | bool
 
     - name: Assert Patroni leader was discovered
       ansible.builtin.assert:
         that:
           - (_hyops_patroni_leader_member | default('') | string | length) > 0
         fail_msg: >-
-          cluster_vip={{ cluster_vip }} is set, but no live Patroni leader could
-          be discovered from `patronictl list -f json`.
+          No live Patroni leader could be discovered from `patronictl list -f json`.
       run_once: true
-      when: _hyops_use_vip | bool
+
+    - name: Publish current Patroni leader member to localhost facts
+      ansible.builtin.set_fact:
+        _hyops_patroni_leader_member: "{{ _hyops_patroni_leader_member | string }}"
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
+    - name: Resolve Patroni leader inventory host
+      ansible.builtin.set_fact:
+        _hyops_patroni_leader_inventory_host: >-
+          {%- set leader = (_hyops_patroni_leader_member | default('') | string) -%}
+          {%- set ns = namespace(match='') -%}
+          {%- for node in (groups.get('postgres_cluster', []) | default([])) -%}
+          {%- set nodevars = hostvars[node] -%}
+          {%- if (ns.match | length) == 0 and leader in [
+                (node | string),
+                (nodevars.inventory_hostname | default('') | string),
+                (nodevars.ansible_host | default('') | string),
+                (nodevars.gcp_iap_instance | default('') | string),
+                (nodevars.hyops_resolved_host | default('') | string),
+                (nodevars.hyops_private_host | default('') | string),
+                (nodevars.ansible_hostname | default('') | string)
+              ] -%}
+          {%- set ns.match = (node | string) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ (ns.match if (ns.match | length) > 0 else leader) | string }}
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
+    - name: Assert Patroni leader inventory host was resolved
+      ansible.builtin.assert:
+        that:
+          - (hostvars['localhost']._hyops_patroni_leader_inventory_host | default('') | string) in (groups.get('postgres_cluster', []) | map('string') | list)
+        fail_msg: >-
+          Unable to map Patroni leader member {{ _hyops_patroni_leader_member }} to an inventory host in postgres_cluster.
+      run_once: true
 
     - name: Wait for VIP to be present on the leader node
       ansible.builtin.command: "ip -br addr"
@@ -327,7 +646,7 @@
       until: (cluster_vip | string) in (_hyops_vip_ip_addr.stdout | default(''))
       retries: 15
       delay: 2
-      delegate_to: "{{ _hyops_patroni_leader_member }}"
+      delegate_to: "{{ hostvars['localhost']._hyops_patroni_leader_inventory_host | default(_hyops_patroni_leader_member) }}"
       run_once: true
       when: _hyops_use_vip | bool
 
@@ -353,6 +672,7 @@
       - replica
       - postgres_cluster
       - etcd_cluster
+    _hyops_live_leader_inventory_host: "{{ hostvars['localhost']._hyops_patroni_leader_inventory_host | default(hostvars['localhost']._hyops_patroni_leader_member | default('')) | string }}"
     _hyops_pg_apps: >-
       {{
         (apps
@@ -371,9 +691,18 @@
         (cluster_vip | string)
         if (cluster_vip is string and (cluster_vip | length) > 0)
         else (
-          hostvars[groups['master'][0]].ansible_host
-          if (groups.get('master', []) | length) > 0
-          else ''
+          (
+            hostvars[_hyops_live_leader_inventory_host].hyops_resolved_host
+            | default(hostvars[_hyops_live_leader_inventory_host].hyops_private_host | default(hostvars[_hyops_live_leader_inventory_host].ansible_host | default(hostvars[_hyops_live_leader_inventory_host].inventory_hostname | default(_hyops_live_leader_inventory_host), true), true), true)
+            | string
+          )
+          if (_hyops_live_leader_inventory_host | length) > 0
+          else (
+            hostvars[groups['master'][0]].hyops_resolved_host
+            | default(hostvars[groups['master'][0]].hyops_private_host | default(hostvars[groups['master'][0]].ansible_host, true), true)
+            if (groups.get('master', []) | length) > 0
+            else ''
+          )
         )
       }}
     endpoint_target: >-
@@ -412,6 +741,7 @@
         content: |
           {% set host = (endpoint_host | default('')) %}
           {% set port = (pg_port | int) %}
+          {% set live_leader = (_hyops_live_leader_inventory_host | default('') | string) %}
           {% set ns = namespace(out={
             'pg_host': host,
             'pg_port': port,
@@ -425,14 +755,42 @@
             'cap.db.postgresql_ha': 'ready'
           }, apps={}, inventory={}) %}
           {% for group_name in _hyops_inventory_publish_group_names %}
-          {% if (groups.get(group_name, []) | length) > 0 %}
+          {% if (group_name | string) == 'master' and (live_leader | length) > 0 %}
+          {% set ns.inventory = ns.inventory | combine({
+            'master': [
+              {
+                'name': live_leader,
+                'host': (
+                  hostvars[live_leader].hyops_resolved_host
+                  | default(hostvars[live_leader].hyops_private_host | default(hostvars[live_leader].ansible_host | default(hostvars[live_leader].inventory_hostname | default(live_leader), true), true), true)
+                  | string
+                )
+              }
+            ]
+          }) %}
+          {% elif (group_name | string) == 'replica' and (live_leader | length) > 0 and (groups.get('postgres_cluster', []) | length) > 0 %}
+          {% set hosts = [] %}
+          {% for node in groups['postgres_cluster'] %}
+          {% if (node | string) != live_leader %}
+          {% set _ = hosts.append({
+            'name': (node | string),
+            'host': (
+              hostvars[node].hyops_resolved_host
+              | default(hostvars[node].hyops_private_host | default(hostvars[node].ansible_host | default(hostvars[node].inventory_hostname | default(node), true), true), true)
+              | string
+            )
+          }) %}
+          {% endif %}
+          {% endfor %}
+          {% set ns.inventory = ns.inventory | combine({'replica': hosts}) %}
+          {% elif (groups.get(group_name, []) | length) > 0 %}
           {% set hosts = [] %}
           {% for node in groups[group_name] %}
           {% set _ = hosts.append({
             'name': (node | string),
             'host': (
-              hostvars[node].ansible_host
-              | default(hostvars[node].inventory_hostname | default(node), true)
+              hostvars[node].hyops_resolved_host
+              | default(hostvars[node].hyops_private_host | default(hostvars[node].ansible_host | default(hostvars[node].inventory_hostname | default(node), true), true), true)
               | string
             )
           }) %}

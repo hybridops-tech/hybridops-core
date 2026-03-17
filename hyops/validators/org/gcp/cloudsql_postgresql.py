@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for module org/gcp/cloudsql-postgresql.
 Architecture Decision: ADR-0206 (module execution contract v1)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

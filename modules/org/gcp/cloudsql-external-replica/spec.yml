@@ -20,10 +20,16 @@ inputs:
     target_port: 22
     become: false
     connectivity_check: false
+    load_vault_env: false
+    required_env: []
 
     apply_mode: "assess" # assess|establish|status
     replication_mode: "logical"
     source_contract_version: 1
+    replica_state_ref: ""
+    replica_state_env: ""
+    allow_cross_env_state: false
+    required_migration_job_states: []
 
     source_state_ref: "platform/onprem/postgresql-dr-source"
     source_contract: {}
@@ -36,7 +42,7 @@ inputs:
     source_export_ready: false
     source_replication_candidate: false
     source_replication_user: ""
-    source_replication_password_env: "PG_REPLICATION_PASSWORD"
+    source_replication_password_env: "PATRONI_REPLICATION_PASSWORD"
     source_ssl_type: "NONE"
     source_ca_certificate_env: ""
     source_client_certificate_env: ""
@@ -71,9 +77,11 @@ inputs:
     destination_allocated_ip_range_name: ""
     destination_root_password_env: ""
     connectivity_mode: "static-ip" # static-ip|peer-vpc|reverse-ssh
+    reverse_ssh_state_ref: ""
     reverse_ssh_vm: ""
     reverse_ssh_vm_ip: ""
-    reverse_ssh_vm_port: 0
+    reverse_ssh_vm_zone: ""
+    reverse_ssh_vm_port: 15432
     reverse_ssh_vpc: ""
 
     gcloud_bin: "gcloud"
@@ -109,6 +117,7 @@ outputs:
     - destination_connection_profile_name
     - migration_job_name
     - migration_job_state
+    - managed_replication_ready_for_cutover
     - connectivity_mode
     - managed_replication_mode
     - managed_replication_prereqs_ready

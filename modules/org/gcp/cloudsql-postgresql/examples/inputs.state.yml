@@ -1,0 +1,24 @@
+# Preferred when the env already has project and network authority.
+project_state_ref: "org/gcp/project-factory"
+network_state_ref: "org/gcp/wan-hub-network"
+
+region: "europe-west2"
+instance_name: ""
+database_version: "POSTGRES_16"
+edition: "ENTERPRISE"
+availability_type: "REGIONAL"
+tier: "db-custom-2-8192"
+
+disk_size_gb: 100
+disk_type: "PD_SSD"
+
+backup_enabled: true
+point_in_time_recovery_enabled: true
+deletion_protection: true
+
+ipv4_enabled: false
+create_private_service_connection: true
+allocated_ip_range_name: ""
+
+labels: {}
+database_flags: {}

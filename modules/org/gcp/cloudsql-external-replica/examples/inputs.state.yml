@@ -4,10 +4,7 @@ replication_mode: "logical"
 source_state_ref: "platform/onprem/postgresql-dr-source"
 managed_target_state_ref: "org/gcp/cloudsql-postgresql"
 
-# Optional for assess:
-# gcloud_active_account: "operator@example.com"
-
-# Required later for apply_mode=establish:
+# State-driven establish path:
 # project_state_ref: "org/gcp/project-factory"
 # network_state_ref: "org/gcp/wan-hub-network"
 # source_connection_profile_name: "hyops-dev-pg-src1"
@@ -16,7 +13,4 @@ managed_target_state_ref: "org/gcp/cloudsql-postgresql"
 # source_replication_user: "replicator"
 # source_replication_password_env: "PATRONI_REPLICATION_PASSWORD"
 # connectivity_mode: "reverse-ssh"
-# reverse_ssh_vm: "dms-bastion-01"
-# reverse_ssh_vm_ip: "203.0.113.10"
-# reverse_ssh_vm_zone: "europe-west2-a"
-# reverse_ssh_vm_port: 15432
+# reverse_ssh_state_ref: "platform/gcp/platform-vm#gcp_ops_runner"

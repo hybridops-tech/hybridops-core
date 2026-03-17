@@ -5,6 +5,7 @@ Execution path for single-module apply/deploy/plan/validate/destroy/import.
 from __future__ import annotations
 
 import sys
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from hyops.commands._apply_helpers import (
 )
 from hyops.drivers.registry import REGISTRY
 from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
+from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.module_state import write_module_state
 from hyops.runtime.stamp import stamp_runtime
@@ -38,6 +40,7 @@ def run_single(
     out_dir: str | None,
     skip_preflight: bool,
     state_instance: str | None,
+    allow_state_drift_recreate: bool = False,
     import_resource_address: str | None = None,
     import_resource_id: str | None = None,
 ) -> int:
@@ -54,7 +57,9 @@ def run_single(
             module_root,
             inputs_file,
             state_dir=paths.state_dir,
+            runtime_root=paths.root,
             lifecycle_command=command_name,
+            invocation_command=command_name,
         )
     except Exception as exc:
         print(f"ERR: {exc}", file=sys.stderr)
@@ -91,8 +96,70 @@ def run_single(
     ev = EvidenceWriter(evidence_dir)
 
     print(f"module={module_ref} status=running run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     print(f"progress: logs={progress_log_hint(driver_ref, evidence_dir)}")
+
+    def persist_status_error_state(error_message: str) -> None:
+        if command_name not in ("apply", "deploy"):
+            return
+        if str(resolved.inputs.get("apply_mode") or "").strip().lower() != "status":
+            return
+        try:
+            rerun_inputs_file = persist_rerun_inputs(
+                paths.config_dir,
+                module_ref,
+                resolved.inputs,
+                state_instance=state_instance,
+            )
+            resolved_inputs_file = ev.write_text(
+                "resolved.inputs.yml",
+                yaml.safe_dump(resolved.inputs, sort_keys=False),
+                redact_output=False,
+            )
+            state_payload = {
+                "module_ref": module_ref,
+                "run_id": run_id,
+                "status": "error",
+                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "execution": {
+                    "driver": driver_ref,
+                    "profile": profile_ref,
+                    "pack_id": pack_id,
+                },
+                "requirements": {"credentials": resolved.required_credentials},
+                "dependencies": resolved.dependencies,
+                "outputs": {},
+                "output_count": 0,
+                "evidence_dir": str(evidence_dir),
+                "last_error": error_message,
+            }
+            input_contract = build_input_contract(resolved.inputs)
+            if input_contract:
+                state_payload["input_contract"] = input_contract
+            if state_instance:
+                state_payload["state_instance"] = state_instance
+            state_payload["rerun_inputs_file"] = str(rerun_inputs_file)
+            state_payload["resolved_inputs_file"] = str(resolved_inputs_file)
+            state_path = write_module_state(
+                paths.state_dir,
+                module_ref,
+                state_payload,
+                state_instance=state_instance,
+            )
+            ev.write_json(
+                "module_state.json",
+                {
+                    "path": str(state_path),
+                    "published_outputs": [],
+                    "publish_policy": resolved.outputs_publish,
+                    "rerun_inputs_file": str(rerun_inputs_file),
+                    "resolved_inputs_file": str(resolved_inputs_file),
+                    "status": "error",
+                    "last_error": error_message,
+                },
+            )
+        except Exception:
+            pass
 
     try:
         stamp_runtime(
@@ -139,6 +206,14 @@ def run_single(
             },
         },
     )
+    ev.write_json(
+        "inputs_resolved.json",
+        {
+            "module_ref": module_ref,
+            "state_instance": str(state_instance or ""),
+            "inputs": resolved.inputs,
+        },
+    )
 
     try:
         assert_safe_gcp_object_repo_slot(
@@ -149,9 +224,10 @@ def run_single(
         )
     except Exception as exc:
         ev.write_json("guard_failure.json", {"error": str(exc)})
+        persist_status_error_state(str(exc))
         print(f"error: {exc}", file=sys.stderr)
         print(f"module={module_ref} status=error run_id={run_id}")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return 1
 
     try:
@@ -177,6 +253,7 @@ def run_single(
             "state_dir": str(paths.state_dir),
             "credentials_dir": str(paths.credentials_dir),
             "work_dir": str(paths.work_dir),
+            "allow_state_drift_recreate": bool(allow_state_drift_recreate),
         },
         "evidence_dir": str(evidence_dir),
     }
@@ -186,37 +263,61 @@ def run_single(
             "resource_id": str(import_resource_id or "").strip(),
         }
 
-    if not skip_preflight:
-        print(f"progress: phase=preflight driver={driver_ref}")
-        preflight_request = dict(request)
-        preflight_request["command"] = "preflight"
-        preflight_request["lifecycle_command"] = command_name
-        preflight_result = driver_fn(preflight_request)
-        ev.write_json("preflight_result.json", preflight_result)
+    try:
+        if not skip_preflight:
+            print(f"progress: phase=preflight driver={driver_ref}")
+            preflight_request = dict(request)
+            preflight_request["command"] = "preflight"
+            preflight_request["lifecycle_command"] = command_name
+            preflight_result = driver_fn(preflight_request)
+            ev.write_json("preflight_result.json", preflight_result)
 
-        preflight_status = str(preflight_result.get("status", "unknown")).strip().lower()
-        if preflight_status != "ok":
-            preflight_error = str(preflight_result.get("error") or "").strip()
-            if preflight_error:
-                print(f"error: preflight failed: {preflight_error}", file=sys.stderr)
-            else:
-                print("error: preflight failed", file=sys.stderr)
-            print(f"module={module_ref} status=error run_id={run_id}")
-            print(f"evidence: {evidence_dir}")
+            preflight_status = str(preflight_result.get("status", "unknown")).strip().lower()
+            if preflight_status != "ok":
+                preflight_error = str(preflight_result.get("error") or "").strip()
+                persist_status_error_state(preflight_error or "preflight failed")
+                if preflight_error:
+                    print(f"error: preflight failed: {preflight_error}", file=sys.stderr)
+                else:
+                    print("error: preflight failed", file=sys.stderr)
+                print(f"module={module_ref} status=error run_id={run_id}")
+                print(f"run record: {evidence_dir}")
+                return 1
+
+        print(f"progress: phase={command_name} driver={driver_ref}")
+        result = driver_fn(request)
+        ev.write_json("result.json", result)
+
+        status = str(result.get("status", "unknown")).strip().lower()
+        print(f"module={module_ref} status={status or 'unknown'} run_id={run_id}")
+        print(f"run record: {evidence_dir}")
+
+        if status != "ok":
+            err = str(result.get("error") or "").strip()
+            persist_status_error_state(err or f"driver returned status={status or 'unknown'}")
+            if err:
+                print(f"error: {err}", file=sys.stderr)
             return 1
-
-    print(f"progress: phase={command_name} driver={driver_ref}")
-    result = driver_fn(request)
-    ev.write_json("result.json", result)
-
-    status = str(result.get("status", "unknown")).strip().lower()
-    print(f"module={module_ref} status={status or 'unknown'} run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
-
-    if status != "ok":
-        err = str(result.get("error") or "").strip()
-        if err:
-            print(f"error: {err}", file=sys.stderr)
+    except KeyboardInterrupt:
+        ev.write_json(
+            "cancelled.json",
+            {
+                "command": command_name,
+                "module_ref": module_ref,
+                "run_id": run_id,
+                "status": "cancelled",
+                "reason": "cancelled by user",
+            },
+        )
+        print(f"module={module_ref} status=cancelled run_id={run_id}")
+        print(f"run record: {evidence_dir}")
+        print("error: cancelled by user", file=sys.stderr)
+        return CANCELLED
+    except Exception as exc:
+        persist_status_error_state(str(exc))
+        print(f"error: {exc}", file=sys.stderr)
+        print(f"module={module_ref} status=error run_id={run_id}")
+        print(f"run record: {evidence_dir}")
         return 1
 
     if command_name in ("apply", "deploy", "destroy", "import"):
@@ -225,6 +326,7 @@ def run_single(
             published_outputs: dict[str, Any] = {}
             state_status = status
             rerun_inputs_file: Path | None = None
+            resolved_inputs_file: Path | None = None
             if command_name in ("apply", "deploy", "import"):
                 published_outputs = select_published_outputs(current_outputs, resolved.outputs_publish)
                 published_outputs = merge_template_image_outputs(
@@ -241,6 +343,11 @@ def run_single(
                         resolved.inputs,
                         state_instance=state_instance,
                     )
+                resolved_inputs_file = ev.write_text(
+                    "resolved.inputs.yml",
+                    yaml.safe_dump(resolved.inputs, sort_keys=False),
+                    redact_output=False,
+                )
             else:
                 state_status = "destroyed"
 
@@ -270,6 +377,8 @@ def run_single(
                 state_payload["state_instance"] = state_instance
             if rerun_inputs_file is not None:
                 state_payload["rerun_inputs_file"] = str(rerun_inputs_file)
+            if resolved_inputs_file is not None:
+                state_payload["resolved_inputs_file"] = str(resolved_inputs_file)
 
             state_path = write_module_state(
                 paths.state_dir,
@@ -284,6 +393,7 @@ def run_single(
                     "published_outputs": sorted(list(published_outputs.keys())),
                     "publish_policy": resolved.outputs_publish,
                     "rerun_inputs_file": str(rerun_inputs_file) if rerun_inputs_file else "",
+                    "resolved_inputs_file": str(resolved_inputs_file) if resolved_inputs_file else "",
                 },
             )
             if rerun_inputs_file is not None:

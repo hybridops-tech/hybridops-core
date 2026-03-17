@@ -2,7 +2,7 @@
 
 purpose: Validate prerequisites and readiness markers before running init or modules.
 Architecture Decision: ADR-N/A (preflight)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.readiness import read_marker
+from hyops.runtime.module_state import normalize_state_instance
 from hyops.runtime.refs import module_id_from_ref, normalize_module_ref
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_input_path, resolve_module_root
@@ -43,6 +44,11 @@ def add_preflight_subparser(sp: argparse._SubParsersAction) -> None:
         help="Module root directory (default: modules from cwd or HYOPS_CORE_ROOT).",
     )
     p.add_argument("--inputs", default=None, help="Optional module inputs YAML.")
+    p.add_argument(
+        "--state-instance",
+        default=None,
+        help="Optional state instance key for module preflight checks (supports multi-instance module usage).",
+    )
 
     p.set_defaults(_handler=run)
 
@@ -87,6 +93,7 @@ def run_module_driver_preflight(
     lifecycle_command: str | None = None,
     state_instance: str | None = None,
     assumed_state_ok: set[str] | None = None,
+    allow_state_drift_recreate: bool = False,
 ) -> dict[str, Any]:
     module_ref = normalize_module_ref(str(module_ref or "").strip())
     if not module_ref:
@@ -98,7 +105,9 @@ def run_module_driver_preflight(
         module_root=module_root,
         inputs_file=inputs_file,
         state_dir=paths.state_dir,
+        runtime_root=paths.root,
         lifecycle_command=lifecycle_command,
+        invocation_command="preflight",
         assumed_state_ok=assumed_state_ok,
     )
 
@@ -127,6 +136,7 @@ def run_module_driver_preflight(
             "state_dir": str(paths.state_dir),
             "credentials_dir": str(paths.credentials_dir),
             "work_dir": str(paths.work_dir),
+            "allow_state_drift_recreate": bool(allow_state_drift_recreate),
         },
         "evidence_dir": str(evidence_dir),
     }
@@ -225,6 +235,7 @@ def run(ns) -> int:
 
                 module_root = resolve_module_root(str(ns.module_root or "modules"))
                 inputs_file = resolve_input_path(str(ns.inputs) if ns.inputs else None)
+                state_instance = normalize_state_instance(getattr(ns, "state_instance", None))
                 module_preflight = run_module_driver_preflight(
                     paths=paths,
                     env_name=getattr(ns, "env", None),
@@ -232,7 +243,7 @@ def run(ns) -> int:
                     module_root=module_root,
                     inputs_file=inputs_file,
                     lifecycle_command="apply",
-                    state_instance=None,
+                    state_instance=state_instance,
                 )
                 status = str(module_preflight.get("status") or "").strip().lower()
                 detail = str(module_preflight.get("error") or f"status={status}")

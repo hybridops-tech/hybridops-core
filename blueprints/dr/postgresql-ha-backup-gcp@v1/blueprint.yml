@@ -22,6 +22,7 @@ steps:
     phase: "bootstrap"
     with_deps: true
     skip_if_state_ok: true
+    verify_state_on_skip: true
     inputs:
       # Preferred when the env already has org/gcp/project-factory state.
       # For an external/pre-existing project, leave this empty and set project_id.

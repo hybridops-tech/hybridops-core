@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for module org/gcp/project-factory.
 Architecture Decision: ADR-0206 (module execution contract v1)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 import re
 
+from hyops.runtime.gcp import normalize_billing_account_id
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -49,8 +50,8 @@ def validate(inputs: dict[str, Any]) -> None:
     # Upstream terraform-google-project-factory uses `billing_account` (string).
     # We accept both `billing_account` and the more explicit legacy alias
     # `billing_account_id` for operator ergonomics.
-    billing_account = opt_str("billing_account")
-    billing_account_id = opt_str("billing_account_id")
+    billing_account = normalize_billing_account_id(opt_str("billing_account"))
+    billing_account_id = normalize_billing_account_id(opt_str("billing_account_id"))
     if billing_account and billing_account_id and billing_account != billing_account_id:
         raise ModuleValidationError("inputs.billing_account and inputs.billing_account_id must match when both are set")
     effective_billing = billing_account or billing_account_id

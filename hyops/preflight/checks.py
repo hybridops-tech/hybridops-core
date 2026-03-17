@@ -2,7 +2,7 @@
 
 purpose: Provide small, composable checks for tool presence and runtime readiness.
 Architecture Decision: ADR-N/A (preflight checks)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

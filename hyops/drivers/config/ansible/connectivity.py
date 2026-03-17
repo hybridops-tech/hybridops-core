@@ -113,6 +113,36 @@ def ssh_access_mode(inputs: dict[str, Any]) -> str:
     return "direct"
 
 
+def _classify_ssh_auth_probe_failure(
+    *,
+    result: Any,
+    label: str,
+    access_mode: str,
+    gcp_iap_instance: str,
+    gcp_iap_project_id: str,
+    gcp_iap_zone: str,
+) -> str:
+    stderr = str(getattr(result, "stderr", "") or "")
+    stdout = str(getattr(result, "stdout", "") or "")
+    combined = f"{stdout}\n{stderr}".lower()
+
+    if access_mode == "gcp-iap" and "not authorized" in combined and "iap" in combined:
+        return (
+            "gcp-iap tunnel authorisation failed for "
+            f"instance={gcp_iap_instance} project={gcp_iap_project_id} zone={gcp_iap_zone}. "
+            "Confirm the active gcloud identity has IAP-secured Tunnel User access and OS/Login or SSH access "
+            f"for the target. See {label}.* in evidence dir."
+        )
+
+    if "banner exchange" in combined or "connection timed out" in combined:
+        return f"ssh service did not become ready yet (see {label}.* in evidence dir)"
+
+    if "permission denied" in combined or "publickey" in combined or "authentication failed" in combined:
+        return f"ssh authentication failed (see {label}.* in evidence dir)"
+
+    return f"ssh auth probe failed (see {label}.* in evidence dir)"
+
+
 def unreachable_access_hint(
     *,
     inputs: dict[str, Any],
@@ -296,6 +326,10 @@ def probe_ssh_auth(
     if not ssh_bin:
         return False, "missing command: ssh"
 
+    connect_timeout_s = max(1, int(timeout_s))
+    if access_mode == "gcp-iap":
+        connect_timeout_s = max(10, connect_timeout_s)
+
     argv = [
         ssh_bin,
         "-p",
@@ -303,7 +337,7 @@ def probe_ssh_auth(
         "-o",
         "BatchMode=yes",
         "-o",
-        f"ConnectTimeout={max(1, int(timeout_s))}",
+        f"ConnectTimeout={connect_timeout_s}",
         "-o",
         "StrictHostKeyChecking=no",
         "-o",
@@ -344,23 +378,48 @@ def probe_ssh_auth(
 
     argv.extend([f"{target_user}@{target_host}", "true"])
 
-    try:
-        r = run_capture(
-            argv,
-            cwd=cwd,
-            env=env,
-            evidence_dir=evidence_dir,
-            label=label,
-            timeout_s=max(5, int(timeout_s) + 5),
-            redact=redact,
+    attempts = 3 if access_mode == "gcp-iap" else 1
+    delay_s = 2
+    last_err = ""
+    for attempt in range(1, attempts + 1):
+        try:
+            r = run_capture(
+                argv,
+                cwd=cwd,
+                env=env,
+                evidence_dir=evidence_dir,
+                label=label,
+                timeout_s=max(5, connect_timeout_s + 5),
+                redact=redact,
+            )
+        except subprocess.TimeoutExpired:
+            last_err = f"ssh auth probe timed out after {max(5, connect_timeout_s + 5)}s"
+        except Exception as exc:
+            last_err = f"ssh auth probe failed: {exc}"
+        else:
+            if r.rc == 0:
+                return True, ""
+            last_err = _classify_ssh_auth_probe_failure(
+                result=r,
+                label=label,
+                access_mode=access_mode,
+                gcp_iap_instance=gcp_iap_instance,
+                gcp_iap_project_id=gcp_iap_project_id,
+                gcp_iap_zone=gcp_iap_zone,
+            )
+
+        if access_mode != "gcp-iap":
+            break
+        retryable = (
+            "ssh service did not become ready yet" in last_err
+            or "ssh auth probe timed out" in last_err
         )
-    except subprocess.TimeoutExpired:
-        return False, f"ssh auth probe timed out after {max(5, int(timeout_s) + 5)}s"
-    except Exception as exc:
-        return False, f"ssh auth probe failed: {exc}"
-    if r.rc == 0:
-        return True, ""
-    return False, f"ssh auth probe failed (see {label}.* in evidence dir)"
+        if not retryable:
+            break
+        if attempt < attempts:
+            time.sleep(delay_s)
+
+    return False, last_err
 
 
 def pick_rke2_probe_target(inputs: dict[str, Any]) -> tuple[str, str]:
@@ -778,6 +837,13 @@ def connectivity_check(
                         gcp_iap_zone=gcp_iap_zone,
                     )
                 if not ok:
+                    if err.startswith("gcp-iap tunnel authorisation failed"):
+                        return False, f"connectivity check failed: {err}"
+                    if err.startswith("ssh service did not become ready yet"):
+                        return False, (
+                            "connectivity check failed: target VM is reachable through its transport path, "
+                            f"but SSH is not ready yet for {label} (host={host}). {err}"
+                        )
                     hint = (
                         "connectivity check failed: target SSH port is reachable, but authentication failed for "
                         f"{label} (host={host}). Confirm target_user={target_user} exists and the SSH key is authorised. "
@@ -953,6 +1019,10 @@ def connectivity_check(
                 access_mode="direct",
             )
         if not ok:
+            if err.startswith("gcp-iap tunnel authorisation failed"):
+                return False, f"connectivity check failed: {err}"
+            if err.startswith("ssh service did not become ready yet"):
+                return False, f"connectivity check failed: target VM is reachable through its transport path, but SSH is not ready yet. {err}"
             hint = (
                 "connectivity check failed: target SSH port is reachable, but authentication failed. "
                 f"Confirm target_user={target_user} exists and the SSH key is authorised. {err}"

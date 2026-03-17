@@ -12,6 +12,7 @@ requirements:
 
 inputs:
   defaults:
+    apply_mode: "bootstrap" # bootstrap|status
     # Inventory. Prefer state-driven inventory from edge foundation.
     inventory_groups: {}
     inventory_state_ref: ""
@@ -50,6 +51,8 @@ inputs:
     zone: ""
     record_fqdn: ""
     endpoint_state_ref: ""
+    endpoint_state_env: ""
+    allow_cross_env_state: false
     endpoint_fqdn_output_key: "endpoint_dns_name"
     endpoint_target_output_key: "endpoint_target"
     record_type: "A"
@@ -60,6 +63,7 @@ inputs:
 
     # PowerDNS API provider settings.
     powerdns_state_ref: ""
+    powerdns_state_env: ""
     powerdns_api_url: ""
     powerdns_server_id: "localhost"
     powerdns_zone_id: ""
@@ -93,6 +97,11 @@ outputs:
     - dns.record_type
     - dns.desired
     - dns.targets
+    - dns.expected_targets
+    - dns.observed_targets
+    - dns.observed_ttl
+    - dns.record_exists
+    - dns.matches_desired
     - cap.network.dns_routing
 
 probes: []

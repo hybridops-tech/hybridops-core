@@ -77,6 +77,12 @@ inputs:
     # pgBackRest repository (BYO bucket; this module does not create cloud resources).
     backend: "gcs" # s3|gcs
     repo_path: "/pgbackrest"
+    # Optional pgBackRest backup-run state that publishes the latest backup label.
+    # When set, HyOps resolves restore_set from that state if the input is left blank.
+    # Keep restore_target_timeline explicit when you need to pin a non-default timeline.
+    backup_state_ref: ""
+    backup_state_env: ""
+    allow_cross_env_state: false
 
     # S3 repository settings (AWS S3 or S3-compatible endpoints, e.g. MinIO)
     s3_bucket: ""
@@ -103,9 +109,26 @@ inputs:
     endpoint_dns_name: ""
     with_haproxy_load_balancing: false
     pgbouncer_install: false
+    # Autobase can install Netdata as part of cluster bootstrap, but HybridOps
+    # treats observability as a separate concern. Keep this explicit so DR or
+    # isolated restore runs do not hang on optional package installation.
+    netdata_install: false
+    # Some PostgreSQL parameter changes require a controlled Patroni restart.
+    # Keep this explicit so day-2 maintenance changes remain auditable.
+    pending_restart: false
+
+    # Managed Cloud SQL DMS source posture.
+    # This is a day-2 maintenance contract for existing clusters:
+    # - installs the pglogical package on all PostgreSQL nodes
+    # - appends pglogical to Patroni-managed shared_preload_libraries
+    # - ensures the pglogical extension exists in the requested databases
+    # Because shared_preload_libraries requires a restart, pglogical_enable
+    # must be paired with inputs.apply_mode=maintenance and pending_restart=true.
+    pglogical_enable: false
+    pglogical_databases: []
 
     # Security posture: explicitly allowlist clients (pg_hba).
-    # Schema: [{database: "netbox", user: "netbox", cidr: "10.12.0.11/32"}, ...]
+    # Schema: [{database: "netbox", user: "netbox", cidr: "10.10.0.11/32"}, {database: "netbox", user: "netbox", cidr: "10.12.0.11/32"}, ...]
     allowed_clients: []
 
     # Secrets env var keys

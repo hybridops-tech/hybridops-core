@@ -2,7 +2,7 @@
 
 purpose: Resolve target/inventory/database/repository contracts from upstream module state.
 Architecture Decision: ADR-N/A (module resolution)
-maintainer: HybridOps.Studio
+maintainer: HybridOps
 """
 
 from __future__ import annotations
@@ -14,8 +14,12 @@ import re
 import yaml
 
 from hyops.runtime.coerce import as_bool
+from hyops.runtime.kv import read_kv_file
+from hyops.runtime.gcp import normalize_billing_account_id
 from hyops.runtime.readiness import read_marker
 from hyops.runtime.module_inputs import try_get_nested
+from hyops.runtime.refs import module_id_from_ref
+from hyops.runtime.state import read_json
 from hyops.runtime.module_state import (
     normalize_module_state_ref,
     read_module_state,
@@ -26,6 +30,222 @@ from hyops.runtime.module_state import (
 _INPUT_SEG_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _GCP_VM_ID_RE = re.compile(r"^projects/(?P<project>[^/]+)/zones/(?P<zone>[^/]+)/instances/(?P<name>[^/]+)$")
 _PGHA_STATE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
+_PGHA_BACKUP_STATE_REFS = {
+    "platform/postgresql-ha-backup",
+    "platform/onprem/postgresql-ha-backup",
+}
+_REPO_STATE_INSTANCE_REFS = {
+    "org/aws/object-repo",
+    "org/aws/pgbackrest-repo",
+    "org/azure/object-repo",
+    "org/azure/pgbackrest-repo",
+    "org/gcp/object-repo",
+    "org/gcp/pgbackrest-repo",
+}
+
+
+def _ready_repo_state_instances(state_root: Path, module_ref: str) -> list[str]:
+    ref, instance = split_module_state_ref(module_ref)
+    if instance or ref not in _REPO_STATE_INSTANCE_REFS:
+        return []
+
+    module_id = module_id_from_ref(ref)
+    if not module_id:
+        return []
+
+    instances_dir = Path(state_root).expanduser().resolve() / "modules" / module_id / "instances"
+    if not instances_dir.is_dir():
+        return []
+
+    ready: list[str] = []
+    for candidate in sorted(instances_dir.glob("*.json")):
+        try:
+            payload = read_json(candidate)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        status = str(payload.get("status") or "").strip().lower()
+        if status == "ok":
+            ready.append(candidate.stem)
+    return ready
+
+
+def _infer_inventory_target_user_from_state(state: dict[str, Any]) -> str:
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    for key in ("target_user", "control_user", "ssh_username"):
+        token = str(outputs.get(key) or "").strip()
+        if token and token != "root":
+            return token
+
+    raw_contract = state.get("input_contract")
+    contract = raw_contract if isinstance(raw_contract, dict) else {}
+    for key in ("target_user", "ssh_username"):
+        token = str(contract.get(key) or "").strip()
+        if token and token != "root":
+            return token
+
+    rerun_inputs_file = str(state.get("rerun_inputs_file") or "").strip()
+    if not rerun_inputs_file:
+        return ""
+
+    try:
+        rerun_path = Path(rerun_inputs_file).expanduser().resolve()
+    except Exception:
+        return ""
+    if not rerun_path.is_file():
+        return ""
+
+    try:
+        payload = yaml.safe_load(rerun_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+
+    for key in ("target_user", "ssh_username"):
+        token = str(payload.get(key) or "").strip()
+        if token and token != "root":
+            return token
+
+    raw_readiness = payload.get("post_apply_ssh_readiness")
+    readiness = raw_readiness if isinstance(raw_readiness, dict) else {}
+    token = str(readiness.get("target_user") or "").strip()
+    if token and token != "root":
+        return token
+
+    return ""
+
+
+def _load_resolved_inputs_from_state(
+    state: dict[str, Any],
+    *,
+    state_root: Path | None,
+) -> dict[str, Any]:
+    candidates: list[Path] = []
+
+    resolved_inputs_file = str(state.get("resolved_inputs_file") or "").strip()
+    if resolved_inputs_file:
+        try:
+            candidates.append(Path(resolved_inputs_file).expanduser().resolve())
+        except Exception:
+            pass
+
+    evidence_dir = str(state.get("evidence_dir") or "").strip()
+    if evidence_dir:
+        try:
+            candidates.append((Path(evidence_dir).expanduser().resolve() / "resolved.inputs.yml").resolve())
+        except Exception:
+            pass
+
+    module_ref = str(state.get("module_ref") or "").strip()
+    run_id = str(state.get("run_id") or "").strip()
+    module_id = module_id_from_ref(module_ref) if module_ref else ""
+    if state_root is not None and module_id and run_id:
+        try:
+            candidates.append((state_root.parent / "work" / module_id / run_id / "hyops.inputs.yml").resolve())
+        except Exception:
+            pass
+
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            payload = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+
+    return {}
+
+
+def _load_rerun_inputs_from_state(state: dict[str, Any]) -> dict[str, Any]:
+    rerun_inputs_file = str(state.get("rerun_inputs_file") or "").strip()
+    if not rerun_inputs_file:
+        return {}
+
+    try:
+        rerun_path = Path(rerun_inputs_file).expanduser().resolve()
+    except Exception:
+        return {}
+    if not rerun_path.is_file():
+        return {}
+
+    try:
+        payload = yaml.safe_load(rerun_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _backfill_input_from_mapping(inputs: dict[str, Any], source: dict[str, Any], key: str) -> None:
+    if key not in source:
+        return
+
+    current = inputs.get(key)
+    if current is not None:
+        if isinstance(current, str) and current.strip():
+            return
+        if isinstance(current, (dict, list)) and current:
+            return
+        if isinstance(current, bool):
+            return
+        if isinstance(current, int) and not isinstance(current, bool) and current != 0:
+            return
+
+    candidate = source.get(key)
+    if candidate is None:
+        return
+    if isinstance(candidate, str) and not candidate.strip():
+        return
+    if isinstance(candidate, (dict, list)) and not candidate:
+        return
+
+    inputs[key] = candidate
+
+
+def resolve_state_root_for_env_override(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    override_key: str,
+) -> Path | None:
+    """Resolve an alternate env state root under an explicit cross-env policy."""
+    override_env = str(inputs.get(override_key) or "").strip()
+    if not override_env:
+        return state_root
+
+    if state_root is None:
+        raise ValueError(f"inputs.{override_key} requires runtime state_dir")
+
+    try:
+        envs_root = state_root.parent.parent
+        candidate = (envs_root / override_env / "state").resolve()
+        if not candidate.exists():
+            raise ValueError(
+                f"inputs.{override_key}={override_env!r} resolved state dir does not exist: {candidate}"
+            )
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"inputs.{override_key} is invalid: {override_env!r}") from exc
+
+    current_env = str(state_root.parent.name or "").strip()
+    if override_env == current_env or override_env.lower() == "shared":
+        return candidate
+
+    if as_bool(inputs.get("allow_cross_env_state"), default=False):
+        return candidate
+
+    raise ValueError(
+        f"inputs.{override_key}={override_env!r} crosses env boundary from current env={current_env!r}. "
+        "Same-env state resolution is the default, and 'shared' is the only normal cross-env authority. "
+        "Set inputs.allow_cross_env_state=true only for controlled drills or migrations."
+    )
 
 
 def _infer_inventory_target_user_from_state(state: dict[str, Any]) -> str:
@@ -283,6 +503,7 @@ def resolve_inventory_groups_from_state(
         raise ValueError("inputs.inventory_state_ref requires runtime state_dir")
 
     raw_groups = inputs.get("inventory_vm_groups")
+    lifecycle_command = str(inputs.get("_hyops_lifecycle_command") or "").strip().lower()
 
     def _placeholder_inventory_groups() -> dict[str, Any]:
         if not isinstance(raw_groups, dict) or not raw_groups:
@@ -319,6 +540,9 @@ def resolve_inventory_groups_from_state(
 
     status = str(state.get("status") or "").strip().lower()
     if status != "ok":
+        if lifecycle_command == "destroy" and status in {"destroyed", "absent"}:
+            inputs["inventory_groups"] = _placeholder_inventory_groups()
+            return
         if assumed_state_ok is not None and inventory_state_ref in assumed_state_ok:
             # Blueprint preflight can "assume" upstream state will be ready by execution time.
             inputs["inventory_groups"] = _placeholder_inventory_groups()
@@ -421,6 +645,7 @@ def resolve_inventory_groups_from_state(
                     f"from inventory_state_ref={inventory_state_ref}"
                 )
             host_entry: dict[str, str] = {"name": vm_key, "host": picked}
+            host_entry["hyops_resolved_host"] = picked
             host_entry.update(resolve_gcp_instance_contract(outputs, vm_key=vm_key))
             private_host = resolve_vm_private_ipv4(outputs, vm_key=vm_key)
             if private_host:
@@ -691,6 +916,12 @@ def resolve_dns_endpoint_contract_from_state(
     if not raw_ref:
         return
 
+    endpoint_state_root = resolve_state_root_for_env_override(
+        inputs,
+        state_root=state_root,
+        override_key="endpoint_state_env",
+    )
+
     try:
         endpoint_state_ref = normalize_module_state_ref(raw_ref)
     except Exception:
@@ -699,11 +930,11 @@ def resolve_dns_endpoint_contract_from_state(
     if assumed_state_ok is not None and endpoint_state_ref in assumed_state_ok:
         return
 
-    if state_root is None:
+    if endpoint_state_root is None:
         raise ValueError("inputs.endpoint_state_ref requires runtime state_dir")
 
     try:
-        state = read_module_state(state_root, endpoint_state_ref)
+        state = read_module_state(endpoint_state_root, endpoint_state_ref)
     except Exception as e:
         raise ValueError(
             f"endpoint_state_ref={endpoint_state_ref} state is unavailable: {e}. "
@@ -803,6 +1034,12 @@ def resolve_powerdns_contract_from_state(
                 if primary_host:
                     inputs["powerdns_allow_axfr_ips"] = [primary_host]
 
+    powerdns_state_root = resolve_state_root_for_env_override(
+        inputs,
+        state_root=state_root,
+        override_key="powerdns_state_env",
+    )
+
     raw_state_ref = str(inputs.get("powerdns_state_ref") or "").strip()
     if not raw_state_ref:
         return
@@ -815,11 +1052,11 @@ def resolve_powerdns_contract_from_state(
     if assumed_state_ok is not None and powerdns_state_ref in assumed_state_ok:
         return
 
-    if state_root is None:
+    if powerdns_state_root is None:
         raise ValueError("inputs.powerdns_state_ref requires runtime state_dir")
 
     try:
-        state = read_module_state(state_root, powerdns_state_ref)
+        state = read_module_state(powerdns_state_root, powerdns_state_ref)
     except Exception as e:
         raise ValueError(
             f"powerdns_state_ref={powerdns_state_ref} state is unavailable: {e}. "
@@ -919,23 +1156,11 @@ def resolve_db_contract_from_state(
     if state_root is None:
         raise ValueError("inputs.db_state_ref requires runtime state_dir")
 
-    db_state_env = str(inputs.get("db_state_env") or "").strip()
-    effective_state_root = state_root
-    if db_state_env:
-        try:
-            runtime_root = state_root.parent
-            envs_root = runtime_root.parent
-            candidate = (envs_root / db_state_env / "state").resolve()
-            if candidate.exists():
-                effective_state_root = candidate
-            else:
-                raise ValueError(
-                    f"inputs.db_state_env={db_state_env!r} resolved state dir does not exist: {candidate}"
-                )
-        except ValueError:
-            raise
-        except Exception as exc:
-            raise ValueError(f"inputs.db_state_env is invalid: {db_state_env!r}") from exc
+    effective_state_root = resolve_state_root_for_env_override(
+        inputs,
+        state_root=state_root,
+        override_key="db_state_env",
+    )
 
     try:
         state = read_module_state(effective_state_root, db_state_ref)
@@ -1053,6 +1278,8 @@ def resolve_prefixed_db_contract_from_state(
         prefixed_key = f"{normalized_prefix}{key}"
         if prefixed_key in inputs:
             shadow[key] = inputs.get(prefixed_key)
+    if "allow_cross_env_state" in inputs:
+        shadow["allow_cross_env_state"] = inputs.get("allow_cross_env_state")
 
     resolve_db_contract_from_state(shadow, state_root=state_root, assumed_state_ok=assumed_state_ok)
 
@@ -1183,6 +1410,163 @@ def resolve_project_contract_from_state(
     inputs["project_id"] = project_id
 
 
+def resolve_gcp_project_factory_contract_from_init(
+    inputs: dict[str, Any],
+    *,
+    runtime_root: Path | None,
+) -> None:
+    """Resolve org/gcp/project-factory billing input from env-scoped GCP init config."""
+    if runtime_root is None:
+        return
+    if str(inputs.get("billing_account") or "").strip() or str(inputs.get("billing_account_id") or "").strip():
+        return
+
+    config_path = runtime_root / "config" / "gcp.conf"
+    if config_path.exists():
+        try:
+            cfg = read_kv_file(config_path)
+        except Exception:
+            cfg = {}
+        billing_account_id = normalize_billing_account_id(str(cfg.get("GCP_BILLING_ACCOUNT_ID") or "").strip())
+        if billing_account_id:
+            inputs["billing_account_id"] = billing_account_id
+            return
+
+    ready_path = runtime_root / "meta"
+    try:
+        marker = read_marker(ready_path, "gcp")
+    except Exception:
+        return
+    context = marker.get("context")
+    if not isinstance(context, dict):
+        return
+    billing_account_id = normalize_billing_account_id(str(context.get("billing_account_id") or "").strip())
+    if billing_account_id:
+        inputs["billing_account_id"] = billing_account_id
+
+
+def resolve_kubeconfig_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve inputs.kubeconfig_path from upstream module state when requested."""
+    raw_ref = str(inputs.get("kubeconfig_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        kubeconfig_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.kubeconfig_state_ref is invalid: {raw_ref!r}")
+
+    if assumed_state_ok is not None and kubeconfig_state_ref in assumed_state_ok:
+        inputs.setdefault(
+            "kubeconfig_path",
+            str(inputs.get("kubeconfig_path") or "/tmp/hyops-placeholder-kubeconfig.yaml"),
+        )
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.kubeconfig_state_ref requires runtime state_dir")
+
+    effective_state_root = resolve_state_root_for_env_override(
+        inputs,
+        state_root=state_root,
+        override_key="kubeconfig_state_env",
+    )
+
+    try:
+        state = read_module_state(effective_state_root, kubeconfig_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"kubeconfig_state_ref={kubeconfig_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{kubeconfig_state_ref}' or provide inputs.kubeconfig_path explicitly."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"kubeconfig_state_ref={kubeconfig_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{kubeconfig_state_ref}' or provide inputs.kubeconfig_path explicitly."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    kubeconfig_path = str(outputs.get("kubeconfig_path") or "").strip()
+    if not kubeconfig_path:
+        raise ValueError(
+            f"kubeconfig_state_ref={kubeconfig_state_ref} does not publish required output kubeconfig_path."
+        )
+    inputs["kubeconfig_path"] = kubeconfig_path
+
+
+def resolve_gke_cluster_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve GKE cluster coordinates from upstream cluster state when requested."""
+    raw_ref = str(inputs.get("cluster_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        cluster_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.cluster_state_ref is invalid: {raw_ref!r}")
+
+    if assumed_state_ok is not None and cluster_state_ref in assumed_state_ok:
+        inputs.setdefault("project_id", str(inputs.get("project_id") or "placeholder-project"))
+        inputs.setdefault("location", str(inputs.get("location") or "europe-west2-b"))
+        inputs.setdefault("cluster_name", str(inputs.get("cluster_name") or "placeholder-cluster"))
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.cluster_state_ref requires runtime state_dir")
+
+    effective_state_root = resolve_state_root_for_env_override(
+        inputs,
+        state_root=state_root,
+        override_key="cluster_state_env",
+    )
+
+    try:
+        state = read_module_state(effective_state_root, cluster_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"cluster_state_ref={cluster_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{cluster_state_ref}' or provide explicit GKE cluster inputs."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"cluster_state_ref={cluster_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{cluster_state_ref}' or provide explicit GKE cluster inputs."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    project_id = str(outputs.get("project_id") or "").strip()
+    location = str(outputs.get("location") or "").strip()
+    cluster_name = str(outputs.get("cluster_name") or "").strip()
+    if not project_id or not location or not cluster_name:
+        raise ValueError(
+            f"cluster_state_ref={cluster_state_ref} does not publish required outputs project_id, location, and cluster_name."
+        )
+
+    inputs["project_id"] = project_id
+    inputs["location"] = location
+    inputs["cluster_name"] = cluster_name
+
+
 def resolve_network_contract_from_state(
     inputs: dict[str, Any],
     *,
@@ -1300,6 +1684,40 @@ def resolve_network_contract_from_state(
                 resolved_self_links.append(subnetwork_value)
             inputs["subnetwork_self_links"] = resolved_self_links
 
+    if "pods_secondary_range_name" in inputs:
+        output_key = str(inputs.get("pods_secondary_range_output_key") or "").strip()
+        if output_key:
+            value = str(outputs.get(output_key) or "").strip()
+            if not value:
+                available = sorted(str(k) for k in outputs.keys() if str(k))
+                raise ValueError(
+                    f"network_state_ref={network_state_ref} does not publish secondary range output "
+                    f"{output_key!r}. "
+                    + (
+                        f"available outputs: {', '.join(available)}"
+                        if available
+                        else "state does not publish any outputs"
+                    )
+                )
+            inputs["pods_secondary_range_name"] = value
+
+    if "services_secondary_range_name" in inputs:
+        output_key = str(inputs.get("services_secondary_range_output_key") or "").strip()
+        if output_key:
+            value = str(outputs.get(output_key) or "").strip()
+            if not value:
+                available = sorted(str(k) for k in outputs.keys() if str(k))
+                raise ValueError(
+                    f"network_state_ref={network_state_ref} does not publish secondary range output "
+                    f"{output_key!r}. "
+                    + (
+                        f"available outputs: {', '.join(available)}"
+                        if available
+                        else "state does not publish any outputs"
+                    )
+                )
+            inputs["services_secondary_range_name"] = value
+
     project_id = str(outputs.get("project_id") or "").strip()
     if project_id and not str(inputs.get("network_project_id") or "").strip():
         inputs["network_project_id"] = project_id
@@ -1389,6 +1807,7 @@ def resolve_repo_contract_from_state(
 
     try:
         repo_state_ref = normalize_module_state_ref(raw_ref)
+        repo_ref_base, repo_instance = split_module_state_ref(raw_ref)
     except Exception:
         raise ValueError(f"inputs.repo_state_ref is invalid: {raw_ref!r}")
 
@@ -1397,6 +1816,14 @@ def resolve_repo_contract_from_state(
 
     if state_root is None:
         raise ValueError("inputs.repo_state_ref requires runtime state_dir")
+
+    ready_instances = _ready_repo_state_instances(state_root, repo_state_ref)
+    if repo_instance is None and len(ready_instances) > 1:
+        choices = ", ".join(f"{repo_ref_base}#{name}" for name in ready_instances)
+        raise ValueError(
+            f"inputs.repo_state_ref={repo_ref_base} is ambiguous: multiple ready repository state instances exist "
+            f"({choices}). Use an explicit state instance."
+        )
 
     try:
         state = read_module_state(state_root, repo_state_ref)
@@ -1519,6 +1946,84 @@ def resolve_prefixed_repo_contract_from_state(
             inputs[f"{normalized_prefix}{key}"] = shadow[key]
 
 
+def resolve_postgresql_backup_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve pgBackRest restore selectors from a PostgreSQL backup module state."""
+    raw_ref = str(inputs.get("backup_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        backup_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.backup_state_ref is invalid: {raw_ref!r}")
+
+    backup_base_ref, _backup_instance = split_module_state_ref(backup_state_ref)
+    if backup_base_ref not in _PGHA_BACKUP_STATE_REFS:
+        raise ValueError(
+            "inputs.backup_state_ref currently requires "
+            "platform/postgresql-ha-backup or platform/onprem/postgresql-ha-backup"
+        )
+
+    if assumed_state_ok is not None and backup_state_ref in assumed_state_ok:
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.backup_state_ref requires runtime state_dir")
+
+    effective_state_root = resolve_state_root_for_env_override(
+        inputs,
+        state_root=state_root,
+        override_key="backup_state_env",
+    )
+
+    try:
+        state = read_module_state(effective_state_root, backup_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"backup_state_ref={backup_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream backup module '{backup_state_ref}' or provide "
+            f"inputs.restore_set explicitly."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"backup_state_ref={backup_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream backup module '{backup_state_ref}' or provide "
+            f"inputs.restore_set explicitly."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    raw_latest = outputs.get("pgbackrest_latest_backup")
+    latest = raw_latest if isinstance(raw_latest, dict) else {}
+    available = bool(latest.get("available"))
+    backup_set = str(
+        outputs.get("pgbackrest_latest_backup_set")
+        or latest.get("label")
+        or ""
+    ).strip()
+    if not available and not backup_set:
+        raise ValueError(
+            f"backup_state_ref={backup_state_ref} does not publish an available pgBackRest backup. "
+            f"Expected outputs.pgbackrest_latest_backup_set and pgbackrest_latest_backup.available=true."
+        )
+
+    if not backup_set:
+        raise ValueError(
+            f"backup_state_ref={backup_state_ref} does not publish required output pgbackrest_latest_backup_set."
+        )
+    if not str(inputs.get("restore_set") or "").strip():
+        inputs["restore_set"] = backup_set
+
+
 def resolve_postgresql_dr_source_contract_from_state(
     inputs: dict[str, Any],
     *,
@@ -1526,6 +2031,10 @@ def resolve_postgresql_dr_source_contract_from_state(
     assumed_state_ok: set[str] | None = None,
 ) -> None:
     """Resolve PostgreSQL DR source assessment outputs from upstream state."""
+    apply_mode = str(inputs.get("apply_mode") or "").strip().lower()
+    if apply_mode == "status" and str(inputs.get("replica_state_ref") or "").strip():
+        return
+
     raw_ref = str(inputs.get("source_state_ref") or "").strip()
     if not raw_ref:
         return
@@ -1616,6 +2125,172 @@ def resolve_postgresql_dr_source_contract_from_state(
     )
 
 
+def resolve_cloudsql_external_replica_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve Cloud SQL external replica status inputs from prior module state."""
+    raw_ref = str(inputs.get("replica_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        replica_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.replica_state_ref is invalid: {raw_ref!r}")
+
+    replica_base_ref, _replica_instance = split_module_state_ref(replica_state_ref)
+    if replica_base_ref != "org/gcp/cloudsql-external-replica":
+        raise ValueError(
+            "inputs.replica_state_ref currently requires org/gcp/cloudsql-external-replica"
+        )
+
+    if assumed_state_ok is not None and replica_state_ref in assumed_state_ok:
+        if not str(inputs.get("project_id") or "").strip():
+            inputs["project_id"] = "placeholder-project"
+        if not str(inputs.get("region") or "").strip():
+            inputs["region"] = "europe-west2"
+        if not str(inputs.get("source_connection_profile_name") or "").strip():
+            inputs["source_connection_profile_name"] = "placeholder-source"
+        if not str(inputs.get("destination_connection_profile_name") or "").strip():
+            inputs["destination_connection_profile_name"] = "placeholder-destination"
+        if not str(inputs.get("migration_job_name") or "").strip():
+            inputs["migration_job_name"] = "placeholder-job"
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.replica_state_ref requires runtime state_dir")
+
+    effective_state_root = resolve_state_root_for_env_override(
+        inputs,
+        state_root=state_root,
+        override_key="replica_state_env",
+    )
+
+    try:
+        state = read_module_state(effective_state_root, replica_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"replica_state_ref={replica_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{replica_state_ref}' or provide explicit managed standby status inputs."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"replica_state_ref={replica_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{replica_state_ref}' or provide explicit managed standby status inputs."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    resolved_inputs = _load_resolved_inputs_from_state(state, state_root=effective_state_root)
+    rerun_inputs = _load_rerun_inputs_from_state(state)
+    for key in (
+        "project_state_ref",
+        "project_id",
+        "network_state_ref",
+        "network_project_id",
+        "private_network",
+        "region",
+        "connectivity_mode",
+        "reverse_ssh_state_ref",
+        "reverse_ssh_vm",
+        "reverse_ssh_vm_ip",
+        "reverse_ssh_vm_zone",
+        "reverse_ssh_vm_port",
+        "reverse_ssh_vpc",
+        "source_state_ref",
+        "source_contract",
+        "source_host",
+        "source_port",
+        "source_db_name",
+        "source_db_user",
+        "source_leader_name",
+        "source_leader_host",
+        "source_export_ready",
+        "source_replication_candidate",
+        "source_replication_user",
+        "source_replication_password_env",
+        "source_ssl_type",
+        "source_ca_certificate_env",
+        "source_client_certificate_env",
+        "source_private_key_env",
+        "source_connection_profile_name",
+        "destination_connection_profile_name",
+        "migration_job_name",
+        "migration_job_type",
+        "required_env",
+        "gcloud_bin",
+        "gcloud_copy_default_config",
+        "gcloud_runtime_config_dir",
+        "gcloud_active_account",
+        "endpoint_dns_name",
+    ):
+        _backfill_input_from_mapping(inputs, resolved_inputs, key)
+        _backfill_input_from_mapping(inputs, rerun_inputs, key)
+
+    project_id = str(outputs.get("target_project_id") or "").strip()
+    if project_id:
+        inputs["project_id"] = project_id
+
+    region = str(outputs.get("target_region") or "").strip()
+    if region:
+        inputs["region"] = region
+
+    source_host = str(outputs.get("source_host") or "").strip()
+    if source_host:
+        inputs["source_host"] = source_host
+
+    source_port = outputs.get("source_port")
+    if isinstance(source_port, int):
+        inputs["source_port"] = source_port
+
+    source_leader_name = str(outputs.get("source_leader_name") or "").strip()
+    if source_leader_name:
+        inputs["source_leader_name"] = source_leader_name
+
+    source_replication_candidate = outputs.get("source_replication_candidate")
+    if isinstance(source_replication_candidate, bool):
+        inputs["source_replication_candidate"] = source_replication_candidate
+
+    connectivity_mode = str(outputs.get("connectivity_mode") or "").strip()
+    if connectivity_mode:
+        inputs["connectivity_mode"] = connectivity_mode
+
+    source_connection_profile_name = str(outputs.get("source_connection_profile_name") or "").strip()
+    if source_connection_profile_name:
+        inputs["source_connection_profile_name"] = source_connection_profile_name
+
+    destination_connection_profile_name = str(outputs.get("destination_connection_profile_name") or "").strip()
+    if destination_connection_profile_name:
+        inputs["destination_connection_profile_name"] = destination_connection_profile_name
+
+    migration_job_name = str(outputs.get("migration_job_name") or "").strip()
+    if migration_job_name:
+        inputs["migration_job_name"] = migration_job_name
+
+    target_instance_name = str(outputs.get("target_instance_name") or "").strip()
+    if target_instance_name:
+        inputs["target_instance_name"] = target_instance_name
+
+    target_db_host = str(outputs.get("target_db_host") or outputs.get("endpoint_host") or "").strip()
+    if target_db_host:
+        inputs["target_db_host"] = target_db_host
+
+    target_connection_name = str(outputs.get("target_connection_name") or "").strip()
+    if target_connection_name:
+        inputs["target_connection_name"] = target_connection_name
+
+    endpoint_dns_name = str(outputs.get("endpoint_dns_name") or "").strip()
+    if endpoint_dns_name:
+        inputs["endpoint_dns_name"] = endpoint_dns_name
+
+
 def resolve_cloudsql_target_contract_from_state(
     inputs: dict[str, Any],
     *,
@@ -1623,6 +2298,12 @@ def resolve_cloudsql_target_contract_from_state(
     assumed_state_ok: set[str] | None = None,
 ) -> None:
     """Resolve Cloud SQL target contract from upstream state."""
+    apply_mode = str(inputs.get("apply_mode") or "assess").strip().lower()
+    if apply_mode in {"establish", "status"}:
+        # DMS establish/status creates or inspects its own Cloud SQL destination.
+        # The standalone Cloud SQL module is only part of the assess contract.
+        return
+
     raw_ref = str(inputs.get("managed_target_state_ref") or "").strip()
     if not raw_ref:
         return
@@ -1685,3 +2366,112 @@ def resolve_cloudsql_target_contract_from_state(
     target_connection_name = str(outputs.get("connection_name") or "").strip()
     if target_connection_name:
         inputs["target_connection_name"] = target_connection_name
+
+
+def resolve_reverse_ssh_contract_from_state(
+    inputs: dict[str, Any],
+    *,
+    state_root: Path | None,
+    assumed_state_ok: set[str] | None = None,
+) -> None:
+    """Resolve reverse SSH bastion coordinates from upstream VM state."""
+    if str(inputs.get("connectivity_mode") or "").strip().lower() != "reverse-ssh":
+        return
+
+    raw_ref = str(inputs.get("reverse_ssh_state_ref") or "").strip()
+    if not raw_ref:
+        return
+
+    try:
+        bastion_state_ref = normalize_module_state_ref(raw_ref)
+    except Exception:
+        raise ValueError(f"inputs.reverse_ssh_state_ref is invalid: {raw_ref!r}")
+
+    if assumed_state_ok is not None and bastion_state_ref in assumed_state_ok:
+        inputs.setdefault("reverse_ssh_vm", str(inputs.get("reverse_ssh_vm") or "placeholder-vm"))
+        inputs.setdefault("reverse_ssh_vm_ip", str(inputs.get("reverse_ssh_vm_ip") or "10.0.0.2"))
+        inputs.setdefault("reverse_ssh_vm_zone", str(inputs.get("reverse_ssh_vm_zone") or "europe-west2-a"))
+        if not int(inputs.get("reverse_ssh_vm_port") or 0):
+            inputs["reverse_ssh_vm_port"] = 15432
+        return
+
+    if state_root is None:
+        raise ValueError("inputs.reverse_ssh_state_ref requires runtime state_dir")
+
+    try:
+        state = read_module_state(state_root, bastion_state_ref)
+    except Exception as e:
+        raise ValueError(
+            f"reverse_ssh_state_ref={bastion_state_ref} state is unavailable: {e}. "
+            f"Re-apply upstream module '{bastion_state_ref}' or provide explicit reverse SSH inputs."
+        ) from e
+
+    status = str(state.get("status") or "").strip().lower()
+    if status != "ok":
+        raise ValueError(
+            f"reverse_ssh_state_ref={bastion_state_ref} is not ready (status={status or 'missing'}). "
+            f"Re-apply upstream module '{bastion_state_ref}' or provide explicit reverse SSH inputs."
+        )
+
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    vms = outputs.get("vms")
+    if not isinstance(vms, dict) or not vms:
+        raise ValueError(
+            f"reverse_ssh_state_ref={bastion_state_ref} does not publish outputs.vms. "
+            "Provide explicit reverse SSH inputs or re-apply the upstream VM module."
+        )
+
+    selected: dict[str, Any] | None = None
+    reverse_ssh_vm = str(inputs.get("reverse_ssh_vm") or "").strip()
+    if reverse_ssh_vm:
+        for vm_key, vm_data in vms.items():
+            if not isinstance(vm_data, dict):
+                continue
+            vm_name = str(vm_data.get("vm_name") or "").strip()
+            if reverse_ssh_vm in {str(vm_key).strip(), vm_name}:
+                selected = vm_data
+                if not vm_name:
+                    selected = dict(vm_data)
+                    selected["vm_name"] = reverse_ssh_vm
+                break
+        if selected is None:
+            raise ValueError(
+                f"reverse_ssh_state_ref={bastion_state_ref} does not contain reverse_ssh_vm={reverse_ssh_vm!r}."
+            )
+    else:
+        if len(vms) != 1:
+            raise ValueError(
+                f"reverse_ssh_state_ref={bastion_state_ref} publishes multiple VMs. "
+                "Set inputs.reverse_ssh_vm to select the bastion explicitly."
+            )
+        _vm_key, vm_data = next(iter(vms.items()))
+        if not isinstance(vm_data, dict):
+            raise ValueError(
+                f"reverse_ssh_state_ref={bastion_state_ref} publishes an invalid outputs.vms entry."
+            )
+        selected = vm_data
+
+    selected_name = str(selected.get("vm_name") or "").strip()
+    selected_ip = str(
+        selected.get("ipv4_configured_primary")
+        or selected.get("ipv4_address")
+        or ""
+    ).strip()
+    selected_zone = str(selected.get("zone") or "").strip()
+
+    if not selected_name or not selected_ip:
+        raise ValueError(
+            f"reverse_ssh_state_ref={bastion_state_ref} does not publish a usable VM name and IPv4 address."
+        )
+
+    if not str(inputs.get("reverse_ssh_vm") or "").strip():
+        inputs["reverse_ssh_vm"] = selected_name
+    if not str(inputs.get("reverse_ssh_vm_ip") or "").strip():
+        inputs["reverse_ssh_vm_ip"] = selected_ip
+    if selected_zone and not str(inputs.get("reverse_ssh_vm_zone") or "").strip():
+        inputs["reverse_ssh_vm_zone"] = selected_zone
+    if not int(inputs.get("reverse_ssh_vm_port") or 0):
+        inputs["reverse_ssh_vm_port"] = 15432

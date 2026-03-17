@@ -24,6 +24,9 @@ Preferred state-driven composition:
 - `project_state_ref=org/gcp/project-factory`
 - `network_state_ref=org/gcp/wan-hub-network`
 
+When those state refs are present, treat them as the default contract for durable env overlays.
+Keep `project_id`, `private_network`, and `network_project_id` empty unless you are intentionally overriding that state.
+
 Fallback is explicit:
 
 - `project_id`
@@ -93,6 +96,8 @@ For the fallback path, set `project_id`, `private_network`, `network_project_id`
 - `deletion_protection` defaults to `true`.
 - `point_in_time_recovery_enabled` requires `backup_enabled=true`.
 - `create_private_service_connection=true` is the default safe path for new networks.
+- `hyops preflight`, `validate`, `plan`, and `apply` now fail early when the effective Terraform identity cannot create the private service access range or add the Service Networking peering.
+- on a single-project VPC, `hyops init gcp --with-cli-login --force` now bootstraps `roles/servicenetworking.networksAdmin` onto the Terraform service account for the current project.
 - `manage_shared_vpc_attachment=false` is the safe default; keep it false when the service project is already attached elsewhere.
-- when `project_id` and `network_project_id` differ, the environment must either already have a valid Shared VPC attachment or use `manage_shared_vpc_attachment=true` in an organization-backed GCP tenancy
+- when `project_id` and `network_project_id` differ, the host project that owns the VPC must carry the network roles required for private service access, including `roles/compute.networkAdmin` and `roles/servicenetworking.networksAdmin` for the effective Terraform identity.
 - This module is intentionally separate from the current Patroni restore blueprints.

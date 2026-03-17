@@ -43,7 +43,7 @@
           - -F
           - "|"
           - -d
-          - postgres
+          - "{{ db_name }}"
           - -c
           - >-
             SELECT
@@ -52,7 +52,10 @@
             current_setting('max_wal_senders'),
             current_setting('max_replication_slots'),
             current_setting('ssl'),
-            pg_is_in_recovery();
+            pg_is_in_recovery(),
+            current_setting('shared_preload_libraries', true),
+            EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'pglogical'),
+            EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pglogical');
       become_user: postgres
       register: _hyops_pg_source_assessment
       changed_when: false
@@ -65,7 +68,7 @@
     - name: Assert assessment query returned expected fields
       ansible.builtin.assert:
         that:
-          - (_hyops_pg_source_parts | length) == 6
+          - (_hyops_pg_source_parts | length) == 9
         fail_msg: "Unable to normalize source PostgreSQL posture from psql output."
 
     - name: Set normalized source posture facts
@@ -76,6 +79,9 @@
         _hyops_pg_source_max_replication_slots: "{{ _hyops_pg_source_parts[3] | int }}"
         _hyops_pg_source_ssl: "{{ (_hyops_pg_source_parts[4] | string | lower) in ['on', 'true', 't', '1'] }}"
         _hyops_pg_source_in_recovery: "{{ (_hyops_pg_source_parts[5] | string | lower) in ['true', 't', '1'] }}"
+        _hyops_pg_source_shared_preload_libraries: "{{ _hyops_pg_source_parts[6] | string }}"
+        _hyops_pglogical_available: "{{ (_hyops_pg_source_parts[7] | string | lower) in ['true', 't', '1'] }}"
+        _hyops_pglogical_installed: "{{ (_hyops_pg_source_parts[8] | string | lower) in ['true', 't', '1'] }}"
       changed_when: false
 
     - name: "Assert master group points to writable primary"
@@ -105,6 +111,25 @@
           Source cluster leader {{ inventory_hostname }} does not meet the minimum managed DR replication posture.
           Expected wal_level in [replica, logical] and max_wal_senders > 0. Observed:
           wal_level={{ _hyops_pg_source_wal_level }}, max_wal_senders={{ _hyops_pg_source_max_wal_senders }}.
+      when: (dr_mode | string | lower) == 'managed-cloudsql'
+
+    - name: "Fail when managed Cloud SQL mode lacks pglogical source prerequisites"
+      ansible.builtin.assert:
+        that:
+          - _hyops_pglogical_available | bool
+          - _hyops_pglogical_installed | bool
+          - "'pglogical' in ((_hyops_pg_source_shared_preload_libraries | string).split(',') | map('trim') | list)"
+        fail_msg: >-
+          Source cluster leader {{ inventory_hostname }} is not ready for managed Cloud SQL logical replication.
+          Required posture:
+          - pglogical package/extension files available on the source host
+          - pglogical extension installed in database {{ db_name }}
+          - shared_preload_libraries contains pglogical
+          Observed:
+          shared_preload_libraries={{ _hyops_pg_source_shared_preload_libraries }},
+          pglogical_available={{ _hyops_pglogical_available }},
+          pglogical_installed={{ _hyops_pglogical_installed }}.
+          Reconcile the upstream platform/postgresql-ha lane with pglogical enabled before rerunning managed standby.
       when: (dr_mode | string | lower) == 'managed-cloudsql'
 
 - name: platform/onprem/postgresql-dr-source (publish outputs)
@@ -153,7 +178,10 @@
               'max_wal_senders': (hostvars[leader]._hyops_pg_source_max_wal_senders | default(0) | int),
               'max_replication_slots': (hostvars[leader]._hyops_pg_source_max_replication_slots | default(0) | int),
               'ssl_enabled': (hostvars[leader]._hyops_pg_source_ssl | default(false) | bool),
-              'in_recovery': (hostvars[leader]._hyops_pg_source_in_recovery | default(false) | bool)
+              'in_recovery': (hostvars[leader]._hyops_pg_source_in_recovery | default(false) | bool),
+              'shared_preload_libraries': (hostvars[leader]._hyops_pg_source_shared_preload_libraries | default('') | string),
+              'pglogical_available': (hostvars[leader]._hyops_pglogical_available | default(false) | bool),
+              'pglogical_installed': (hostvars[leader]._hyops_pglogical_installed | default(false) | bool)
             }
           } %}
           {{

@@ -237,6 +237,15 @@ def sanitize_rerun_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     if str(sanitized.get("router_state_ref") or "").strip():
         sanitized.pop("router_name", None)
 
+    ssh_private_key_file = str(sanitized.get("ssh_private_key_file") or "").strip()
+    if ssh_private_key_file:
+        try:
+            ssh_key_name = Path(ssh_private_key_file).expanduser().name
+        except Exception:
+            ssh_key_name = ""
+        if ssh_key_name == "runtime.ssh.key":
+            sanitized.pop("ssh_private_key_file", None)
+
     if sanitized.get("ssh_keys_from_init") is True:
         sanitized.pop("ssh_keys", None)
 

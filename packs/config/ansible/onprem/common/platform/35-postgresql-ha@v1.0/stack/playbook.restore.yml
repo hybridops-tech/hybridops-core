@@ -217,6 +217,7 @@
     cluster_vip: "{{ cluster_vip | default('') }}"
     with_haproxy_load_balancing: "{{ with_haproxy_load_balancing | default(false) | bool }}"
     pgbouncer_install: "{{ pgbouncer_install | default(false) | bool }}"
+    netdata_install: "{{ netdata_install | default(false) | bool }}"
 
     postgresql_password_encryption_algorithm: "scram-sha-256"
 
@@ -320,7 +321,6 @@
       register: _hyops_patroni_members
       changed_when: false
       run_once: true
-      when: _hyops_use_vip | bool
 
     - name: Record current Patroni leader member
       ansible.builtin.set_fact:
@@ -334,17 +334,53 @@
             ) | default('')
           }}
       run_once: true
-      when: _hyops_use_vip | bool
 
     - name: Assert Patroni leader was discovered
       ansible.builtin.assert:
         that:
           - (_hyops_patroni_leader_member | default('') | string | length) > 0
         fail_msg: >-
-          cluster_vip={{ cluster_vip }} is set, but no live Patroni leader could
-          be discovered from `patronictl list -f json`.
+          No live Patroni leader could be discovered from `patronictl list -f json`.
       run_once: true
-      when: _hyops_use_vip | bool
+
+    - name: Publish current Patroni leader member to localhost facts
+      ansible.builtin.set_fact:
+        _hyops_patroni_leader_member: "{{ _hyops_patroni_leader_member | string }}"
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
+    - name: Resolve Patroni leader inventory host
+      ansible.builtin.set_fact:
+        _hyops_patroni_leader_inventory_host: >-
+          {%- set leader = (_hyops_patroni_leader_member | default('') | string) -%}
+          {%- set ns = namespace(match='') -%}
+          {%- for node in (groups.get('postgres_cluster', []) | default([])) -%}
+          {%- set nodevars = hostvars[node] -%}
+          {%- if (ns.match | length) == 0 and leader in [
+                (node | string),
+                (nodevars.inventory_hostname | default('') | string),
+                (nodevars.ansible_host | default('') | string),
+                (nodevars.gcp_iap_instance | default('') | string),
+                (nodevars.hyops_resolved_host | default('') | string),
+                (nodevars.hyops_private_host | default('') | string),
+                (nodevars.ansible_hostname | default('') | string)
+              ] -%}
+          {%- set ns.match = (node | string) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ (ns.match if (ns.match | length) > 0 else leader) | string }}
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
+    - name: Assert Patroni leader inventory host was resolved
+      ansible.builtin.assert:
+        that:
+          - (hostvars['localhost']._hyops_patroni_leader_inventory_host | default('') | string) in (groups.get('postgres_cluster', []) | map('string') | list)
+        fail_msg: >-
+          Unable to map Patroni leader member {{ _hyops_patroni_leader_member }} to an inventory host in postgres_cluster.
+      run_once: true
 
     - name: Wait for VIP to be present on the leader node
       ansible.builtin.command: "ip -br addr"
@@ -353,7 +389,7 @@
       until: (cluster_vip | string) in (_hyops_vip_ip_addr.stdout | default(''))
       retries: 15
       delay: 2
-      delegate_to: "{{ _hyops_patroni_leader_member }}"
+      delegate_to: "{{ hostvars['localhost']._hyops_patroni_leader_inventory_host | default(_hyops_patroni_leader_member) }}"
       run_once: true
       when: _hyops_use_vip | bool
 
@@ -374,6 +410,12 @@
 
   vars:
     pg_port: "{{ postgresql_port | default(5432) | int }}"
+    _hyops_inventory_publish_group_names:
+      - master
+      - replica
+      - postgres_cluster
+      - etcd_cluster
+    _hyops_live_leader_inventory_host: "{{ hostvars['localhost']._hyops_patroni_leader_inventory_host | default(hostvars['localhost']._hyops_patroni_leader_member | default('')) | string }}"
     _hyops_pg_apps: >-
       {{
         (apps
@@ -392,9 +434,18 @@
         (cluster_vip | string)
         if (cluster_vip is string and (cluster_vip | length) > 0)
         else (
-          hostvars[groups['master'][0]].ansible_host
-          if (groups.get('master', []) | length) > 0
-          else ''
+          (
+            hostvars[_hyops_live_leader_inventory_host].hyops_resolved_host
+            | default(hostvars[_hyops_live_leader_inventory_host].hyops_private_host | default(hostvars[_hyops_live_leader_inventory_host].ansible_host | default(hostvars[_hyops_live_leader_inventory_host].inventory_hostname | default(_hyops_live_leader_inventory_host), true), true), true)
+            | string
+          )
+          if (_hyops_live_leader_inventory_host | length) > 0
+          else (
+            hostvars[groups['master'][0]].hyops_resolved_host
+            | default(hostvars[groups['master'][0]].hyops_private_host | default(hostvars[groups['master'][0]].ansible_host, true), true)
+            if (groups.get('master', []) | length) > 0
+            else ''
+          )
         )
       }}
     endpoint_target: >-
@@ -433,6 +484,7 @@
         content: |
           {% set host = (endpoint_host | default('')) %}
           {% set port = (pg_port | int) %}
+          {% set live_leader = (_hyops_live_leader_inventory_host | default('') | string) %}
           {% set ns = namespace(out={
             'pg_host': host,
             'pg_port': port,
@@ -444,7 +496,51 @@
             'endpoint_port': port,
             'endpoint_cutover_required': (endpoint_cutover_required | bool),
             'cap.db.postgresql_ha': 'ready'
-          }, apps={}) %}
+          }, apps={}, inventory={}) %}
+          {% for group_name in _hyops_inventory_publish_group_names %}
+          {% if (group_name | string) == 'master' and (live_leader | length) > 0 %}
+          {% set ns.inventory = ns.inventory | combine({
+            'master': [
+              {
+                'name': live_leader,
+                'host': (
+                  hostvars[live_leader].hyops_resolved_host
+                  | default(hostvars[live_leader].hyops_private_host | default(hostvars[live_leader].ansible_host | default(hostvars[live_leader].inventory_hostname | default(live_leader), true), true), true)
+                  | string
+                )
+              }
+            ]
+          }) %}
+          {% elif (group_name | string) == 'replica' and (live_leader | length) > 0 and (groups.get('postgres_cluster', []) | length) > 0 %}
+          {% set hosts = [] %}
+          {% for node in groups['postgres_cluster'] %}
+          {% if (node | string) != live_leader %}
+          {% set _ = hosts.append({
+            'name': (node | string),
+            'host': (
+              hostvars[node].hyops_resolved_host
+              | default(hostvars[node].hyops_private_host | default(hostvars[node].ansible_host | default(hostvars[node].inventory_hostname | default(node), true), true), true)
+              | string
+            )
+          }) %}
+          {% endif %}
+          {% endfor %}
+          {% set ns.inventory = ns.inventory | combine({'replica': hosts}) %}
+          {% elif (groups.get(group_name, []) | length) > 0 %}
+          {% set hosts = [] %}
+          {% for node in groups[group_name] %}
+          {% set _ = hosts.append({
+            'name': (node | string),
+            'host': (
+              hostvars[node].hyops_resolved_host
+              | default(hostvars[node].hyops_private_host | default(hostvars[node].ansible_host | default(hostvars[node].inventory_hostname | default(node), true), true), true)
+              | string
+            )
+          }) %}
+          {% endfor %}
+          {% set ns.inventory = ns.inventory | combine({ (group_name | string): hosts }) %}
+          {% endif %}
+          {% endfor %}
           {% for item in (_hyops_pg_apps | dict2items) %}
           {% set key = (item.key | string) %}
           {% set ns.apps = ns.apps | combine({
@@ -458,6 +554,7 @@
           }) %}
           {% endfor %}
           {% set ns.out = ns.out | combine({'apps': ns.apps}) %}
+          {% set ns.out = ns.out | combine({'inventory_groups': ns.inventory}) %}
           {# Backward-compat for NetBox consumption: publish db_* keys from apps.netbox if present #}
           {% if (_hyops_pg_apps is mapping) and ('netbox' in _hyops_pg_apps) %}
           {% set nb = _hyops_pg_apps['netbox'] %}

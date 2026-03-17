@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for module org/gcp/wan-hub-network.
 Architecture Decision: ADR-0206 (module execution contract v1)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -49,9 +49,15 @@ def _req_cidr_list(inputs: dict[str, Any], key: str) -> None:
 
 
 def validate(inputs: dict[str, Any]) -> None:
-    project_id = _req_str(inputs, "project_id")
-    if not _PROJECT_ID_RE.fullmatch(project_id):
-        raise ModuleValidationError("inputs.project_id is not a valid GCP project id format")
+    project_state_ref = str(inputs.get("project_state_ref") or "").strip()
+    project_id = str(inputs.get("project_id") or "").strip()
+    if project_state_ref:
+        if "/" not in project_state_ref:
+            raise ModuleValidationError("inputs.project_state_ref must look like a module state ref when set")
+    else:
+        project_id = _req_str(inputs, "project_id")
+        if not _PROJECT_ID_RE.fullmatch(project_id):
+            raise ModuleValidationError("inputs.project_id is not a valid GCP project id format")
 
     _req_str(inputs, "region")
 
@@ -72,6 +78,35 @@ def validate(inputs: dict[str, Any]) -> None:
     workloads = _req_cidr(inputs, "subnet_workloads_cidr")
     if core.overlaps(workloads):
         raise ModuleValidationError("inputs.subnet_core_cidr and inputs.subnet_workloads_cidr must not overlap")
+
+    enable_secondary_ranges = inputs.get("enable_workloads_gke_secondary_ranges")
+    if enable_secondary_ranges is not None and not isinstance(enable_secondary_ranges, bool):
+        raise ModuleValidationError("inputs.enable_workloads_gke_secondary_ranges must be a boolean when set")
+
+    if bool(enable_secondary_ranges):
+        pods_range_name = _req_str(inputs, "subnet_workloads_pods_secondary_range_name")
+        services_range_name = _req_str(inputs, "subnet_workloads_services_secondary_range_name")
+        if pods_range_name == services_range_name:
+            raise ModuleValidationError(
+                "inputs.subnet_workloads_pods_secondary_range_name and "
+                "inputs.subnet_workloads_services_secondary_range_name must be different"
+            )
+
+        pods = _req_cidr(inputs, "subnet_workloads_pods_secondary_range_cidr")
+        services = _req_cidr(inputs, "subnet_workloads_services_secondary_range_cidr")
+        if pods.overlaps(core) or pods.overlaps(workloads):
+            raise ModuleValidationError(
+                "inputs.subnet_workloads_pods_secondary_range_cidr must not overlap core/workloads subnets"
+            )
+        if services.overlaps(core) or services.overlaps(workloads):
+            raise ModuleValidationError(
+                "inputs.subnet_workloads_services_secondary_range_cidr must not overlap core/workloads subnets"
+            )
+        if pods.overlaps(services):
+            raise ModuleValidationError(
+                "inputs.subnet_workloads_pods_secondary_range_cidr and "
+                "inputs.subnet_workloads_services_secondary_range_cidr must not overlap"
+            )
 
     enable_iap_ssh = inputs.get("enable_iap_ssh")
     if enable_iap_ssh is not None and not isinstance(enable_iap_ssh, bool):
