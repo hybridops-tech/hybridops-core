@@ -19,6 +19,35 @@ hyops_ci::require_cmd() {
   }
 }
 
+hyops_ci::fs_free_bytes() {
+  local path="$1"
+  df -B1 --output=avail "${path}" | tail -n1 | tr -d '[:space:]'
+}
+
+hyops_ci::cache_root() {
+  if [[ -n "${HYOPS_CI_CACHE_ROOT:-}" ]]; then
+    printf '%s\n' "${HYOPS_CI_CACHE_ROOT}"
+    return 0
+  fi
+  printf '%s\n' "${XDG_CACHE_HOME:-${HOME}/.cache}/hyops/ci"
+}
+
+hyops_ci::retry() {
+  local attempts="$1"
+  shift
+
+  local delay_s="${HYOPS_CI_RETRY_DELAY_S:-3}"
+  local try=1
+
+  until "$@"; do
+    if (( try >= attempts )); then
+      return 1
+    fi
+    sleep "${delay_s}"
+    try=$(( try + 1 ))
+  done
+}
+
 hyops_ci::write_filtered_requirements() {
   local source_file="$1"
   local target_file="$2"
