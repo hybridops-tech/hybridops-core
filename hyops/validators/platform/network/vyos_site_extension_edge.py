@@ -1,7 +1,7 @@
 """hyops.validators.platform.network.vyos_site_extension_edge
 
 purpose: Validate inputs for platform/network/vyos-site-extension-edge module.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

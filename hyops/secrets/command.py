@@ -2,7 +2,7 @@
 
 purpose: Provide core-native secret sync commands for operator workflows.
 Architecture Decision: ADR-N/A (secrets command)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import secrets
@@ -144,6 +145,19 @@ def add_secrets_subparser(sp: argparse._SubParsersAction) -> None:
         help="Optional secret map file used when --persist=vault or --persist=gsm.",
     )
     s.add_argument(
+        "--persist-register-gsm-map",
+        action="store_true",
+        help="When --persist=gsm, add missing keys to the env-local GSM allowlist before persisting.",
+    )
+    s.add_argument(
+        "--persist-register-gsm-template",
+        default="hyops-{env}-{scope}-{env_key_slug}",
+        help=(
+            "Template used for env-local GSM map registration when "
+            "--persist-register-gsm-map is set (default: hyops-{env}-{scope}-{env_key_slug})."
+        ),
+    )
+    s.add_argument(
         "--persist-project-id",
         default=None,
         help="Optional GCP project id used when --persist=gsm.",
@@ -231,6 +245,19 @@ def add_secrets_subparser(sp: argparse._SubParsersAction) -> None:
         "--persist-map-file",
         default=None,
         help="Optional secret map file used when --persist=vault or --persist=gsm.",
+    )
+    e.add_argument(
+        "--persist-register-gsm-map",
+        action="store_true",
+        help="When --persist=gsm, add missing keys to the env-local GSM allowlist before persisting.",
+    )
+    e.add_argument(
+        "--persist-register-gsm-template",
+        default="hyops-{env}-{scope}-{env_key_slug}",
+        help=(
+            "Template used for env-local GSM map registration when "
+            "--persist-register-gsm-map is set (default: hyops-{env}-{scope}-{env_key_slug})."
+        ),
     )
     e.add_argument(
         "--persist-project-id",
@@ -329,10 +356,6 @@ def _default_map_file(ns_core_root: str | None) -> Path | None:
 
 
 def _default_gsm_map_file(ns_core_root: str | None) -> Path | None:
-    env_map = os.environ.get("HYOPS_GSM_MAP_FILE", "").strip()
-    if env_map:
-        return Path(env_map).expanduser().resolve()
-
     core_root = _find_core_root(ns_core_root)
     if not core_root:
         return None
@@ -356,6 +379,54 @@ def resolve_default_hashicorp_vault_map_file(ns_core_root: str | None) -> Path |
 
 def resolve_default_gsm_map_file(ns_core_root: str | None) -> Path | None:
     return _default_gsm_map_file(ns_core_root)
+
+
+def _runtime_gsm_map_file(paths) -> Path:
+    return paths.config_dir / "secrets" / "gsm" / "allowed.csv"
+
+
+def _resolve_gsm_map_file(paths, explicit_map_file: str | None, ns_core_root: str | None) -> Path | None:
+    raw_explicit = str(explicit_map_file or "").strip()
+    if raw_explicit:
+        return Path(raw_explicit).expanduser().resolve()
+
+    runtime_map = _runtime_gsm_map_file(paths)
+    if runtime_map.exists():
+        return runtime_map
+
+    env_map = os.environ.get("HYOPS_GSM_MAP_FILE", "").strip()
+    if env_map:
+        return Path(env_map).expanduser().resolve()
+
+    return _default_gsm_map_file(ns_core_root)
+
+
+def _load_gsm_map_entries(paths, explicit_map_file: str | None, ns_core_root: str | None) -> tuple[list[SecretMapEntry], list[Path]]:
+    raw_explicit = str(explicit_map_file or "").strip()
+    if raw_explicit:
+        path = Path(raw_explicit).expanduser().resolve()
+        return _load_map(path), [path]
+
+    merged: dict[tuple[str, str], SecretMapEntry] = {}
+    sources: list[Path] = []
+
+    def merge_from(path: Path | None) -> None:
+        if not path or not path.exists():
+            return
+        rows = _load_map(path)
+        for row in rows:
+            merged[(row.scope, row.env_key)] = row
+        sources.append(path)
+
+    merge_from(_default_gsm_map_file(ns_core_root))
+
+    env_map = os.environ.get("HYOPS_GSM_MAP_FILE", "").strip()
+    if env_map:
+        merge_from(Path(env_map).expanduser().resolve())
+
+    merge_from(_runtime_gsm_map_file(paths))
+
+    return list(merged.values()), sources
 
 
 def _load_map(path: Path) -> list[SecretMapEntry]:
@@ -525,11 +596,24 @@ def _write_gsm_secret(project_id: str, secret_name: str, value: str) -> None:
         raise RuntimeError(detail)
 
 
-def _expand_secret_ref(raw_ref: str, *, env_name: str, scope: str) -> str:
+def _slugify_secret_key(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    if not slug:
+        raise ValueError("secret key slug is empty")
+    return slug
+
+
+def _expand_secret_ref(raw_ref: str, *, env_name: str, scope: str, env_key: str | None = None) -> str:
     ref = str(raw_ref or "").strip()
     if not ref:
         raise ValueError("empty secret ref")
-    return ref.format(env=env_name, scope=scope)
+    key = str(env_key or "").strip()
+    return ref.format(
+        env=env_name,
+        scope=scope,
+        env_key=key,
+        env_key_slug=_slugify_secret_key(key) if key else "",
+    )
 
 
 def _resolve_paths(ns):
@@ -544,6 +628,64 @@ def _read_hashicorp_vault_config(paths) -> dict[str, str]:
     if not config_path.exists():
         return {}
     return {str(k): str(v) for k, v in read_kv_file(config_path).items()}
+
+
+def _append_gsm_map_entries(
+    *,
+    paths,
+    env_name: str,
+    scope: str,
+    keys: list[str],
+    template: str,
+    map_file_override: str | None = None,
+) -> tuple[int, str]:
+    if scope == "all":
+        return CONFIG_INVALID, "--persist-scope must be set to a concrete scope when registering GSM mappings"
+    if not keys:
+        return OK, "no GSM mappings needed"
+
+    map_path = (
+        Path(map_file_override).expanduser().resolve()
+        if map_file_override
+        else _runtime_gsm_map_file(paths)
+    )
+    rows: list[SecretMapEntry] = []
+    if map_path.exists():
+        try:
+            rows = _load_map(map_path)
+        except Exception as exc:
+            return CONFIG_INVALID, f"failed to load GSM map file {map_path}: {exc}"
+
+    existing_by_key: dict[str, SecretMapEntry] = {row.env_key: row for row in rows}
+    additions: list[SecretMapEntry] = []
+    for key in keys:
+        existing = existing_by_key.get(key)
+        if existing:
+            if existing.scope != scope:
+                return CONFIG_INVALID, (
+                    f"existing GSM mapping for {key} uses scope {existing.scope}, not requested scope {scope}"
+                )
+            continue
+        secret_name = _expand_secret_ref(template, env_name=env_name, scope=scope, env_key=key)
+        additions.append(SecretMapEntry(scope=scope, env_key=key, secret_name=secret_name))
+
+    if not additions:
+        return OK, f"ok: all requested keys already have GSM mappings in {map_path}"
+
+    map_path.parent.mkdir(parents=True, exist_ok=True)
+    if not map_path.exists():
+        lines = [
+            "# scope,ENV_KEY,GSM_SECRET_NAME",
+            "# Env-local GSM allowlist override. This file is env-specific and should not be copied into shipped core.",
+            "scope,ENV_KEY,GSM_SECRET_NAME",
+        ]
+    else:
+        current = map_path.read_text(encoding="utf-8").rstrip()
+        lines = [current] if current else []
+    for row in additions:
+        lines.append(f"{row.scope},{row.env_key},{row.secret_name}")
+    map_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return OK, f"registered {len(additions)} GSM mappings in {map_path}"
 
 
 def run_set(ns) -> int:
@@ -658,13 +800,38 @@ def run_set(ns) -> int:
             return rc
         print(message)
     elif persist_backend == "gsm":
+        rc, target_or_message = _validate_gsm_persist_target(
+            paths=paths,
+            env_name=str(getattr(ns, "env", None) or paths.root.name),
+            project_id_override=getattr(ns, "persist_project_id", None),
+            project_state_ref_override=getattr(ns, "persist_project_state_ref", None),
+        )
+        if rc != OK:
+            print(f"ERR: {target_or_message}")
+            return rc
+        if bool(getattr(ns, "persist_register_gsm_map", False)):
+            rc, message = _append_gsm_map_entries(
+                paths=paths,
+                env_name=str(getattr(ns, "env", None) or paths.root.name),
+                scope=str(getattr(ns, "persist_scope", "all") or "all").strip() or "all",
+                keys=sorted(updates.keys()),
+                template=str(
+                    getattr(ns, "persist_register_gsm_template", None)
+                    or "hyops-{env}-{scope}-{env_key_slug}"
+                ).strip(),
+                map_file_override=getattr(ns, "persist_map_file", None),
+            )
+            if rc != OK:
+                print(f"ERR: {message}")
+                return rc
+            print(message)
         rc, message = _persist_updates_to_gsm(
             paths=paths,
             env_name=str(getattr(ns, "env", None) or paths.root.name),
             scope=str(getattr(ns, "persist_scope", "all") or "all").strip() or "all",
             updates=updates,
             map_file_override=getattr(ns, "persist_map_file", None),
-            project_id_override=getattr(ns, "persist_project_id", None),
+            project_id_override=target_or_message,
             project_state_ref_override=getattr(ns, "persist_project_state_ref", None),
         )
         if rc != OK:
@@ -795,6 +962,15 @@ def resolve_gsm_project_id(
         if project_id:
             return OK, project_id
 
+    gcp_cfg = _read_gcp_config(paths)
+    project_id = str(
+        os.environ.get("GCP_PROJECT_ID")
+        or gcp_cfg.get("GCP_PROJECT_ID")
+        or ""
+    ).strip()
+    if project_id:
+        return OK, project_id
+
     implicit_ref = "org/gcp/project-factory"
     contract_inputs = {"project_state_ref": implicit_ref}
     try:
@@ -806,20 +982,51 @@ def resolve_gsm_project_id(
         if project_id:
             return OK, project_id
 
-    gcp_cfg = _read_gcp_config(paths)
-    project_id = str(
-        os.environ.get("GCP_PROJECT_ID")
-        or gcp_cfg.get("GCP_PROJECT_ID")
-        or ""
-    ).strip()
-    if project_id:
-        return OK, project_id
-
     return CONFIG_INVALID, (
         "GCP project id is not configured. Provide --project-id, set GCP_PROJECT_ID, "
         "run 'hyops init gcp --env <env>', or apply/use project state "
         "via --project-state-ref (for example org/gcp/project-factory)."
     )
+
+
+def _validate_gsm_persist_target(
+    *,
+    paths,
+    env_name: str,
+    project_id_override: str | None = None,
+    project_state_ref_override: str | None = None,
+) -> tuple[int, str]:
+    rc, project_or_message = resolve_gsm_project_id(
+        paths=paths,
+        env_name=env_name,
+        project_id_override=project_id_override,
+        project_state_ref_override=project_state_ref_override,
+    )
+    if rc != OK:
+        return rc, project_or_message
+
+    project_id = project_or_message
+    if not shutil.which("gcloud"):
+        return DEPENDENCY_MISSING, "missing command: gcloud"
+
+    try:
+        _ensure_gsm_api_ready(project_id)
+    except Exception as exc:
+        detail = str(exc).strip() or "unknown GCP Secret Manager access error"
+        lower_detail = detail.lower()
+        if "permission denied" in lower_detail or "auth_permission_denied" in lower_detail:
+            return CONFIG_INVALID, (
+                f"cannot access GCP project {project_id} for Secret Manager persistence: {detail}. "
+                "No env-local GSM mappings were changed. Re-run "
+                "'hyops init gcp --env <env> --with-cli-login --force' with the intended project, "
+                "or pass --project-id/--project-state-ref explicitly."
+            )
+        return CONFIG_INVALID, (
+            f"cannot prepare GCP Secret Manager for project {project_id}: {detail}. "
+            "No env-local GSM mappings were changed."
+        )
+
+    return OK, project_id
 
 
 def sync_gsm_to_runtime(
@@ -860,7 +1067,7 @@ def sync_gsm_to_runtime(
         ]
         for env_key in sorted(env_to_secret.keys()):
             secret_name, row_scope = env_to_secret[env_key]
-            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope)
+            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope, env_key=env_key)
             lines.append(f"would-sync {env_key} <= {expanded}")
         lines.append(f"count={len(env_to_secret)}")
         return OK, "\n".join(lines)
@@ -878,7 +1085,7 @@ def sync_gsm_to_runtime(
         return CONFIG_INVALID, str(exc)
     for env_key in sorted(env_to_secret.keys()):
         secret_name, row_scope = env_to_secret[env_key]
-        secret_name = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope)
+        secret_name = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope, env_key=env_key)
         try:
             updates[env_key] = _fetch_gsm_secret(project_id, secret_name)
         except Exception as exc:
@@ -917,13 +1124,17 @@ def run_gsm_sync(ns) -> int:
         else (paths.vault_dir / "bootstrap.vault.env")
     )
 
-    map_path = (
-        Path(ns.map_file).expanduser().resolve()
-        if getattr(ns, "map_file", None)
-        else _default_gsm_map_file(getattr(ns, "core_root", None))
-    )
-    if not map_path or not map_path.exists():
-        print("ERR: GCP Secret Manager map file not found. Use --map-file or set HYOPS_GSM_MAP_FILE.")
+    try:
+        rows, map_sources = _load_gsm_map_entries(paths, getattr(ns, "map_file", None), getattr(ns, "core_root", None))
+    except Exception as exc:
+        print(f"ERR: failed to load GCP Secret Manager map: {exc}")
+        return CONFIG_INVALID
+    if not map_sources:
+        print(
+            "ERR: GCP Secret Manager map file not found. "
+            "Use --map-file, set HYOPS_GSM_MAP_FILE, or create "
+            f"{_runtime_gsm_map_file(paths)}."
+        )
         return CONFIG_INVALID
 
     auth = VaultAuth(
@@ -934,7 +1145,7 @@ def run_gsm_sync(ns) -> int:
         paths=paths,
         env_name=str(getattr(ns, "env", None) or ""),
         scope=str(getattr(ns, "scope", "all") or "all").strip() or "all",
-        map_path=map_path,
+        map_path=map_sources[-1],
         auth=auth,
         project_id=project_id,
         dry_run=bool(getattr(ns, "dry_run", False)),
@@ -961,7 +1172,7 @@ def _persist_updates_to_gsm(
     if not updates:
         return OK, "no updates to persist"
 
-    rc, project_or_message = resolve_gsm_project_id(
+    rc, project_or_message = _validate_gsm_persist_target(
         paths=paths,
         env_name=env_name,
         project_id_override=project_id_override,
@@ -971,18 +1182,12 @@ def _persist_updates_to_gsm(
         return rc, project_or_message
     project_id = project_or_message
 
-    map_path = (
-        Path(map_file_override).expanduser().resolve()
-        if str(map_file_override or "").strip()
-        else _default_gsm_map_file(None)
-    )
-    if not map_path or not map_path.exists():
-        return CONFIG_INVALID, "GCP Secret Manager map file is missing"
-
     try:
-        rows = _load_map(map_path)
+        rows, map_sources = _load_gsm_map_entries(paths, map_file_override, None)
     except Exception as exc:
-        return CONFIG_INVALID, f"failed to load map file {map_path}: {exc}"
+        return CONFIG_INVALID, f"failed to load GCP Secret Manager map: {exc}"
+    if not map_sources:
+        return CONFIG_INVALID, "GCP Secret Manager map file is missing"
 
     if scope != "all":
         rows = [row for row in rows if row.scope == scope]
@@ -1002,26 +1207,22 @@ def _persist_updates_to_gsm(
         )
 
     if dry_run:
-        lines = [f"dry-run: project_id={project_id} scope={scope} map={map_path}"]
+        lines = [
+            "dry-run: "
+            f"project_id={project_id} scope={scope} "
+            f"maps={','.join(str(p) for p in map_sources)}"
+        ]
         for env_key in sorted(updates.keys()):
             secret_name, row_scope = env_to_secret[env_key]
-            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope)
+            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope, env_key=env_key)
             lines.append(f"would-persist {env_key} => {expanded}")
         lines.append(f"count={len(updates)}")
         return OK, "\n".join(lines)
 
-    if not shutil.which("gcloud"):
-        return DEPENDENCY_MISSING, "missing command: gcloud"
-
-    try:
-        _ensure_gsm_api_ready(project_id)
-    except Exception as exc:
-        return CONFIG_INVALID, str(exc)
-
     try:
         for env_key, value in updates.items():
             secret_name, row_scope = env_to_secret[env_key]
-            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope)
+            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope, env_key=env_key)
             _write_gsm_secret(project_id, expanded, value)
     except Exception as exc:
         return SECRETS_FAILED, f"failed to persist secrets to GCP Secret Manager: {exc}"
@@ -1054,26 +1255,27 @@ def run_gsm_persist(ns) -> int:
         print(f"ERR: failed to read vault file {vault_path}: {exc}")
         return SECRETS_FAILED
 
-    map_path = (
-        Path(ns.map_file).expanduser().resolve()
-        if getattr(ns, "map_file", None)
-        else _default_gsm_map_file(getattr(ns, "core_root", None))
-    )
-    if not map_path or not map_path.exists():
-        print("ERR: GCP Secret Manager map file not found. Use --map-file or set HYOPS_GSM_MAP_FILE.")
-        return CONFIG_INVALID
-
     try:
-        rows = _load_map(map_path)
+        rows, map_sources = _load_gsm_map_entries(paths, getattr(ns, "map_file", None), getattr(ns, "core_root", None))
     except Exception as exc:
-        print(f"ERR: failed to load map file {map_path}: {exc}")
+        print(f"ERR: failed to load GCP Secret Manager map: {exc}")
+        return CONFIG_INVALID
+    if not map_sources:
+        print(
+            "ERR: GCP Secret Manager map file not found. "
+            "Use --map-file, set HYOPS_GSM_MAP_FILE, or create "
+            f"{_runtime_gsm_map_file(paths)}."
+        )
         return CONFIG_INVALID
 
     scope = str(getattr(ns, "scope", "all") or "all").strip() or "all"
     if scope != "all":
         rows = [row for row in rows if row.scope == scope]
     if not rows:
-        print(f"ERR: no mapped secrets found for scope '{scope}' in {map_path}")
+        print(
+            f"ERR: no mapped secrets found for scope '{scope}' in merged GSM maps: "
+            + ", ".join(str(p) for p in map_sources)
+        )
         return CONFIG_INVALID
 
     updates: dict[str, str] = {}
@@ -1162,7 +1364,7 @@ def sync_hashicorp_vault_to_runtime(
         ]
         for env_key in sorted(env_to_secret.keys()):
             secret_name, row_scope = env_to_secret[env_key]
-            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope)
+            expanded = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope, env_key=env_key)
             lines.append(f"would-sync {env_key} <= {expanded}")
         lines.append(f"count={len(env_to_secret)}")
         return OK, "\n".join(lines)
@@ -1173,7 +1375,7 @@ def sync_hashicorp_vault_to_runtime(
     updates: dict[str, str] = {}
     for env_key in sorted(env_to_secret.keys()):
         secret_name, row_scope = env_to_secret[env_key]
-        secret_ref = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope)
+        secret_ref = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope, env_key=env_key)
         try:
             updates[env_key] = fetch_secret_value(
                 vault_addr=vault_addr,
@@ -1384,7 +1586,7 @@ def _persist_updates_to_hashicorp_vault(
     secret_payloads: dict[str, dict[str, object]] = {}
     for env_key, value in updates.items():
         secret_name, row_scope = env_to_secret[env_key]
-        secret_ref = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope)
+        secret_ref = _expand_secret_ref(secret_name, env_name=env_name, scope=row_scope, env_key=env_key)
         _secret_path, field = resolve_secret_ref(secret_ref, engine=engine)
         field_name = field or env_key
         bucket = secret_payloads.setdefault(secret_ref, {})
@@ -1472,6 +1674,7 @@ def _infer_required_env_from_module(ns, *, state_dir: Path) -> list[str]:
         module_root=module_root,
         inputs_file=inputs_file,
         state_dir=state_dir,
+        runtime_root=state_dir.parent.parent if state_dir else None,
     )
     raw = resolved.inputs.get("required_env")
     if raw is None:
@@ -1615,13 +1818,38 @@ def run_ensure(ns) -> int:
             return rc
         print(message)
     elif persist_backend == "gsm":
+        rc, target_or_message = _validate_gsm_persist_target(
+            paths=paths,
+            env_name=str(getattr(ns, "env", None) or paths.root.name),
+            project_id_override=getattr(ns, "persist_project_id", None),
+            project_state_ref_override=getattr(ns, "persist_project_state_ref", None),
+        )
+        if rc != OK:
+            print(f"ERR: {target_or_message}")
+            return rc
+        if bool(getattr(ns, "persist_register_gsm_map", False)):
+            rc, message = _append_gsm_map_entries(
+                paths=paths,
+                env_name=str(getattr(ns, "env", None) or paths.root.name),
+                scope=str(getattr(ns, "persist_scope", "all") or "all").strip() or "all",
+                keys=sorted(updates.keys()),
+                template=str(
+                    getattr(ns, "persist_register_gsm_template", None)
+                    or "hyops-{env}-{scope}-{env_key_slug}"
+                ).strip(),
+                map_file_override=getattr(ns, "persist_map_file", None),
+            )
+            if rc != OK:
+                print(f"ERR: {message}")
+                return rc
+            print(message)
         rc, message = _persist_updates_to_gsm(
             paths=paths,
             env_name=str(getattr(ns, "env", None) or paths.root.name),
             scope=str(getattr(ns, "persist_scope", "all") or "all").strip() or "all",
             updates=updates,
             map_file_override=getattr(ns, "persist_map_file", None),
-            project_id_override=getattr(ns, "persist_project_id", None),
+            project_id_override=target_or_message,
             project_state_ref_override=getattr(ns, "persist_project_state_ref", None),
         )
         if rc != OK:

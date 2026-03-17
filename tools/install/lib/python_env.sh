@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Python virtual environment and package install helpers for installer.
 # Architecture Decision: ADR-N/A (bootstrap installer)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 hyops_install_create_venv_and_payload() {
   echo "[install] creating venv"

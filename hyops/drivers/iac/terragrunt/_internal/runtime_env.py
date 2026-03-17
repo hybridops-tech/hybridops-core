@@ -10,19 +10,35 @@ from typing import Any
 
 
 def _resolve_hyops_executable() -> str:
-    """Resolve the current hyops executable path for child hooks/processes."""
+    """Resolve a real hyops executable path for child hooks/processes."""
+    try:
+        sibling = (Path(sys.executable).expanduser().resolve().parent / "hyops").resolve()
+        if sibling.exists() and os.access(sibling, os.X_OK):
+            return str(sibling)
+    except Exception:
+        pass
+
     argv0 = str(getattr(sys, "argv", [""])[:1][0] or "").strip()
     if argv0:
         if "/" in argv0:
             try:
-                return str(Path(argv0).expanduser().resolve())
+                candidate = Path(argv0).expanduser().resolve()
+                if candidate.exists() and os.access(candidate, os.X_OK):
+                    return str(candidate)
             except Exception:
                 pass
         resolved = shutil.which(argv0)
         if resolved:
-            return str(Path(resolved).expanduser().resolve())
+            candidate = Path(resolved).expanduser().resolve()
+            if candidate.exists() and os.access(candidate, os.X_OK):
+                return str(candidate)
+
     resolved = shutil.which("hyops")
-    return str(Path(resolved).expanduser().resolve()) if resolved else "hyops"
+    if resolved:
+        candidate = Path(resolved).expanduser().resolve()
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return "hyops"
 
 
 def build_runtime_env(*, runtime_root: Path, runtime: dict[str, Any]) -> tuple[dict[str, str], str]:

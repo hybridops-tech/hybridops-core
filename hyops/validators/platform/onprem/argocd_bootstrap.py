@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/onprem/argocd-bootstrap module.
 Architecture Decision: ADR-N/A (onprem argocd-bootstrap validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

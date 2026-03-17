@@ -1,7 +1,7 @@
 """hyops.validators.org.hetzner.vyos_edge_foundation
 
 purpose: Validate inputs for org/hetzner/vyos-edge-foundation.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -113,6 +113,20 @@ def validate(inputs: dict[str, Any]) -> None:
     floating_ip_type = _req_str(inputs, "floating_ip_type").lower()
     if floating_ip_type != "ipv4":
         raise ModuleValidationError("inputs.floating_ip_type currently supports only 'ipv4'")
+
+    foundation_state_ref = _opt_str(inputs, "foundation_state_ref")
+    if foundation_state_ref:
+        _req_str(inputs, "foundation_state_ref")
+
+    private_network_id = _opt_str(inputs, "private_network_id")
+    if private_network_id:
+        _req_str(inputs, "private_network_id")
+
+    private_network_name = _opt_str(inputs, "private_network_name")
+    if not foundation_state_ref and not private_network_id:
+        _req_str(inputs, "private_network_name")
+    elif private_network_name:
+        _req_str(inputs, "private_network_name")
 
     private_network_cidr = _req_str(inputs, "private_network_cidr")
     edge01_private_ip = _req_str(inputs, "edge01_private_ip")

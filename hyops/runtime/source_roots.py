@@ -2,7 +2,7 @@
 
 purpose: Resolve module/blueprint/input paths from cwd or installed HYOPS_CORE_ROOT.
 Architecture Decision: ADR-N/A (path discovery)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -10,6 +10,21 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+
+
+def _looks_like_collections_workspace(path: Path) -> bool:
+    try:
+        if not path.is_dir():
+            return False
+        for child in path.iterdir():
+            if not child.is_dir():
+                continue
+            name = child.name
+            if name.startswith("ansible-collection-") and not name.startswith("."):
+                return True
+    except Exception:
+        return False
+    return False
 
 
 def discover_core_root(explicit: str | Path | None = None) -> Path | None:
@@ -40,6 +55,46 @@ def discover_core_root(explicit: str | Path | None = None) -> Path | None:
             root = Path(r.stdout.strip()).resolve()
             if (root / "hyops").exists() and (root / "modules").exists():
                 return root
+    except Exception:
+        pass
+
+    return None
+
+
+def discover_collections_workspace(explicit: str | Path | None = None) -> Path | None:
+    """Best-effort discovery of the collections development workspace root."""
+    if explicit:
+        return Path(str(explicit)).expanduser().resolve()
+
+    env_root = str(os.environ.get("HYOPS_COLLECTIONS_WORKSPACE") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+
+    cur = Path.cwd().resolve()
+    for _ in range(0, 10):
+        if _looks_like_collections_workspace(cur):
+            return cur
+        candidate = (cur / "collections" / "dev" / "workspace").resolve()
+        if _looks_like_collections_workspace(candidate):
+            return candidate
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if r.returncode == 0:
+            root = Path(r.stdout.strip()).resolve()
+            if _looks_like_collections_workspace(root):
+                return root
+            candidate = (root / "collections" / "dev" / "workspace").resolve()
+            if _looks_like_collections_workspace(candidate):
+                return candidate
     except Exception:
         pass
 
@@ -137,6 +192,7 @@ def resolve_input_path(value: str | None = None) -> Path | None:
 
 
 __all__ = [
+    "discover_collections_workspace",
     "discover_core_root",
     "resolve_module_root",
     "resolve_blueprints_root",

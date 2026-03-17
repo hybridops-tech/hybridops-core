@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for platform/onprem/platform-vm module.
 Architecture Decision: ADR-N/A (onprem platform-vm validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

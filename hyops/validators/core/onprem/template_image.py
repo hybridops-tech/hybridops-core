@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for core/onprem/template-image module.
 Architecture Decision: ADR-N/A (onprem template-image validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

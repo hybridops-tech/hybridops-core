@@ -1,6 +1,6 @@
 # purpose: Persist non-secret runtime metadata for operator debugging and auditability.
 # Architecture Decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

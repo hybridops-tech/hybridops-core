@@ -2,7 +2,7 @@
 
 purpose: Centralize external HashiCorp Vault API access for validation and secret sync.
 Architecture Decision: ADR-N/A (HashiCorp Vault helpers)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

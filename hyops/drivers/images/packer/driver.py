@@ -1,7 +1,7 @@
 """
 purpose: Packer image driver for HybridOps.Core.
 Architecture Decision: ADR-N/A (images packer driver)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from hyops.runtime.credentials import (
 )
 from hyops.runtime.evidence import EvidenceWriter
 from hyops.runtime.packs import resolve_pack_stack
+from hyops.runtime.provider_bootstrap import gcp_bootstrap_guard_message
 from hyops.runtime.proc import run_capture_stream
 from hyops.runtime.coerce import as_bool, as_non_negative_int, as_positive_int
 from .proxmox_api import (
@@ -62,6 +63,16 @@ def _fail(ev: EvidenceWriter, result: dict[str, Any], msg: str) -> dict[str, Any
     if log_path.exists() and "open:" not in str(msg):
         msg = f"{msg} (open: {log_path})"
     result["status"] = "error"
+    result["error"] = msg
+    ev.write_json("driver_result.json", result)
+    return result
+
+
+def _cancel(ev: EvidenceWriter, result: dict[str, Any], msg: str) -> dict[str, Any]:
+    log_path = (ev.dir / "packer.log").resolve()
+    if log_path.exists() and "open:" not in str(msg):
+        msg = f"{msg} (open: {log_path})"
+    result["status"] = "cancelled"
     result["error"] = msg
     ev.write_json("driver_result.json", result)
     return result
@@ -349,6 +360,10 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             f"missing required credentials: {', '.join(missing_credentials)} "
             f"(expected credentials in {cred_path_hint}); {init_hint}",
         )
+    if "gcp" in required_credentials:
+        bootstrap_error = gcp_bootstrap_guard_message(runtime_root=runtime_root, module_ref=module_ref)
+        if bootstrap_error:
+            return _fail(ev, result, bootstrap_error)
 
     proxmox_provider = provider_env_key("proxmox")
     proxmox_path_raw = str(
@@ -854,7 +869,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                 return _fail(ev, result, "packer build failed")
             build_executed = True
     except KeyboardInterrupt:
-        return _fail(ev, result, "interrupted by user (Ctrl+C)")
+        return _cancel(ev, result, "cancelled by user")
     finally:
         _cleanup_files(shared_copies)
 

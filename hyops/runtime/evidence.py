@@ -1,7 +1,7 @@
 """
 purpose: Create deterministic evidence directories and write structured artifacts.
 Architecture Decision: ADR-N/A (evidence services)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

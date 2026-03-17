@@ -2,7 +2,7 @@
 
 purpose: Show readiness markers under `~/.hybridops/meta`.
 Architecture Decision: ADR-N/A (init status)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

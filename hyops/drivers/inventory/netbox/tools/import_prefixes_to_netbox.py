@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # purpose: Import prefixes and static pools into NetBox from Terraform/Terragrunt outputs.
 # adr: ADR-0002_source-of-truth_netbox-driven-inventory
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

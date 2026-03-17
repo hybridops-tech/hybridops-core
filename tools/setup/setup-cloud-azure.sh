@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Install Azure CLI prerequisites for HybridOps.Core.
 # architecture decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 

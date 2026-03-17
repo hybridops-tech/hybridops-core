@@ -1,7 +1,7 @@
 """hyops.validators.platform.onprem.vyos_edge
 
 purpose: Validate inputs for platform/onprem/vyos-edge.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

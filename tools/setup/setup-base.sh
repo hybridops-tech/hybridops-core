@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Install base system prerequisites for HybridOps.Core (pinned toolchain).
 # Architecture Decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 

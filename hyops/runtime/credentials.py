@@ -2,7 +2,7 @@
 
 purpose: Translate runtime credentials files into stable driver env exports.
 Architecture Decision: ADR-N/A (runtime credentials)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

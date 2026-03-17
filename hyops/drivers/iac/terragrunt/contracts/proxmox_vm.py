@@ -1,7 +1,7 @@
 """
 purpose: Module contract scaffold for on-prem Proxmox VM capability modules.
 Architecture Decision: ADR-N/A (terragrunt proxmox vm contract)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -11,15 +11,21 @@ import json
 import copy
 import os
 import re
+import shlex
+import shutil
 import socket
+import ssl
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
+from urllib import error as urlerror
+from urllib import request as urlrequest
 from urllib.parse import urlparse
 
 from hyops.runtime.module_state import read_module_state
 from hyops.runtime.coerce import as_bool, as_positive_int
+from hyops.runtime.credentials import parse_tfvars
 from hyops.runtime.netbox_env import resolve_netbox_authority_root
 from hyops.runtime.refs import module_id_from_ref
 from hyops.runtime.state import read_json
@@ -276,6 +282,251 @@ def _collect_requested_bridges(inputs: dict[str, Any]) -> set[str]:
     return bridges
 
 
+def _resolve_sdn_expected_gateways(
+    *,
+    sdn_outputs: dict[str, Any],
+    bridges: list[str],
+) -> tuple[dict[str, set[str]], str]:
+    subnets = sdn_outputs.get("subnets")
+    if not isinstance(subnets, dict):
+        return {}, "network_sdn outputs missing subnets"
+
+    expected: dict[str, set[str]] = {bridge: set() for bridge in bridges}
+    for subnet in subnets.values():
+        if not isinstance(subnet, dict):
+            continue
+        bridge = str(subnet.get("vnet") or "").strip()
+        if bridge not in expected:
+            continue
+        cidr = str(subnet.get("cidr") or "").strip()
+        gateway = str(subnet.get("gateway") or "").strip()
+        if not cidr or not gateway:
+            continue
+        try:
+            network = ipaddress.ip_network(cidr, strict=True)
+            gateway_ip = ipaddress.ip_address(gateway)
+        except Exception:
+            continue
+        if not isinstance(network, ipaddress.IPv4Network) or not isinstance(gateway_ip, ipaddress.IPv4Address):
+            continue
+        if gateway_ip not in network:
+            continue
+        expected[bridge].add(f"{gateway_ip}/{int(network.prefixlen)}")
+
+    missing = [bridge for bridge, addrs in expected.items() if not addrs]
+    if missing:
+        return {}, (
+            "network_sdn outputs do not define expected gateway CIDRs for requested bridge(s): "
+            f"[{', '.join(sorted(missing))}]"
+        )
+
+    return expected, ""
+
+
+def _probe_proxmox_host_bridge_ipv4(
+    *,
+    host: str,
+    user: str,
+    key_file: str,
+    bridges: list[str],
+    timeout_s: int = 8,
+) -> tuple[dict[str, set[str]], str]:
+    ssh_bin = shutil.which("ssh")
+    if not ssh_bin:
+        return {}, "missing command: ssh"
+    host = str(host or "").strip()
+    user = str(user or "").strip() or "root"
+    if not host:
+        return {}, "missing proxmox ssh host"
+
+    key_token = str(key_file or "").strip()
+    resolved_key = ""
+    if key_token:
+        key_path = Path(key_token).expanduser()
+        if not key_path.is_file():
+            return {}, f"proxmox ssh key not found: {key_path}"
+        resolved_key = str(key_path.resolve())
+
+    cmd = [
+        ssh_bin,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "LogLevel=ERROR",
+    ]
+    if resolved_key:
+        cmd.extend(["-i", resolved_key, "-o", "IdentitiesOnly=yes"])
+    cmd.append(f"{user}@{host}")
+    quoted_bridges = " ".join(shlex.quote(bridge) for bridge in bridges)
+    remote_cmd = (
+        "for dev in "
+        + quoted_bridges
+        + "; do "
+        + 'printf "__HYOPS_BRIDGE__ %s\\n" "$dev"; '
+        + 'ip -4 -o addr show dev "$dev" 2>/dev/null || true; '
+        + "done"
+    )
+    cmd.append(remote_cmd)
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=max(2, int(timeout_s)),
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {}, f"proxmox ssh probe timed out after {exc.timeout}s"
+    except Exception as exc:
+        return {}, f"proxmox ssh probe failed: {exc}"
+
+    if int(proc.returncode) != 0:
+        detail = (proc.stderr or "").strip() or (proc.stdout or "").strip() or f"rc={proc.returncode}"
+        return {}, f"proxmox ssh probe failed: {detail}"
+
+    observed: dict[str, set[str]] = {bridge: set() for bridge in bridges}
+    current_bridge = ""
+    for raw_line in (proc.stdout or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("__HYOPS_BRIDGE__ "):
+            current_bridge = line.split(" ", 1)[1].strip()
+            if current_bridge not in observed:
+                observed[current_bridge] = set()
+            continue
+        if not current_bridge:
+            continue
+        match = re.search(r"\binet\s+([0-9.]+/\d+)\b", line)
+        if match:
+            observed.setdefault(current_bridge, set()).add(match.group(1))
+
+    return observed, ""
+
+
+def _probe_proxmox_vm_exists(
+    *,
+    api_url: str,
+    api_token_id: str,
+    api_token_secret: str,
+    api_skip_tls: bool,
+    node: str,
+    host: str,
+    user: str,
+    key_file: str,
+    vm_id: int,
+    timeout_s: int = 8,
+) -> tuple[bool, bool, str]:
+    api_url = str(api_url or "").strip()
+    api_token_id = str(api_token_id or "").strip()
+    api_token_secret = str(api_token_secret or "").strip()
+    node = str(node or "").strip()
+    api_probe_err = ""
+    if api_url and api_token_id and api_token_secret and node:
+        base = api_url.rstrip("/")
+        endpoint = f"{base}/nodes/{node}/qemu/{int(vm_id)}/config"
+        req = urlrequest.Request(
+            endpoint,
+            headers={
+                "Authorization": f"PVEAPIToken={api_token_id}={api_token_secret}",
+                "Accept": "application/json",
+            },
+        )
+        context = None
+        if api_skip_tls:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        try:
+            with urlrequest.urlopen(req, timeout=max(2, int(timeout_s)), context=context) as resp:
+                payload = json.loads(resp.read().decode("utf-8") or "{}")
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                return False, False, f"proxmox api probe returned unexpected payload for vm_id={vm_id}"
+            is_template = str(data.get("template") or "").strip() in ("1", "true", "True")
+            return True, is_template, ""
+        except urlerror.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace").strip()
+            except Exception:
+                body = ""
+            if int(exc.code) == 404:
+                return False, False, ""
+            detail = body or str(exc.reason or exc)
+            api_probe_err = f"proxmox api probe failed: HTTP {exc.code}: {detail}"
+        except Exception as exc:
+            api_probe_err = f"proxmox api probe failed: {exc}"
+
+    ssh_bin = shutil.which("ssh")
+    if not ssh_bin:
+        return False, False, api_probe_err or "missing command: ssh"
+    host = str(host or "").strip()
+    user = str(user or "").strip() or "root"
+    if not host:
+        return False, False, api_probe_err or "missing proxmox ssh host"
+
+    key_token = str(key_file or "").strip()
+    resolved_key = ""
+    if key_token:
+        key_path = Path(key_token).expanduser()
+        if not key_path.is_file():
+            return False, False, api_probe_err or f"proxmox ssh key not found: {key_path}"
+        resolved_key = str(key_path.resolve())
+
+    cmd = [
+        ssh_bin,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "LogLevel=ERROR",
+    ]
+    if resolved_key:
+        cmd.extend(["-i", resolved_key, "-o", "IdentitiesOnly=yes"])
+    cmd.append(f"{user}@{host}")
+    cmd.append(f"qm config {int(vm_id)}")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=max(2, int(timeout_s)),
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, False, api_probe_err or f"proxmox vm probe timed out after {exc.timeout}s"
+    except Exception as exc:
+        return False, False, api_probe_err or f"proxmox vm probe failed: {exc}"
+
+    if int(proc.returncode) != 0:
+        detail = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
+        lowered = detail.lower()
+        if (
+            "does not exist" in lowered
+            or "not exist" in lowered
+            or "no such file" in lowered
+            or "configuration file" in lowered
+        ):
+            return False, False, ""
+        return False, False, api_probe_err or f"proxmox vm probe failed: {detail or f'rc={proc.returncode}'}"
+
+    config_text = proc.stdout or ""
+    is_template = bool(re.search(r"(?m)^template:\s*1\s*$", config_text))
+    return True, is_template, ""
+
+
 def _infer_proxmox_jump_host(meta_dir: Path) -> str:
     """Best-effort infer a bastion host (Proxmox) for mgmt-only networks."""
     path = (meta_dir / "proxmox.ready.json").resolve()
@@ -289,6 +540,50 @@ def _infer_proxmox_jump_host(meta_dir: Path) -> str:
     if not isinstance(runtime, dict):
         return ""
     return str(runtime.get("api_ip") or "").strip()
+
+
+def _resolve_proxmox_runtime_credentials(credential_env: dict[str, str]) -> dict[str, Any]:
+    """Resolve effective Proxmox credentials from runtime exports and tfvars files."""
+    resolved: dict[str, Any] = {}
+    candidate_paths: list[Path] = []
+
+    for env_key in ("HYOPS_PROXMOX_TFVARS", "HYOPS_PROXMOX_CREDENTIALS_FILE"):
+        raw = str(credential_env.get(env_key) or "").strip()
+        if not raw:
+            continue
+        path = Path(raw).expanduser()
+        if path in candidate_paths:
+            continue
+        candidate_paths.append(path)
+
+    for path in candidate_paths:
+        try:
+            parsed = parse_tfvars(path.resolve())
+        except Exception:
+            continue
+        for key, value in parsed.items():
+            if key not in resolved and str(value).strip():
+                resolved[key] = str(value).strip()
+
+    for key in (
+        "proxmox_url",
+        "proxmox_token_id",
+        "proxmox_token_secret",
+        "proxmox_skip_tls",
+        "proxmox_node",
+        "proxmox_ssh_username",
+        "proxmox_ssh_key",
+    ):
+        direct = credential_env.get(key)
+        if direct is None:
+            continue
+        if key not in resolved and str(direct).strip():
+            resolved[key] = direct
+
+    if "proxmox_skip_tls" in resolved:
+        resolved["proxmox_skip_tls"] = as_bool(resolved.get("proxmox_skip_tls"), default=False)
+
+    return resolved
 
 
 def _probe_netbox_api(base_url: str, token: str, *, timeout_s: float = 5.0) -> str:
@@ -647,15 +942,16 @@ def _ensure_netbox_client(
         warnings.append(f"netbox api became ready after retry wait ({direct_elapsed:.1f}s)")
     if err:
         # Optional: tunnel via Proxmox (typical in lab setups where mgmt is not routed).
+        proxmox_credentials = _resolve_proxmox_runtime_credentials(credential_env)
         jump_host = str(ssh_proxy_jump_host or "").strip() or _infer_proxmox_jump_host(meta_dir)
         jump_user = (
             str(ssh_proxy_jump_user or "").strip()
-            or str(credential_env.get("proxmox_ssh_username") or "root").strip()
+            or str(proxmox_credentials.get("proxmox_ssh_username") or "root").strip()
             or "root"
         )
         jump_key = (
             str(ssh_proxy_jump_key_file or "").strip()
-            or str(credential_env.get("proxmox_ssh_key") or "~/.ssh/id_ed25519").strip()
+            or str(proxmox_credentials.get("proxmox_ssh_key") or "~/.ssh/id_ed25519").strip()
             or "~/.ssh/id_ed25519"
         )
 
@@ -874,6 +1170,64 @@ class ProxmoxVmContract(TerragruntModuleContract):
         elif template_key and not template_state_ref:
             warnings.append("template_key ignored because template_state_ref is not set")
 
+        resolved_template_vm_id = as_positive_int(out.get("template_vm_id"))
+        if resolved_template_vm_id is not None:
+            meta_dir = (
+                Path(str(runtime.get("meta_dir") or "")).expanduser().resolve()
+                if str(runtime.get("meta_dir") or "").strip()
+                else None
+            )
+            proxmox_credentials = _resolve_proxmox_runtime_credentials(credential_env)
+            proxmox_host = _infer_proxmox_jump_host(meta_dir) if meta_dir else ""
+            proxmox_user = str(proxmox_credentials.get("proxmox_ssh_username") or "root").strip() or "root"
+            proxmox_key = str(proxmox_credentials.get("proxmox_ssh_key") or "").strip()
+            proxmox_api_url = str(proxmox_credentials.get("proxmox_url") or "").strip()
+            proxmox_token_id = str(proxmox_credentials.get("proxmox_token_id") or "").strip()
+            proxmox_token_secret = str(proxmox_credentials.get("proxmox_token_secret") or "").strip()
+            proxmox_skip_tls = as_bool(proxmox_credentials.get("proxmox_skip_tls"), default=False)
+            proxmox_node = str(proxmox_credentials.get("proxmox_node") or "").strip()
+            if (proxmox_api_url and proxmox_token_id and proxmox_token_secret and proxmox_node) or (
+                proxmox_host and proxmox_key
+            ):
+                exists, is_template, probe_err = _probe_proxmox_vm_exists(
+                    api_url=proxmox_api_url,
+                    api_token_id=proxmox_token_id,
+                    api_token_secret=proxmox_token_secret,
+                    api_skip_tls=proxmox_skip_tls,
+                    node=proxmox_node,
+                    host=proxmox_host,
+                    user=proxmox_user,
+                    key_file=proxmox_key,
+                    vm_id=int(resolved_template_vm_id),
+                )
+                if probe_err:
+                    warnings.append(f"template vm probe skipped: {probe_err}")
+                elif not exists:
+                    if template_state_ref:
+                        source_hint = (
+                            f"template_vm_id={resolved_template_vm_id} resolved from template_state_ref={template_state_ref}"
+                        )
+                    else:
+                        source_hint = f"configured template_vm_id={resolved_template_vm_id}"
+                    return (
+                        out,
+                        warnings,
+                        f"{source_hint}, but no VM/template with that ID exists on the Proxmox host. "
+                        "Rebuild or reseed the template first "
+                        "(for example: core/onprem/template-image or core/onprem/vyos-template-seed).",
+                    )
+                elif not is_template:
+                    return (
+                        out,
+                        warnings,
+                        f"template_vm_id={resolved_template_vm_id} exists on the Proxmox host but is not marked as a template. "
+                        "Fix the source VM or rebuild the template before continuing.",
+                    )
+            else:
+                warnings.append(
+                    "template vm probe skipped: proxmox API or SSH runtime credentials are not available"
+                )
+
         # Hard safety rail: prevent accidental destructive replacement of an
         # already-managed VM set under the same module_ref in the same env.
         requested_vm_names = _collect_requested_vm_names(out)
@@ -974,6 +1328,58 @@ class ProxmoxVmContract(TerragruntModuleContract):
                     "requested HyOps SDN bridge(s) are not present in network_sdn state outputs: "
                     f"[{', '.join(missing_bridges)}]. Known vnets: [{known}]",
                 )
+            expected_gateways, gateway_err = _resolve_sdn_expected_gateways(
+                sdn_outputs=sdn_outputs,
+                bridges=managed_sdn_bridges,
+            )
+            if gateway_err:
+                return out, warnings, gateway_err
+
+            meta_dir = Path(str(runtime.get("meta_dir") or "")).expanduser().resolve() if str(runtime.get("meta_dir") or "").strip() else None
+            proxmox_credentials = _resolve_proxmox_runtime_credentials(credential_env)
+            proxmox_host = _infer_proxmox_jump_host(meta_dir) if meta_dir else ""
+            proxmox_user = str(proxmox_credentials.get("proxmox_ssh_username") or "root").strip() or "root"
+            proxmox_key = str(proxmox_credentials.get("proxmox_ssh_key") or "").strip()
+            if proxmox_host and proxmox_key:
+                observed_gateways, probe_err = _probe_proxmox_host_bridge_ipv4(
+                    host=proxmox_host,
+                    user=proxmox_user,
+                    key_file=proxmox_key,
+                    bridges=managed_sdn_bridges,
+                )
+                if probe_err:
+                    warnings.append(f"sdn host gateway probe skipped: {probe_err}")
+                else:
+                    drift: list[str] = []
+                    for bridge in managed_sdn_bridges:
+                        expected_for_bridge = sorted(expected_gateways.get(bridge) or [])
+                        observed_for_bridge = sorted(observed_gateways.get(bridge) or [])
+                        if any(addr in observed_for_bridge for addr in expected_for_bridge):
+                            continue
+                        drift.append(
+                            f"{bridge} expected={expected_for_bridge} observed={observed_for_bridge}"
+                        )
+                    if drift:
+                        env_name_hint = str(env.get("HYOPS_ENV") or runtime.get("env") or _DEFAULT_SDN_AUTHORITY_ENV).strip() or _DEFAULT_SDN_AUTHORITY_ENV
+                        return (
+                            out,
+                            warnings,
+                            "host-side Proxmox SDN gateway drift detected for requested HyOps bridge(s): "
+                            + "; ".join(drift)
+                            + ". Re-run core/onprem/network-sdn with the same topology inputs and a fresh "
+                            + "host_reconcile_nonce, for example: "
+                            + f"HYOPS_INPUT_host_reconcile_nonce=$(date -u +%Y%m%dT%H%M%SZ) hyops apply --env {env_name_hint} "
+                            + "--module core/onprem/network-sdn --inputs <network-sdn-inputs.yml>",
+                        )
+            else:
+                if not proxmox_host:
+                    warnings.append(
+                        "sdn host gateway probe skipped: proxmox.ready.json is missing or does not publish api_ip"
+                    )
+                elif not proxmox_key:
+                    warnings.append(
+                        "sdn host gateway probe skipped: proxmox ssh key not available in runtime credentials"
+                    )
 
         # Optional: IPAM-driven static addressing (NetBox authority).
         addressing = out.get("addressing")

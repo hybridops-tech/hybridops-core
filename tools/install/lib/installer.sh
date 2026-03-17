@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: High-level installer orchestration for HybridOps.Core.
 # Architecture Decision: ADR-N/A (bootstrap installer)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 _hyops_install_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Verify a HybridOps.Core release bundle via isolated install and payload drift checks.
 # adr: ADR-0622
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 

@@ -2,7 +2,7 @@
 
 purpose: Centralize shared init run-id, evidence dir, and config parsing helpers.
 Architecture Decision: ADR-N/A (init helpers)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

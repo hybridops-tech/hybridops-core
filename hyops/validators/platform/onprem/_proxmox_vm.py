@@ -1,7 +1,7 @@
 """
 purpose: Shared input validation helpers for on-prem Proxmox VM modules.
 Architecture Decision: ADR-N/A (onprem proxmox vm validators)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -13,6 +13,14 @@ from typing import Any
 
 _VM_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _MAC_RE = re.compile(r"^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$")
+
+
+def _reject_placeholder(value: Any, field: str) -> str:
+    token = _require_non_empty_str(value, field)
+    marker = token.strip().upper().replace("-", "_")
+    if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker or "REPLACE_" in marker:
+        raise ValueError(f"{field} must not contain placeholder values (found {token!r})")
+    return token
 
 
 def _require_mapping(value: Any, field: str) -> dict[str, Any]:
@@ -94,7 +102,7 @@ def _validate_interfaces(value: Any, field: str) -> None:
     for idx, item in enumerate(value, start=1):
         nic_field = f"{field}[{idx}]"
         nic = _require_mapping(item, nic_field)
-        _require_non_empty_str(nic.get("bridge"), f"{nic_field}.bridge")
+        _reject_placeholder(nic.get("bridge"), f"{nic_field}.bridge")
 
         mac = nic.get("mac_address")
         if mac is not None and str(mac).strip() != "":
@@ -106,7 +114,7 @@ def _validate_interfaces(value: Any, field: str) -> None:
             continue
 
         ipv4_map = _require_mapping(ipv4, f"{nic_field}.ipv4")
-        address = _require_non_empty_str(ipv4_map.get("address"), f"{nic_field}.ipv4.address")
+        address = _reject_placeholder(ipv4_map.get("address"), f"{nic_field}.ipv4.address")
         gateway = str(ipv4_map.get("gateway") or "").strip()
         addr_token = address.lower()
 
@@ -125,6 +133,7 @@ def _validate_interfaces(value: Any, field: str) -> None:
         if idx == 1:
             if not gateway:
                 raise ValueError(f"{nic_field}.ipv4.gateway is required for static primary NIC")
+            _reject_placeholder(gateway, f"{nic_field}.ipv4.gateway")
             try:
                 gw_ip = ipaddress.ip_address(gateway)
             except Exception as exc:

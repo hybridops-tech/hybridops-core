@@ -1,7 +1,7 @@
 """hyops.validators.core.hetzner.vyos_image_seed
 
 purpose: Validate inputs for core/hetzner/vyos-image-seed.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from hyops.validators.common import normalize_required_env
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -19,6 +20,10 @@ _COMPRESSION_RE = re.compile(r"^(xz|bz2|gz|none|raw)$")
 _SEED_LOCATION_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 _SEED_SERVER_TYPE_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 _QCOW2_URL_RE = re.compile(r"\.qcow2(?:\.(?:xz|gz|bz2))?(?:\?.*)?$", re.IGNORECASE)
+_GCS_ENV_KEYS = (
+    "HYOPS_VYOS_GCS_SA_JSON",
+    "HYOPS_VYOS_GCS_SA_JSON_FILE",
+)
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
@@ -53,6 +58,16 @@ def _req_bool(inputs: dict[str, Any], key: str) -> bool:
     return value
 
 
+def _private_gcs_download_expected(*, artifact_state_ref: str, source_url: str) -> bool:
+    if source_url.startswith("gs://"):
+        return True
+    if artifact_state_ref.startswith("core/shared/vyos-image-build") and source_url.startswith(
+        "https://storage.googleapis.com/"
+    ):
+        return True
+    return False
+
+
 def validate(inputs: dict[str, Any]) -> None:
     image_key = _req_str(inputs, "image_key")
     if not _IMAGE_KEY_RE.fullmatch(image_key):
@@ -63,6 +78,11 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ModuleValidationError(
             "inputs.image_ref must match ^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,126}$ when set"
         )
+
+    try:
+        required_env = normalize_required_env(inputs.get("required_env"), "inputs.required_env")
+    except ValueError as exc:
+        raise ModuleValidationError(str(exc)) from exc
 
     _opt_str(inputs, "image_name")
     _opt_str(inputs, "image_description")
@@ -85,9 +105,9 @@ def validate(inputs: dict[str, Any]) -> None:
     source_url = _opt_str(inputs, "image_source_url")
     if source_url and "://" not in source_url:
         raise ModuleValidationError("inputs.image_source_url must look like a URL when set")
-    if source_url and not source_url.lower().startswith(("http://", "https://")):
+    if source_url and not source_url.lower().startswith(("http://", "https://", "gs://")):
         raise ModuleValidationError(
-            "inputs.image_source_url must be an http(s) URL reachable by Hetzner rescue. "
+            "inputs.image_source_url must be an http(s) or gs:// URL reachable by the execution host. "
             "If you only have a private/object-store URL, publish it first via core/shared/vyos-image-build."
         )
 
@@ -147,5 +167,12 @@ def validate(inputs: dict[str, Any]) -> None:
             "and HyOps is expected to auto-wrap it for Hetzner. Set a publicly reachable base URL for the execution host, "
             "or provide inputs.seed_command explicitly."
         )
+
+    if _private_gcs_download_expected(artifact_state_ref=artifact_state_ref, source_url=source_url):
+        if not any(env_key in required_env for env_key in _GCS_ENV_KEYS):
+            raise ModuleValidationError(
+                "inputs.required_env must include HYOPS_VYOS_GCS_SA_JSON or HYOPS_VYOS_GCS_SA_JSON_FILE "
+                "when the Hetzner seed path consumes a private GCS-backed VyOS artifact"
+            )
 
     _opt_str(inputs, "notes")

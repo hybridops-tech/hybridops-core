@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Sync selected secrets from Azure Key Vault into HybridOps runtime vault.
 # Architecture Decision: ADR-0020-secrets-strategy
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 

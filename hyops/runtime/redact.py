@@ -2,7 +2,7 @@
 
 purpose: Prevent secret leakage in logs and evidence outputs.
 Architecture Decision: ADR-N/A (redaction)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

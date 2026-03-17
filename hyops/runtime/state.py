@@ -2,7 +2,7 @@
 
 purpose: Read/write small JSON state files atomically (latest.json, readiness markers).
 Architecture Decision: ADR-N/A (state)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

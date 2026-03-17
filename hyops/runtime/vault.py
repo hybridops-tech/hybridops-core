@@ -2,7 +2,7 @@
 
 purpose: Read and update an ansible-vault encrypted env file in a controlled manner.
 Architecture Decision: ADR-N/A (vault helpers)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -236,11 +236,16 @@ def _parse_env(text: str) -> dict[str, str]:
             nxt = value[idx + 1]
             if nxt == "n":
                 out.append("\n")
+            elif nxt == "r":
+                out.append("\r")
             elif nxt == '"':
                 out.append('"')
             elif nxt == "\\":
                 out.append("\\")
             else:
+                # Preserve unrecognised escape sequences rather than dropping
+                # the backslash — avoids silent data corruption on unknown input.
+                out.append("\\")
                 out.append(nxt)
             idx += 2
         return "".join(out)
@@ -271,13 +276,14 @@ def _render_env(env: Mapping[str, str]) -> str:
             value
             .replace("\\", "\\\\")
             .replace('"', '\\"')
+            .replace("\r", "\\r")
             .replace("\n", "\\n")
         )
 
     lines = [
         "# purpose: HybridOps.Core bootstrap vault env (ansible-vault encrypted)",
         "# Architecture Decision: ADR-N/A (bootstrap vault env)",
-        "# maintainer: HybridOps.Studio",
+        "# maintainer: HybridOps.Tech",
         "",
     ]
     for k in sorted(env.keys()):

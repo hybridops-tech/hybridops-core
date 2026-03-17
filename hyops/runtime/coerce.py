@@ -2,7 +2,7 @@
 
 purpose: Small, consistent coercion helpers used across drivers/commands.
 Architecture Decision: ADR-N/A
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

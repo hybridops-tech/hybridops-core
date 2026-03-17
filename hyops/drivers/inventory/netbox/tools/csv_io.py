@@ -1,6 +1,6 @@
 # purpose: Read/merge/write infrastructure.csv while preserving exporter-specific metadata columns.
 # adr: ADR-0002_source-of-truth_netbox-driven-inventory
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

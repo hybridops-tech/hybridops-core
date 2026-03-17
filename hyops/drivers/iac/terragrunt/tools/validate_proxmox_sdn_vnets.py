@@ -3,7 +3,7 @@
 
 purpose: Fail fast on invalid custom SDN topology before Terragrunt driver actions.
 Architecture Decision: ADR-N/A (proxmox sdn contract)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

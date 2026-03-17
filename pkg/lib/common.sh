@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Shared helpers for HybridOps.Core release bundle tooling.
 # adr: ADR-0622
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 

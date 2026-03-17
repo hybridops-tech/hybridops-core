@@ -1,7 +1,7 @@
 """
 purpose: Module contract for org/gcp/wan-vpn-to-edge Terragrunt behavior.
 Architecture Decision: ADR-N/A (terragrunt contracts)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

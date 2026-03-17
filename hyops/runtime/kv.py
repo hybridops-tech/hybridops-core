@@ -2,7 +2,7 @@
 
 purpose: Shared parser for HyOps init/runtime config files.
 Architecture Decision: ADR-N/A
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

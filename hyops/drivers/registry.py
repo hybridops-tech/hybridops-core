@@ -1,7 +1,7 @@
 """
 purpose: Driver registry and loading for HybridOps.Core.
 Architecture Decision: ADR-N/A (driver registry)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Bootstrap a Proxmox host for HybridOps runtime credentials and discovery.
 # Architecture Decision: ADR-N/A (init proxmox remote bootstrap)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 
@@ -190,10 +190,12 @@ log_info "Bridge=${BRIDGE}"
 pveum acl modify /vms                       --user "${USER_FQ}" --role PVEVMAdmin 2>/dev/null || log_warn "Failed to set ACL on /vms"
 pveum acl modify "/storage/${STORAGE_VM}"  --user "${USER_FQ}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set ACL on storage ${STORAGE_VM}"
 pveum acl modify "/storage/${STORAGE_ISO}" --user "${USER_FQ}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set ACL on storage ${STORAGE_ISO}"
+pveum acl modify "/storage/${STORAGE_SNIPPETS}" --user "${USER_FQ}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set ACL on storage ${STORAGE_SNIPPETS}"
 
 pveum acl modify /                          --token "${TOKEN_ID}" --role PVEVMAdmin 2>/dev/null || log_warn "Failed to set token ACL on /"
 pveum acl modify "/storage/${STORAGE_VM}"  --token "${TOKEN_ID}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set token ACL on storage ${STORAGE_VM}"
 pveum acl modify "/storage/${STORAGE_ISO}" --token "${TOKEN_ID}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set token ACL on storage ${STORAGE_ISO}"
+pveum acl modify "/storage/${STORAGE_SNIPPETS}" --token "${TOKEN_ID}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set token ACL on storage ${STORAGE_SNIPPETS}"
 
 if [[ -n "${TOKEN_SECRET}" ]]; then
   printf 'EXPORT:TOKEN_SECRET=%s\n' "${TOKEN_SECRET}"

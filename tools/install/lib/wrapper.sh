@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Wrapper/script generation helpers for installer.
 # Architecture Decision: ADR-N/A (bootstrap installer)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 hyops_install_write_wrapper() {
   local target_path="$1"

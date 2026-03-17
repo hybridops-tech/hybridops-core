@@ -1,7 +1,7 @@
 """
 purpose: Discover and register driver plugins (entrypoints).
 Architecture Decision: ADR-N/A (driver plugins)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

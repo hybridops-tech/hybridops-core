@@ -294,6 +294,10 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                     step.get("skip_if_state_ok"),
                     f"steps[{idx}].skip_if_state_ok",
                 ),
+                "verify_state_on_skip": bool_field(
+                    step.get("verify_state_on_skip"),
+                    f"steps[{idx}].verify_state_on_skip",
+                ),
                 "optional": bool_field(step.get("optional"), f"steps[{idx}].optional"),
                 "inputs": inputs if isinstance(inputs, dict) else None,
                 "inputs_file": str(inputs_file).strip() if isinstance(inputs_file, str) else "",

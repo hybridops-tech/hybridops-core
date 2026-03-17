@@ -1,6 +1,6 @@
 # purpose: Package manifest for HybridOps.Core release bundles.
 # adr: ADR-0622
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 include:
   - install.sh

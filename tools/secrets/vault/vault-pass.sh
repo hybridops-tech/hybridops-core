@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Ansible Vault password provider backed by pass
 # adr: ADR-0610-env-bootstrap-scripts
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 umask 077

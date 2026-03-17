@@ -1,7 +1,7 @@
 """hyops.validators.core.hetzner.vyos_image_register
 
 purpose: Validate inputs for core/hetzner/vyos-image-register.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

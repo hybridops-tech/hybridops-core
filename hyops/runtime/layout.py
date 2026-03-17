@@ -2,7 +2,7 @@
 
 purpose: Create and validate `~/.hybridops` layout with secure permissions.
 Architecture Decision: ADR-N/A (runtime layout)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

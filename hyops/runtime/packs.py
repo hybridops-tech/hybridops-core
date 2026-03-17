@@ -1,7 +1,7 @@
 """
 purpose: Resolve a pack stack directory from driver_ref + pack_id.
 Architecture Decision: ADR-N/A (pack resolution)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

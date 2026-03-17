@@ -2,7 +2,7 @@
 
 purpose: Shared low-level validation helpers used by module validators.
 Architecture Decision: ADR-N/A (validator helper consolidation)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

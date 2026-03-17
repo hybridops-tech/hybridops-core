@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # purpose: Minimal NetBox API wrapper for idempotent infrastructure import
 # adr: ADR-0002_source-of-truth_netbox-driven-inventory
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

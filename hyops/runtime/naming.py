@@ -1,7 +1,7 @@
 """
 purpose: Provider-aware naming helpers for env-scoped resources.
 Architecture Decision: ADR-N/A (naming policy)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

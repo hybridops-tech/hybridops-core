@@ -2,7 +2,7 @@
 
 purpose: Provide the `hyops` operator CLI and shared runtime services.
 Architecture Decision: ADR-N/A (core runtime scaffold)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 __all__ = ["__version__"]

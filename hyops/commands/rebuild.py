@@ -1,7 +1,7 @@
 """
 purpose: Rebuild module resources by running preflight, destroy, then apply.
 Architecture Decision: ADR-N/A (rebuild orchestration)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any
 from hyops.commands import apply as cmd_apply
 from hyops.preflight import command as cmd_preflight
 from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
+from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.refs import module_id_from_ref, normalize_module_ref
@@ -72,12 +73,15 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
     p.set_defaults(_handler=run)
 
 
-def _ask_confirmation(module_ref: str) -> bool:
+def _ask_confirmation(module_ref: str) -> bool | None:
     prompt = f"rebuild will destroy and re-apply module '{module_ref}'. continue? [y/N]: "
     try:
         answer = input(prompt)
     except EOFError:
         return False
+    except KeyboardInterrupt:
+        print()
+        return None
     return str(answer or "").strip().lower() in ("y", "yes")
 
 
@@ -109,7 +113,11 @@ def run(ns) -> int:
             return 2
 
     if not bool(getattr(ns, "yes", False)):
-        if not _ask_confirmation(module_ref):
+        confirmed = _ask_confirmation(module_ref)
+        if confirmed is None:
+            print("Cancelled by user.")
+            return CANCELLED
+        if not confirmed:
             print("Cancelled.")
             return 2
 
@@ -170,10 +178,13 @@ def run(ns) -> int:
         )
         rc_preflight = int(cmd_preflight.run(preflight_ns))
         summary["phases"]["preflight"] = {"status": "ok" if rc_preflight == 0 else "error", "exit_code": rc_preflight}
+        if rc_preflight == CANCELLED:
+            summary["phases"]["preflight"]["status"] = "cancelled"
         _write_rebuild_metadata()
         if rc_preflight != 0:
-            print(f"rebuild phase=preflight status=error exit_code={rc_preflight}")
-            print(f"evidence: {evidence_dir}")
+            phase_status = "cancelled" if rc_preflight == CANCELLED else "error"
+            print(f"rebuild phase=preflight status={phase_status} exit_code={rc_preflight}")
+            print(f"run record: {evidence_dir}")
             return rc_preflight
 
     destroy_ns = SimpleNamespace(
@@ -191,10 +202,13 @@ def run(ns) -> int:
     )
     rc_destroy = int(cmd_apply.run(destroy_ns))
     summary["phases"]["destroy"] = {"status": "ok" if rc_destroy == 0 else "error", "exit_code": rc_destroy}
+    if rc_destroy == CANCELLED:
+        summary["phases"]["destroy"]["status"] = "cancelled"
     _write_rebuild_metadata()
     if rc_destroy != 0:
-        print(f"rebuild phase=destroy status=error exit_code={rc_destroy}")
-        print(f"evidence: {evidence_dir}")
+        phase_status = "cancelled" if rc_destroy == CANCELLED else "error"
+        print(f"rebuild phase=destroy status={phase_status} exit_code={rc_destroy}")
+        print(f"run record: {evidence_dir}")
         return rc_destroy
 
     apply_ns = SimpleNamespace(
@@ -212,9 +226,13 @@ def run(ns) -> int:
     )
     rc_apply = int(cmd_apply.run(apply_ns))
     summary["phases"]["apply"] = {"status": "ok" if rc_apply == 0 else "error", "exit_code": rc_apply}
+    if rc_apply == CANCELLED:
+        summary["phases"]["apply"]["status"] = "cancelled"
     summary["status"] = "ok" if rc_apply == 0 else "error"
+    if rc_apply == CANCELLED:
+        summary["status"] = "cancelled"
     _write_rebuild_metadata()
 
     print(f"rebuild module={module_ref} status={summary['status']} run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     return rc_apply

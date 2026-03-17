@@ -2,7 +2,7 @@
 
 purpose: Expose Terraform Cloud helper operations through hyops CLI.
 Architecture Decision: ADR-N/A (tfc command)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from hyops.drivers.iac.terraform_cloud.tools.configure_workspace_execution_mode 
 )
 from hyops.drivers.iac.terraform_cloud.workspace import (
     default_workspace_description,
+    delete_workspace,
     ensure_workspace,
 )
 from hyops.runtime.exitcodes import INTERNAL_ERROR
@@ -102,6 +103,35 @@ def add_tfc_subparser(sp: argparse._SubParsersAction) -> None:
     e.add_argument("--context-id", default="", help="Override context_id token for derived naming.")
     e.set_defaults(_handler=run_workspace_ensure)
 
+    d = ssp.add_parser(
+        "workspace-delete",
+        help="Delete a Terraform Cloud workspace by name (safe delete by default).",
+    )
+    d.add_argument(
+        "workspace_name",
+        nargs="?",
+        default="",
+        help="Terraform Cloud workspace name (optional if deriving via --provider/--module-ref/--pack-id).",
+    )
+    d.add_argument("--org", default="hybridops-studio", help="Terraform Cloud organization.")
+    d.add_argument("--host", default="app.terraform.io", help="Terraform Cloud host.")
+    d.add_argument(
+        "--credentials-file",
+        default="~/.terraform.d/credentials.tfrc.json",
+        help="Terraform credentials file path.",
+    )
+    d.add_argument("--force", action="store_true", help="Delete the workspace even when Terraform Cloud cannot safe-delete it.")
+    d.add_argument("--strict", action="store_true", help="Return non-zero on API/tooling errors.")
+    d.add_argument("--json", action="store_true", help="Emit result as JSON.")
+    d.add_argument("--provider", default="", help="Provider token for derived naming (e.g. gcp, azure, proxmox).")
+    d.add_argument("--module-ref", default="", help="Module ref for derived naming (e.g. org/gcp/project-factory).")
+    d.add_argument("--pack-id", default="", help="Pack id for derived naming.")
+    d.add_argument("--env-name", "--env", dest="env_name", default="", help="Environment namespace for derived naming (e.g. dev, shared).")
+    d.add_argument("--workspace-prefix", default="", help="Workspace prefix for derived naming.")
+    d.add_argument("--name-prefix", default="", help="Override name_prefix token for derived naming.")
+    d.add_argument("--context-id", default="", help="Override context_id token for derived naming.")
+    d.set_defaults(_handler=run_workspace_delete)
+
 
 def run_workspace_mode(ns) -> int:
     argv = [str(ns.workspace_name), str(ns.org), str(ns.execution_mode)]
@@ -184,6 +214,52 @@ def _log_workspace_ensure(result: dict[str, object]) -> None:
         print(f"[TFC Workspace] workspace={ws}")
     if msg:
         print(f"[TFC Workspace] {msg}")
+
+
+def _log_workspace_delete(result: dict[str, object]) -> None:
+    status = str(result.get("status") or "unknown")
+    msg = str(result.get("message") or "")
+    ws = str(result.get("workspace_name") or "")
+    force = bool(result.get("force"))
+
+    if status == "deleted":
+        mode = "force-deleted" if force else "deleted"
+        print(f"[TFC Workspace] {mode}: {ws}")
+        return
+    if status == "not_found":
+        print(f"[TFC Workspace] absent: {ws}")
+        return
+
+    print(f"[TFC Workspace] {status}")
+    if ws:
+        print(f"[TFC Workspace] workspace={ws}")
+    if msg:
+        print(f"[TFC Workspace] {msg}")
+
+
+def run_workspace_delete(ns) -> int:
+    ws_name, ws_err = _workspace_name_from_args(ns)
+    if ws_err:
+        print(f"ERR: {ws_err}")
+        return 2
+
+    result = delete_workspace(
+        host=str(getattr(ns, "host", "app.terraform.io") or "app.terraform.io").strip() or "app.terraform.io",
+        org=str(getattr(ns, "org", "hybridops-studio") or "hybridops-studio").strip(),
+        workspace_name=ws_name,
+        credentials_file=Path(str(getattr(ns, "credentials_file", "~/.terraform.d/credentials.tfrc.json"))).expanduser().resolve(),
+        force=bool(getattr(ns, "force", False)),
+    )
+
+    if bool(getattr(ns, "json", False)):
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        _log_workspace_delete(result)
+        print(f"[TFC Workspace] resolved_name={ws_name}")
+
+    if bool(result.get("ok")):
+        return 0
+    return 2 if bool(getattr(ns, "strict", False)) else 0
 
 
 def run_workspace_ensure(ns) -> int:

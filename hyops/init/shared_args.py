@@ -25,7 +25,11 @@ def add_init_shared_args(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Best-effort logout from provider CLIs after successful init (optional).",
     )
-    p.add_argument("--force", action="store_true", help="Overwrite existing generated outputs.")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Init only: overwrite generated config templates and outputs where the target supports it.",
+    )
     p.add_argument("--dry-run", action="store_true", help="Plan actions without applying changes.")
     p.add_argument("--out-dir", default=None, help="Override evidence directory root for this run.")
     p.add_argument("--config", default=None, help="Override target config path.")

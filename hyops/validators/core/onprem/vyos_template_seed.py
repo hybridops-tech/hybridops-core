@@ -1,7 +1,7 @@
 """hyops.validators.core.onprem.vyos_template_seed
 
 purpose: Validate inputs for core/onprem/vyos-template-seed.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -9,11 +9,20 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from hyops.validators.common import normalize_required_env
 from hyops.validators.registry import ModuleValidationError
 
 
 _TEMPLATE_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,62}$")
 _TEMPLATE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
+_GCS_ENV_KEYS = (
+    "HYOPS_VYOS_GCS_SA_JSON",
+    "HYOPS_VYOS_GCS_SA_JSON_FILE",
+)
+_GCS_URL_PREFIXES = (
+    "gs://",
+    "https://storage.googleapis.com/",
+)
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
@@ -56,6 +65,12 @@ def _opt_bool(inputs: dict[str, Any], key: str) -> None:
         raise ModuleValidationError(f"inputs.{key} must be a boolean when set")
 
 
+def _looks_like_private_gcs_source(*, artifact_state_ref: str, artifact_url: str, image_source_url: str, template_source_url: str) -> bool:
+    if artifact_state_ref.startswith("core/shared/vyos-image-build") or artifact_state_ref.startswith("core/shared/vyos-image-artifact"):
+        return True
+    return any(url.startswith("gs://") for url in (artifact_url, image_source_url, template_source_url) if url)
+
+
 def validate(inputs: dict[str, Any]) -> None:
     template_key = _req_str(inputs, "template_key")
     if not _TEMPLATE_KEY_RE.fullmatch(template_key):
@@ -71,8 +86,13 @@ def validate(inputs: dict[str, Any]) -> None:
     if isinstance(template_vm_id, bool) or not isinstance(template_vm_id, int) or template_vm_id <= 0:
         raise ModuleValidationError("inputs.template_vm_id must be a positive integer")
 
+    try:
+        required_env = normalize_required_env(inputs.get("required_env"), "inputs.required_env")
+    except ValueError as exc:
+        raise ModuleValidationError(str(exc)) from exc
+
     _opt_str(inputs, "template_image_version")
-    _opt_str(inputs, "artifact_state_ref")
+    artifact_state_ref = _opt_str(inputs, "artifact_state_ref")
     _opt_str(inputs, "artifact_key")
     artifact_url = _opt_str(inputs, "artifact_url")
     if artifact_url and "://" not in artifact_url:
@@ -122,3 +142,14 @@ def validate(inputs: dict[str, Any]) -> None:
     _opt_str(inputs, "ssh_private_key")
     _opt_str(inputs, "ci_username")
     _opt_str(inputs, "notes")
+
+    if _looks_like_private_gcs_source(
+        artifact_state_ref=artifact_state_ref,
+        artifact_url=artifact_url,
+        image_source_url=image_source_url,
+        template_source_url=template_source_url,
+    ) and not any(env_key in required_env for env_key in _GCS_ENV_KEYS):
+        raise ModuleValidationError(
+            "inputs.required_env must include HYOPS_VYOS_GCS_SA_JSON or HYOPS_VYOS_GCS_SA_JSON_FILE "
+            "when the template source resolves to a private GCS-backed artifact"
+        )

@@ -2,7 +2,7 @@
 
 purpose: Backwards-compatible wrapper around hyops.runtime.evidence.
 Architecture Decision: ADR-N/A (evidence helpers)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

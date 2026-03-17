@@ -1,7 +1,7 @@
 """
 purpose: State operations (unlock) routed through module drivers.
 Architecture Decision: ADR-N/A (state command)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from hyops.drivers.registry import REGISTRY
 from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_resolve import resolve_module
+from hyops.runtime.module_state import normalize_state_instance
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.refs import module_id_from_ref
 from hyops.runtime.source_roots import resolve_input_path, resolve_module_root
@@ -35,6 +36,11 @@ def add_state_subparser(sp: argparse._SubParsersAction) -> None:
         "--module-root",
         default="modules",
         help="Module root directory (default: modules from cwd or HYOPS_CORE_ROOT).",
+    )
+    q.add_argument(
+        "--state-instance",
+        default=None,
+        help="Optional module state instance (same value used with hyops apply --state-instance).",
     )
     q.add_argument("--inputs", default=None, help="Inputs YAML file.")
     q.add_argument("--lock-id", required=True, help="Lock ID to force-unlock.")
@@ -66,6 +72,13 @@ def run_unlock(ns) -> int:
 
     module_root = resolve_module_root(str(getattr(ns, "module_root", "modules")))
     inputs_file = resolve_input_path(str(ns.inputs) if getattr(ns, "inputs", None) else None)
+    try:
+        state_instance = normalize_state_instance(
+            str(getattr(ns, "state_instance", "") or "").strip() or None
+        )
+    except ValueError as exc:
+        print(f"ERR: {exc}", file=sys.stderr)
+        return 2
 
     try:
         resolved = resolve_module(
@@ -73,6 +86,7 @@ def run_unlock(ns) -> int:
             module_root=module_root,
             inputs_file=inputs_file,
             state_dir=paths.state_dir,
+            runtime_root=paths.root,
         )
     except Exception as exc:
         print(f"ERR: {exc}", file=sys.stderr)
@@ -115,6 +129,7 @@ def run_unlock(ns) -> int:
         "command": "state_unlock",
         "run_id": run_id,
         "module_ref": module_ref,
+        "state_instance": state_instance or "",
         "module_dir": str(resolved.module_dir),
         "inputs": resolved.inputs,
         "execution": execution_payload,
@@ -139,7 +154,7 @@ def run_unlock(ns) -> int:
 
     status = str(result.get("status") or "unknown").strip().lower()
     print(f"module={module_ref} status={status or 'unknown'} run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     if status != "ok":
         err = str(result.get("error") or "").strip()
         if err:

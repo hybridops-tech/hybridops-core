@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/onprem/netbox module.
 Architecture Decision: ADR-N/A (onprem netbox validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

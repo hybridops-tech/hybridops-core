@@ -1,7 +1,7 @@
 """
 purpose: Validate Packer driver execution schema before driver invocation.
 Architecture Decision: ADR-N/A (packer execution schema)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

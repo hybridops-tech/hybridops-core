@@ -2,7 +2,7 @@
 
 purpose: Enforce a stable addressing input contract before driver execution.
 Architecture Decision: ADR-N/A (addressing contract)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

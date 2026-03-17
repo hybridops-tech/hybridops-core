@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # purpose: Import VM infrastructure dataset into NetBox (VMs, interfaces, and IP addresses)
 # adr: ADR-0002_source-of-truth_netbox-driven-inventory
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

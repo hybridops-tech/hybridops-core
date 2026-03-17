@@ -2,11 +2,12 @@
 
 purpose: Ansible configuration driver for HybridOps.Core.
 Architecture Decision: ADR-N/A (config ansible driver)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -20,9 +21,12 @@ from hyops.runtime.credentials import (
     available_credential_providers,
     provider_env_key,
 )
+from hyops.runtime.module_state import read_module_state
 from hyops.runtime.evidence import EvidenceWriter
 from hyops.runtime.packs import resolve_pack_stack
+from hyops.runtime.provider_bootstrap import gcp_bootstrap_guard_message
 from hyops.runtime.coerce import as_bool, as_int
+from hyops.runtime.source_roots import discover_core_root
 from .config import (
     load_profile,
     resolve_ansible_cfg,
@@ -42,6 +46,7 @@ from .process import run_capture_with_policy
 from .results import ansible_error_hint, load_outputs
 from .runtime_env import (
     configure_ansible_search_paths,
+    materialize_ssh_private_key_from_env,
     merge_vault_env,
     missing_env,
     prepare_ansible_controller_env,
@@ -51,54 +56,38 @@ from .runtime_env import (
 _DRIVER_DIR = Path(__file__).resolve().parent
 _PROFILES_DIR = _DRIVER_DIR / "profiles"
 _VENDORED_COLLECTIONS_DIR = _DRIVER_DIR / "collections"
-
-
-def _materialize_ssh_private_key_from_env(
-    *,
-    inputs: dict[str, Any],
-    env: dict[str, str],
-    workdir: Path,
-) -> str:
-    key_file_raw = str(inputs.get("ssh_private_key_file") or "").strip()
-    key_env_name = str(inputs.get("ssh_private_key_env") or "").strip()
-
-    if not key_env_name:
-        return ""
-
-    key_value = str(env.get(key_env_name) or "").strip()
-    if not key_value:
-        return ""
-
-    existing_ok = False
-    if key_file_raw:
-        try:
-            existing_ok = Path(key_file_raw).expanduser().exists()
-        except Exception:
-            existing_ok = False
-    if existing_ok:
-        return ""
-
-    key_path = (workdir / "runtime.ssh.key").resolve()
-    key_path.write_text(key_value + ("\n" if not key_value.endswith("\n") else ""), encoding="utf-8")
-    os.chmod(key_path, 0o600)
-    inputs["ssh_private_key_file"] = str(key_path)
-    return str(key_path)
-
+_PGHA_MODULE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
 
 def _resolve_hyops_executable() -> str:
-    """Resolve the current hyops executable path for delegated local tasks."""
+    """Resolve a real hyops executable path for delegated local tasks."""
+    try:
+        sibling = (Path(sys.executable).expanduser().resolve().parent / "hyops").resolve()
+        if sibling.exists() and os.access(sibling, os.X_OK):
+            return str(sibling)
+    except Exception:
+        pass
+
     argv0 = str(getattr(sys, "argv", [""])[:1][0] or "").strip()
     if argv0:
         if "/" in argv0:
             try:
-                return str(Path(argv0).expanduser().resolve())
+                candidate = Path(argv0).expanduser().resolve()
+                if candidate.exists() and os.access(candidate, os.X_OK):
+                    return str(candidate)
             except Exception:
                 pass
         resolved = shutil.which(argv0)
         if resolved:
-            return str(Path(resolved).expanduser().resolve())
+            candidate = Path(resolved).expanduser().resolve()
+            if candidate.exists() and os.access(candidate, os.X_OK):
+                return str(candidate)
+
     resolved = shutil.which("hyops")
-    return str(Path(resolved).expanduser().resolve()) if resolved else "hyops"
+    if resolved:
+        candidate = Path(resolved).expanduser().resolve()
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return "hyops"
 
 def _fail(ev: EvidenceWriter, result: dict[str, Any], msg: str) -> dict[str, Any]:
     log_path = (ev.dir / "ansible.log").resolve()
@@ -106,6 +95,54 @@ def _fail(ev: EvidenceWriter, result: dict[str, Any], msg: str) -> dict[str, Any
         msg = f"{msg} (open: {log_path})"
     result["status"] = "error"
     result["error"] = msg
+    ev.write_json("driver_result.json", result)
+    return result
+
+
+def _maybe_short_circuit_destroy_for_absent_inventory(
+    *,
+    ev: EvidenceWriter,
+    result: dict[str, Any],
+    runtime_root: Path,
+    workdir: Path,
+    outputs_path: Path,
+    module_ref: str,
+    command_name: str,
+    inputs: dict[str, Any],
+) -> dict[str, Any] | None:
+    if command_name != "destroy":
+        return None
+    if module_ref not in _PGHA_MODULE_REFS:
+        return None
+
+    inventory_state_ref = str(inputs.get("inventory_state_ref") or "").strip()
+    if not inventory_state_ref:
+        return None
+
+    try:
+        state = read_module_state(runtime_root / "state", inventory_state_ref)
+    except Exception:
+        return None
+
+    upstream_status = str(state.get("status") or "").strip().lower()
+    if upstream_status not in {"destroyed", "absent"}:
+        return None
+
+    outputs = {"cap.db.postgresql_ha": "absent"}
+    try:
+        outputs_path.write_text(json.dumps(outputs), encoding="utf-8")
+    except Exception as exc:
+        return _fail(ev, result, f"failed to write destroy short-circuit outputs: {exc}")
+
+    result.setdefault("warnings", []).append(
+        f"skipped remote destroy because inventory_state_ref={inventory_state_ref} is already {upstream_status}"
+    )
+    result["status"] = "ok"
+    result["normalized_outputs"] = {
+        "command": command_name,
+        "workdir": str(workdir),
+        **outputs,
+    }
     ev.write_json("driver_result.json", result)
     return result
 
@@ -196,6 +233,10 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     required_credentials = resolve_required_credentials(request)
     env = os.environ.copy()
     env["HYOPS_RUNTIME_ROOT"] = str(runtime_root)
+    if not str(env.get("HYOPS_CORE_ROOT") or "").strip():
+        core_root = discover_core_root()
+        if core_root is not None:
+            env["HYOPS_CORE_ROOT"] = str(core_root)
 
     env_name = str(runtime.get("env") or "").strip()
     if env_name and "HYOPS_ENV" not in env:
@@ -220,6 +261,10 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             f"missing required credentials: {', '.join(missing_credentials)} "
             f"(expected credentials in {cred_path_hint})"
         )
+    if "gcp" in required_credentials:
+        bootstrap_error = gcp_bootstrap_guard_message(runtime_root=runtime_root, module_ref=module_ref)
+        if bootstrap_error:
+            return _fail(ev, result, bootstrap_error)
 
     dep_error = prepare_ansible_controller_env(env=env, runtime_root=runtime_root, ansible_bin=ansible_bin)
     if dep_error:
@@ -271,7 +316,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
 
     materialized_ssh_key = ""
     try:
-        materialized_ssh_key = _materialize_ssh_private_key_from_env(
+        materialized_ssh_key = materialize_ssh_private_key_from_env(
             inputs=inputs,
             env=env,
             workdir=workdir,
@@ -285,6 +330,19 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         return _fail(ev, result, inventory_error)
 
     outputs_path = workdir / "hyops.outputs.json"
+    short_circuit_result = _maybe_short_circuit_destroy_for_absent_inventory(
+        ev=ev,
+        result=result,
+        runtime_root=runtime_root,
+        workdir=workdir,
+        outputs_path=outputs_path,
+        module_ref=module_ref,
+        command_name=command_name,
+        inputs=inputs,
+    )
+    if short_circuit_result is not None:
+        return short_circuit_result
+
     extra_vars = dict(inputs)
     # Avoid clobbering Ansible reserved keywords (these are configured via inventory vars).
     extra_vars.pop("become", None)
@@ -395,7 +453,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         redact=redact,
     )
     if not conn_ok:
-        return _fail(ev, result, f"{conn_err} (evidence: {evidence_dir})")
+        return _fail(ev, result, f"{conn_err} (run record: {evidence_dir})")
 
     rke2_img_ok, rke2_img_err = rke2_image_preflight_check(
         command_name=command_name,
@@ -407,7 +465,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         redact=redact,
     )
     if not rke2_img_ok:
-        return _fail(ev, result, f"{rke2_img_err} (evidence: {evidence_dir})")
+        return _fail(ev, result, f"{rke2_img_err} (run record: {evidence_dir})")
 
     if command_name == "preflight":
         result["status"] = "ok"

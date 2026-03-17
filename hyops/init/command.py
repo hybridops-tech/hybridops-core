@@ -2,7 +2,7 @@
 
 purpose: Implement `hyops init ...` command family and target dispatch.
 Architecture Decision: ADR-N/A (init command)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

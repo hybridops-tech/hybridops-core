@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # purpose: Shared path resolution for NetBox export/import tooling in HybridOps.Core.
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

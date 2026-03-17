@@ -1,11 +1,12 @@
 """
 purpose: Terragrunt module contract interface for module-specific behavior.
 Architecture Decision: ADR-N/A (terragrunt contracts)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
@@ -31,3 +32,16 @@ class TerragruntModuleContract:
         runtime: dict[str, Any],
     ) -> str:
         return ""
+
+    def evaluate_state_skip(
+        self,
+        *,
+        command_name: str,
+        module_ref: str,
+        state_root: Path,
+        state_instance: str | None,
+        credentials_dir: Path | None,
+        runtime_root: Path | None,
+        env: dict[str, str],
+    ) -> tuple[str, str]:
+        return "safe", ""

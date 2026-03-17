@@ -1,6 +1,6 @@
 # NetBox Inventory Driver (Core)
 
-This package hosts NetBox export/import tooling for HybridOps.Core without depending on workbench paths.
+This package hosts NetBox export/import tooling for HybridOps.Core with runtime paths resolved from the installed environment.
 
 ## Package layout
 

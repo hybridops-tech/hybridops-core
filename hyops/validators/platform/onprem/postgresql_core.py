@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/onprem/postgresql-core module.
 Architecture Decision: ADR-N/A (onprem postgresql-core validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

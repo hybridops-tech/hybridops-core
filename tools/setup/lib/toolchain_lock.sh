@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Load and enforce pinned tool versions from tools/setup/requirements/toolchain.lock.
 # architecture decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 

@@ -1,7 +1,7 @@
 """
 purpose: Initialise Hetzner target runtime inputs (HCLOUD token) and readiness.
 Architecture Decision: ADR-N/A
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -309,7 +309,7 @@ def run(ns) -> int:
 
     if getattr(ns, "dry_run", False):
         print("dry-run: would validate token, write tfvars, and write readiness")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return OK
 
     if not shutil.which("curl"):
@@ -325,7 +325,7 @@ def run(ns) -> int:
             validated = _validate_hcloud_token(evidence_dir=evidence_dir, api_endpoint=api_endpoint, token=token)
     if not validated:
         print("ERR: Hetzner token validation failed; see evidence")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return TARGET_EXEC_FAILURE
 
     if tfvars_out.exists() and not bool(getattr(ns, "force", False)):
@@ -388,7 +388,7 @@ def run(ns) -> int:
         return WRITE_FAILURE
 
     print(f"target={target} status=ready run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     print(f"readiness: {marker}")
     print(f"credentials: {tfvars_out}")
     if not ssh_public_key:

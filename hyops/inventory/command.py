@@ -2,7 +2,7 @@
 
 purpose: Expose inventory helper operations through hyops CLI.
 Architecture Decision: ADR-N/A (inventory command)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """
 purpose: Resolve module spec and operator-provided inputs into a single request payload.
 Architecture Decision: ADR-N/A (module resolution)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -20,9 +20,14 @@ from hyops.runtime.module_dependencies import (
 )
 from hyops.runtime.module_inputs import apply_env_overrides as _apply_env_overrides
 from hyops.runtime.module_state_contracts import (
+    resolve_gke_cluster_contract_from_state as _resolve_gke_cluster_contract_from_state,
+    resolve_gcp_project_factory_contract_from_init as _resolve_gcp_project_factory_contract_from_init,
+    resolve_cloudsql_external_replica_contract_from_state as _resolve_cloudsql_external_replica_contract_from_state,
+    resolve_postgresql_backup_contract_from_state as _resolve_postgresql_backup_contract_from_state,
     resolve_cloudsql_target_contract_from_state as _resolve_cloudsql_target_contract_from_state,
     resolve_db_contract_from_state as _resolve_db_contract_from_state,
     resolve_inventory_groups_from_state as _resolve_inventory_groups_from_state,
+    resolve_kubeconfig_contract_from_state as _resolve_kubeconfig_contract_from_state,
     resolve_dns_endpoint_contract_from_state as _resolve_dns_endpoint_contract_from_state,
     resolve_hetzner_image_contract_from_state as _resolve_hetzner_image_contract_from_state,
     resolve_hetzner_foundation_contract_from_state as _resolve_hetzner_foundation_contract_from_state,
@@ -33,6 +38,7 @@ from hyops.runtime.module_state_contracts import (
     resolve_postgresql_dr_source_contract_from_state as _resolve_postgresql_dr_source_contract_from_state,
     resolve_project_contract_from_state as _resolve_project_contract_from_state,
     resolve_repo_contract_from_state as _resolve_repo_contract_from_state,
+    resolve_reverse_ssh_contract_from_state as _resolve_reverse_ssh_contract_from_state,
     resolve_router_contract_from_state as _resolve_router_contract_from_state,
     resolve_ssh_keys_from_init as _resolve_ssh_keys_from_init,
     resolve_target_host_from_state as _resolve_target_host_from_state,
@@ -63,12 +69,29 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _merge_operator_inputs(target: dict[str, Any], operator: dict[str, Any]) -> None:
+    """Apply operator inputs without letting blank strings erase imported state."""
+    for key, value in operator.items():
+        if isinstance(value, dict):
+            current = target.get(key)
+            if isinstance(current, dict):
+                _merge_operator_inputs(current, value)
+                continue
+        if isinstance(value, str) and not value.strip():
+            current = target.get(key)
+            if isinstance(current, str) and current.strip():
+                continue
+        target[key] = value
+
+
 def resolve_module(
     module_ref: str,
     module_root: Path,
     inputs_file: Path | None,
     state_dir: Path | None = None,
+    runtime_root: Path | None = None,
     lifecycle_command: str | None = None,
+    invocation_command: str | None = None,
     assumed_state_ok: set[str] | None = None,
 ) -> ModuleResolved:
     module_ref = normalize_module_ref(module_ref)
@@ -147,43 +170,66 @@ def resolve_module(
         inputs.update(dependency_inputs)
 
     if operator_inputs:
-        inputs.update(operator_inputs)
+        _merge_operator_inputs(inputs, operator_inputs)
 
     inputs = _apply_env_overrides(inputs)
-    _resolve_target_host_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_inventory_groups_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_dns_endpoint_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_vyos_artifact_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_hetzner_image_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_hetzner_foundation_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_powerdns_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_db_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_prefixed_db_contract_from_state(inputs, prefix="source", state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_prefixed_db_contract_from_state(inputs, prefix="target", state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_network_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_project_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_router_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_repo_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
-    _resolve_postgresql_dr_source_contract_from_state(
-        inputs, state_root=state_root, assumed_state_ok=assumed_state_ok
-    )
-    _resolve_cloudsql_target_contract_from_state(
-        inputs, state_root=state_root, assumed_state_ok=assumed_state_ok
-    )
-    _resolve_prefixed_repo_contract_from_state(
-        inputs, prefix="secondary", state_root=state_root, assumed_state_ok=assumed_state_ok
-    )
-    validate_addressing_contract(inputs)
+    lifecycle_token = str(lifecycle_command or "").strip().lower()
+    if lifecycle_token:
+        inputs["_hyops_lifecycle_command"] = lifecycle_token
+    invocation_token = str(invocation_command or lifecycle_command or "").strip().lower()
+    if invocation_token:
+        inputs["_hyops_invocation_command"] = invocation_token
 
-    # Validators sometimes need lifecycle context (e.g., destroy should validate a
-    # smaller input surface). Do NOT leak internal context keys into driver inputs,
-    # because some drivers forward all inputs to downstream tools (e.g., Terraform
-    # variables) which would break on unknown keys.
-    inputs_for_validation = dict(inputs)
-    if lifecycle_command is not None:
-        token = str(lifecycle_command or "").strip().lower()
-        if token:
-            inputs_for_validation["_hyops_lifecycle_command"] = token
+    try:
+        if module_ref == "org/gcp/project-factory":
+            _resolve_gcp_project_factory_contract_from_init(
+                inputs,
+                runtime_root=Path(runtime_root).expanduser().resolve() if runtime_root else None,
+            )
+        _resolve_target_host_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_inventory_groups_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_kubeconfig_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_dns_endpoint_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_vyos_artifact_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_hetzner_image_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_hetzner_foundation_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_powerdns_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_db_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_prefixed_db_contract_from_state(inputs, prefix="source", state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_prefixed_db_contract_from_state(inputs, prefix="target", state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_network_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_project_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_gke_cluster_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_reverse_ssh_contract_from_state(
+            inputs, state_root=state_root, assumed_state_ok=assumed_state_ok
+        )
+        _resolve_router_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_repo_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
+        _resolve_postgresql_backup_contract_from_state(
+            inputs, state_root=state_root, assumed_state_ok=assumed_state_ok
+        )
+        _resolve_postgresql_dr_source_contract_from_state(
+            inputs, state_root=state_root, assumed_state_ok=assumed_state_ok
+        )
+        _resolve_cloudsql_external_replica_contract_from_state(
+            inputs, state_root=state_root, assumed_state_ok=assumed_state_ok
+        )
+        _resolve_cloudsql_target_contract_from_state(
+            inputs, state_root=state_root, assumed_state_ok=assumed_state_ok
+        )
+        _resolve_prefixed_repo_contract_from_state(
+            inputs, prefix="secondary", state_root=state_root, assumed_state_ok=assumed_state_ok
+        )
+        validate_addressing_contract(inputs)
+
+        # Validators sometimes need lifecycle context (e.g., destroy should validate a
+        # smaller input surface). Do NOT leak internal context keys into driver inputs,
+        # because some drivers forward all inputs to downstream tools (e.g., Terraform
+        # variables) which would break on unknown keys.
+        inputs_for_validation = dict(inputs)
+    finally:
+        inputs.pop("_hyops_lifecycle_command", None)
+        inputs.pop("_hyops_invocation_command", None)
 
     try:
         validate_module_inputs(module_ref, inputs_for_validation)

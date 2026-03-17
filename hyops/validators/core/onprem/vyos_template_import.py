@@ -1,7 +1,7 @@
 """hyops.validators.core.onprem.vyos_template_import
 
 purpose: Validate inputs for core/onprem/vyos-template-import.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

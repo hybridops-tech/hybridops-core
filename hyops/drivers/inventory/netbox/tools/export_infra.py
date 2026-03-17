@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # purpose: Dispatch infrastructure exports for NetBox tooling.
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

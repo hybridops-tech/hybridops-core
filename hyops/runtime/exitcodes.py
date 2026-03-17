@@ -2,12 +2,13 @@
 
 purpose: Provide stable, documented exit codes for operator commands.
 Architecture Decision: ADR-N/A (exit codes)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
 
 OK = 0
+CANCELLED = 130
 TEMPLATE_WRITTEN = 10
 CONFIG_INVALID = 11
 DEPENDENCY_MISSING = 12
@@ -16,6 +17,7 @@ SECRETS_FAILED = 21
 INTERNAL_ERROR = 30
 OPERATOR_ERROR = 2
 
+CANCELED = CANCELLED
 CONFIG_TEMPLATE_WRITTEN = TEMPLATE_WRITTEN
 TARGET_EXEC_FAILURE = REMOTE_FAILED
 VAULT_FAILURE = SECRETS_FAILED

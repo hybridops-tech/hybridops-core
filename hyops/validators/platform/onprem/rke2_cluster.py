@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/onprem/rke2-cluster module.
 Architecture Decision: ADR-N/A (onprem rke2-cluster validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

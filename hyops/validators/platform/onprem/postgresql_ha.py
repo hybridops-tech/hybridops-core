@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for the PostgreSQL HA module.
 Architecture Decision: ADR-N/A (onprem postgresql-ha validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -71,6 +71,23 @@ def _validate_allowed_clients(value: Any) -> None:
             _ = ipaddress.ip_network(cidr, strict=False)
         except Exception as exc:
             raise ValueError(f"inputs.allowed_clients[{idx}].cidr is invalid: {exc}") from exc
+
+
+def _validate_pglogical_databases(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("inputs.pglogical_databases must be a list when set")
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for idx, item in enumerate(value, start=1):
+        db_name = require_non_empty_str(item, f"inputs.pglogical_databases[{idx}]")
+        if db_name in seen:
+            raise ValueError(f"inputs.pglogical_databases contains duplicate value {db_name!r}")
+        seen.add(db_name)
+        out.append(db_name)
+    return out
 
 
 def _validate_inventory(data: dict[str, Any]) -> None:
@@ -201,8 +218,31 @@ def validate(inputs: dict[str, Any]) -> None:
 
     if data.get("pgbouncer_install") is not None and not isinstance(data.get("pgbouncer_install"), bool):
         raise ValueError("inputs.pgbouncer_install must be a boolean when set")
+    if data.get("netdata_install") is not None and not isinstance(data.get("netdata_install"), bool):
+        raise ValueError("inputs.netdata_install must be a boolean when set")
+    if data.get("pending_restart") is not None and not isinstance(data.get("pending_restart"), bool):
+        raise ValueError("inputs.pending_restart must be a boolean when set")
+    if data.get("pglogical_enable") is not None and not isinstance(data.get("pglogical_enable"), bool):
+        raise ValueError("inputs.pglogical_enable must be a boolean when set")
+
+    pglogical_databases = _validate_pglogical_databases(data.get("pglogical_databases"))
 
     _validate_allowed_clients(data.get("allowed_clients"))
+
+    if bool(data.get("pglogical_enable")):
+        if apply_mode != "maintenance":
+            raise ValueError(
+                "inputs.pglogical_enable is currently supported only with inputs.apply_mode=maintenance "
+                "(it performs a day-2 source-posture reconcile on an existing cluster)"
+            )
+        if not bool(data.get("pending_restart")):
+            raise ValueError(
+                "inputs.pending_restart must be true when inputs.pglogical_enable=true "
+                "(pglogical requires a controlled PostgreSQL restart after updating shared_preload_libraries)"
+            )
+        # Explicit pglogical_databases is optional; when omitted the wrapper uses
+        # the normalized application contract (for example the netbox database).
+        _ = pglogical_databases
 
     required_env = normalize_required_env(data.get("required_env"), "inputs.required_env")
 
@@ -230,6 +270,14 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ValueError(
                 "inputs.restore_confirm must be true when inputs.apply_mode=restore "
                 "(refusing to run a destructive restore without explicit confirmation)"
+            )
+        backup_state_ref = str(data.get("backup_state_ref") or "").strip()
+        restore_set = str(data.get("restore_set") or "").strip()
+        restore_target_time = str(data.get("restore_target_time") or "").strip()
+        if not (backup_state_ref or restore_set or restore_target_time):
+            raise ValueError(
+                "restore mode requires an explicit recovery selector. Set one of: "
+                "inputs.backup_state_ref, inputs.restore_set, or inputs.restore_target_time"
             )
 
         backend_raw = str(data.get("backend") or "").strip().lower()
@@ -265,14 +313,12 @@ def validate(inputs: dict[str, Any]) -> None:
                 + " (required for apply_mode=restore so hyops preflight can validate repo credentials)"
             )
 
-        restore_target_time = str(data.get("restore_target_time") or "").strip()
         if restore_target_time:
             if "\n" in restore_target_time or "\r" in restore_target_time:
                 raise ValueError("inputs.restore_target_time must not contain newlines")
             if "'" in restore_target_time:
                 raise ValueError("inputs.restore_target_time must not contain single quotes")
 
-        restore_set = str(data.get("restore_set") or "").strip()
         if restore_set:
             if "\n" in restore_set or "\r" in restore_set:
                 raise ValueError("inputs.restore_set must not contain newlines")

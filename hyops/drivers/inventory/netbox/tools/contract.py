@@ -1,6 +1,6 @@
 # purpose: Define the infrastructure.csv minimum contract shared by exporters and importers.
 # adr: ADR-0002_source-of-truth_netbox-driven-inventory
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

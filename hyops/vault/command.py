@@ -1,7 +1,7 @@
 # hyops/vault/command.py
 # purpose: Vault helper command family (password provider + bootstrap/status/reset).
 # Architecture Decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import stat
 import sys
 from pathlib import Path
 
-from hyops.runtime.exitcodes import INTERNAL_ERROR
+from hyops.runtime.exitcodes import CANCELLED, INTERNAL_ERROR
 
 
 def add_vault_subparser(sp: argparse._SubParsersAction) -> None:
@@ -141,8 +141,8 @@ def _dispatch(ns) -> int:
         )
         return INTERNAL_ERROR
     except KeyboardInterrupt:
-        print("Cancelled.")
-        return 2
+        print("Cancelled by user.")
+        return CANCELLED
 
     if hide_interactive_password and rc == 0:
         print(

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Shared low-level install helpers.
 # Architecture Decision: ADR-N/A (bootstrap installer)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 hyops_install_need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Install Ansible Galaxy dependencies into HybridOps runtime state.
 # Architecture Decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 umask 077
@@ -9,12 +9,22 @@ umask 077
 usage() {
   cat <<'USAGE'
 Usage:
-  setup-ansible.sh [--root <path>] [--requirements <path>] [--force]
+  setup-ansible.sh [--root <path>] [--requirements <path>] [--hybridops-source <vendored|git>]
+                   [--hybridops-git-manifest <path>] [--force]
 
 Options:
   --root <path>         HybridOps runtime root (default: ~/.hybridops or $HYOPS_RUNTIME_ROOT)
   --requirements <path> Galaxy requirements file for the shared/common dependency set
                         (default: tools/setup/requirements/ansible.galaxy.yml)
+                        If relative, it is resolved relative to this script's release root.
+  --hybridops-source <vendored|git>
+                        How to source HybridOps collections for shared installs.
+                        vendored = use only the vendored fallback in hybridops-core
+                        git      = build/install pinned collections from Git repos into runtime state
+                        (default: vendored or $HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE)
+  --hybridops-git-manifest <path>
+                        Pinned Git collection manifest used when --hybridops-source git
+                        (default: tools/setup/requirements/ansible.hybridops.git.json)
                         If relative, it is resolved relative to this script's release root.
   --force               Reinstall even if requirements hash is unchanged
   -h, --help            Show help
@@ -28,6 +38,8 @@ RELEASE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
 RUNTIME_ROOT="${HYOPS_RUNTIME_ROOT:-$HOME/.hybridops}"
 REQ_PATH=""
+HYBRIDOPS_SOURCE="${HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE:-vendored}"
+HYBRIDOPS_GIT_MANIFEST_PATH="${HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST:-}"
 FORCE="false"
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +52,16 @@ while [[ $# -gt 0 ]]; do
     --requirements)
       [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || { echo "ERR: --requirements requires a value" >&2; usage; exit 2; }
       REQ_PATH="${2}"
+      shift 2
+      ;;
+    --hybridops-source)
+      [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || { echo "ERR: --hybridops-source requires a value" >&2; usage; exit 2; }
+      HYBRIDOPS_SOURCE="${2}"
+      shift 2
+      ;;
+    --hybridops-git-manifest)
+      [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || { echo "ERR: --hybridops-git-manifest requires a value" >&2; usage; exit 2; }
+      HYBRIDOPS_GIT_MANIFEST_PATH="${2}"
       shift 2
       ;;
     --force)
@@ -61,6 +83,15 @@ done
 need_cmd python3
 need_cmd ansible-galaxy
 
+case "${HYBRIDOPS_SOURCE}" in
+  vendored|git)
+    ;;
+  *)
+    echo "ERR: unsupported --hybridops-source: ${HYBRIDOPS_SOURCE} (expected vendored or git)" >&2
+    exit 2
+    ;;
+esac
+
 RUNTIME_ROOT="$(python3 - <<PY
 from pathlib import Path
 print(str(Path("${RUNTIME_ROOT}").expanduser().resolve()))
@@ -68,6 +99,7 @@ PY
 )"
 
 DEFAULT_REQ_REL="tools/setup/requirements/ansible.galaxy.yml"
+DEFAULT_HYBRIDOPS_GIT_MANIFEST_REL="tools/setup/requirements/ansible.hybridops.git.json"
 if [[ -z "${REQ_PATH}" ]]; then
   REQ_FILE="${RELEASE_ROOT}/${DEFAULT_REQ_REL}"
 else
@@ -80,12 +112,36 @@ fi
 
 [[ -f "${REQ_FILE}" ]] || { echo "ERR: missing requirements file: ${REQ_FILE}" >&2; exit 2; }
 
+HYBRIDOPS_GIT_MANIFEST_FILE=""
+if [[ "${HYBRIDOPS_SOURCE}" == "git" ]]; then
+  need_cmd git
+  if [[ -z "${HYBRIDOPS_GIT_MANIFEST_PATH}" ]]; then
+    HYBRIDOPS_GIT_MANIFEST_FILE="${RELEASE_ROOT}/${DEFAULT_HYBRIDOPS_GIT_MANIFEST_REL}"
+  else
+    if [[ "${HYBRIDOPS_GIT_MANIFEST_PATH}" = /* ]]; then
+      HYBRIDOPS_GIT_MANIFEST_FILE="${HYBRIDOPS_GIT_MANIFEST_PATH}"
+    else
+      HYBRIDOPS_GIT_MANIFEST_FILE="${RELEASE_ROOT}/${HYBRIDOPS_GIT_MANIFEST_PATH}"
+    fi
+  fi
+  [[ -f "${HYBRIDOPS_GIT_MANIFEST_FILE}" ]] || {
+    echo "ERR: missing HybridOps Git manifest: ${HYBRIDOPS_GIT_MANIFEST_FILE}" >&2
+    exit 2
+  }
+fi
+
 # temp/cache: keep ansible-galaxy reliable in constrained environments
 TMP_DIR="${RUNTIME_ROOT}/tmp"
 mkdir -p "${TMP_DIR}/ansible-local"
 export TMPDIR="${TMP_DIR}"
 export ANSIBLE_LOCAL_TEMP="${TMP_DIR}/ansible-local"
 export ANSIBLE_REMOTE_TEMP="/tmp/.ansible-tmp"
+export HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE="${HYBRIDOPS_SOURCE}"
+if [[ -n "${HYBRIDOPS_GIT_MANIFEST_FILE}" ]]; then
+  export HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST="${HYBRIDOPS_GIT_MANIFEST_FILE}"
+else
+  unset HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST || true
+fi
 
 sha256_file() {
   python3 - "$1" <<'PY'
@@ -95,6 +151,19 @@ h = hashlib.sha256()
 with open(p, "rb") as f:
     for chunk in iter(lambda: f.read(65536), b""):
         h.update(chunk)
+print(h.hexdigest())
+PY
+}
+
+combine_hashes() {
+  python3 - "$@" <<'PY'
+import hashlib
+import sys
+
+h = hashlib.sha256()
+for item in sys.argv[1:]:
+    h.update(item.encode("utf-8"))
+    h.update(b"\0")
 print(h.hexdigest())
 PY
 }
@@ -147,9 +216,91 @@ payload = {
 if module_ref:
   payload["module_ref"] = module_ref
 
+hy_source = os.environ.get("HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE", "").strip()
+hy_manifest = os.environ.get("HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST", "").strip()
+if scope == "common" and hy_source:
+  payload["hybridops_source"] = hy_source
+if scope == "common" and hy_manifest:
+  payload["hybridops_git_manifest"] = hy_manifest
+
 os.makedirs(os.path.dirname(marker_file), exist_ok=True)
 with open(marker_file, "w", encoding="utf-8") as f:
   json.dump(payload, f, indent=2, sort_keys=True)
+PY
+}
+
+install_hybridops_git_collections() {
+  local manifest_file="$1"
+  local collections_dir="$2"
+
+  python3 - "$manifest_file" "$TMP_DIR" "$collections_dir" <<'PY'
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import json
+
+manifest_path = Path(sys.argv[1]).resolve()
+tmp_root = Path(sys.argv[2]).resolve()
+collections_dir = Path(sys.argv[3]).resolve()
+
+data = json.loads(manifest_path.read_text(encoding="utf-8"))
+entries = data.get("collections") or []
+if not isinstance(entries, list) or not entries:
+    raise SystemExit(f"ERR: no collections defined in manifest: {manifest_path}")
+
+work_root = tmp_root / "hybridops-collections-git"
+shutil.rmtree(work_root, ignore_errors=True)
+work_root.mkdir(parents=True, exist_ok=True)
+
+env = os.environ.copy()
+
+for entry in entries:
+    if not isinstance(entry, dict):
+        raise SystemExit(f"ERR: invalid collection entry in {manifest_path}: {entry!r}")
+    fqcn = str(entry.get("name") or "").strip()
+    repo = str(entry.get("repo") or "").strip()
+    ref = str(entry.get("ref") or "").strip()
+    if not fqcn or not repo or not ref:
+        raise SystemExit(
+            f"ERR: manifest entry must define name, repo, and ref: {entry!r}"
+        )
+
+    slug = fqcn.replace(".", "-")
+    repo_dir = work_root / slug
+    build_dir = work_root / f"{slug}-build"
+
+    subprocess.run(["git", "clone", repo, str(repo_dir)], check=True, env=env)
+    subprocess.run(["git", "checkout", ref], cwd=repo_dir, check=True, env=env)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["ansible-galaxy", "collection", "build", "-v", "--output-path", str(build_dir)],
+        cwd=repo_dir,
+        check=True,
+        env=env,
+    )
+
+    tarballs = sorted(build_dir.glob("*.tar.gz"))
+    if not tarballs:
+        raise SystemExit(f"ERR: no collection artifact built for {fqcn} from {repo}@{ref}")
+    artifact = tarballs[-1]
+    subprocess.run(
+        [
+            "ansible-galaxy",
+            "collection",
+            "install",
+            str(artifact),
+            "-p",
+            str(collections_dir),
+            "--force",
+        ],
+        check=True,
+        env=env,
+    )
+    print(f"[setup] hybridops collection installed from git: {fqcn}@{ref}")
 PY
 }
 
@@ -171,6 +322,10 @@ install_set() {
   mkdir -p "${collections_dir}" "${roles_dir}"
 
   req_sha="$(sha256_file "${req_file}")"
+  if [[ "${scope}" == "common" && "${HYBRIDOPS_SOURCE}" == "git" ]]; then
+    manifest_sha="$(sha256_file "${HYBRIDOPS_GIT_MANIFEST_FILE}")"
+    req_sha="$(combine_hashes "${req_sha}" "${manifest_sha}" "${HYBRIDOPS_SOURCE}")"
+  fi
 
   if [[ "${FORCE}" != "true" && -f "${marker_file}" ]]; then
     if marker_matches "${marker_file}" "${req_sha}"; then
@@ -192,6 +347,12 @@ install_set() {
     ANSIBLE_COLLECTIONS_PATH="${collections_dir}:${collections_tail}" \
     ANSIBLE_ROLES_PATH="${roles_dir}:${roles_tail}" \
     ansible-galaxy role install -r "${req_file}" -p "${roles_dir}" --force >/dev/null 2>&1 || true
+
+  if [[ "${scope}" == "common" && "${HYBRIDOPS_SOURCE}" == "git" ]]; then
+    ANSIBLE_COLLECTIONS_PATH="${collections_dir}:${collections_tail}" \
+    ANSIBLE_ROLES_PATH="${roles_dir}:${roles_tail}" \
+    install_hybridops_git_collections "${HYBRIDOPS_GIT_MANIFEST_FILE}" "${collections_dir}"
+  fi
 
   write_marker "${marker_file}" "${req_file}" "${req_sha}" "${collections_dir}" "${roles_dir}" "${scope}" "${module_ref}"
   echo "[setup] ansible deps installed: ${name}"

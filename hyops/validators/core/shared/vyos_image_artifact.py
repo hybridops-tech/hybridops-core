@@ -1,7 +1,7 @@
 """hyops.validators.core.shared.vyos_image_artifact
 
 purpose: Validate inputs for core/shared/vyos-image-artifact.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

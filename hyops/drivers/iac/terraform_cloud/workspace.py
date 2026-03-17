@@ -2,7 +2,7 @@
 
 purpose: Read Terraform Cloud credentials and enforce workspace execution policy via API.
 Architecture Decision: ADR-N/A (workspace policy)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -358,6 +358,182 @@ def ensure_workspace_execution_mode(
         "current_mode": current_mode,
         "http_status": patch_status,
         "credentials_file": str(credentials_file),
+    }
+
+
+def delete_workspace(
+    *,
+    host: str,
+    org: str,
+    workspace_name: str,
+    credentials_file: Path,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Delete a Terraform Cloud workspace by name.
+
+    Default behavior uses safe-delete so Terraform Cloud blocks removal when the
+    workspace still owns managed resources. Use force only for deliberate state
+    reset or unrecoverable drift recovery.
+    """
+
+    host_name = (host or "").strip() or "app.terraform.io"
+    org_name = (org or "").strip()
+    ws_name = (workspace_name or "").strip()
+
+    if not org_name:
+        return {
+            "ok": False,
+            "status": "invalid_config",
+            "message": "terraform cloud org is required",
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "credentials_file": str(credentials_file),
+        }
+
+    if not ws_name:
+        return {
+            "ok": False,
+            "status": "invalid_config",
+            "message": "workspace name is required",
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "credentials_file": str(credentials_file),
+        }
+
+    try:
+        token = read_tfc_token(host_name, credentials_file)
+    except Exception as e:
+        return {
+            "ok": False,
+            "status": "token_missing",
+            "message": str(e),
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "credentials_file": str(credentials_file),
+        }
+
+    org_q = quote(org_name, safe="")
+    ws_q = quote(ws_name, safe="")
+    get_url = f"https://{host_name}/api/v2/organizations/{org_q}/workspaces/{ws_q}"
+    get_status, get_body, get_err = _http_json("GET", get_url, token)
+    if get_err:
+        return {
+            "ok": False,
+            "status": "api_error",
+            "message": f"workspace lookup failed: {get_err}",
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "http_status": get_status,
+            "credentials_file": str(credentials_file),
+        }
+
+    if get_status == 404:
+        return {
+            "ok": True,
+            "status": "not_found",
+            "message": "workspace already absent",
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "http_status": get_status,
+            "credentials_file": str(credentials_file),
+        }
+
+    if get_status != 200:
+        return {
+            "ok": False,
+            "status": "api_error",
+            "message": f"workspace lookup returned HTTP {get_status}",
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "http_status": get_status,
+            "credentials_file": str(credentials_file),
+        }
+
+    data = get_body.get("data")
+    workspace_id = str(data.get("id") or "").strip() if isinstance(data, dict) else ""
+    current_mode = ""
+    if isinstance(data, dict) and isinstance(data.get("attributes"), dict):
+        current_mode = str(data["attributes"].get("execution-mode") or "").strip().lower()
+
+    if force:
+        method = "DELETE"
+        delete_url = get_url
+        action = "force delete"
+    else:
+        method = "POST"
+        delete_url = f"{get_url}/actions/safe-delete"
+        action = "safe delete"
+
+    delete_status, _, delete_err = _http_json(method, delete_url, token)
+    if delete_err:
+        return {
+            "ok": False,
+            "status": "api_error",
+            "message": f"workspace {action} failed: {delete_err}",
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "workspace_id": workspace_id,
+            "current_mode": current_mode,
+            "http_status": delete_status,
+            "credentials_file": str(credentials_file),
+            "force": force,
+        }
+
+    if delete_status == 404:
+        return {
+            "ok": True,
+            "status": "not_found",
+            "message": "workspace already absent",
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "workspace_id": workspace_id,
+            "current_mode": current_mode,
+            "http_status": delete_status,
+            "credentials_file": str(credentials_file),
+            "force": force,
+        }
+
+    if delete_status not in (200, 202, 204):
+        status_name = "delete_blocked" if not force else "api_error"
+        message = (
+            "workspace safe delete was refused by Terraform Cloud"
+            if not force
+            else f"workspace force delete returned HTTP {delete_status}"
+        )
+        return {
+            "ok": False,
+            "status": status_name,
+            "message": message,
+            "host": host_name,
+            "org": org_name,
+            "workspace_name": ws_name,
+            "workspace_id": workspace_id,
+            "current_mode": current_mode,
+            "http_status": delete_status,
+            "credentials_file": str(credentials_file),
+            "force": force,
+        }
+
+    return {
+        "ok": True,
+        "status": "deleted",
+        "message": "workspace deleted",
+        "host": host_name,
+        "org": org_name,
+        "workspace_name": ws_name,
+        "workspace_id": workspace_id,
+        "current_mode": current_mode,
+        "http_status": delete_status,
+        "credentials_file": str(credentials_file),
+        "force": force,
     }
 
 

@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for the PostgreSQL HA backup module.
 Architecture Decision: ADR-N/A (onprem postgresql-ha-backup validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -31,10 +31,15 @@ def _state_ref_publishes_inventory(raw_ref: Any) -> bool:
     return base in _PGHA_STATE_REFS
 
 
-def _validate_inventory(data: dict[str, Any]) -> None:
+def _lifecycle(data: dict[str, Any]) -> str:
+    return str(data.get("hyops_lifecycle_command") or data.get("_hyops_lifecycle_command") or "").strip().lower()
+
+
+def _validate_inventory(data: dict[str, Any], *, lifecycle: str) -> None:
     inventory_groups = data.get("inventory_groups")
     inventory_state_ref = data.get("inventory_state_ref")
     inventory_vm_groups = data.get("inventory_vm_groups")
+    required_groups = ["postgres_cluster"] if lifecycle == "destroy" else ["master", "replica", "postgres_cluster"]
 
     if inventory_groups is not None and not isinstance(inventory_groups, dict):
         raise ValueError("inputs.inventory_groups must be a mapping when set")
@@ -48,20 +53,19 @@ def _validate_inventory(data: dict[str, Any]) -> None:
                 "(recommended: platform/onprem/platform-vm)"
             )
         if _state_ref_publishes_inventory(inventory_state_ref):
-            groups = {"master": ["placeholder"], "replica": ["placeholder"], "postgres_cluster": ["placeholder"]}
+            groups = {group: ["placeholder"] for group in required_groups}
         elif inventory_vm_groups is None or not isinstance(inventory_vm_groups, dict) or not inventory_vm_groups:
             raise ValueError("inputs.inventory_vm_groups must be a non-empty mapping when inputs.inventory_state_ref is set")
         else:
             groups = inventory_vm_groups
 
-    required_groups = ["master", "replica", "postgres_cluster"]
     for g in required_groups:
         if g not in groups:
             raise ValueError(f"inventory must include group {g!r}")
 
     dcs_type = str(data.get("dcs_type") or "etcd").strip().lower() or "etcd"
     dcs_exists = bool(data.get("dcs_exists") or False)
-    if dcs_type == "etcd" and not dcs_exists:
+    if lifecycle != "destroy" and dcs_type == "etcd" and not dcs_exists:
         if "etcd_cluster" not in groups:
             raise ValueError("inventory must include group 'etcd_cluster' when dcs_type=etcd and dcs_exists=false")
 
@@ -116,32 +120,18 @@ def validate(inputs: dict[str, Any]) -> None:
     data = inputs or {}
     if not isinstance(data, dict):
         raise ValueError("inputs must be a mapping")
+    lifecycle = _lifecycle(data)
 
     # Dependency guard: backup only makes sense once the HA cluster is ready.
     upstream_cap = str(data.get("upstream", {}).get("cap_db_postgresql_ha") if isinstance(data.get("upstream"), dict) else "")
-    if upstream_cap.strip().lower() != "ready":
+    if lifecycle != "destroy" and upstream_cap.strip().lower() != "ready":
         raise ValueError("dependency platform/postgresql-ha is not ready (expected outputs.cap.db.postgresql_ha=ready)")
 
     apply_mode = str(data.get("apply_mode") or "").strip().lower()
     if apply_mode and apply_mode not in ("backup",):
         raise ValueError("inputs.apply_mode must be empty or 'backup'")
 
-    backend = _normalize_backend(data.get("backend") or "s3", "inputs.backend")
-    repo_mismatch_action = str(data.get("repo_mismatch_action") or "fail").strip().lower()
-    if repo_mismatch_action not in ("fail", "reset"):
-        raise ValueError("inputs.repo_mismatch_action must be one of: fail, reset")
-
-    secondary_enabled_raw = data.get("secondary_enabled")
-    if secondary_enabled_raw is not None and not isinstance(secondary_enabled_raw, bool):
-        raise ValueError("inputs.secondary_enabled must be a boolean when set")
-    secondary_enabled = bool(secondary_enabled_raw or False)
-    secondary_backend = ""
-    if secondary_enabled:
-        secondary_backend = _normalize_backend(data.get("secondary_backend"), "inputs.secondary_backend")
-        if data.get("secondary_repo_path") is not None:
-            require_non_empty_str(data.get("secondary_repo_path"), "inputs.secondary_repo_path")
-
-    _validate_inventory(data)
+    _validate_inventory(data, lifecycle=lifecycle)
 
     # SSH defaults applied to every host in the inventory.
     execution_plane = str(data.get("execution_plane") or "workstation-direct").strip().lower() or "workstation-direct"
@@ -168,6 +158,25 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.become must be a boolean when set")
     if data.get("become_user") is not None:
         require_non_empty_str(data.get("become_user"), "inputs.become_user")
+
+    if lifecycle == "destroy":
+        normalize_required_env(data.get("required_env_destroy"), "inputs.required_env_destroy")
+        return
+
+    backend = _normalize_backend(data.get("backend") or "s3", "inputs.backend")
+    repo_mismatch_action = str(data.get("repo_mismatch_action") or "fail").strip().lower()
+    if repo_mismatch_action not in ("fail", "reset"):
+        raise ValueError("inputs.repo_mismatch_action must be one of: fail, reset")
+
+    secondary_enabled_raw = data.get("secondary_enabled")
+    if secondary_enabled_raw is not None and not isinstance(secondary_enabled_raw, bool):
+        raise ValueError("inputs.secondary_enabled must be a boolean when set")
+    secondary_enabled = bool(secondary_enabled_raw or False)
+    secondary_backend = ""
+    if secondary_enabled:
+        secondary_backend = _normalize_backend(data.get("secondary_backend"), "inputs.secondary_backend")
+        if data.get("secondary_repo_path") is not None:
+            require_non_empty_str(data.get("secondary_repo_path"), "inputs.secondary_repo_path")
 
     primary_backend_env_keys = _validate_backend_settings(data, backend=backend, prefix="")
     secondary_backend_env_keys: list[str] = []

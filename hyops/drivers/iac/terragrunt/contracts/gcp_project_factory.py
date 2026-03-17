@@ -1,14 +1,22 @@
 """
 purpose: Module contract for org/gcp/project-factory Terragrunt behavior.
 Architecture Decision: ADR-N/A (terragrunt contracts)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .base import TerragruntModuleContract
+from hyops.runtime.credentials import parse_tfvars
+from hyops.runtime.gcp import (
+    diagnose_billing_association_permission,
+    diagnose_project_access,
+    normalize_billing_account_id,
+)
+from hyops.runtime.kv import read_kv_file
 
 
 class GcpProjectFactoryContract(TerragruntModuleContract):
@@ -27,8 +35,20 @@ class GcpProjectFactoryContract(TerragruntModuleContract):
         warnings: list[str] = []
 
         # HyOps-friendly alias: billing_account_id -> billing_account
-        billing_account = str(next_inputs.get("billing_account") or "").strip()
-        billing_account_id = str(next_inputs.get("billing_account_id") or "").strip()
+        billing_account = normalize_billing_account_id(str(next_inputs.get("billing_account") or "").strip())
+        billing_account_id = normalize_billing_account_id(str(next_inputs.get("billing_account_id") or "").strip())
+        if not billing_account and not billing_account_id:
+            runtime_root_raw = str(runtime.get("root") or "").strip()
+            if runtime_root_raw:
+                config_path = Path(runtime_root_raw).expanduser().resolve() / "config" / "gcp.conf"
+                if config_path.exists():
+                    try:
+                        cfg = read_kv_file(config_path)
+                    except Exception:
+                        cfg = {}
+                    billing_account_id = normalize_billing_account_id(
+                        str(cfg.get("GCP_BILLING_ACCOUNT_ID") or "").strip()
+                    )
         if not billing_account and billing_account_id:
             next_inputs["billing_account"] = billing_account_id
             billing_account = billing_account_id
@@ -61,6 +81,31 @@ class GcpProjectFactoryContract(TerragruntModuleContract):
         _ = str(next_inputs.get("name_prefix") or "").strip()
         _ = str(next_inputs.get("context_id") or "").strip()
 
+        project_id = str(next_inputs.get("project_id") or "").strip()
+        impersonate_service_account = ""
+        tfvars_path_raw = str(
+            credential_env.get("HYOPS_GCP_TFVARS")
+            or credential_env.get("HYOPS_GCP_CREDENTIALS_FILE")
+            or ""
+        ).strip()
+        if tfvars_path_raw:
+            try:
+                tfvars = parse_tfvars(Path(tfvars_path_raw).expanduser().resolve())
+            except Exception:
+                tfvars = {}
+            impersonate_service_account = str(tfvars.get("impersonate_service_account") or "").strip()
+
+        if project_id:
+            project_ok, _project_detail = diagnose_project_access(
+                project_id,
+                impersonate_service_account=impersonate_service_account or None,
+            )
+            if project_ok:
+                warnings.append(
+                    f"gcp project-factory: target project {project_id} already exists and is accessible; skipping billing-association preflight"
+                )
+                return next_inputs, warnings, ""
+
         if not billing_account:
             # Validator should already block this; keep a clear contract message
             # for cases where contract is used without validator (e.g. direct driver).
@@ -68,5 +113,14 @@ class GcpProjectFactoryContract(TerragruntModuleContract):
                 "missing billing account: set inputs.billing_account (or inputs.billing_account_id) for org/gcp/project-factory"
             )
 
-        return next_inputs, warnings, ""
+        billing_ok, billing_detail, _ = diagnose_billing_association_permission(billing_account)
+        if not billing_ok:
+            detail = billing_detail or (
+                f"current ADC lacks billing.resourceAssociations.create on billingAccounts/{billing_account}"
+            )
+            return next_inputs, warnings, (
+                "gcp project-factory billing preflight failed: "
+                + detail
+            )
 
+        return next_inputs, warnings, ""

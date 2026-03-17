@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/network/dns-routing module.
 Architecture Decision: ADR-N/A (dns-routing validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -118,6 +118,10 @@ def validate(inputs: dict[str, Any]) -> None:
     if not isinstance(data, dict):
         raise ValueError("inputs must be a mapping")
 
+    apply_mode = _require_non_empty_str(data.get("apply_mode") or "bootstrap", "inputs.apply_mode").lower()
+    if apply_mode not in {"bootstrap", "status"}:
+        raise ValueError("inputs.apply_mode must be one of: bootstrap, status")
+
     _validate_inventory(data)
 
     _require_non_empty_str(data.get("target_user"), "inputs.target_user")
@@ -135,15 +139,20 @@ def validate(inputs: dict[str, Any]) -> None:
     if state not in {"present", "absent"}:
         raise ValueError("inputs.dns_state must be 'present' or 'absent'")
     if state == "absent":
+        if apply_mode == "status":
+            raise ValueError("inputs.apply_mode=status requires inputs.dns_state=present")
         return
 
     provider = _require_non_empty_str(data.get("provider"), "inputs.provider")
     if "REPLACE_" in provider.upper():
         raise ValueError("inputs.provider contains placeholder token")
+    provider_normalized = provider.lower()
 
     has_endpoint_state_ref = bool(str(data.get("endpoint_state_ref") or "").strip())
     if has_endpoint_state_ref:
         _require_non_empty_str(data.get("endpoint_state_ref"), "inputs.endpoint_state_ref")
+    if data.get("endpoint_state_env") is not None and str(data.get("endpoint_state_env") or "").strip():
+        _require_non_empty_str(data.get("endpoint_state_env"), "inputs.endpoint_state_env")
     if data.get("endpoint_fqdn_output_key") is not None and str(data.get("endpoint_fqdn_output_key")).strip():
         _require_non_empty_str(data.get("endpoint_fqdn_output_key"), "inputs.endpoint_fqdn_output_key")
     if data.get("endpoint_target_output_key") is not None and str(data.get("endpoint_target_output_key")).strip():
@@ -198,22 +207,26 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.dry_run must be a boolean")
     if not isinstance(dns_apply, bool):
         raise ValueError("inputs.dns_apply must be a boolean")
-    if not dry_run and not dns_apply:
+    if apply_mode != "status" and not dry_run and not dns_apply:
         raise ValueError("inputs.dns_apply must be true when inputs.dry_run=false")
 
     provider_command = str(data.get("provider_command") or "").strip()
-    if provider == "manual-command":
+    if provider_normalized == "manual-command":
+        if apply_mode == "status":
+            raise ValueError("inputs.apply_mode=status currently supports only inputs.provider=powerdns-api")
         if dns_apply and not provider_command:
             raise ValueError(
                 "inputs.provider_command is required when inputs.dns_apply=true and inputs.provider=manual-command"
             )
         return
 
-    if provider != "powerdns-api":
+    if provider_normalized != "powerdns-api":
         raise ValueError("inputs.provider must be one of: manual-command, powerdns-api")
 
     if has_powerdns_state_ref:
         _require_non_empty_str(data.get("powerdns_state_ref"), "inputs.powerdns_state_ref")
+    if data.get("powerdns_state_env") is not None and str(data.get("powerdns_state_env") or "").strip():
+        _require_non_empty_str(data.get("powerdns_state_env"), "inputs.powerdns_state_env")
 
     if not has_powerdns_state_ref:
         _require_http_url(data.get("powerdns_api_url"), "inputs.powerdns_api_url")
@@ -232,9 +245,11 @@ def validate(inputs: dict[str, Any]) -> None:
     if data.get("powerdns_comment") is not None and not isinstance(data.get("powerdns_comment"), str):
         raise ValueError("inputs.powerdns_comment must be a string")
     required_env = data.get("required_env") or []
-    if dns_apply and key_env not in required_env:
+    requires_powerdns_env = dns_apply or apply_mode == "status"
+    if requires_powerdns_env and key_env not in required_env:
         raise ValueError(
-            f"inputs.required_env must include '{key_env}' when inputs.provider=powerdns-api and inputs.dns_apply=true"
+            f"inputs.required_env must include '{key_env}' when inputs.provider=powerdns-api and "
+            f"inputs.apply_mode={apply_mode}"
         )
     ssh_key_env = str(data.get("ssh_private_key_env") or "").strip()
     if ssh_key_env and ssh_key_env not in required_env:

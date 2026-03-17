@@ -19,6 +19,13 @@ _RESERVED_HOST_KEYS = {
     "gcp_iap_zone",
     "tags",
 }
+_LOCAL_HOST_VALUES = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_local_inventory_target(*, name: str, host: str) -> bool:
+    name_token = str(name or "").strip().lower()
+    host_token = str(host or "").strip().lower()
+    return host_token in _LOCAL_HOST_VALUES or (name_token == "localhost" and host_token == "")
 
 
 def _ssh_access_mode(inputs: dict[str, Any]) -> str:
@@ -145,6 +152,8 @@ def _write_inventory_groups(path: Path, inputs: dict[str, Any], inventory_groups
                     zone=zone,
                 )
             host_parts = [name, f"ansible_host={ansible_host}"]
+            if _is_local_inventory_target(name=name, host=ansible_host):
+                host_parts.append("ansible_connection=local")
             if common_args:
                 host_parts.append(f"ansible_ssh_common_args='{common_args}'")
             for raw_key, raw_value in item.items():
@@ -162,9 +171,11 @@ def _write_inventory_groups(path: Path, inputs: dict[str, Any], inventory_groups
             lines.append(" ".join(host_parts))
         lines.append("")
 
-    lines.append("[targets:children]")
-    lines.extend(group_names)
-    lines.append("")
+    child_groups = [name for name in group_names if name != "targets"]
+    if child_groups:
+        lines.append("[targets:children]")
+        lines.extend(child_groups)
+        lines.append("")
 
     lines.extend(
         [
@@ -212,6 +223,8 @@ def write_inventory(path: Path, inputs: dict[str, Any]) -> str:
         f"ansible_port={target_port}",
         "ansible_python_interpreter=/usr/bin/python3",
     ]
+    if _is_local_inventory_target(name="hyops_target", host=target_host):
+        parts.append("ansible_connection=local")
     if ssh_private_key_file:
         parts.append(f"ansible_ssh_private_key_file={ssh_private_key_file}")
 

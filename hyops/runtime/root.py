@@ -1,6 +1,6 @@
 # purpose: Resolve runtime root directory consistently for all commands.
 # Architecture Decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 from __future__ import annotations
 

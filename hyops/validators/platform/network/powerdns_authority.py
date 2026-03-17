@@ -1,7 +1,7 @@
 """hyops.validators.platform.network.powerdns_authority
 
 purpose: Validate inputs for platform/network/powerdns-authority module.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

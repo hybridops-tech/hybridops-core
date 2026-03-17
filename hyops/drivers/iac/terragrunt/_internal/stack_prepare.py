@@ -7,12 +7,61 @@ from pathlib import Path
 from typing import Any
 
 from hyops.runtime.coerce import as_bool
-from hyops.runtime.terraform_cloud import apply_runtime_config_env, derive_workspace_name
+from hyops.runtime.module_state import read_module_state
+from hyops.runtime.terraform_cloud import (
+    apply_runtime_config_env,
+    derive_workspace_name,
+    is_legacy_workspace_name_compatible,
+)
 
 from .hooks import provider_segment, resolve_export_infra_hook
+from .workspace_binding import infer_gcp_project_id_from_outputs
 from .meta import write_runtime_context
 from .profile import apply_profile_env, apply_templates
 from .workspace import resolve_workspace_policy
+
+
+def _preserve_prior_workspace_name(
+    *,
+    runtime_root: Path,
+    module_ref: str,
+    state_instance: str,
+    backend_mode: str,
+    workspace_name: str,
+    inputs: dict[str, Any],
+) -> str:
+    if backend_mode != "cloud":
+        return workspace_name
+
+    try:
+        prior = read_module_state(
+            runtime_root / "state",
+            module_ref,
+            state_instance=(str(state_instance or "").strip() or None),
+        )
+    except Exception:
+        return workspace_name
+
+    if str(prior.get("status") or "").strip().lower() == "destroyed":
+        return workspace_name
+
+    prior_binding = (((prior.get("execution") or {}).get("backend") or {}).get("terraform_cloud") or {})
+    prior_workspace_name = str(prior_binding.get("workspace_name") or "").strip()
+    if not prior_workspace_name:
+        return workspace_name
+
+    prior_outputs = prior.get("outputs") or {}
+    if not isinstance(prior_outputs, dict):
+        prior_outputs = {}
+    prior_project_id = infer_gcp_project_id_from_outputs(prior_outputs)
+    current_project_id = str(inputs.get("project_id") or "").strip()
+    if prior_project_id and current_project_id and prior_project_id != current_project_id:
+        return workspace_name
+
+    if is_legacy_workspace_name_compatible(prior_workspace_name, workspace_name):
+        return prior_workspace_name
+
+    return workspace_name
 
 
 def prepare_stack_workspace(
@@ -84,6 +133,15 @@ def prepare_stack_workspace(
         if ws_err and backend_mode == "cloud":
             return None, None, "", "", f"workspace name derivation failed: {ws_err}"
 
+        workspace_name = _preserve_prior_workspace_name(
+            runtime_root=runtime_root,
+            module_ref=module_ref,
+            state_instance=state_instance,
+            backend_mode=backend_mode,
+            workspace_name=workspace_name,
+            inputs=inputs,
+        )
+
         try:
             write_runtime_context(
                 stack_dst,
@@ -116,6 +174,8 @@ def prepare_stack_workspace(
     )
     if workspace_error:
         return None, None, "", "", f"workspace policy configuration failed: {workspace_error}"
+    if workspace_policy is not None and workspace_name:
+        workspace_policy["workspace_name"] = workspace_name
 
     export_infra_hook, export_infra_hook_error = resolve_export_infra_hook(
         profile=profile,

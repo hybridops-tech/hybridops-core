@@ -2,7 +2,7 @@
 
 purpose: Shared Terraform Cloud helpers (config discovery + token discovery).
 Architecture Decision: ADR-N/A (Terraform Cloud runtime integration)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
+import hashlib
 import json
 import os
 import re
@@ -21,6 +22,42 @@ DEFAULT_TFC_HOST = "app.terraform.io"
 DEFAULT_TFC_CREDENTIALS_FILE = "~/.terraform.d/credentials.tfrc.json"
 DEFAULT_WORKSPACE_PREFIX = "hybridops"
 _WORKSPACE_SAFE_RE = re.compile(r"[^a-z0-9_-]+")
+_WORKSPACE_MAX_LEN = 90
+_WORKSPACE_PREFIX_ALIASES: dict[str, tuple[str, ...]] = {
+    "hybridops": ("platform",),
+    "platform": ("hybridops",),
+}
+
+
+def normalize_workspace_name(value: str) -> str:
+    ws = str(value or "").strip().lower()
+    ws = _WORKSPACE_SAFE_RE.sub("-", ws)
+    if not ws:
+        return ""
+    if len(ws) > _WORKSPACE_MAX_LEN:
+        digest = hashlib.sha1(ws.encode("utf-8")).hexdigest()[:10]
+        keep = max(_WORKSPACE_MAX_LEN - len(digest) - 1, 1)
+        ws = f"{ws[:keep].rstrip('-')}-{digest}"
+    return ws
+
+
+def is_legacy_workspace_name_compatible(previous: str, current: str) -> bool:
+    prior = str(previous or "").strip().lower()
+    now = str(current or "").strip().lower()
+    if not prior or not now or prior == now:
+        return False
+    if normalize_workspace_name(prior) == now:
+        return True
+
+    head, sep, tail = prior.partition("-")
+    if not sep or not tail:
+        return False
+
+    for alias in _WORKSPACE_PREFIX_ALIASES.get(head, ()):
+        candidate = normalize_workspace_name(f"{alias}-{tail}")
+        if candidate == now:
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -222,6 +259,24 @@ def preflight_cloud_backend(*, env: Mapping[str, str], runtime_root: Path, env_n
     return ""
 
 
+def _workspace_target_suffix(*, module_ref: str, inputs: Mapping[str, Any]) -> str:
+    """Return an optional deterministic workspace discriminator for risky replacement cases.
+
+    Most modules should keep one stable workspace per env/module pair.
+    Some bootstrap modules, such as GCP project factory, manage resources whose
+    identity should never be treated as an in-place replacement target across
+    unrelated accounts or projects. In those cases we include the durable target
+    identity in the workspace name so a new project gets a new workspace/state.
+    """
+
+    ref = str(module_ref or "").strip().lower()
+    if ref == "org/gcp/project-factory":
+        project_id = str(inputs.get("project_id") or "").strip().lower()
+        if project_id:
+            return project_id
+    return ""
+
+
 def derive_workspace_name(
     *,
     provider: str,
@@ -259,6 +314,7 @@ def derive_workspace_name(
         "module": module_component,
         "pack": pack_component,
     }
+    target_suffix = _workspace_target_suffix(module_ref=module_ref, inputs=inputs)
 
     raw_policy = naming_policy if isinstance(naming_policy, Mapping) else {}
     pattern = str(raw_policy.get("workspace_pattern") or "").strip()
@@ -266,12 +322,14 @@ def derive_workspace_name(
         raw = pattern
         for key, value in tokens.items():
             raw = raw.replace("{" + key + "}", value)
+        raw = raw.replace("{target}", target_suffix)
         ws_raw = raw
     else:
-        ws_raw = "-".join([p for p in (name_prefix, provider_token, context_id, module_component, pack_component) if p])
+        ws_raw = "-".join(
+            [p for p in (name_prefix, provider_token, context_id, module_component, pack_component, target_suffix) if p]
+        )
 
-    ws = str(ws_raw or "").strip().lower()
-    ws = _WORKSPACE_SAFE_RE.sub("-", ws)
+    ws = normalize_workspace_name(ws_raw)
     if not ws:
         return "", "failed to derive workspace name"
 

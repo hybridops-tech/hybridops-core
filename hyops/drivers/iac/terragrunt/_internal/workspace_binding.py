@@ -3,12 +3,13 @@
 purpose: Persist and validate backend binding to prevent accidental cross-namespace
 Terraform Cloud workspace drift for the same HyOps module state slot.
 Architecture Decision: ADR-N/A (backend binding guard)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 from hyops.runtime.module_state import module_state_path, read_module_state
@@ -52,6 +53,85 @@ def build_backend_binding(
 
 def _cmp(a: Any, b: Any) -> bool:
     return str(a or "").strip() == str(b or "").strip()
+
+
+_GCP_PROJECT_LINK_RE = re.compile(r"/projects/(?P<project>[^/]+)/")
+_GCP_PROJECT_ID_RE = re.compile(r"^projects/(?P<project>[^/]+)/")
+_GCP_CONN_NAME_RE = re.compile(r"^(?P<project>[^:]+):[^:]+:[^:]+$")
+
+
+def _iter_output_strings(value: Any):
+    if isinstance(value, str):
+        v = value.strip()
+        if v:
+            yield v
+        return
+    if isinstance(value, dict):
+        for nested in value.values():
+            yield from _iter_output_strings(nested)
+        return
+    if isinstance(value, list):
+        for nested in value:
+            yield from _iter_output_strings(nested)
+
+
+def infer_gcp_project_id_from_outputs(outputs: dict[str, Any] | None) -> str:
+    if not isinstance(outputs, dict):
+        return ""
+
+    for key in ("project_id", "target_project_id", "network_project_id", "secret_project_id"):
+        value = str(outputs.get(key) or "").strip()
+        if value:
+            return value
+
+    for candidate in _iter_output_strings(outputs):
+        for pattern in (_GCP_PROJECT_LINK_RE, _GCP_PROJECT_ID_RE, _GCP_CONN_NAME_RE):
+            match = pattern.search(candidate)
+            if match:
+                project = str(match.group("project") or "").strip()
+                if project:
+                    return project
+
+    return ""
+
+
+def allow_backend_binding_rehome(
+    *,
+    state_root: Path,
+    module_ref: str,
+    state_instance: str | None,
+    inputs: dict[str, Any],
+) -> tuple[bool, str]:
+    """Allow a narrow class of safe backend-binding moves.
+
+    When a prior module state publishes project_id and the current resolved
+    inputs target a different project_id, HyOps prefers a fresh Terraform Cloud
+    workspace over reusing the old state slot. This protects recovery flows
+    where the env root project changes and the old workspace still points at the
+    former project.
+    """
+
+    target_project_id = str(inputs.get("project_id") or "").strip()
+    if not target_project_id:
+        return False, ""
+
+    try:
+        prior = read_module_state(state_root, module_ref, state_instance=state_instance)
+    except Exception:
+        return False, ""
+
+    prior_outputs = prior.get("outputs") or {}
+    if not isinstance(prior_outputs, dict):
+        prior_outputs = {}
+    prior_project_id = infer_gcp_project_id_from_outputs(prior_outputs)
+    if not prior_project_id or prior_project_id == target_project_id:
+        return False, ""
+
+    return (
+        True,
+        "backend binding rehome allowed because resolved project_id changed "
+        f"from {prior_project_id} to {target_project_id} for {module_ref}"
+    )
 
 
 def check_backend_binding_drift(

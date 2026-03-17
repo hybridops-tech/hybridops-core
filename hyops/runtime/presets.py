@@ -2,7 +2,7 @@
 
 purpose: Resolve optional preset-based input overlays before driver execution.
 Architecture Decision: ADR-N/A (preset overlays)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

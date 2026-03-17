@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/network/edge-observability module.
 Architecture Decision: ADR-N/A (edge observability validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

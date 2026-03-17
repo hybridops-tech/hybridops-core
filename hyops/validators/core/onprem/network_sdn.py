@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for core/onprem/network-sdn module.
 Architecture Decision: ADR-N/A (onprem network-sdn validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

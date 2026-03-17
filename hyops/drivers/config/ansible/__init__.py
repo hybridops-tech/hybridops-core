@@ -1,7 +1,7 @@
 """
 purpose: Ansible configuration driver package.
 Architecture Decision: ADR-N/A (config ansible driver)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from .driver import run

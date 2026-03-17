@@ -1,7 +1,7 @@
 """
 purpose: Implement `hyops init proxmox` and produce readiness + credentials.
 Architecture Decision: ADR-N/A (init proxmox)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from hyops.runtime.vault import VaultAuth, has_password_source, merge_set, read_
 
 _TEMPLATE = """# purpose: Proxmox init configuration for HybridOps.Core
 # Architecture Decision: ADR-N/A (init proxmox template)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 [proxmox]
 host = pve.example.local
@@ -146,6 +146,27 @@ def _detect_workstation_ip(target_host: str) -> str:
         if parts:
             return parts[0]
     return ""
+
+
+def _local_ipv4_addresses() -> set[str]:
+    r = run_proc(["ip", "-4", "-o", "addr", "show", "scope", "global"], timeout_s=5)
+    if r.rc != 0:
+        return set()
+    ips: set[str] = set()
+    for raw in (r.stdout or "").splitlines():
+        m = re.search(r"\binet\s+([0-9.]+)/\d+\b", raw)
+        if m:
+            ips.add(m.group(1))
+    return ips
+
+
+def _is_valid_http_bind_address(value: str) -> bool:
+    addr = str(value or "").strip()
+    if not addr:
+        return False
+    if addr == "0.0.0.0":
+        return True
+    return addr in _local_ipv4_addresses()
 
 
 def _parse_exports(text: str) -> dict[str, str]:
@@ -331,7 +352,7 @@ def _backfill_values_from_local_runtime(
         except Exception:
             tfvars = {}
         recovered_bind = str(tfvars.get("http_bind_address") or "").strip()
-        if recovered_bind:
+        if _is_valid_http_bind_address(recovered_bind):
             out["http_bind_address"] = recovered_bind
 
     return out
@@ -361,10 +382,13 @@ def _find_reusable_proxmox_token_secret(
 
         cred_path = (env_dir / "credentials" / "proxmox.credentials.tfvars").resolve()
         vault_path = (env_dir / "vault" / "bootstrap.vault.env").resolve()
-        if not cred_path.is_file() or not vault_path.is_file():
+        if not cred_path.is_file():
             continue
 
-        tfvars = parse_tfvars(cred_path)
+        try:
+            tfvars = parse_tfvars(cred_path)
+        except Exception:
+            continue
         candidate_token_id = str(tfvars.get("proxmox_token_id") or "").strip()
         if not candidate_token_id or candidate_token_id != token_id:
             continue
@@ -380,24 +404,31 @@ def _find_reusable_proxmox_token_secret(
             if str(target_port).strip() != str(candidate_port).strip():
                 continue
 
-        try:
-            env_map = read_env(vault_path, auth)
-        except Exception:
-            continue
-        candidate_secret = str(env_map.get("PROXMOX_TOKEN_SECRET") or "").strip()
-        if not candidate_secret:
-            continue
+        candidate_secrets: list[str] = []
+        tfvars_secret = str(tfvars.get("proxmox_token_secret") or "").strip()
+        if tfvars_secret:
+            candidate_secrets.append(tfvars_secret)
 
-        ok = _validate_api_token(
-            evidence_dir=evidence_dir,
-            api_ip=str(target_host or "").strip(),
-            api_port=str(target_port or "").strip() or "8006",
-            tls_skip=str(tls_skip or "").strip() or "true",
-            token_id=token_id,
-            token_secret=candidate_secret,
-        )
-        if ok:
-            return candidate_secret, env_dir.name
+        if vault_path.is_file():
+            try:
+                env_map = read_env(vault_path, auth)
+            except Exception:
+                env_map = {}
+            vault_secret = str(env_map.get("PROXMOX_TOKEN_SECRET") or "").strip()
+            if vault_secret and vault_secret not in candidate_secrets:
+                candidate_secrets.append(vault_secret)
+
+        for candidate_secret in candidate_secrets:
+            ok = _validate_api_token(
+                evidence_dir=evidence_dir,
+                api_ip=str(target_host or "").strip(),
+                api_port=str(target_port or "").strip() or "8006",
+                tls_skip=str(tls_skip or "").strip() or "true",
+                token_id=token_id,
+                token_secret=candidate_secret,
+            )
+            if ok:
+                return candidate_secret, env_dir.name
 
     return "", ""
 
@@ -411,7 +442,35 @@ def _validate_api_token(
     token_id: str,
     token_secret: str,
 ) -> bool:
+    return _validate_api_endpoint(
+        evidence_dir=evidence_dir,
+        api_ip=api_ip,
+        api_port=api_port,
+        tls_skip=tls_skip,
+        token_id=token_id,
+        token_secret=token_secret,
+        api_path="/version",
+        label="proxmox_api_token_check",
+    )
+
+
+def _validate_api_endpoint(
+    *,
+    evidence_dir: Path,
+    api_ip: str,
+    api_port: str,
+    tls_skip: str,
+    token_id: str,
+    token_secret: str,
+    api_path: str,
+    label: str,
+) -> bool:
     api_url = f"https://{api_ip}:{api_port}/api2/json/version"
+    api_suffix = str(api_path or "").strip()
+    if api_suffix and not api_suffix.startswith("/"):
+        api_suffix = f"/{api_suffix}"
+    if api_suffix:
+        api_url = f"https://{api_ip}:{api_port}/api2/json{api_suffix}"
     curl_tls_opt = "-k" if str(tls_skip or "").strip().lower() in ("true", "1", "yes") else ""
     env = os.environ.copy()
     env.update(
@@ -431,12 +490,39 @@ def _validate_api_token(
             '"${HYOPS_PVE_API_URL}"',
         ],
         evidence_dir=evidence_dir,
-        label="proxmox_api_token_check",
+        label=label,
         env=env,
         timeout_s=20,
         redact=True,
     )
     return r.rc == 0
+
+
+def _validate_storage_content_access(
+    *,
+    evidence_dir: Path,
+    api_ip: str,
+    api_port: str,
+    tls_skip: str,
+    token_id: str,
+    token_secret: str,
+    node: str,
+    datastore: str,
+) -> bool:
+    node_name = str(node or "").strip()
+    datastore_id = str(datastore or "").strip()
+    if not node_name or not datastore_id:
+        return False
+    return _validate_api_endpoint(
+        evidence_dir=evidence_dir,
+        api_ip=api_ip,
+        api_port=api_port,
+        tls_skip=tls_skip,
+        token_id=token_id,
+        token_secret=token_secret,
+        api_path=f"/nodes/{node_name}/storage/{datastore_id}/content",
+        label=f"proxmox_api_storage_{datastore_id}_content_check",
+    )
 
 
 def _has_vault_password_source(ns) -> bool:
@@ -469,7 +555,9 @@ def _write_tfvars(
     ssh_public_key = values.get("ssh_public_key", "").strip() or _read_first_pubkey()
     ssh_private_key = values.get("ssh_private_key", "").strip()
     ssh_username = values.get("ssh_username", "root").strip()
-    http_bind_address = values.get("http_bind_address", "").strip() or _detect_workstation_ip(values["host"])
+    http_bind_address = values.get("http_bind_address", "").strip()
+    if not _is_valid_http_bind_address(http_bind_address):
+        http_bind_address = _detect_workstation_ip(values["host"])
     http_port = values.get("http_port", "8802").strip()
     api_port = values.get("port", "8006").strip()
 
@@ -477,7 +565,7 @@ def _write_tfvars(
         "# <sensitive> Do not commit.",
         "# purpose: Proxmox runtime inputs for infrastructure and image drivers.",
         "# Architecture Decision: ADR-N/A (credentials output)",
-        "# maintainer: HybridOps.Studio",
+        "# maintainer: HybridOps.Tech",
         "# </sensitive>",
         "",
         f'proxmox_url          = "https://{runtime["api_ip"]}:{api_port}/api2/json"',
@@ -638,6 +726,49 @@ def run(ns) -> int:
     token_id = _derive_token_id(values)
     want_remote = bool(getattr(ns, "bootstrap", False)) or not bool(getattr(ns, "no_remote", False))
 
+    # If this env carries a stale token for the same shared Proxmox target,
+    # prefer healing from a valid sibling env token before rotating remotely.
+    if (
+        want_remote
+        and token_secret
+        and not bool(getattr(ns, "force", False))
+        and has_vault_password
+        and not _validate_api_token(
+            evidence_dir=evidence_dir,
+            api_ip=str(values.get("host") or "").strip(),
+            api_port=str(values.get("port") or "8006").strip(),
+            tls_skip=str(values.get("tls_skip") or "true"),
+            token_id=token_id,
+            token_secret=token_secret,
+        )
+    ):
+        reusable_secret, reusable_env = _find_reusable_proxmox_token_secret(
+            runtime_root=paths.root,
+            target_host=str(values.get("host") or "").strip(),
+            target_port=str(values.get("port") or "8006").strip(),
+            token_id=token_id,
+            tls_skip=str(values.get("tls_skip") or "true"),
+            auth=auth,
+            evidence_dir=evidence_dir,
+        )
+        if reusable_secret and reusable_env:
+            token_secret = reusable_secret
+            try:
+                merge_set(vault_path, auth, {"PROXMOX_TOKEN_SECRET": token_secret})
+            except Exception as e:
+                print(f"vault write failed: {e}")
+                return SECRETS_FAILED
+            print(
+                f"reused PROXMOX_TOKEN_SECRET from env '{reusable_env}' "
+                f"because the current env token for {token_id} is no longer valid"
+            )
+        else:
+            token_secret = ""
+            print(
+                f"configured PROXMOX_TOKEN_SECRET for {token_id} is no longer valid; "
+                "refreshing it via remote bootstrap"
+            )
+
     # Guard against accidental token rotation across envs:
     # if this env has no token yet, attempt to reuse a valid token from another
     # env targeting the same Proxmox host + token_id.
@@ -746,7 +877,7 @@ def run(ns) -> int:
     if getattr(ns, "dry_run", False):
         print("dry-run: would run remote bootstrap and write outputs" if want_remote else "dry-run: would skip remote bootstrap")
         print("dry-run: would write credentials + readiness")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return OK
 
     if want_remote:
@@ -852,7 +983,24 @@ def run(ns) -> int:
         token_secret=token_secret,
     ):
         print("proxmox token validation failed; check token/ACLs and API reachability")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
+        return SECRETS_FAILED
+
+    if not _validate_storage_content_access(
+        evidence_dir=evidence_dir,
+        api_ip=str(runtime.get("api_ip") or values["host"]),
+        api_port=str(values.get("port") or "8006"),
+        tls_skip=str(values.get("tls_skip") or "true"),
+        token_id=token_id,
+        token_secret=token_secret,
+        node=str(runtime.get("node") or ""),
+        datastore=str(runtime.get("storage_snippets") or ""),
+    ):
+        print(
+            "proxmox token validation failed for snippet storage content access; "
+            "check token ACLs and storage_snippets discovery"
+        )
+        print(f"run record: {evidence_dir}")
         return SECRETS_FAILED
 
     rendered = _write_tfvars(cred_path, values, token_id, token_secret, runtime)
@@ -897,7 +1045,7 @@ def run(ns) -> int:
     marker = write_marker(paths.meta_dir, target, readiness)
 
     print(f"target={target} status=ready run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     print(f"readiness: {marker}")
     print(f"credentials: {cred_path}")
     print(

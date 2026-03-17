@@ -3,7 +3,7 @@
 
 purpose: Replace legacy shell helper with a core-native tool for workspace policy setup.
 Architecture Decision: ADR-N/A (workspace policy tooling)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """
 purpose: Post-apply readiness checks for terragrunt-managed modules.
 Architecture Decision: ADR-N/A (terragrunt post-apply readiness)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -155,10 +155,22 @@ def _resolve_readiness_config(inputs: dict[str, Any], *, module_ref: str) -> tup
     out["connectivity_timeout_s"] = max(1, as_int(cfg.get("connectivity_timeout_s"), default=5))
     out["connectivity_wait_s"] = max(0, as_int(cfg.get("connectivity_wait_s"), default=300))
     out["ssh_proxy_jump_auto"] = as_bool(cfg.get("ssh_proxy_jump_auto"), default=not gcp_platform_vm)
-    out["ssh_proxy_jump_host"] = str(cfg.get("ssh_proxy_jump_host") or "").strip()
-    out["ssh_proxy_jump_user"] = str(cfg.get("ssh_proxy_jump_user") or "").strip()
-    out["ssh_proxy_jump_port"] = max(1, as_int(cfg.get("ssh_proxy_jump_port"), default=22))
-    out["ssh_private_key_file"] = str(cfg.get("ssh_private_key_file") or "").strip()
+    out["ssh_proxy_jump_host"] = str(
+        cfg.get("ssh_proxy_jump_host") or inputs.get("ssh_proxy_jump_host") or ""
+    ).strip()
+    out["ssh_proxy_jump_user"] = str(
+        cfg.get("ssh_proxy_jump_user") or inputs.get("ssh_proxy_jump_user") or ""
+    ).strip()
+    out["ssh_proxy_jump_port"] = max(
+        1,
+        as_int(
+            cfg.get("ssh_proxy_jump_port"),
+            default=as_int(inputs.get("ssh_proxy_jump_port"), default=22),
+        ),
+    )
+    out["ssh_private_key_file"] = str(
+        cfg.get("ssh_private_key_file") or inputs.get("ssh_private_key_file") or ""
+    ).strip()
     return out, ""
 
 

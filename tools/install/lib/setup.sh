@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: setup-all orchestration helpers for installer.
 # Architecture Decision: ADR-N/A (bootstrap installer)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 hyops_install_run_setup_all() {
   [[ "${SETUP_ALL}" == "true" ]] || return 0

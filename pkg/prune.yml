@@ -1,6 +1,6 @@
 # purpose: Prune rules to exclude non-shippable content from release bundles.
 # adr: ADR-0622
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 exclude_globs:
   - "**/__pycache__"

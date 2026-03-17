@@ -1,7 +1,7 @@
 """
 purpose: Module contract for core/onprem/network-sdn Terragrunt behavior.
 Architecture Decision: ADR-N/A (terragrunt network-sdn contract)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

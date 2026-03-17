@@ -1,7 +1,7 @@
 """
 purpose: Validate config/ansible execution schema before driver invocation.
 Architecture Decision: ADR-N/A (config ansible execution schema)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

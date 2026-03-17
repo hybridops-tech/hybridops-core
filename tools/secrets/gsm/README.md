@@ -62,7 +62,6 @@ hyops secrets gsm-persist --env dev --scope cloudflare
 
 Use this when the tunnel token must be projected into the cluster through ESO
 instead of a hand-applied long-lived `Secret`.
-
 ## Mapping file
 
 Default map file:
@@ -70,6 +69,32 @@ Default map file:
 ```text
 tools/secrets/gsm/map/allowed.csv
 ```
+
+Preferred env-local override:
+
+```text
+<runtime>/config/secrets/gsm/allowed.csv
+```
+
+Safe local template pattern:
+
+```text
+<runtime>/config/secrets/gsm/allowed.csv.example
+```
+
+Copy the example to `allowed.csv` only when the current env really needs a
+different GSM naming contract from the shipped default.
+
+The shipped default is intentionally narrow. Private Academy, Moodle, and
+external identity-provider rows belong in the env-local override, not in the
+shipped core map.
+
+Map resolution order:
+
+1. `--map-file`
+2. env-local runtime map
+3. `HYOPS_GSM_MAP_FILE`
+4. shipped core default
 
 CSV format:
 
@@ -81,6 +106,58 @@ Supported placeholders in `GSM_SECRET_NAME`:
 
 - `{env}`
 - `{scope}`
+- `{env_key}`
+- `{env_key_slug}`
+
+## Register env-local mappings while persisting
+
+When you are creating or rotating secrets through `hyops secrets set` or
+`hyops secrets ensure`, you can register missing env-local GSM mappings and
+persist them in one step.
+
+Example:
+
+```bash
+hyops secrets set --env dev \
+  --persist gsm \
+  --persist-scope academy \
+  --persist-register-gsm-map \
+  LEARN_SESSION_SECRET=... \
+  ENTITLEMENTS_API_TOKEN=...
+```
+
+Before HyOps writes any env-local GSM rows, it first validates that the target
+GCP project can be resolved and that Secret Manager access is actually
+available. If project access fails, the command exits without mutating the
+env-local GSM map.
+
+On success, this writes any missing rows to:
+
+```text
+<runtime>/config/secrets/gsm/allowed.csv
+```
+
+using the default naming template:
+
+```text
+hyops-{env}-{scope}-{env_key_slug}
+```
+
+Override the generated naming pattern only when you need a different
+env-local convention:
+
+```bash
+hyops secrets ensure --env dev \
+  --persist gsm \
+  --persist-scope academy \
+  --persist-register-gsm-map \
+  --persist-register-gsm-template '{env}-academy-{env_key_slug}' \
+  LEARN_SESSION_SECRET ENTITLEMENTS_API_TOKEN
+```
+
+`--persist-register-gsm-map` only writes to the env-local override after the
+target GCP project passes access checks. It never modifies the shipped core
+default map.
 
 ## Notes
 

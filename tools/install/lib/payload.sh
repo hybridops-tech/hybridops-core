@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Payload copy and permission normalization helpers for installer.
 # Architecture Decision: ADR-N/A (bootstrap installer)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 hyops_install_copy_payload() {
   echo "[install] copying payload"

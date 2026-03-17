@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/network/vyos-edge-wan module.
 Architecture Decision: ADR-N/A (vyos edge wan validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -205,6 +205,26 @@ def validate(inputs: dict[str, Any]) -> None:
     _validate_optional_ipv4(data.get("edge02_public_ip"), "inputs.edge02_public_ip")
     _validate_optional_ipv4(data.get("edge01_peer_public_ip"), "inputs.edge01_peer_public_ip")
     _validate_optional_ipv4(data.get("edge02_peer_public_ip"), "inputs.edge02_peer_public_ip")
+    edge_ipsec_source_cidrs = _require_cidr_list(
+        data.get("edge_ipsec_source_cidrs") or [],
+        "inputs.edge_ipsec_source_cidrs",
+        allow_empty=True,
+    )
+
+    for field in ("edge01_peer_public_ip", "edge02_peer_public_ip"):
+        peer_ip_raw = data.get(field)
+        if peer_ip_raw is None or str(peer_ip_raw).strip() == "":
+            continue
+        peer_ip = ipaddress.ip_address(_require_ipv4(peer_ip_raw, f"inputs.{field}"))
+        if edge_ipsec_source_cidrs and not any(
+            peer_ip in ipaddress.ip_network(cidr, strict=False)
+            for cidr in edge_ipsec_source_cidrs
+        ):
+            raise ValueError(
+                f"inputs.{field}={peer_ip} is not allowed by inputs.edge_ipsec_source_cidrs. "
+                "Update org/hetzner/vyos-edge-foundation so the Hetzner firewall allows the current "
+                "GCP HA VPN public peer IPs before rerunning platform/network/vyos-edge-wan."
+            )
 
     _require_ipv4(data.get("edge01_inside_local_ip"), "inputs.edge01_inside_local_ip")
     _require_ipv4(data.get("edge01_inside_peer_ip"), "inputs.edge01_inside_peer_ip")

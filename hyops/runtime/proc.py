@@ -2,7 +2,7 @@
 
 purpose: Run external tools with capture, timeouts, and consistent result envelopes.
 Architecture Decision: ADR-N/A (proc runner)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -102,6 +102,50 @@ def run_capture(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / f"{label}.stdout.txt").write_text(out, encoding="utf-8")
     (evidence_dir / f"{label}.stderr.txt").write_text(err, encoding="utf-8")
+    _write_result_envelope(evidence_dir, label, r, redact=redact)
+    return r
+
+
+def run_interactive(
+    argv: Sequence[str],
+    cwd: str | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout_s: int | None = None,
+) -> ProcResult:
+    start = time.time()
+    p = subprocess.run(
+        list(argv),
+        cwd=cwd,
+        env=dict(env) if env else None,
+        text=True,
+        timeout=timeout_s,
+        check=False,
+    )
+    dur = int((time.time() - start) * 1000)
+    return ProcResult(
+        argv=list(argv),
+        cwd=cwd,
+        rc=int(p.returncode),
+        duration_ms=dur,
+        stdout="",
+        stderr="",
+    )
+
+
+def run_capture_interactive(
+    argv: Sequence[str],
+    evidence_dir: Path,
+    label: str,
+    cwd: str | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout_s: int | None = None,
+    redact: bool = True,
+) -> ProcResult:
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    note = "interactive output streamed directly to terminal; stdout/stderr not captured\n"
+    (evidence_dir / f"{label}.stdout.txt").write_text(note, encoding="utf-8")
+    (evidence_dir / f"{label}.stderr.txt").write_text(note, encoding="utf-8")
+    r = run_interactive(argv, cwd=cwd, env=env, timeout_s=timeout_s)
     _write_result_envelope(evidence_dir, label, r, redact=redact)
     return r
 

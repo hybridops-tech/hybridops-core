@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for core/shared/manual-gate.
 Architecture Decision: ADR-N/A (shared manual control gate)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -21,12 +21,14 @@ def _require_bool(value: Any, field: str) -> bool:
 def validate(inputs: dict[str, Any]) -> None:
     data = require_mapping(inputs, "inputs")
     lifecycle = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    invocation = str(data.get("_hyops_invocation_command") or "").strip().lower()
 
     require_non_empty_str(data.get("gate_name"), "inputs.gate_name")
     require_non_empty_str(data.get("gate_message"), "inputs.gate_message")
 
     confirm = _require_bool(data.get("confirm"), "inputs.confirm")
-    if lifecycle != "destroy" and not confirm:
+    enforce_confirmation = invocation not in {"validate", "preflight", "plan"} and lifecycle != "destroy"
+    if enforce_confirmation and not confirm:
         raise ValueError("inputs.confirm must be true (explicit operator confirmation required)")
 
     assertions = data.get("assertions")
@@ -37,7 +39,7 @@ def validate(inputs: dict[str, Any]) -> None:
     for key, value in assertions.items():
         require_non_empty_str(key, f"inputs.assertions[{key!r}]")
         current = _require_bool(value, f"inputs.assertions[{key!r}]")
-        if lifecycle != "destroy" and not current:
+        if enforce_confirmation and not current:
             raise ValueError(
                 f"inputs.assertions[{key!r}] must be true "
                 f"(manual gate {data.get('gate_name')!r} is not fully acknowledged)"

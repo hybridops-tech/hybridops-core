@@ -1,7 +1,7 @@
 """
 purpose: Initialise HashiCorp Vault runtime inputs and readiness for external secret sync.
 Architecture Decision: ADR-N/A
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -312,7 +312,7 @@ def run(ns) -> int:
 
     if getattr(ns, "dry_run", False):
         print("dry-run: would validate Vault token, optionally persist token, and write readiness")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return OK
 
     if not token:
@@ -346,7 +346,7 @@ def run(ns) -> int:
         token_info = lookup_self(vault_addr=vault_addr, token=token, namespace=vault_namespace)
     except Exception as exc:
         print(f"ERR: HashiCorp Vault validation failed: {exc}")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return SECRETS_FAILED
 
     if getattr(ns, "persist_token", False):
@@ -386,7 +386,7 @@ def run(ns) -> int:
         return WRITE_FAILURE
 
     print(f"target={target} status=ready run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     print(f"readiness: {marker}")
     print(f"config: {config_path}")
     return OK

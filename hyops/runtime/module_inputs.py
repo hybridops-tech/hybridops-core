@@ -2,7 +2,7 @@
 
 purpose: Shared low-level input parsing and env override helpers for module resolution.
 Architecture Decision: ADR-N/A (module resolution)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

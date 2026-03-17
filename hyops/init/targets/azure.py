@@ -2,7 +2,7 @@
 
 purpose: Initialise Azure runtime credentials, evidence, and readiness.
 Architecture Decision: ADR-N/A (init azure)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from hyops.init.helpers import init_evidence_path, init_run_id, read_kv_file
 from hyops.init.shared_args import add_init_shared_args
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
-from hyops.runtime.proc import run_capture, run_capture_sensitive
+from hyops.runtime.proc import run_capture, run_capture_interactive, run_capture_sensitive
 from hyops.runtime.readiness import write_marker
 from hyops.runtime.state import write_json
 from hyops.runtime.stamp import stamp_runtime
@@ -167,30 +167,59 @@ def run(ns) -> int:
 
     cfg = read_kv_file(config_path)
 
-    location = (
-        getattr(ns, "location", None)
-        or os.environ.get("AZ_LOCATION")
-        or cfg.get("AZ_LOCATION")
-        or "uksouth"
-    ).strip()
-    sp_name = (
-        getattr(ns, "sp_name", None)
-        or os.environ.get("AZ_SP_NAME")
-        or cfg.get("AZ_SP_NAME")
-        or _default_sp_name(env_name)
-    ).strip()
-    subscription_id = (
-        getattr(ns, "subscription_id", None)
-        or os.environ.get("AZ_SUBSCRIPTION_ID")
-        or cfg.get("AZ_SUBSCRIPTION_ID")
-        or ""
-    ).strip()
-    tenant_id = (
-        getattr(ns, "tenant_id", None)
-        or os.environ.get("AZ_TENANT_ID")
-        or cfg.get("AZ_TENANT_ID")
-        or ""
-    ).strip()
+    location = ""
+    location_source = ""
+    if getattr(ns, "location", None):
+        location = str(getattr(ns, "location", None) or "").strip()
+        location_source = "flag"
+    elif os.environ.get("AZ_LOCATION"):
+        location = str(os.environ.get("AZ_LOCATION") or "").strip()
+        location_source = "env"
+    elif cfg.get("AZ_LOCATION"):
+        location = str(cfg.get("AZ_LOCATION") or "").strip()
+        location_source = "config"
+    else:
+        location = "uksouth"
+        location_source = "default"
+
+    sp_name = ""
+    sp_name_source = ""
+    if getattr(ns, "sp_name", None):
+        sp_name = str(getattr(ns, "sp_name", None) or "").strip()
+        sp_name_source = "flag"
+    elif os.environ.get("AZ_SP_NAME"):
+        sp_name = str(os.environ.get("AZ_SP_NAME") or "").strip()
+        sp_name_source = "env"
+    elif cfg.get("AZ_SP_NAME"):
+        sp_name = str(cfg.get("AZ_SP_NAME") or "").strip()
+        sp_name_source = "config"
+    else:
+        sp_name = _default_sp_name(env_name)
+        sp_name_source = "default"
+
+    subscription_id = ""
+    subscription_id_source = ""
+    if getattr(ns, "subscription_id", None):
+        subscription_id = str(getattr(ns, "subscription_id", None) or "").strip()
+        subscription_id_source = "flag"
+    elif os.environ.get("AZ_SUBSCRIPTION_ID"):
+        subscription_id = str(os.environ.get("AZ_SUBSCRIPTION_ID") or "").strip()
+        subscription_id_source = "env"
+    elif cfg.get("AZ_SUBSCRIPTION_ID"):
+        subscription_id = str(cfg.get("AZ_SUBSCRIPTION_ID") or "").strip()
+        subscription_id_source = "config"
+
+    tenant_id = ""
+    tenant_id_source = ""
+    if getattr(ns, "tenant_id", None):
+        tenant_id = str(getattr(ns, "tenant_id", None) or "").strip()
+        tenant_id_source = "flag"
+    elif os.environ.get("AZ_TENANT_ID"):
+        tenant_id = str(os.environ.get("AZ_TENANT_ID") or "").strip()
+        tenant_id_source = "env"
+    elif cfg.get("AZ_TENANT_ID"):
+        tenant_id = str(cfg.get("AZ_TENANT_ID") or "").strip()
+        tenant_id_source = "config"
 
     tfvars_out_raw = (
         getattr(ns, "tfvars_out", None)
@@ -233,7 +262,7 @@ def run(ns) -> int:
 
     if getattr(ns, "dry_run", False):
         print("dry-run: would validate/login Azure SP creds, then write tfvars + readiness")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return OK
 
     if not _has_cmd("az"):
@@ -250,7 +279,7 @@ def run(ns) -> int:
     need_vault = bool(getattr(ns, "non_interactive", False) or has_vault_password or vault_path.exists())
     if need_vault and not _has_cmd("ansible-vault"):
         print("ERR: missing command: ansible-vault")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return OPERATOR_ERROR
     vault_env: dict[str, str] = {}
 
@@ -312,7 +341,7 @@ def run(ns) -> int:
             else:
                 print("ERR: non-interactive SP login failed")
             print("hint: check that AZ_CLIENT_ID/AZ_CLIENT_SECRET/AZ_TENANT_ID are correct and not expired.")
-            print(f"evidence: {evidence_dir}")
+            print(f"run record: {evidence_dir}")
             return VAULT_FAILURE
     else:
         has_valid_sp = False
@@ -338,7 +367,14 @@ def run(ns) -> int:
                 return OPERATOR_ERROR
 
             if not _az_ok(["account", "show", "--output", "none"], evidence_dir, "az_account_show_interactive"):
-                if not _az_ok(["login", "--only-show-errors"], evidence_dir, "az_login_interactive"):
+                print("starting interactive Azure login; follow the prompts shown below.")
+                login = run_capture_interactive(
+                    ["az", "login", "--only-show-errors"],
+                    evidence_dir=evidence_dir,
+                    label="az_login_interactive",
+                    redact=True,
+                )
+                if login.rc != 0:
                     print("ERR: az login failed")
                     return TARGET_EXEC_FAILURE
 
@@ -362,7 +398,7 @@ def run(ns) -> int:
                 print("  hyops init azure --env <env> --with-cli-login")
                 print("or:")
                 print("  pre-seed AZ_CLIENT_ID/AZ_CLIENT_SECRET/AZ_TENANT_ID/AZ_SUBSCRIPTION_ID in the env vault and use --non-interactive")
-                print(f"evidence: {evidence_dir}")
+                print(f"run record: {evidence_dir}")
                 return OPERATOR_ERROR
 
             if os.isatty(0) and os.isatty(1):
@@ -377,6 +413,34 @@ def run(ns) -> int:
                     print("  az login")
                     return OPERATOR_ERROR
 
+            if (
+                bool(getattr(ns, "with_cli_login", False))
+                and bool(getattr(ns, "force", False))
+                and os.isatty(0)
+                and os.isatty(1)
+                and any(src in {"config", "env"} for src in (location_source, sp_name_source, subscription_id_source, tenant_id_source))
+            ):
+                location, sp_name, subscription_id, tenant_id = _review_detected_azure_defaults_interactive(
+                    env_name=env_name,
+                    location=location,
+                    location_source=location_source,
+                    sp_name=sp_name,
+                    sp_name_source=sp_name_source,
+                    subscription_id=subscription_id,
+                    subscription_id_source=subscription_id_source,
+                    tenant_id=tenant_id,
+                    tenant_id_source=tenant_id_source,
+                )
+                _upsert_kv_file(
+                    config_path,
+                    {
+                        "AZ_LOCATION": location,
+                        "AZ_SP_NAME": sp_name,
+                        "AZ_SUBSCRIPTION_ID": subscription_id,
+                        "AZ_TENANT_ID": tenant_id,
+                    },
+                )
+
             allow_shared_sp = bool(getattr(ns, "allow_shared_sp", False)) or _truthy(os.environ.get("AZ_ALLOW_SHARED_SP"))
             shared_envs = _other_envs_with_same_sp_name(paths, env_name, sp_name)
             if shared_envs:
@@ -386,7 +450,7 @@ def run(ns) -> int:
                     if not (os.isatty(0) and os.isatty(1)):
                         print("ERR: refusing to bootstrap/rotate a shared SP secret without a TTY prompt.")
                         print("hint: set a unique AZ_SP_NAME per env (recommended), or re-run with: --allow-shared-sp")
-                        print(f"evidence: {evidence_dir}")
+                        print(f"run record: {evidence_dir}")
                         return OPERATOR_ERROR
                     try:
                         answer = input("continue with shared AZ_SP_NAME? [y/N]: ")
@@ -444,7 +508,7 @@ def run(ns) -> int:
                         print(f"ERR: service principal credential reset failed: {detail}")
                     else:
                         print("ERR: service principal credential reset failed")
-                    print(f"evidence: {evidence_dir}")
+                    print(f"run record: {evidence_dir}")
                     print(
                         "hint: login with `az login` as a user with permission to manage service principals, or use --non-interactive with pre-seeded secrets."
                     )
@@ -476,7 +540,7 @@ def run(ns) -> int:
                         print(f"ERR: failed to create bootstrap service principal: {detail}")
                     else:
                         print("ERR: failed to create bootstrap service principal")
-                    print(f"evidence: {evidence_dir}")
+                    print(f"run record: {evidence_dir}")
                     print(
                         "hint: login with `az login` as a user with permission to create service principals, or use --non-interactive with pre-seeded secrets."
                     )
@@ -505,13 +569,13 @@ def run(ns) -> int:
                 vault_persisted = True
             except Exception as e:
                 print(f"ERR: vault persistence failed: {e}")
-                print(f"evidence: {evidence_dir}")
+                print(f"run record: {evidence_dir}")
                 return VAULT_FAILURE
 
             # Ensure subscription roles while we're still authenticated as a user (before SP login changes az context).
             if not _ensure_subscription_roles(evidence_dir, subscription_id, client_id):
                 print("ERR: failed to ensure Azure role assignments for bootstrap service principal")
-                print(f"evidence: {evidence_dir}")
+                print(f"run record: {evidence_dir}")
                 return TARGET_EXEC_FAILURE
             roles_ensured = True
 
@@ -582,7 +646,7 @@ def run(ns) -> int:
                 if detail and "AADSTS7000215" in detail and _looks_like_guid(client_secret):
                     print("note: Azure returned an invalid client secret error and the captured secret looks like a GUID.")
                     print("this usually indicates a secret ID (keyId) was used instead of the secret value.")
-                print(f"evidence: {evidence_dir}")
+                print(f"run record: {evidence_dir}")
                 return TARGET_EXEC_FAILURE
 
             # Role assignments can take time to propagate. Retry subscription selection for the SP.
@@ -594,12 +658,21 @@ def run(ns) -> int:
                 else:
                     print("ERR: bootstrap service principal cannot access the subscription yet (role propagation delay?)")
                     print("hint: wait 1-2 minutes and re-run: hyops init azure --env <env> --with-cli-login")
-                    print(f"evidence: {evidence_dir}")
+                    print(f"run record: {evidence_dir}")
                     return TARGET_EXEC_FAILURE
 
     if subscription_id:
         if not _az_ok(["account", "set", "--subscription", subscription_id], evidence_dir, "az_account_set_final"):
-            print(f"ERR: failed to select subscription: {subscription_id}")
+            print(f"ERR: cannot access configured Azure subscription: {subscription_id}")
+            print(
+                "hint: the subscription may belong to another tenant, or the current Azure identity "
+                "may no longer have access to it."
+            )
+            print(
+                "hint: re-run `hyops init azure --env <env> --with-cli-login --force` to review or replace "
+                "the configured subscription and tenant."
+            )
+            print(f"run record: {evidence_dir}")
             return TARGET_EXEC_FAILURE
 
     if not subscription_id:
@@ -615,7 +688,7 @@ def run(ns) -> int:
     if rotated_or_created and not roles_ensured:
         if not _ensure_subscription_roles(evidence_dir, subscription_id, client_id):
             print("ERR: failed to ensure Azure role assignments for bootstrap service principal")
-            print(f"evidence: {evidence_dir}")
+            print(f"run record: {evidence_dir}")
             return TARGET_EXEC_FAILURE
 
     # Directory role assignment is best-effort; it is attempted during interactive bootstrap.
@@ -690,7 +763,7 @@ def run(ns) -> int:
         return WRITE_FAILURE
 
     print(f"target={target} status=ready run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     print(f"readiness: {readiness_file}")
     print(f"credentials: {tfvars_out}")
 
@@ -759,6 +832,75 @@ def _other_envs_with_same_sp_name(paths, current_env: str, sp_name: str) -> list
         if other == name:
             matches.append(env_name)
     return matches
+
+
+def _review_detected_azure_defaults_interactive(
+    *,
+    env_name: str,
+    location: str,
+    location_source: str,
+    sp_name: str,
+    sp_name_source: str,
+    subscription_id: str,
+    subscription_id_source: str,
+    tenant_id: str,
+    tenant_id_source: str,
+) -> tuple[str, str, str, str]:
+    label = env_name or "<env>"
+    print(f"review effective Azure defaults for env {label}:")
+    print(f"  location: {location or '<unset>'} (source={location_source or 'unset'})")
+    print(f"  sp_name: {sp_name or '<unset>'} (source={sp_name_source or 'unset'})")
+    if subscription_id:
+        print(f"  subscription_id: {subscription_id} (source={subscription_id_source})")
+    if tenant_id:
+        print(f"  tenant_id: {tenant_id} (source={tenant_id_source})")
+    print("press Enter to keep a value, type a replacement, or type 'auto' to clear subscription/tenant and derive them from the active Azure context.")
+
+    try:
+        location_ans = str(input(f"Azure location [{location}]: ") or "").strip()
+    except EOFError:
+        location_ans = ""
+    except KeyboardInterrupt:
+        print()
+        return location, sp_name, subscription_id, tenant_id
+    if location_ans:
+        location = location_ans
+
+    try:
+        sp_name_ans = str(input(f"Bootstrap SP name [{sp_name}]: ") or "").strip()
+    except EOFError:
+        sp_name_ans = ""
+    except KeyboardInterrupt:
+        print()
+        return location, sp_name, subscription_id, tenant_id
+    if sp_name_ans:
+        sp_name = sp_name_ans
+
+    try:
+        sub_ans = str(input(f"Azure subscription id [{subscription_id}]: ") or "").strip()
+    except EOFError:
+        sub_ans = ""
+    except KeyboardInterrupt:
+        print()
+        return location, sp_name, subscription_id, tenant_id
+    if sub_ans.lower() == "auto":
+        subscription_id = ""
+    elif sub_ans:
+        subscription_id = sub_ans
+
+    try:
+        tenant_ans = str(input(f"Azure tenant id [{tenant_id}]: ") or "").strip()
+    except EOFError:
+        tenant_ans = ""
+    except KeyboardInterrupt:
+        print()
+        return location, sp_name, subscription_id, tenant_id
+    if tenant_ans.lower() == "auto":
+        tenant_id = ""
+    elif tenant_ans:
+        tenant_id = tenant_ans
+
+    return location, sp_name, subscription_id, tenant_id
 
 
 def _az_tsv(argv: list[str], evidence_dir: Path, label: str) -> str:

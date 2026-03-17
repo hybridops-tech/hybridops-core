@@ -16,7 +16,7 @@ When enabled, the driver:
 1. Computes workspace name from module context.
 2. Runs `terragrunt init`.
 3. Calls Terraform Cloud API to ensure workspace execution mode (workspace must already exist, or policy emits a warning/error depending on `strict`).
-4. Stores outcome in evidence as `workspace_policy.json`.
+4. Stores outcome in the run record as `workspace_policy.json`.
 
 This replaces the legacy external workspace execution-mode script path.
 
@@ -37,6 +37,11 @@ Notes:
 - Export hooks are executed only for `apply`/`deploy`.
 
 By default, `hyops apply|deploy|plan|validate` runs driver preflight first and fails fast on contract errors. Use `--skip-preflight` only for controlled troubleshooting.
+
+Terraform provider cache:
+
+- By default, the driver reuses the shared runtime plugin cache under `~/.hybridops/envs/<env>/cache/terraform/plugins`.
+- Set `HYOPS_TERRAFORM_ISOLATE_PLUGIN_CACHE=1` only when you intentionally need a per-run cache for provider-install troubleshooting.
 
 ## Module Sources
 
@@ -61,7 +66,7 @@ Execution behavior:
 
 1. Terragrunt apply completes.
 2. If enabled, driver runs the configured export hook command.
-3. Evidence is written to `hook_export_infra.*` files.
+3. Run-record files are written to `hook_export_infra.*`.
 4. Non-strict hook failures are warnings; strict failures stop apply.
 
 When `push_to_netbox` is enabled, the driver enforces fail-fast behavior: export hook must succeed, dataset must exist and contain rows, NetBox env vars must be present, and NetBox sync command must return success.
@@ -92,7 +97,10 @@ For Terragrunt-backed modules, HyOps now records backend binding metadata in mod
 - `execution.backend.terraform_cloud.host`
 - `execution.backend.terraform_cloud.org`
 - `execution.backend.terraform_cloud.workspace_name`
+- when a resolved `project_id` changes for a Terraform Cloud-backed GCP lane, HyOps keeps the current derived workspace name and allows a controlled rehome instead of preserving the legacy workspace alias
+- when an older GCP module state did not publish `project_id`, HyOps now infers the prior project from published self links and connection names so project-move drift is still detected early
 
 On later runs for the same module state slot (same module + `state_instance`), the driver compares the newly derived binding to the prior state and fails fast on mismatch. This prevents accidental cross-namespace writes (for example, `--env dev` state slot drifting to a `shared` Terraform Cloud workspace because `WORKSPACE_PREFIX`, `context_id`, or `TFC_ORG` changed).
 
 Legacy module states without `execution.backend` are allowed once (warning only); the next successful run persists the binding.
+If a prior state slot already uses a Terraform Cloud workspace name from an older naming scheme, HyOps preserves that workspace name when the current derivation is only a compatibility-equivalent form. This covers both the shortened workspace formatter and the known `hybridops-*` to `platform-*` prefix migration, so existing state slots stay bound to the original workspace instead of drifting during naming-policy upgrades.

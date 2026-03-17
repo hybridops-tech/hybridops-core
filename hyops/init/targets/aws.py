@@ -1,7 +1,7 @@
 """
 purpose: Initialise AWS target runtime inputs (region/profile/credentials tfvars) and readiness.
 Architecture Decision: ADR-N/A
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from hyops.init.helpers import init_evidence_path, init_run_id, read_kv_file
 from hyops.init.shared_args import add_init_shared_args
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
-from hyops.runtime.proc import run_capture
+from hyops.runtime.proc import run_capture, run_capture_interactive
 from hyops.runtime.readiness import write_marker
 from hyops.runtime.state import write_json
 from hyops.runtime.stamp import stamp_runtime
@@ -237,7 +237,7 @@ def run(ns) -> int:
 
     if getattr(ns, "dry_run", False):
         print("dry-run: would validate AWS identity, write tfvars, and write readiness")
-        print(f"evidence: {evidence_dir}")
+        print(f"run record: {evidence_dir}")
         return OK
 
     if not shutil.which("aws"):
@@ -273,7 +273,8 @@ def run(ns) -> int:
 
     if r.rc != 0:
         if bool(getattr(ns, "with_cli_login", False)) and profile and not bool(getattr(ns, "non_interactive", False)):
-            login = run_capture(
+            print("starting interactive AWS SSO login; follow the prompts shown below.")
+            login = run_capture_interactive(
                 ["aws", "sso", "login", "--profile", profile],
                 evidence_dir=evidence_dir,
                 label="aws_sso_login",
@@ -299,7 +300,7 @@ def run(ns) -> int:
             print("  - aws configure sso --profile <name> && aws sso login --profile <name>")
             print("  - export AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY")
             print("  - hyops secrets set --env <env> --from-env AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY")
-            print(f"evidence: {evidence_dir}")
+            print(f"run record: {evidence_dir}")
             return TARGET_EXEC_FAILURE
 
     try:
@@ -351,7 +352,7 @@ def run(ns) -> int:
         return WRITE_FAILURE
 
     print(f"target={target} status=ready run_id={run_id}")
-    print(f"evidence: {evidence_dir}")
+    print(f"run record: {evidence_dir}")
     print(f"readiness: {marker}")
     print(f"credentials: {tfvars_out}")
 

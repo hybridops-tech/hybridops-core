@@ -2,7 +2,7 @@
 
 purpose: Run explicit prerequisite installers (system and runtime deps).
 Architecture Decision: ADR-N/A (setup)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -52,6 +52,16 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
         "--force",
         action="store_true",
         help="Force reinstall where supported (currently: ansible, all).",
+    )
+    common.add_argument(
+        "--hybridops-source",
+        choices=("vendored", "git"),
+        default=None,
+        help=(
+            "How to source HybridOps collections for setup ansible/all. "
+            "vendored keeps the built-in fallback only; git installs pinned collections from "
+            "Git repositories into runtime state."
+        ),
     )
 
     p = sp.add_parser("setup", help="Install prerequisites (explicit operator action).", parents=[common])
@@ -221,6 +231,8 @@ def run(ns) -> int:
         argv += ["--root", str(runtime_root)]
     if ns.force and canonical_action in ("ansible", "all"):
         argv += ["--force"]
+    if ns.hybridops_source and canonical_action in ("ansible", "all"):
+        argv += ["--hybridops-source", ns.hybridops_source]
     if ns.sudo:
         argv = ["sudo", "-E"] + argv
     rc = subprocess.call(argv, env=env)

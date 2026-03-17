@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/onprem/postgresql-dr-source module.
 Architecture Decision: ADR-N/A (postgresql dr source validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -61,6 +61,8 @@ def _validate_db_contract(data: dict[str, Any]) -> None:
         require_non_empty_str(data.get("db_user"), "inputs.db_user")
     if str(data.get("db_password_env") or "").strip():
         require_non_empty_str(data.get("db_password_env"), "inputs.db_password_env")
+    if str(data.get("source_replication_user") or "").strip():
+        require_non_empty_str(data.get("source_replication_user"), "inputs.source_replication_user")
     if str(data.get("db_app_key") or "").strip():
         require_non_empty_str(data.get("db_app_key"), "inputs.db_app_key")
 

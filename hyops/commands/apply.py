@@ -1,7 +1,7 @@
 """
 purpose: Run module execution lifecycle commands (apply/deploy/plan/validate/destroy/import).
 Architecture Decision: ADR-N/A (module commands)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from hyops.commands._apply_helpers import (
     dependency_order,
     module_state_ok,
 )
+from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import normalize_state_instance
 from hyops.runtime.paths import resolve_runtime_paths
@@ -120,6 +121,7 @@ def run(ns) -> int:
         else None
     )
     skip_preflight = bool(getattr(ns, "skip_preflight", False))
+    allow_state_drift_recreate = bool(getattr(ns, "allow_state_drift_recreate", False))
 
     if with_deps and command_name not in ("apply", "deploy"):
         print("WARN: --with-deps is only applicable to apply/deploy; ignoring", file=sys.stderr)
@@ -155,9 +157,13 @@ def run(ns) -> int:
                 out_dir=out_dir,
                 skip_preflight=skip_preflight,
                 state_instance=None,
+                allow_state_drift_recreate=allow_state_drift_recreate,
             )
             if rc != 0:
-                print(f"ERR: dependency apply failed: {dep_ref}", file=sys.stderr)
+                if rc == CANCELLED:
+                    print(f"dependency={dep_ref} status=cancelled", file=sys.stderr)
+                else:
+                    print(f"ERR: dependency apply failed: {dep_ref}", file=sys.stderr)
                 return rc
 
     if command_name == "import":
@@ -180,6 +186,7 @@ def run(ns) -> int:
         out_dir=out_dir,
         skip_preflight=skip_preflight,
         state_instance=state_instance,
+        allow_state_drift_recreate=allow_state_drift_recreate,
         import_resource_address=str(getattr(ns, "resource_address", "") or "").strip(),
         import_resource_id=str(getattr(ns, "resource_id", "") or "").strip(),
     )

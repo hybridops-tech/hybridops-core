@@ -1,7 +1,7 @@
 """
 purpose: Terragrunt driver (iac) for HybridOps.Core.
 Architecture Decision: ADR-N/A (terragrunt driver)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from hyops.runtime.credentials import (
 from hyops.runtime.evidence import EvidenceWriter
 from hyops.runtime.module_state import normalize_state_instance
 from hyops.runtime.packs import PackResolved, resolve_pack_stack
+from hyops.runtime.provider_bootstrap import gcp_bootstrap_guard_message
 
 from ._internal.execution import (
     resolve_terragrunt_config as _resolve_terragrunt_config,
@@ -49,6 +50,7 @@ from ._internal.preflight import run_preflight_phase as _run_preflight_phase
 from ._internal.runtime_env import build_runtime_env as _build_runtime_env
 from ._internal.workspace import enforce_workspace_policy as _enforce_workspace_policy
 from ._internal.workspace_binding import (
+    allow_backend_binding_rehome as _allow_backend_binding_rehome,
     build_backend_binding as _build_backend_binding,
     check_backend_binding_drift as _check_backend_binding_drift,
 )
@@ -133,15 +135,22 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         runtime_root=runtime_root,
         runtime=runtime if isinstance(runtime, dict) else {},
     )
-    # Use a per-run Terraform plugin cache by default to avoid concurrent provider
-    # installation races ("text file busy") across overlapping Terragrunt runs.
-    if not str(os.environ.get("TF_PLUGIN_CACHE_DIR") or "").strip():
+    # Default to the shared runtime plugin cache from _build_runtime_env so
+    # provider downloads remain stable across repeated runs. Operators can opt
+    # into an isolated per-run cache when they need to troubleshoot provider
+    # installation races in overlapping Terragrunt executions.
+    isolate_plugin_cache = as_bool(
+        env.get("HYOPS_TERRAFORM_ISOLATE_PLUGIN_CACHE")
+        or runtime.get("terraform_isolate_plugin_cache"),
+        default=False,
+    )
+    if isolate_plugin_cache and not str(os.environ.get("TF_PLUGIN_CACHE_DIR") or "").strip():
         run_plugin_cache = runtime_root / "cache" / "terraform" / "plugins-runs" / run_id
         try:
             run_plugin_cache.mkdir(parents=True, exist_ok=True)
             env["TF_PLUGIN_CACHE_DIR"] = str(run_plugin_cache)
         except Exception:
-            # Keep the cache path chosen by _build_runtime_env on any mkdir failure.
+            # Keep the shared cache path chosen by _build_runtime_env on any mkdir failure.
             pass
 
     profile, profile_path_obj, profile_error = _load_profile(profile_ref)
@@ -220,6 +229,10 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         contracts=credential_contracts,
         env=env,
     )
+    if "gcp" in required_credentials:
+        bootstrap_error = gcp_bootstrap_guard_message(runtime_root=runtime_root, module_ref=module_ref)
+        if bootstrap_error:
+            return _fail(ev, result, bootstrap_error)
 
     inputs = request.get("inputs")
     if not isinstance(inputs, dict):
@@ -294,6 +307,17 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     ev.write_json("backend_binding.json", backend_binding)
 
     allow_backend_binding_drift = as_bool(env.get("HYOPS_ALLOW_BACKEND_BINDING_DRIFT"), default=False)
+    if not allow_backend_binding_drift:
+        rehome_allowed, rehome_reason = _allow_backend_binding_rehome(
+            state_root=runtime_root / "state",
+            module_ref=module_ref,
+            state_instance=state_instance or None,
+            inputs=inputs,
+        )
+        if rehome_allowed:
+            allow_backend_binding_drift = True
+            if rehome_reason:
+                result["warnings"].append(rehome_reason)
     binding_error, binding_warning = _check_backend_binding_drift(
         state_root=runtime_root / "state",
         module_ref=module_ref,
@@ -396,9 +420,29 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     if workspace_warning:
         result["warnings"].append(workspace_warning)
 
+    op_request = dict(request) if isinstance(request, dict) else {}
+    if command_name == "state_unlock" and backend_mode == "cloud" and workspace_name:
+        state_payload = op_request.get("state")
+        if isinstance(state_payload, dict):
+            state_payload = dict(state_payload)
+            requested_lock_id = str(state_payload.get("lock_id") or "").strip()
+            workspace_org = ""
+            if isinstance(workspace_policy, dict):
+                workspace_org = str(workspace_policy.get("org") or "").strip()
+                if not workspace_org:
+                    tfc = workspace_policy.get("terraform_cloud")
+                    if isinstance(tfc, dict):
+                        workspace_org = str(tfc.get("org") or "").strip()
+            effective_lock_id = (
+                f"{workspace_org}/{workspace_name}" if workspace_org else workspace_name
+            )
+            state_payload["requested_lock_id"] = requested_lock_id
+            state_payload["lock_id"] = effective_lock_id
+            op_request["state"] = state_payload
+
     outputs, op_error = _run_terragrunt_operation(
         command_name=command_name,
-        request=request if isinstance(request, dict) else {},
+        request=op_request,
         tg_bin=str(terragrunt_cfg["tg_bin"]),
         apply_args=list(terragrunt_cfg["apply_args"]),
         destroy_args=list(terragrunt_cfg["destroy_args"]),

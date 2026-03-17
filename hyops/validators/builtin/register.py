@@ -1,7 +1,7 @@
 """
 purpose: Register built-in module validators.
 Architecture Decision: ADR-0206 (module execution contract v1)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -22,16 +22,32 @@ from hyops.validators.org.gcp import (
     wan_hub_network,
     wan_vpn_to_edge,
 )
-from hyops.validators.org.hetzner import shared_control_host, vyos_edge_foundation, wan_edge_foundation
+from hyops.validators.org.hetzner import (
+    shared_control_host,
+    shared_private_network,
+    vyos_edge_foundation,
+    wan_edge_foundation,
+)
 from hyops.validators.platform.azure import container_registry
 from hyops.validators.platform.k8s import longhorn_dr_volume, runtime_bundle_secret
 from hyops.validators.platform.network import (
+    decision_consumer,
+    decision_executor,
+    decision_dispatcher,
     decision_service,
     dns_routing,
     edge_observability,
     vyos_edge_wan,
 )
 from hyops.validators.platform.gcp import platform_vm as gcp_platform_vm
+from hyops.validators.platform.gcp import gke_cluster, gke_kubeconfig
+from hyops.validators.platform.k8s import gcp_secret_store, gsm_bootstrap
+from hyops.validators.platform.linux import (
+    eve_ng as linux_eve_ng,
+    eve_ng_healthcheck,
+    eve_ng_images,
+    eve_ng_labs,
+)
 from hyops.validators.platform.onprem import (
     argocd_bootstrap,
     control_node,
@@ -60,6 +76,7 @@ def register_all() -> None:
     register("org/gcp/wan-hub-network", wan_hub_network.validate)
     register("org/gcp/wan-cloud-router", wan_cloud_router.validate)
     register("org/gcp/wan-vpn-to-edge", wan_vpn_to_edge.validate)
+    register("org/hetzner/shared-private-network", shared_private_network.validate)
     register("org/hetzner/shared-control-host", shared_control_host.validate)
     register("org/hetzner/vyos-edge-foundation", vyos_edge_foundation.validate)
     register("org/hetzner/wan-edge-foundation", wan_edge_foundation.validate)
@@ -78,14 +95,25 @@ def register_all() -> None:
     register("core/shared/vyos-image-build", vyos_image_build.validate)
     register("platform/azure/container-registry", container_registry.validate)
     register("platform/gcp/platform-vm", gcp_platform_vm.validate)
+    register("platform/gcp/gke-cluster", gke_cluster.validate)
+    register("platform/gcp/gke-kubeconfig", gke_kubeconfig.validate)
+    register("platform/linux/eve-ng", linux_eve_ng.validate)
+    register("platform/linux/eve-ng-images", eve_ng_images.validate)
+    register("platform/linux/eve-ng-labs", eve_ng_labs.validate)
+    register("platform/linux/eve-ng-healthcheck", eve_ng_healthcheck.validate)
     register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)
     register("platform/network/edge-observability", edge_observability.validate)
+    register("platform/network/decision-consumer", decision_consumer.validate)
+    register("platform/network/decision-executor", decision_executor.validate)
+    register("platform/network/decision-dispatcher", decision_dispatcher.validate)
     register("platform/network/decision-service", decision_service.validate)
     register("platform/network/dns-routing", dns_routing.validate)
     register("platform/onprem/argocd-bootstrap", argocd_bootstrap.validate)
     register("platform/k8s/argocd-bootstrap", argocd_bootstrap.validate)
     register("platform/k8s/runtime-bundle-secret", runtime_bundle_secret.validate)
     register("platform/k8s/longhorn-dr-volume", longhorn_dr_volume.validate)
+    register("platform/k8s/gcp-secret-store", gcp_secret_store.validate)
+    register("platform/k8s/gsm-bootstrap", gsm_bootstrap.validate)
     register("platform/onprem/control-node", control_node.validate)
     register("platform/onprem/eve-ng", eve_ng.validate)
     register("platform/onprem/netbox", netbox.validate)

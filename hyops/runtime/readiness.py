@@ -2,7 +2,7 @@
 
 purpose: Read/write target readiness markers under the runtime meta directory.
 Architecture Decision: ADR-N/A (readiness markers)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

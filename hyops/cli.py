@@ -1,7 +1,7 @@
 """
 purpose: Route `hyops` commands to implementation modules.
 Architecture Decision: ADR-N/A (cli router)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -10,14 +10,18 @@ import argparse
 import os
 import sys
 
+from hyops.runtime.exitcodes import CANCELLED
 from hyops.init.command import add_init_subparser
 from hyops.inventory.command import add_inventory_subparser
+from hyops.module.command import add_module_subparser
 from hyops.preflight.command import add_preflight_subparser
 from hyops.runner.command import add_runner_subparser
 from hyops.secrets.command import add_secrets_subparser
+from hyops.show.command import add_show_subparser
 from hyops.setup.command import add_setup_subparser
 from hyops.state.command import add_state_subparser
 from hyops.stacks.command import add_stacks_subparser
+from hyops.test.command import add_test_subparser
 from hyops.terragrunt.command import add_terragrunt_subparser
 from hyops.tfc.command import add_tfc_subparser
 from hyops.vault.command import add_vault_subparser
@@ -76,13 +80,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--verbose",
         action="store_true",
-        help="Stream tool output to terminal while also writing evidence logs.",
+        help="Stream tool output to terminal while also writing run records.",
     )
     sp = p.add_subparsers(dest="cmd", required=False)
 
     add_init_subparser(sp)
+    add_module_subparser(sp)
     add_vault_subparser(sp)
+    add_show_subparser(sp)
     add_preflight_subparser(sp)
+    add_test_subparser(sp)
     add_runner_subparser(sp)
     add_setup_subparser(sp)
     add_state_subparser(sp)
@@ -127,7 +134,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 2
 
-    return int(ns._handler(ns))
+    try:
+        return int(ns._handler(ns))
+    except KeyboardInterrupt:
+        print("Cancelled by user.", file=sys.stderr)
+        return CANCELLED
 
 
 if __name__ == "__main__":

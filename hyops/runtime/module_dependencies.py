@@ -2,7 +2,7 @@
 
 purpose: Resolve dependency imports, required credentials, outputs, and execution hooks.
 Architecture Decision: ADR-N/A (module resolution)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Thin entrypoint for `hyops` CLI.
 # Architecture Decision: ADR-N/A (entrypoint)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 exec /usr/bin/env python3 -m hyops.cli "$@"

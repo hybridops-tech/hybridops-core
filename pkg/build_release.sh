@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Build a HybridOps.Core release bundle from the current source tree.
 # adr: ADR-0622
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 
