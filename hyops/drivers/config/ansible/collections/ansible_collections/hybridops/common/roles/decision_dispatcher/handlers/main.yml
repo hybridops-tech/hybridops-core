@@ -1,0 +1,8 @@
+---
+# purpose: Handlers for decision_dispatcher role
+# maintainer: HybridOps
+
+- name: Restart decision dispatcher service
+  ansible.builtin.service:
+    name: "{{ decision_dispatcher_service_name }}"
+    state: restarted

@@ -9,8 +9,22 @@ This is the control-loop surface for DR/burst policy execution.
 - Runs a local decision loop service (systemd) on edge control nodes.
 - Queries Thanos Query HTTP API (`/api/v1/query`) for policy signals.
 - Evaluates thresholds with confirm/stable/cooldown timing guards.
-- Can execute `hyops apply` actions when enabled.
-- Writes state/action evidence to local filesystem.
+- Emits structured decision records for runner consumption by default.
+- Can execute `hyops apply` locally only in explicit transitional mode.
+- Writes service state, decision records, and local action results to filesystem.
+
+## Runtime model
+
+HybridOps installs this service with an Ansible role and runs it under `systemd`.
+
+This is the preferred shipping model for now because decision service is a small
+host-local control-plane process:
+
+- no container runtime dependency
+- simple lifecycle under the shared control host
+- easy integration with local Thanos Query, PowerDNS, and runner services
+
+If container packaging is added later, the module contract should stay the same.
 
 ## Deployment topology
 
@@ -23,16 +37,32 @@ Recommended topology is to run decision-service on the same edge VM as Thanos Qu
 
 This keeps decision latency low and avoids direct bucket API dependencies in control logic.
 
-## Action execution model
+## Execution model
 
-- `dry_run=true`: no actions executed.
-- `decision_enable_actions=false`: no actions executed.
-- `dry_run=false` + `decision_enable_actions=true`: actions can execute after:
-  - threshold breach/healthy windows
-  - confirm/stable timers
-  - cooldown guard
-  - signal readiness/freshness guards (when enabled)
-  - module state guards (when enabled or configured)
+Default shipped mode is `emit-only`:
+
+- decision service writes a decision record under `state/records/`
+- a runner or workflow engine is expected to consume that record
+- no local `hyops apply` is executed by default
+
+Optional transitional mode is `local-hyops`:
+
+- decision service still emits a decision record
+- local `hyops apply` is allowed only when:
+  - `dry_run=false`
+  - `decision_enable_actions=true`
+  - threshold breach/healthy windows are met
+  - confirm/stable timers are met
+  - cooldown guard is clear
+  - signal readiness/freshness guards are satisfied
+  - module state guards are satisfied when enabled or configured
+
+Execution summary:
+
+- `dry_run=true`: no local actions executed
+- `decision_enable_actions=false`: no local actions executed
+- `dry_run=false` + `decision_enable_actions=true`: local actions can execute only after the configured
+  decision, freshness, cooldown, and state-guard checks pass
 
 Actions can target any module ref the edge runtime can execute. The common current case
 is `platform/network/dns-routing`, with base inputs in:

@@ -1,37 +1,38 @@
 ---
 # purpose: Defaults for decision_service role (edge decision loop service)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps
 
-decision_state: present
+decision_service_state: present
 
-decision_root: /opt/hybridops/decision-service
-decision_config_dir: "{{ decision_root }}/config"
-decision_state_dir: "{{ decision_root }}/state"
-decision_logs_dir: "{{ decision_root }}/logs"
-decision_bin_path: "{{ decision_root }}/decision-service.py"
+decision_service_root: /opt/hybridops/decision-service
+decision_service_config_dir: "{{ decision_service_root }}/config"
+decision_service_state_dir: "{{ decision_service_root }}/state"
+decision_service_logs_dir: "{{ decision_service_root }}/logs"
+decision_service_bin_path: "{{ decision_service_root }}/decision-service.py"
 decision_service_name: "hyops-decision-service"
 
-decision_run_as_user: "root"
-decision_run_as_group: "root"
+decision_service_run_as_user: "root"
+decision_service_run_as_group: "root"
 
-decision_thanos_query_url: "http://127.0.0.1:10902"
-decision_policy: {}
-decision_actions: {}
-decision_hyops_bin: "/usr/local/bin/hyops"
-decision_runtime_env: "dev"
-decision_runtime_root: ""
-decision_action_timeout_s: 600
-decision_signal_query_timeout_s: 5
-decision_require_signal_readiness: true
-decision_require_fresh_signals: true
-decision_max_signal_age_s: 180
-decision_min_ready_checks: 1
-decision_require_action_state_guards: false
+decision_service_thanos_query_url: "http://127.0.0.1:10902"
+decision_service_policy: {}
+decision_service_actions: {}
+decision_service_execution_mode: "emit-only"
+decision_service_hyops_bin: "/usr/local/bin/hyops"
+decision_service_runtime_env: "dev"
+decision_service_runtime_root: ""
+decision_service_action_timeout_s: 600
+decision_service_signal_query_timeout_s: 5
+decision_service_require_signal_readiness: true
+decision_service_require_fresh_signals: true
+decision_service_max_signal_age_s: 180
+decision_service_min_ready_checks: 1
+decision_service_require_action_state_guards: false
 
-decision_dry_run: true
-decision_enable_actions: false
-decision_tick_seconds: 30
-decision_confirm_for_seconds: 120
-decision_stable_for_seconds: 300
-decision_cooldown_seconds: 600
-decision_log_level: "INFO"
+decision_service_dry_run: true
+decision_service_enable_actions: false
+decision_service_tick_seconds: 30
+decision_service_confirm_for_seconds: 120
+decision_service_stable_for_seconds: 300
+decision_service_cooldown_seconds: 600
+decision_service_log_level: "INFO"

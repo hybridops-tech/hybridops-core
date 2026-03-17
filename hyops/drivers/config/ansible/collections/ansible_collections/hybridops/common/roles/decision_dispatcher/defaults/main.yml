@@ -1,0 +1,22 @@
+---
+# purpose: Defaults for decision_dispatcher role
+# maintainer: HybridOps
+
+decision_dispatcher_state: present
+
+decision_dispatcher_root: /opt/hybridops/decision-dispatcher
+decision_dispatcher_config_dir: "{{ decision_dispatcher_root }}/config"
+decision_dispatcher_state_dir: "{{ decision_dispatcher_root }}/state"
+decision_dispatcher_logs_dir: "{{ decision_dispatcher_root }}/logs"
+decision_dispatcher_bin_path: "{{ decision_dispatcher_root }}/decision-dispatcher.py"
+decision_dispatcher_service_name: "hyops-decision-dispatcher"
+
+decision_dispatcher_run_as_user: "root"
+decision_dispatcher_run_as_group: "root"
+
+decision_dispatcher_decision_records_dir: "/opt/hybridops/decision-service/state/records"
+decision_dispatcher_execution_mode: "record-only"
+decision_dispatcher_require_approval: true
+decision_dispatcher_poll_seconds: 15
+decision_dispatcher_log_level: "INFO"
+decision_dispatcher_routes: {}

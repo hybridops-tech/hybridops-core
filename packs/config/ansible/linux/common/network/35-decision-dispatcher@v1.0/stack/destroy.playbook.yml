@@ -1,0 +1,33 @@
+---
+- name: Platform/network/decision-dispatcher (destroy)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: true
+  gather_facts: false
+
+  vars:
+    dispatcher_role_fqcn: "{{ dispatcher_role_fqcn | default('hybridops.common.decision_dispatcher') }}"
+
+  tasks:
+    - name: Run decision dispatcher role (absent)
+      ansible.builtin.include_role:
+        name: "{{ dispatcher_role_fqcn }}"
+      vars:
+        decision_dispatcher_state: "absent"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      when: inventory_hostname == ansible_play_hosts_all[0]
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'decision_dispatcher.status': 'absent',
+            'decision_dispatcher.last_tick': '',
+            'decision_dispatcher.last_dispatch_id': '',
+            'decision_dispatcher.execution_mode': '',
+            'cap.control.decision_dispatcher': 'absent'
+          } | to_json }}

@@ -1,0 +1,9 @@
+inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+inventory_vm_groups:
+  edge_control:
+    - control-01
+
+target_user: opsadmin
+
+executor_execution_mode: dry-run
+executor_poll_seconds: 5

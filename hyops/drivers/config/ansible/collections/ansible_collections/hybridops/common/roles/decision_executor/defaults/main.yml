@@ -1,0 +1,13 @@
+---
+# purpose: Defaults for the decision_executor role
+# maintainer: HybridOps
+
+decision_executor_state: "present"
+decision_executor_root: "/opt/hybridops/decision-executor"
+decision_executor_service_name: "hyops-decision-executor"
+decision_executor_run_as_user: "root"
+decision_executor_run_as_group: "root"
+decision_executor_execution_records_dir: "/opt/hybridops/decision-consumer/state/executions"
+decision_executor_execution_mode: "dry-run"
+decision_executor_poll_seconds: 15
+decision_executor_log_level: "INFO"

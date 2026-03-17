@@ -1,5 +1,5 @@
 ---
-- name: platform/network/decision-dispatcher (configure)
+- name: Platform/network/decision-dispatcher (configure)
   hosts: edge_control
   any_errors_fatal: true
   become: true
@@ -28,17 +28,17 @@
       ansible.builtin.include_role:
         name: "{{ dispatcher_role_fqcn }}"
       vars:
-        dispatcher_state: "{{ _hyops_input_dispatcher_state }}"
-        dispatcher_decision_records_dir: "{{ _hyops_input_dispatcher_decision_records_dir }}"
-        dispatcher_execution_mode: "{{ _hyops_input_dispatcher_execution_mode }}"
-        dispatcher_require_approval: "{{ _hyops_input_dispatcher_require_approval }}"
-        dispatcher_poll_seconds: "{{ _hyops_input_dispatcher_poll_seconds }}"
-        dispatcher_log_level: "{{ _hyops_input_dispatcher_log_level }}"
-        dispatcher_routes: "{{ _hyops_input_dispatcher_routes }}"
+        decision_dispatcher_state: "{{ _hyops_input_dispatcher_state }}"
+        decision_dispatcher_decision_records_dir: "{{ _hyops_input_dispatcher_decision_records_dir }}"
+        decision_dispatcher_execution_mode: "{{ _hyops_input_dispatcher_execution_mode }}"
+        decision_dispatcher_require_approval: "{{ _hyops_input_dispatcher_require_approval }}"
+        decision_dispatcher_poll_seconds: "{{ _hyops_input_dispatcher_poll_seconds }}"
+        decision_dispatcher_log_level: "{{ _hyops_input_dispatcher_log_level }}"
+        decision_dispatcher_routes: "{{ _hyops_input_dispatcher_routes }}"
 
   post_tasks:
     - name: Wait for dispatcher state file
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       ansible.builtin.wait_for:
         path: "/opt/hybridops/decision-dispatcher/state/state.json"
         state: present
@@ -47,15 +47,17 @@
       failed_when: false
 
     - name: Read dispatcher state
-      run_once: true
+      when:
+        - inventory_hostname == ansible_play_hosts_all[0]
+        - __dispatcher_state_wait is succeeded
       ansible.builtin.slurp:
         path: "/opt/hybridops/decision-dispatcher/state/state.json"
       register: __dispatcher_state_raw
       failed_when: false
-      when: __dispatcher_state_wait is succeeded
+      changed_when: false
 
     - name: Normalize dispatcher state
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       delegate_to: localhost
       become: false
       ansible.builtin.set_fact:
@@ -67,7 +69,7 @@
           }}
 
     - name: Write HyOps outputs
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       delegate_to: localhost
       become: false
       ansible.builtin.copy:

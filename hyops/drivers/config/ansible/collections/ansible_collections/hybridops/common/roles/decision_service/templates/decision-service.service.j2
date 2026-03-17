@@ -5,17 +5,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User={{ decision_run_as_user }}
-Group={{ decision_run_as_group }}
-WorkingDirectory={{ decision_root }}
-ExecStart=/usr/bin/env python3 {{ decision_bin_path }}
+User={{ decision_service_run_as_user }}
+Group={{ decision_service_run_as_group }}
+WorkingDirectory={{ decision_service_root }}
+ExecStart=/usr/bin/env python3 {{ decision_service_bin_path }}
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths={{ decision_root }}
+ReadWritePaths={{ decision_service_root }}
 
 [Install]
 WantedBy=multi-user.target

@@ -1,0 +1,62 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/decision-consumer"
+
+metadata:
+  title: "Edge Decision Consumer"
+  description: "Deploys a deterministic approval-aware consumer that promotes dispatch requests into execution records."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "root"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    consumer_role_fqcn: "hybridops.common.decision_consumer"
+    consumer_state: "present"
+    consumer_root: "/opt/hybridops/decision-consumer"
+    consumer_dispatch_requests_dir: "/opt/hybridops/decision-dispatcher/state/requests"
+    consumer_execution_mode: "approval-only"
+    consumer_require_approval: true
+    consumer_poll_seconds: 15
+    consumer_log_level: "INFO"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/40-decision-consumer@v1.0"
+
+outputs:
+  publish:
+    - decision_consumer.status
+    - decision_consumer.last_tick
+    - decision_consumer.last_request_id
+    - decision_consumer.last_execution_id
+    - decision_consumer.execution_mode
+    - cap.control.decision_consumer
+
+probes: []
+constraints: []

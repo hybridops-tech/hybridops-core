@@ -1,6 +1,6 @@
 ---
 # purpose: Handlers for decision_service role
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps
 
 - name: Restart decision service
   ansible.builtin.service:

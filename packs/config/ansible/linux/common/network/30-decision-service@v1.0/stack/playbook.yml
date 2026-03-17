@@ -1,5 +1,5 @@
 ---
-- name: platform/network/decision-service (configure)
+- name: Platform/network/decision-service (configure)
   hosts: edge_control
   any_errors_fatal: true
   become: true
@@ -50,32 +50,32 @@
       ansible.builtin.include_role:
         name: "{{ decision_role_name }}"
       vars:
-        decision_state: "{{ _hyops_input_decision_state }}"
-        decision_thanos_query_url: "{{ _hyops_input_decision_thanos_query_url }}"
-        decision_policy: "{{ _hyops_input_decision_policy }}"
-        decision_actions: "{{ _hyops_input_decision_actions }}"
-        decision_execution_mode: "{{ _hyops_input_decision_execution_mode }}"
-        decision_hyops_bin: "{{ _hyops_input_decision_hyops_bin }}"
-        decision_runtime_env: "{{ _hyops_input_decision_runtime_env }}"
-        decision_runtime_root: "{{ _hyops_input_decision_runtime_root }}"
-        decision_action_timeout_s: "{{ _hyops_input_decision_action_timeout_s }}"
-        decision_signal_query_timeout_s: "{{ _hyops_input_decision_signal_query_timeout_s }}"
-        decision_require_signal_readiness: "{{ _hyops_input_decision_require_signal_readiness }}"
-        decision_require_fresh_signals: "{{ _hyops_input_decision_require_fresh_signals }}"
-        decision_max_signal_age_s: "{{ _hyops_input_decision_max_signal_age_s }}"
-        decision_min_ready_checks: "{{ _hyops_input_decision_min_ready_checks }}"
-        decision_require_action_state_guards: "{{ _hyops_input_decision_require_action_state_guards }}"
-        decision_dry_run: "{{ _hyops_input_decision_dry_run }}"
-        decision_enable_actions: "{{ _hyops_input_decision_enable_actions }}"
-        decision_tick_seconds: "{{ _hyops_input_decision_tick_seconds }}"
-        decision_confirm_for_seconds: "{{ _hyops_input_decision_confirm_for_seconds }}"
-        decision_stable_for_seconds: "{{ _hyops_input_decision_stable_for_seconds }}"
-        decision_cooldown_seconds: "{{ _hyops_input_decision_cooldown_seconds }}"
-        decision_log_level: "{{ _hyops_input_decision_log_level }}"
+        decision_service_state: "{{ _hyops_input_decision_state }}"
+        decision_service_thanos_query_url: "{{ _hyops_input_decision_thanos_query_url }}"
+        decision_service_policy: "{{ _hyops_input_decision_policy }}"
+        decision_service_actions: "{{ _hyops_input_decision_actions }}"
+        decision_service_execution_mode: "{{ _hyops_input_decision_execution_mode }}"
+        decision_service_hyops_bin: "{{ _hyops_input_decision_hyops_bin }}"
+        decision_service_runtime_env: "{{ _hyops_input_decision_runtime_env }}"
+        decision_service_runtime_root: "{{ _hyops_input_decision_runtime_root }}"
+        decision_service_action_timeout_s: "{{ _hyops_input_decision_action_timeout_s }}"
+        decision_service_signal_query_timeout_s: "{{ _hyops_input_decision_signal_query_timeout_s }}"
+        decision_service_require_signal_readiness: "{{ _hyops_input_decision_require_signal_readiness }}"
+        decision_service_require_fresh_signals: "{{ _hyops_input_decision_require_fresh_signals }}"
+        decision_service_max_signal_age_s: "{{ _hyops_input_decision_max_signal_age_s }}"
+        decision_service_min_ready_checks: "{{ _hyops_input_decision_min_ready_checks }}"
+        decision_service_require_action_state_guards: "{{ _hyops_input_decision_require_action_state_guards }}"
+        decision_service_dry_run: "{{ _hyops_input_decision_dry_run }}"
+        decision_service_enable_actions: "{{ _hyops_input_decision_enable_actions }}"
+        decision_service_tick_seconds: "{{ _hyops_input_decision_tick_seconds }}"
+        decision_service_confirm_for_seconds: "{{ _hyops_input_decision_confirm_for_seconds }}"
+        decision_service_stable_for_seconds: "{{ _hyops_input_decision_stable_for_seconds }}"
+        decision_service_cooldown_seconds: "{{ _hyops_input_decision_cooldown_seconds }}"
+        decision_service_log_level: "{{ _hyops_input_decision_log_level }}"
 
   post_tasks:
     - name: Wait for decision state file
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       ansible.builtin.wait_for:
         path: "/opt/hybridops/decision-service/state/state.json"
         state: present
@@ -84,15 +84,17 @@
       failed_when: false
 
     - name: Read decision state
-      run_once: true
+      when:
+        - inventory_hostname == ansible_play_hosts_all[0]
+        - __decision_state_wait is succeeded
       ansible.builtin.slurp:
         path: "/opt/hybridops/decision-service/state/state.json"
       register: __decision_state_raw
       failed_when: false
-      when: __decision_state_wait is succeeded
+      changed_when: false
 
     - name: Normalize decision state
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       delegate_to: localhost
       become: false
       ansible.builtin.set_fact:
@@ -104,7 +106,7 @@
           }}
 
     - name: Write HyOps outputs
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       delegate_to: localhost
       become: false
       ansible.builtin.copy:

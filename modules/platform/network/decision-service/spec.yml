@@ -64,6 +64,7 @@ inputs:
       module_state_guards: {}
     dry_run: true
     decision_enable_actions: false
+    decision_execution_mode: "emit-only"
     tick_seconds: 30
     confirm_for_seconds: 120
     stable_for_seconds: 300
@@ -82,6 +83,8 @@ outputs:
     - decision_service.last_tick
     - decision_service.last_action
     - decision_service.signal_ready
+    - decision_service.execution_mode
+    - decision_service.last_decision_id
     - cap.control.decision_service
 
 probes: []

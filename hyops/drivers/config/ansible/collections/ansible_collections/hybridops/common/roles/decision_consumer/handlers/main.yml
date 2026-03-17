@@ -1,0 +1,9 @@
+---
+# purpose: Handlers for the decision_consumer role
+# maintainer: HybridOps
+
+- name: Restart decision consumer
+  ansible.builtin.systemd:
+    name: "{{ decision_consumer_service_name }}"
+    state: restarted
+    daemon_reload: true

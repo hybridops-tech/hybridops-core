@@ -1,5 +1,5 @@
 ---
-- name: platform/network/decision-executor (configure)
+- name: Platform/network/decision-executor (configure)
   hosts: edge_control
   gather_facts: false
   any_errors_fatal: true
@@ -16,11 +16,11 @@
       ansible.builtin.include_role:
         name: "{{ executor_role_fqcn }}"
       vars:
-        executor_state: "{{ _hyops_input_executor_state }}"
-        executor_execution_records_dir: "{{ _hyops_input_executor_execution_records_dir }}"
-        executor_execution_mode: "{{ _hyops_input_executor_execution_mode }}"
-        executor_poll_seconds: "{{ _hyops_input_executor_poll_seconds }}"
-        executor_log_level: "{{ _hyops_input_executor_log_level }}"
+        decision_executor_state: "{{ _hyops_input_executor_state }}"
+        decision_executor_execution_records_dir: "{{ _hyops_input_executor_execution_records_dir }}"
+        decision_executor_execution_mode: "{{ _hyops_input_executor_execution_mode }}"
+        decision_executor_poll_seconds: "{{ _hyops_input_executor_poll_seconds }}"
+        decision_executor_log_level: "{{ _hyops_input_executor_log_level }}"
 
     - name: Wait for executor state file
       ansible.builtin.wait_for:
@@ -45,7 +45,7 @@
           }}
 
     - name: Write HyOps outputs
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       delegate_to: localhost
       become: false
       ansible.builtin.copy:

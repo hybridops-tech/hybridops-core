@@ -1,5 +1,5 @@
 ---
-- name: platform/network/decision-service (destroy)
+- name: Platform/network/decision-service (destroy)
   hosts: edge_control
   any_errors_fatal: true
   become: true
@@ -13,13 +13,13 @@
       ansible.builtin.include_role:
         name: "{{ decision_role_fqcn }}"
       vars:
-        decision_state: "absent"
+        decision_service_state: "absent"
 
   post_tasks:
     - name: Write HyOps outputs
-      run_once: true
       delegate_to: localhost
       become: false
+      when: inventory_hostname == ansible_play_hosts_all[0]
       ansible.builtin.copy:
         dest: "{{ hyops_outputs_file }}"
         mode: "0600"
@@ -28,5 +28,7 @@
             'decision_service.status': 'absent',
             'decision_service.last_tick': '',
             'decision_service.last_action': 'none',
+            'decision_service.execution_mode': '',
+            'decision_service.last_decision_id': '',
             'cap.control.decision_service': 'absent'
           } | to_json }}

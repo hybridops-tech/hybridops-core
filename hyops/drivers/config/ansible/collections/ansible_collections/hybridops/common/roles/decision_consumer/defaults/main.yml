@@ -1,0 +1,14 @@
+---
+# purpose: Defaults for the decision_consumer role
+# maintainer: HybridOps
+
+decision_consumer_state: "present"
+decision_consumer_root: "/opt/hybridops/decision-consumer"
+decision_consumer_service_name: "hyops-decision-consumer"
+decision_consumer_run_as_user: "root"
+decision_consumer_run_as_group: "root"
+decision_consumer_dispatch_requests_dir: "/opt/hybridops/decision-dispatcher/state/requests"
+decision_consumer_execution_mode: "approval-only"
+decision_consumer_require_approval: true
+decision_consumer_poll_seconds: 15
+decision_consumer_log_level: "INFO"

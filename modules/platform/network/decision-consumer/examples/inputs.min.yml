@@ -1,0 +1,9 @@
+inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+inventory_vm_groups:
+  edge_control:
+    - control-01
+target_user: opsadmin
+
+consumer_execution_mode: approval-only
+consumer_require_approval: true
+consumer_poll_seconds: 5

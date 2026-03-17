@@ -1,0 +1,16 @@
+[Unit]
+Description=HybridOps Decision Consumer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env python3 {{ decision_consumer_root }}/decision-consumer.py
+Restart=always
+RestartSec=5
+WorkingDirectory={{ decision_consumer_root }}
+User={{ decision_consumer_run_as_user }}
+Group={{ decision_consumer_run_as_group }}
+
+[Install]
+WantedBy=multi-user.target

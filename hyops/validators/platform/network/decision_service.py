@@ -2,7 +2,7 @@
 
 purpose: Validate inputs for platform/network/decision-service module.
 Architecture Decision: ADR-N/A (decision service validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps
 """
 
 from __future__ import annotations
@@ -277,8 +277,21 @@ def validate(inputs: dict[str, Any]) -> None:
     enable_actions = data.get("decision_enable_actions")
     if not isinstance(enable_actions, bool):
         raise ValueError("inputs.decision_enable_actions must be a boolean")
-    if not dry_run and not enable_actions:
-        raise ValueError("inputs.decision_enable_actions must be true when inputs.dry_run=false")
+    execution_mode = _require_non_empty_str(
+        data.get("decision_execution_mode") or "emit-only",
+        "inputs.decision_execution_mode",
+    ).lower()
+    if execution_mode not in {"emit-only", "local-hyops"}:
+        raise ValueError("inputs.decision_execution_mode must be one of: emit-only, local-hyops")
+    if execution_mode == "emit-only" and enable_actions:
+        raise ValueError(
+            "inputs.decision_enable_actions must be false when inputs.decision_execution_mode=emit-only"
+        )
+    if execution_mode == "local-hyops" and not dry_run and not enable_actions:
+        raise ValueError(
+            "inputs.decision_enable_actions must be true when "
+            "inputs.decision_execution_mode=local-hyops and inputs.dry_run=false"
+        )
 
     tick = _require_int_ge(data.get("tick_seconds"), "inputs.tick_seconds", 5)
     confirm = _require_int_ge(data.get("confirm_for_seconds"), "inputs.confirm_for_seconds", 0)
@@ -318,7 +331,7 @@ def validate(inputs: dict[str, Any]) -> None:
 
     _validate_module_state_guards(actions)
 
-    if enable_actions and not dry_run:
+    if execution_mode == "local-hyops" and enable_actions and not dry_run:
         base_inputs = actions.get("module_inputs")
         if not isinstance(base_inputs, dict) or not base_inputs:
             raise ValueError(
@@ -326,9 +339,10 @@ def validate(inputs: dict[str, Any]) -> None:
             )
         if "platform/network/dns-routing" in {cutover_ref, failback_ref}:
             _validate_dns_routing_base_inputs(base_inputs)
-        if require_action_state_guards:
-            guards = actions.get("module_state_guards")
-            if not isinstance(guards, dict):
-                raise ValueError(
-                    "inputs.actions.module_state_guards must be configured when decision_require_action_state_guards=true"
-                )
+
+    if require_action_state_guards:
+        guards = actions.get("module_state_guards")
+        if not isinstance(guards, dict):
+            raise ValueError(
+                "inputs.actions.module_state_guards must be configured when decision_require_action_state_guards=true"
+            )

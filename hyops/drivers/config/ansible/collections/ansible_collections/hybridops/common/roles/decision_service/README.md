@@ -6,6 +6,10 @@ Role scope (v1):
 
 - Writes policy and runtime config.
 - Installs a local decision loop service.
-- Persists decision state/log files for health and troubleshooting.
+- Persists decision state, decision records, and logs for health and troubleshooting.
 
-This role is observe-first in v1 and does not execute cutover actions directly.
+Default behavior is `emit-only`: the service writes structured decision records and
+does not execute HyOps actions directly.
+
+An explicit transitional mode, `local-hyops`, can still execute `hyops apply`
+locally when enabled by the caller.

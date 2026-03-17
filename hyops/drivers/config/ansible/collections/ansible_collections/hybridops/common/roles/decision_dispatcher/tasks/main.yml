@@ -1,0 +1,101 @@
+---
+# purpose: Install and manage decision dispatcher service
+# maintainer: HybridOps
+
+- name: Preflight | assert state value
+  ansible.builtin.assert:
+    that:
+      - decision_dispatcher_state in ["present", "absent"]
+    fail_msg: "decision_dispatcher_state must be 'present' or 'absent'"
+
+- name: Stop decision dispatcher (absent)
+  ansible.builtin.service:
+    name: "{{ decision_dispatcher_service_name }}"
+    state: stopped
+    enabled: false
+  when: decision_dispatcher_state == "absent"
+  failed_when: false
+
+- name: Remove decision dispatcher files (absent)
+  ansible.builtin.file:
+    path: "{{ decision_dispatcher_root }}"
+    state: absent
+  when: decision_dispatcher_state == "absent"
+
+- name: Remove decision dispatcher unit (absent)
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ decision_dispatcher_service_name }}.service"
+    state: absent
+  when: decision_dispatcher_state == "absent"
+
+- name: Systemd | reload (absent)
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: decision_dispatcher_state == "absent"
+
+- name: Ensure decision dispatcher directories (present)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ decision_dispatcher_run_as_user }}"
+    group: "{{ decision_dispatcher_run_as_group }}"
+    mode: "0750"
+  loop:
+    - "{{ decision_dispatcher_root }}"
+    - "{{ decision_dispatcher_config_dir }}"
+    - "{{ decision_dispatcher_state_dir }}"
+    - "{{ decision_dispatcher_state_dir }}/requests"
+    - "{{ decision_dispatcher_logs_dir }}"
+  when: decision_dispatcher_state == "present"
+
+- name: Write decision dispatcher runtime config
+  ansible.builtin.copy:
+    dest: "{{ decision_dispatcher_config_dir }}/config.json"
+    owner: "{{ decision_dispatcher_run_as_user }}"
+    group: "{{ decision_dispatcher_run_as_group }}"
+    mode: "0640"
+    content: |
+      {{
+        {
+          'decision_records_dir': (decision_dispatcher_decision_records_dir | string),
+          'execution_mode': (decision_dispatcher_execution_mode | string),
+          'require_approval': (decision_dispatcher_require_approval | bool),
+          'poll_seconds': (decision_dispatcher_poll_seconds | int),
+          'log_level': (decision_dispatcher_log_level | string),
+          'routes': (decision_dispatcher_routes | default({}))
+        } | to_nice_json
+      }}
+  when: decision_dispatcher_state == "present"
+  notify: Restart decision dispatcher service
+
+- name: Render decision dispatcher script
+  ansible.builtin.template:
+    src: decision-dispatcher.py.j2
+    dest: "{{ decision_dispatcher_bin_path }}"
+    owner: "{{ decision_dispatcher_run_as_user }}"
+    group: "{{ decision_dispatcher_run_as_group }}"
+    mode: "0750"
+  when: decision_dispatcher_state == "present"
+  notify: Restart decision dispatcher service
+
+- name: Render decision dispatcher systemd unit
+  ansible.builtin.template:
+    src: decision-dispatcher.service.j2
+    dest: "/etc/systemd/system/{{ decision_dispatcher_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  when: decision_dispatcher_state == "present"
+  notify: Restart decision dispatcher service
+
+- name: Systemd | reload (present)
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: decision_dispatcher_state == "present"
+
+- name: Ensure decision dispatcher started
+  ansible.builtin.service:
+    name: "{{ decision_dispatcher_service_name }}"
+    state: started
+    enabled: true
+  when: decision_dispatcher_state == "present"

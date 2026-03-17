@@ -1,11 +1,11 @@
 ---
 # purpose: Role metadata for decision_service
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps
 
 galaxy_info:
-  author: HybridOps.Studio
+  author: HybridOps
   description: Deploy a deterministic edge decision loop service.
-  company: HybridOps.Studio
+  company: HybridOps
   license: MIT
   min_ansible_version: "2.15"
   platforms:

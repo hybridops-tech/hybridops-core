@@ -1,0 +1,61 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/decision-executor"
+
+metadata:
+  title: "Edge Decision Executor"
+  description: "Deploys a deterministic executor service that consumes approved execution records and stages dry-run execution attempts."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "root"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    executor_role_fqcn: "hybridops.common.decision_executor"
+    executor_state: "present"
+    executor_root: "/opt/hybridops/decision-executor"
+    executor_execution_records_dir: "/opt/hybridops/decision-consumer/state/executions"
+    executor_execution_mode: "dry-run"
+    executor_poll_seconds: 15
+    executor_log_level: "INFO"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/45-decision-executor@v1.0"
+
+outputs:
+  publish:
+    - decision_executor.status
+    - decision_executor.last_tick
+    - decision_executor.last_execution_id
+    - decision_executor.last_attempt_id
+    - decision_executor.execution_mode
+    - cap.control.decision_executor
+
+probes: []
+constraints: []

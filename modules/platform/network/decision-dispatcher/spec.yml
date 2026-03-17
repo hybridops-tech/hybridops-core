@@ -1,0 +1,62 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/decision-dispatcher"
+
+metadata:
+  title: "Edge Decision Dispatcher"
+  description: "Deploys a deterministic dispatcher service that consumes decision records and stages normalized dispatch requests."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "root"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    dispatcher_role_fqcn: "hybridops.common.decision_dispatcher"
+    dispatcher_state: "present"
+    dispatcher_root: "/opt/hybridops/decision-dispatcher"
+    dispatcher_decision_records_dir: "/opt/hybridops/decision-service/state/records"
+    dispatcher_execution_mode: "record-only"
+    dispatcher_require_approval: true
+    dispatcher_poll_seconds: 15
+    dispatcher_log_level: "INFO"
+    dispatcher_routes: {}
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/35-decision-dispatcher@v1.0"
+
+outputs:
+  publish:
+    - decision_dispatcher.status
+    - decision_dispatcher.last_tick
+    - decision_dispatcher.last_dispatch_id
+    - decision_dispatcher.execution_mode
+    - cap.control.decision_dispatcher
+
+probes: []
+constraints: []

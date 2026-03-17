@@ -1,5 +1,5 @@
 ---
-- name: platform/network/decision-consumer (configure)
+- name: Platform/network/decision-consumer (configure)
   hosts: edge_control
   gather_facts: false
   any_errors_fatal: true
@@ -17,12 +17,12 @@
       ansible.builtin.include_role:
         name: "{{ consumer_role_fqcn }}"
       vars:
-        consumer_state: "{{ _hyops_input_consumer_state }}"
-        consumer_dispatch_requests_dir: "{{ _hyops_input_consumer_dispatch_requests_dir }}"
-        consumer_execution_mode: "{{ _hyops_input_consumer_execution_mode }}"
-        consumer_require_approval: "{{ _hyops_input_consumer_require_approval }}"
-        consumer_poll_seconds: "{{ _hyops_input_consumer_poll_seconds }}"
-        consumer_log_level: "{{ _hyops_input_consumer_log_level }}"
+        decision_consumer_state: "{{ _hyops_input_consumer_state }}"
+        decision_consumer_dispatch_requests_dir: "{{ _hyops_input_consumer_dispatch_requests_dir }}"
+        decision_consumer_execution_mode: "{{ _hyops_input_consumer_execution_mode }}"
+        decision_consumer_require_approval: "{{ _hyops_input_consumer_require_approval }}"
+        decision_consumer_poll_seconds: "{{ _hyops_input_consumer_poll_seconds }}"
+        decision_consumer_log_level: "{{ _hyops_input_consumer_log_level }}"
 
     - name: Wait for consumer state file
       ansible.builtin.wait_for:
@@ -47,7 +47,7 @@
           }}
 
     - name: Write HyOps outputs
-      run_once: true
+      when: inventory_hostname == ansible_play_hosts_all[0]
       delegate_to: localhost
       become: false
       ansible.builtin.copy:

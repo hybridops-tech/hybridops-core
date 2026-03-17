@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""
+purpose: Local decision-dispatcher runtime.
+maintainer: HybridOps
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import time
+import uuid
+from pathlib import Path
+
+ROOT = Path("{{ decision_dispatcher_root }}")
+CONFIG_PATH = ROOT / "config" / "config.json"
+STATE_PATH = ROOT / "state" / "state.json"
+LOG_PATH = ROOT / "logs" / "dispatcher.log"
+REQUESTS_DIR = ROOT / "state" / "requests"
+
+
+def _utc_now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _utc_now_token() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, sort_keys=True, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _append_log(payload: dict) -> None:
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _sanitize_token(value: str) -> str:
+    allowed = []
+    for char in value.lower():
+        if char.isalnum():
+            allowed.append(char)
+        elif char in {"-", "_"}:
+            allowed.append(char)
+    token = "".join(allowed).strip("-_")
+    return token or "dispatch"
+
+
+def _route_key_for(decision: dict) -> str:
+    token = str(decision.get("decision_type") or "").strip()
+    return token
+
+
+def _emit_dispatch_request(*, decision: dict, route: dict, config: dict) -> dict:
+    route_key = _route_key_for(decision)
+    dispatch_id = (
+        f"dispatch-{_utc_now_token()}-"
+        f"{_sanitize_token(route_key)}-{uuid.uuid4().hex[:8]}"
+    )
+    requires_approval = bool(route.get("requires_approval", config.get("require_approval", True)))
+    status = "awaiting-approval" if requires_approval else "queued"
+    payload = {
+        "dispatch_id": dispatch_id,
+        "timestamp_utc": _utc_now(),
+        "status": status,
+        "execution_mode": str(config.get("execution_mode") or "record-only"),
+        "source_decision_id": str(decision.get("decision_id") or ""),
+        "source_decision_file": str(decision.get("_source_file") or ""),
+        "decision_type": route_key,
+        "execution_plane": str(route.get("execution_plane") or ""),
+        "target_kind": str(route.get("target_kind") or ""),
+        "target_ref": str(route.get("target_ref") or ""),
+        "target_env": str(route.get("target_env") or ""),
+        "requires_approval": requires_approval,
+        "rationale": str(decision.get("rationale") or decision.get("reason") or ""),
+        "checks": decision.get("checks") if isinstance(decision.get("checks"), list) else [],
+    }
+    request_path = REQUESTS_DIR / f"{dispatch_id}.json"
+    REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
+    _write_json(request_path, payload)
+    return {
+        "dispatch_id": dispatch_id,
+        "request_file": str(request_path),
+        "status": status,
+    }
+
+
+def _process(config: dict, prior: dict) -> dict:
+    records_dir = Path(str(config.get("decision_records_dir") or "").strip() or "/opt/hybridops/decision-service/state/records")
+    poll_seconds = int(config.get("poll_seconds", 15) or 15)
+    if poll_seconds < 5:
+        poll_seconds = 5
+    execution_mode = str(config.get("execution_mode") or "record-only").strip().lower() or "record-only"
+    routes = config.get("routes")
+    if not isinstance(routes, dict):
+        routes = {}
+
+    processed = prior.get("processed_decision_ids")
+    if not isinstance(processed, dict):
+        processed = {}
+
+    last_dispatch_id = str(prior.get("last_dispatch_id") or "")
+    last_decision_id = str(prior.get("last_decision_id") or "")
+    last_request_file = str(prior.get("last_request_file") or "")
+    last_reason = "idle"
+
+    if records_dir.exists():
+        for path in sorted(records_dir.glob("*.json")):
+            decision = _read_json(path)
+            decision_id = str(decision.get("decision_id") or path.stem).strip()
+            if not decision_id or decision_id in processed:
+                continue
+            decision["_source_file"] = str(path)
+            route_key = _route_key_for(decision)
+            route = routes.get(route_key)
+            if not isinstance(route, dict) or not route:
+                processed[decision_id] = {
+                    "status": "ignored",
+                    "reason": f"no_route:{route_key}",
+                    "timestamp_utc": _utc_now(),
+                }
+                last_decision_id = decision_id
+                last_reason = f"ignored:no_route:{route_key}"
+                continue
+
+            dispatch_result = _emit_dispatch_request(decision=decision, route=route, config=config)
+            processed[decision_id] = {
+                "status": dispatch_result.get("status"),
+                "dispatch_id": dispatch_result.get("dispatch_id"),
+                "request_file": dispatch_result.get("request_file"),
+                "timestamp_utc": _utc_now(),
+            }
+            last_decision_id = decision_id
+            last_dispatch_id = str(dispatch_result.get("dispatch_id") or "")
+            last_request_file = str(dispatch_result.get("request_file") or "")
+            last_reason = f"dispatch_emitted:{route_key}"
+
+    return {
+        "timestamp_utc": _utc_now(),
+        "status": "running",
+        "execution_mode": execution_mode,
+        "decision_records_dir": str(records_dir),
+        "routes_count": len(routes),
+        "processed_count": len(processed),
+        "last_decision_id": last_decision_id,
+        "last_dispatch_id": last_dispatch_id,
+        "last_request_file": last_request_file,
+        "reason": last_reason,
+        "processed_decision_ids": processed,
+        "poll_seconds": poll_seconds,
+    }
+
+
+def main() -> int:
+    prior = _read_json(STATE_PATH)
+    while True:
+        config = _read_json(CONFIG_PATH)
+        payload = _process(config=config, prior=prior)
+        _write_json(STATE_PATH, payload)
+        _append_log(payload)
+        prior = payload
+        poll_seconds = int(payload.get("poll_seconds", 15) or 15)
+        if poll_seconds < 5:
+            poll_seconds = 5
+        time.sleep(poll_seconds)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  author: HybridOps
+  description: Install the HybridOps decision executor service.
+  company: HybridOps
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: EL
+      versions: ["9"]
+    - name: Ubuntu
+      versions: ["jammy", "noble"]
+
+dependencies: []

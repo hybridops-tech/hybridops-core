@@ -1,0 +1,20 @@
+inventory_groups:
+  edge_control:
+    - name: control-01
+      host: 198.51.100.10
+connectivity_check: false
+dispatcher_execution_mode: record-only
+dispatcher_require_approval: true
+dispatcher_routes:
+  cutover:
+    target_kind: blueprint
+    target_ref: dr/postgresql-ha-failover-gcp@v1
+    target_env: dev
+    execution_plane: runner-local
+    requires_approval: true
+  failback:
+    target_kind: blueprint
+    target_ref: dr/postgresql-ha-failback-onprem@v1
+    target_env: dev
+    execution_plane: runner-local
+    requires_approval: true
