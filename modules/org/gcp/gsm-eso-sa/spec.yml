@@ -1,0 +1,59 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/gcp/gsm-eso-sa"
+
+metadata:
+  title: "GCP ESO Service Account"
+  description: |
+    Provisions the GCP service account used by External Secrets Operator to
+    authenticate against GCP Secret Manager from the on-prem RKE2 cluster.
+
+    Terraform scope: creates the service account and binds
+    roles/secretmanager.secretAccessor. Does not manage org policy or SA keys —
+    those are operator-level concerns handled outside this module.
+
+    Prerequisites (applied by `hyops init gcp --with-cli-login` before this module):
+      - constraints/iam.disableServiceAccountKeyCreation is not enforced at project scope
+      - Terraform SA holds roles/editor, roles/resourcemanager.projectIamAdmin,
+        and roles/secretmanager.admin on the project
+
+    Post-apply steps:
+      1. `hyops init gcp --force --with-eso-sa` — generates an SA key and writes it
+         to the bootstrap vault as HYOPS_GSM_SA_KEY_JSON
+      2. `hyops apply platform/k8s/gsm-bootstrap` — provisions the gsm-sa-credentials
+         Kubernetes secret consumed by the ESO ClusterSecretStore
+
+    Placement in the bootstrap sequence: after org/gcp/project-factory, before
+    platform/k8s/gsm-bootstrap.
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    eso_sa_name: "eso-gsm-reader"
+    eso_sa_display_name: "External Secrets Operator — GCP Secret Manager Reader"
+    # project_id: resolved from GCP runtime init (required — no default)
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/org/01-gsm-eso-sa@v1.0"
+  hooks:
+    export_infra:
+      enabled: false
+
+dependencies:
+  - module_ref: "org/gcp/project-factory"
+    required: true
+    imports:
+      project_id: "project_id"
+
+outputs:
+  publish:
+    - eso_sa_email
+
+probes: []
+constraints: []

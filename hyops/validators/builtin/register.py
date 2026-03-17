@@ -16,6 +16,7 @@ from hyops.validators.org.azure import pgbackrest_repo as azure_pgbackrest_repo
 from hyops.validators.org.gcp import (
     cloudsql_external_replica,
     cloudsql_postgresql,
+    gsm_eso_sa,
     pgbackrest_repo,
     project_factory,
     wan_cloud_router,
@@ -71,6 +72,7 @@ def register_all() -> None:
     register("org/azure/pgbackrest-repo", azure_pgbackrest_repo.validate)
     register("org/gcp/cloudsql-external-replica", cloudsql_external_replica.validate)
     register("org/gcp/cloudsql-postgresql", cloudsql_postgresql.validate)
+    register("org/gcp/gsm-eso-sa", gsm_eso_sa.validate)
     register("org/gcp/object-repo", pgbackrest_repo.validate)
     register("org/gcp/project-factory", project_factory.validate)
     register("org/gcp/wan-hub-network", wan_hub_network.validate)

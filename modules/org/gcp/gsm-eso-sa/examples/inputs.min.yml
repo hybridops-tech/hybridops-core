@@ -1,0 +1,6 @@
+# project_id and terraform_sa_email are imported automatically from
+# org/gcp/project-factory outputs. Override only when running standalone.
+# project_id: my-gcp-project
+# terraform_sa_email: terraform@my-gcp-project.iam.gserviceaccount.com
+
+eso_sa_name: "eso-gsm-reader"
