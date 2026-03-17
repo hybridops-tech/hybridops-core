@@ -1,6 +1,6 @@
 # ubuntu-22.04.pkrvars.hcl
 # Purpose: Define Ubuntu 22.04 LTS template parameters for Proxmox build
-# Maintainer: HybridOps.Studio
+# Maintainer: HybridOps.Tech
 # Date: 2025-11-13
 
 name        = "ubuntu-22.04-template"

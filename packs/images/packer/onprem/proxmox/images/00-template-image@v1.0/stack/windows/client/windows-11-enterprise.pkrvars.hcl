@@ -1,8 +1,8 @@
 #
 # windows-11-enterprise.pkrvars.hcl
 #
-# Maintainer: HybridOps.Studio
-# Organization: HybridOps.Studio
+# Maintainer: HybridOps.Tech
+# Organization: HybridOps.Tech
 # Last Modified: 2025-11-13 09:58:00 UTC
 
 name        = "windows-11-enterprise-template"

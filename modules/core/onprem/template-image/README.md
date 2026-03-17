@@ -47,9 +47,9 @@ Supported `template_key` values:
 
 Use `template_state_ref` in `platform/onprem/platform-vm` to consume these outputs without hardcoding template IDs.
 
-## Evidence
+## Run Record Files
 
-Template-image apply evidence includes:
+Template-image apply writes:
 
 - `packer.log`
 - `template_smoke.json` (automatic post-build smoke summary)

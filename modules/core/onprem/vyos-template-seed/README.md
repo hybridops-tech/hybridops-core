@@ -22,10 +22,11 @@ Default behavior:
 - `template_key`: logical template family key, for example `vyos-1.5`
 - `artifact_state_ref`: optional shared VyOS artifact module state, for example `core/shared/vyos-image-build#vyos_default_build` (legacy artifact registration state is still supported)
 - `artifact_key`: optional artifact key override; defaults to `template_key` when omitted
+- `required_env`: optional env keys that HyOps must hydrate before downloading a private shared artifact
 - `template_vm_id`: target Proxmox template VMID
 - `template_name`: target Proxmox template name
 - `template_image_version`: optional operator-visible image version label
-- `template_source_url`: optional source URL for evidence/provenance
+- `template_source_url`: optional source URL for provenance
 - `image_source_url`: direct downloadable disk image artifact, not an installer ISO page
 - `seed_command`: optional custom command when you need a non-default ISO-to-template workflow
 - `template_smoke_gate`: enable/disable the default post-seed smoke gate (default `true`)
@@ -36,6 +37,7 @@ Default behavior:
 - private GCS-backed shared artifacts are supported through:
   - `HYOPS_VYOS_GCS_SA_JSON`, or
   - `HYOPS_VYOS_GCS_SA_JSON_FILE`
+- declare the selected key in `required_env` so HyOps hydrates it before the seed step
 
 HybridOps defaults to a shared artifact-first contract:
 

@@ -20,6 +20,7 @@ inputs:
     target_port: 22
     become: false
     connectivity_check: false
+    required_env: []
 
     template_key: "vyos-1.5"
     template_vm_id: 9205

@@ -1,6 +1,6 @@
 # File: ks.cfg.tpl
 # Purpose: Shared Kickstart template for Rocky Linux 9.x/10.x Packer builds
-# Maintainer: HybridOps.Studio
+# Maintainer: HybridOps.Tech
 
 cdrom
 text

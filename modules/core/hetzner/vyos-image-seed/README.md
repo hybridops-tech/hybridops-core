@@ -14,6 +14,7 @@ The default seeding path expects the `hcloud-upload-image` helper to be installe
 Practical note for VyOS:
 
 - if `image_source_url` points to a directly downloadable `qcow2` artifact (for example the same qcow2 you use on Proxmox), HyOps will auto-wrap it into a temporary raw image for Hetzner seeding
+- if that qcow2 is the shared private GCS-backed artifact published by `core/shared/vyos-image-build`, declare `HYOPS_VYOS_GCS_SA_JSON` or `HYOPS_VYOS_GCS_SA_JSON_FILE` in `required_env` so the wrapper can download it with authenticated GCS access
 - when using that qcow2 auto-wrap path, set `seed_wrapper_public_base_url` to a publicly reachable base URL for the execution host so Hetzner rescue can fetch the temporary wrapped artifact
 - if your Hetzner project restricts import locations, set `seed_location` (for example `nbg1`) so `hcloud-upload-image` creates its temporary import server in an allowed location
 - if your image virtual disk is larger than the default import server disk, set `seed_server_type` (for example `cpx21` for 80G) so the temporary import server has enough disk
@@ -40,9 +41,9 @@ Direct `image_source_url` is the override path when you intentionally bypass the
 
 HybridOps does not prescribe how you build or store that disk image. The clean contract is:
 
-- operator provides one canonical, directly downloadable disk image artifact URL
+- operator provides one canonical disk image artifact contract
 - Proxmox can consume the qcow2 directly
-- Hetzner can consume the same qcow2 by using the built-in wrapper path
+- Hetzner can consume the same qcow2 by using the built-in wrapper path, including the shared private GCS-backed artifact path when `required_env` declares the GCS service-account secret
 - if your upstream source is ISO-only, provide a custom `seed_command` instead
 
 The qcow2 auto-wrap path is intended for runners or shared control hosts with a public address. If the execution host is not publicly reachable, either:
@@ -52,7 +53,7 @@ The qcow2 auto-wrap path is intended for runners or shared control hosts with a 
 
 URL validation behavior:
 
-- HyOps now probes `image_source_url` reachability before launching the seeding command.
+- HyOps probes `image_source_url` reachability before launching the seeding command when the source is expected to be directly reachable without authenticated GCS access.
 - If the URL is invalid/unreachable, the module fails fast with guidance to run `core/shared/vyos-image-build` and consume `artifact_state_ref`/`artifact_key`.
 
 Typical usage:

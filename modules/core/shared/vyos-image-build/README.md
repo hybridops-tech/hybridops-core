@@ -1,6 +1,6 @@
 # core/shared/vyos-image-build
 
-Build one canonical VyOS disk artifact contract for HyOps state. The production path is artifact-first (prebuilt qcow2/raw URL), with local ISO/Packer builds kept as an explicit opt-in path.
+Build one canonical VyOS disk artifact contract for HyOps state. The production path is artifact-first (prebuilt qcow2/raw URL) on a runner resolved from upstream VM state, with local ISO/Packer builds kept as an explicit opt-in path.
 
 Implementation note:
 
@@ -14,7 +14,7 @@ This is the clean bridge between:
 - a local build toolchain such as `packer`, `qemu-img`, or a wrapper script
 - a pinned published artifact URL
 
-Typical usage:
+Local/controller example:
 
 ```bash
 hyops validate --env dev --skip-preflight \
@@ -22,7 +22,7 @@ hyops validate --env dev --skip-preflight \
   --inputs "$HYOPS_CORE_ROOT/modules/core/shared/vyos-image-build/examples/inputs.min.yml"
 ```
 
-State-first publish target example:
+State-first runner publish target example:
 
 ```bash
 hyops validate --env dev --skip-preflight \
@@ -32,6 +32,9 @@ hyops validate --env dev --skip-preflight \
 
 Inputs:
 
+- `inventory_state_ref`: upstream runner state, typically `platform/onprem/platform-vm#onprem_ops_runner`
+- `inventory_vm_groups`: group-to-VM mapping used to resolve the runner inventory from that state, for example `runner: [runner-01]`
+- `inventory_groups`: optional explicit override when intentionally bypassing state-first runner resolution
 - `source_iso_url`: source artifact URL (qcow2/raw preferred; ISO is opt-in)
 - `artifact_local_path`: local build output path, for example `/tmp/vyos-1.5.qcow2`
 - `repo_state_ref`: optional object-repo state used by publish helpers to discover the target bucket/container
@@ -50,6 +53,12 @@ Packaged wrapper contract:
 - that path must also set `allow_iso_build: true`
 - a working reusable build path normally also sets a pinned `artifact_version`, a stable
   `build_workdir`, and an execution target through `inventory_state_ref`
+
+Runner resolution note:
+
+- this module no longer defaults to a localhost inventory stub
+- when `inventory_state_ref` is set, HyOps resolves `inventory_groups` from upstream state before execution
+- keep `inventory_groups` empty unless you are intentionally forcing a fully explicit local/controller execution path
 
 For GCS publishing without `gcloud`/`gsutil`:
 
@@ -162,10 +171,12 @@ Recommended first-run sequence:
 Examples:
 
 - `inputs.min.yml`
-  - standalone/runnable
+  - explicit local/controller execution through `inventory_groups.localhost`
   - explicit `artifact_url`
 - `inputs.gcs-state.yml`
-  - preferred state-first publish target
+  - preferred state-first runner publish target
+  - resolves execution inventory from `platform/onprem/platform-vm#onprem_ops_runner`
+  - demonstrates the explicit ISO build path with `allow_iso_build: true`
   - consumes `org/gcp/object-repo#vyos_artifacts`
 
 Command execution notes:
@@ -191,5 +202,6 @@ This keeps the product state-first:
 
 Hetzner consumption note:
 
-- prefer a public `https://...` artifact URL in state.
-- `gs://...` is not directly reachable by Hetzner rescue; publish/resolve the equivalent public object URL (for example `https://storage.googleapis.com/...`).
+- prefer an `https://...` artifact URL in state.
+- `gs://...` is not directly reachable by Hetzner rescue; publish/resolve the equivalent object URL (for example `https://storage.googleapis.com/...`).
+- the object does not need to be public when the downstream Hetzner seed path declares `HYOPS_VYOS_GCS_SA_JSON` or `HYOPS_VYOS_GCS_SA_JSON_FILE` in `required_env`.

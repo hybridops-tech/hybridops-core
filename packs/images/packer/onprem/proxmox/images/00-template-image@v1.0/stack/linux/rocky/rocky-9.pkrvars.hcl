@@ -1,6 +1,6 @@
 # rocky-9.pkrvars.hcl
 # Purpose: Define Rocky Linux 9.6 template parameters for Proxmox build
-# Maintainer: HybridOps.Studio
+# Maintainer: HybridOps.Tech
 # Date: 2025-11-13
 
 name           = "rocky-9-template"

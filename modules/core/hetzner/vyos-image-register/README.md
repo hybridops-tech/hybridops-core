@@ -25,5 +25,5 @@ without duplicating image references in every blueprint.
 
 Compatibility note:
 
-- Prefer [`core/hetzner/vyos-image-seed`](/home/user/hybridops-studio/hybridops-core/modules/core/hetzner/vyos-image-seed/README.md) for the default seed-or-skip path.
+- Prefer [`core/hetzner/vyos-image-seed`](/home/user/hybridops-tech/hybridops-core/modules/core/hetzner/vyos-image-seed/README.md) for the default seed-or-skip path.
 - Use this register-only module when the Hetzner custom image is managed outside HyOps and you only want to publish its reference into state.

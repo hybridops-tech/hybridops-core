@@ -2,7 +2,7 @@
 # Global Packer plugin configuration
 # Shared by all OS families (Ubuntu, Rocky, Windows)
 #
-# Maintainer: HybridOps.Studio
+# Maintainer: HybridOps.Tech
 # Date: 2025-01-06
 
 packer {

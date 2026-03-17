@@ -1,7 +1,7 @@
 #cloud-config
 # Ubuntu Packer template with dynamic SSH key injection.
 # Template variables (replaced during rendering):
-# Maintainer: HybridOps.Studio
+# Maintainer: HybridOps.Tech
 
 autoinstall:
   version: 1

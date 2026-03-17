@@ -20,6 +20,7 @@ inputs:
     target_port: 22
     become: false
     connectivity_check: false
+    required_env: []
 
     image_key: "vyos-1.5"
     image_ref: ""

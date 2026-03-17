@@ -12,14 +12,14 @@ requirements:
 
 inputs:
   defaults:
-    inventory_groups:
-      localhost:
-        - name: "localhost"
-          host: "127.0.0.1"
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
     target_user: "root"
     target_port: 22
     become: false
     connectivity_check: false
+    required_env: []
 
     artifact_key: "vyos-1.5"
     artifact_format: "qcow2"

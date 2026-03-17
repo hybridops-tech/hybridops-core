@@ -1,6 +1,6 @@
 # ubuntu-24.04.pkrvars.hcl
 # Purpose: Define Ubuntu 24.04 LTS template parameters for Proxmox build
-# Maintainer: HybridOps.Studio
+# Maintainer: HybridOps.Tech
 # Date: 2025-11-13
 
 name        = "ubuntu-24.04-template"
@@ -35,5 +35,5 @@ provisioner = [
   "sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id",
   "sudo rm -f /etc/ssh/ssh_host_*",
   "sudo cloud-init clean --logs --seed || true",
-  "echo 'Ubuntu 22.04 template ready'"
+  "echo 'Ubuntu 24.04 template ready'"
 ]

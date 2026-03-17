@@ -1,15 +1,22 @@
+inventory_state_ref: "platform/onprem/platform-vm#onprem_ops_runner"
+inventory_vm_groups:
+  runner:
+    - "runner-01"
 artifact_key: "vyos-1.5"
 artifact_format: "qcow2"
-artifact_version: "2026.03.03-0027-rolling"
-source_iso_url: "https://artifacts.example.invalid/network/vyos/vyos-1.5.qcow2"
-artifact_local_path: "/tmp/vyos-1.5.qcow2"
+artifact_version: "2026.03.03-0027-rolling-r3"
+source_iso_url: "https://github.com/vyos/vyos-nightly-build/releases/download/2026.03.03-0027-rolling/vyos-2026.03.03-0027-rolling-generic-amd64.iso"
+artifact_local_path: "/tmp/hyops-vyos-build/vyos-1.5.qcow2"
+build_workdir: "/tmp/hyops-vyos-build"
 repo_state_ref: "org/gcp/object-repo#vyos_artifacts"
+required_env:
+  - "HYOPS_VYOS_GCS_SA_JSON"
 artifact_url: ""
-# Production path: consume a prebuilt qcow2/raw artifact URL.
-# ISO/Packer path is opt-in only:
-# allow_iso_build: true
-#   export HYOPS_VYOS_PACKER_TEMPLATE="${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/packs/images/packer/shared/qemu/images/10-vyos-image-build@v1.0/stack/vyos-qemu.pkr.hcl"
-#   export HYOPS_VYOS_PACKER_VARS_FILE="${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/packs/images/packer/shared/qemu/images/10-vyos-image-build@v1.0/stack/vyos-qemu.auto.pkrvars.hcl.example"
+allow_iso_build: true
+# State-first runner build and publish path:
+#   - resolves the Ubuntu builder host from platform/onprem/platform-vm#onprem_ops_runner
+#   - builds from the pinned VyOS ISO
+#   - publishes to the named object-repo state
 # For publish without gcloud/gsutil on the builder:
 #   export HYOPS_VYOS_GCS_SA_JSON="$(cat ./object-repo-sa.json)"
 build_command: "${HYOPS_CORE_ROOT:-$HOME/.hybridops/core/app}/tools/build/vyos/build-vyos-qcow2.sh"

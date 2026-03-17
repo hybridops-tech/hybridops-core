@@ -20,7 +20,7 @@ This module does **not** automate the Proxmox image import yet. It exists so the
 - `template_vm_id`: existing Proxmox template VMID
 - `template_name`: existing Proxmox template name
 - `template_image_version`: optional operator-visible image version label
-- `template_source_url`: optional source URL for evidence/provenance
+- `template_source_url`: optional source URL for provenance
 
 ## Outputs
 

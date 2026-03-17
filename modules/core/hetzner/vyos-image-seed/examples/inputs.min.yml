@@ -1,15 +1,18 @@
 image_key: "vyos-1.5"
 image_ref: ""
+artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
+artifact_key: "vyos-1.5"
+# Required when the shared artifact contract resolves to a private GCS-backed qcow2.
+required_env:
+  - "HYOPS_VYOS_GCS_SA_JSON"
 # Leave these empty when consuming a shared artifact contract so HyOps can
 # version the Hetzner snapshot identity from the upstream artifact state.
 image_version: ""
 image_description: ""
-# Use the same operator-managed qcow2 artifact you intend to use for Proxmox.
-# If you already published a shared artifact contract, prefer artifact_state_ref/artifact_key in your blueprint instead.
-# HyOps will auto-wrap qcow2(.xz/.gz/.bz2) into a Hetzner-friendly raw image when seeding.
-image_source_url: "https://artifacts.example.com/vyos/vyos-1.5-amd64.qcow2.xz"
-# Required when image_source_url points to qcow2 and HyOps is expected to auto-wrap it.
-# The base URL must reach the execution host from the internet, for example a shared control host.
+# Set image_source_url only when intentionally bypassing the shared artifact contract.
+image_source_url: ""
+# Required for the built-in qcow2 wrapper path. The base URL must reach the
+# execution host from the internet, for example a shared control host.
 seed_wrapper_public_base_url: "http://203.0.113.10:18080"
 image_architecture: "x86"
 image_compression: "xz"

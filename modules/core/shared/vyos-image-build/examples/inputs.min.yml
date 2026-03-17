@@ -1,3 +1,7 @@
+inventory_groups:
+  localhost:
+    - name: "localhost"
+      host: "127.0.0.1"
 artifact_key: "vyos-1.5"
 artifact_format: "qcow2"
 artifact_version: "2026.03.03-0027-rolling"

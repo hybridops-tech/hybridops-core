@@ -3,6 +3,8 @@ template_vm_id: 9205
 template_name: "vyos-1.5-template"
 artifact_state_ref: "core/shared/vyos-image-build#vyos_default_build"
 artifact_key: "vyos-1.5"
+required_env:
+  - "HYOPS_VYOS_GCS_SA_JSON"
 # Compatibility override only:
 # image_source_url: "https://artifacts.example.com/vyos/vyos-1.5-amd64.qcow2"
 # If your source is ISO-only, leave image_source_url empty and provide a custom seed_command instead.

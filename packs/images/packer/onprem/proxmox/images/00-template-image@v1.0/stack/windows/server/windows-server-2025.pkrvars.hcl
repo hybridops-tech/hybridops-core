@@ -5,8 +5,8 @@
 # Configures VM resources, installation media, and unattended setup parameters
 # for automated Proxmox template creation.
 #
-# Maintainer: HybridOps.Studio
-# Organization: HybridOps.Studio
+# Maintainer: HybridOps.Tech
+# Organization: HybridOps.Tech
 # Created: 2025-11-12
 # Last Modified: 2025-11-12
 
