@@ -1,62 +1,77 @@
 # purpose: NetBox docker-compose stack (web + worker + housekeeping + redis)
 # adr: ADR-0002, ADR-0501, ADR-0502
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - "{{ netbox_data_root }}/redis:/data"
+      - "{{ netbox_service_data_root }}/redis:/data"
     restart: unless-stopped
 
   netbox:
-    image: "netboxcommunity/netbox:{{ netbox_version }}"
+    image: "netboxcommunity/netbox:{{ netbox_service_version }}"
     env_file:
       - ./netbox.env
     environment:
       NETBOX_CONFIGURATION: "netbox.configuration"
     volumes:
-      - "{{ netbox_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
-      - "{{ netbox_data_root }}/media:/opt/netbox/netbox/media"
-      - "{{ netbox_data_root }}/reports:/opt/netbox/netbox/reports"
-      - "{{ netbox_data_root }}/scripts:/opt/netbox/netbox/scripts"
+      - "{{ netbox_service_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
+      - "{{ netbox_service_data_root }}/media:/opt/netbox/netbox/media"
+      - "{{ netbox_service_data_root }}/reports:/opt/netbox/netbox/reports"
+      - "{{ netbox_service_data_root }}/scripts:/opt/netbox/netbox/scripts"
     ports:
-      - "{{ netbox_http_host_port }}:8080"
+      - "{{ netbox_service_http_host_port }}:8080"
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          code="$$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/api/ || true)";
+          [ "$$code" = "200" ] || [ "$$code" = "302" ] || [ "$$code" = "401" ] || [ "$$code" = "403" ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
     restart: unless-stopped
 
   netbox-worker:
-    image: "netboxcommunity/netbox:{{ netbox_version }}"
+    image: "netboxcommunity/netbox:{{ netbox_service_version }}"
     env_file:
       - ./netbox.env
     environment:
       NETBOX_CONFIGURATION: "netbox.configuration"
     volumes:
-      - "{{ netbox_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
-      - "{{ netbox_data_root }}/media:/opt/netbox/netbox/media"
-      - "{{ netbox_data_root }}/reports:/opt/netbox/netbox/reports"
-      - "{{ netbox_data_root }}/scripts:/opt/netbox/netbox/scripts"
+      - "{{ netbox_service_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
+      - "{{ netbox_service_data_root }}/media:/opt/netbox/netbox/media"
+      - "{{ netbox_service_data_root }}/reports:/opt/netbox/netbox/reports"
+      - "{{ netbox_service_data_root }}/scripts:/opt/netbox/netbox/scripts"
     depends_on:
-      - netbox
-      - redis
+      netbox:
+        condition: service_healthy
+      redis:
+        condition: service_started
     command: ["python", "/opt/netbox/netbox/manage.py", "rqworker"]
     restart: unless-stopped
 
   netbox-housekeeping:
-    image: "netboxcommunity/netbox:{{ netbox_version }}"
+    image: "netboxcommunity/netbox:{{ netbox_service_version }}"
     env_file:
       - ./netbox.env
     environment:
       NETBOX_CONFIGURATION: "netbox.configuration"
     volumes:
-      - "{{ netbox_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
-      - "{{ netbox_data_root }}/media:/opt/netbox/netbox/media"
-      - "{{ netbox_data_root }}/reports:/opt/netbox/netbox/reports"
-      - "{{ netbox_data_root }}/scripts:/opt/netbox/netbox/scripts"
+      - "{{ netbox_service_install_root }}/config/configuration.py:/opt/netbox/netbox/netbox/configuration.py:ro"
+      - "{{ netbox_service_data_root }}/media:/opt/netbox/netbox/media"
+      - "{{ netbox_service_data_root }}/reports:/opt/netbox/netbox/reports"
+      - "{{ netbox_service_data_root }}/scripts:/opt/netbox/netbox/scripts"
     depends_on:
-      - netbox
-      - redis
+      netbox:
+        condition: service_healthy
+      redis:
+        condition: service_started
     command: ["python", "/opt/netbox/netbox/manage.py", "housekeeping"]
-    restart: unless-stopped
+    restart: on-failure

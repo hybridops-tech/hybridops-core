@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/netbox (configure)
+- name: Platform/onprem/netbox (configure)
   hosts: targets
   become: true
   gather_facts: true
@@ -26,20 +26,20 @@
       ansible.builtin.include_role:
         name: hybridops.app.netbox_service
       vars:
-        netbox_version: "{{ _hyops_input_netbox_version }}"
-        netbox_hostname: "{{ _hyops_input_netbox_hostname }}"
-        netbox_domain: "{{ _hyops_input_netbox_domain }}"
-        netbox_http_host_port: "{{ _hyops_input_netbox_http_host_port }}"
-        netbox_install_docker_engine: "{{ _hyops_input_install_docker_engine }}"
-        netbox_smoke_only: false
-        netbox_db_host: "{{ _hyops_input_db_host }}"
-        netbox_db_port: "{{ _hyops_input_db_port }}"
-        netbox_db_name: "{{ _hyops_input_db_name }}"
-        netbox_db_user: "{{ _hyops_input_db_user }}"
-        netbox_db_password: "{{ lookup('env', _hyops_input_db_password_env) }}"
-        netbox_secret_key: "{{ lookup('env', _hyops_input_secret_key_env) }}"
-        netbox_superuser_password: "{{ lookup('env', _hyops_input_superuser_password_env) | default('', true) }}"
-        netbox_api_token_key: "{{ lookup('env', _hyops_input_api_token_env) | default('', true) }}"
+        netbox_service_version: "{{ _hyops_input_netbox_version }}"
+        netbox_service_hostname: "{{ _hyops_input_netbox_hostname }}"
+        netbox_service_domain: "{{ _hyops_input_netbox_domain }}"
+        netbox_service_http_host_port: "{{ _hyops_input_netbox_http_host_port }}"
+        netbox_service_install_docker_engine: "{{ _hyops_input_install_docker_engine }}"
+        netbox_service_smoke_only: false
+        netbox_service_db_host: "{{ _hyops_input_db_host }}"
+        netbox_service_db_port: "{{ _hyops_input_db_port }}"
+        netbox_service_db_name: "{{ _hyops_input_db_name }}"
+        netbox_service_db_user: "{{ _hyops_input_db_user }}"
+        netbox_service_db_password: "{{ lookup('env', _hyops_input_db_password_env) }}"
+        netbox_service_secret_key: "{{ lookup('env', _hyops_input_secret_key_env) }}"
+        netbox_service_superuser_password: "{{ lookup('env', _hyops_input_superuser_password_env) | default('', true) }}"
+        netbox_service_api_token_key: "{{ lookup('env', _hyops_input_api_token_env) | default('', true) }}"
 
   post_tasks:
     - name: Seed NetBox with foundation IPAM + VM datasets (sync-only)
@@ -80,6 +80,22 @@
               /tmp/hyops-netbox-seed-{{ inventory_hostname | regex_replace('[^A-Za-z0-9_.-]', '_') }}.ctl
             hyops_seed_netbox_api_url: "http://127.0.0.1:{{ hyops_seed_tunnel_port_cmd.stdout | trim }}/api/"
 
+        - name: Parse controller-local SSH common args
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -c
+              - >-
+                import json, shlex, sys;
+                print(json.dumps(shlex.split(sys.argv[1])))
+              - "{{ hyops_seed_netbox_ssh_common_args | default('') }}"
+          register: hyops_seed_ssh_common_args_cmd
+          changed_when: false
+
+        - name: Set controller-local SSH common args argv
+          ansible.builtin.set_fact:
+            hyops_seed_ssh_common_args_argv: "{{ hyops_seed_ssh_common_args_cmd.stdout | from_json }}"
+
         - name: Seed NetBox through controller-local SSH tunnel
           block:
             - name: Remove stale seed tunnel control socket
@@ -108,7 +124,7 @@
                       '-p',
                       (hyops_seed_netbox_target_port | int | string)
                     ]
-                    + (hyops_seed_netbox_ssh_common_args | default('') | split)
+                    + (hyops_seed_ssh_common_args_argv | default([]))
                     + [
                       '-L',
                       '127.0.0.1:' ~ hyops_seed_tunnel_port ~ ':127.0.0.1:' ~ (_hyops_input_netbox_http_host_port | string),
@@ -189,7 +205,7 @@
                       '-p',
                       (hyops_seed_netbox_target_port | int | string)
                     ]
-                    + (hyops_seed_netbox_ssh_common_args | default('') | split)
+                    + (hyops_seed_ssh_common_args_argv | default([]))
                     + [hyops_seed_netbox_target_user ~ '@' ~ hyops_seed_netbox_target_host]
                   }}
               changed_when: true
@@ -208,8 +224,12 @@
         mode: "0600"
         content: |
           {{ {
-            'netbox_url': ('http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (_hyops_input_netbox_http_host_port | int) ~ '/'),
-            'netbox_api_url': ('http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (_hyops_input_netbox_http_host_port | int) ~ '/api/'),
+            'netbox_url': (
+              'http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (_hyops_input_netbox_http_host_port | int) ~ '/'
+            ),
+            'netbox_api_url': (
+              'http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (_hyops_input_netbox_http_host_port | int) ~ '/api/'
+            ),
             'netbox_http_host_port': (_hyops_input_netbox_http_host_port | int),
             'db_host': (_hyops_input_db_host | string),
             'db_port': (_hyops_input_db_port | int),

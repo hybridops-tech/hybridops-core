@@ -19,7 +19,7 @@ inputs:
     inventory_groups: {}
     inventory_state_ref: "platform/postgresql-ha"
     inventory_vm_groups: {}
-    inventory_requires_ipam: true
+    inventory_requires_ipam: false
 
     db_state_ref: "platform/postgresql-ha"
     db_state_env: ""
@@ -29,6 +29,7 @@ inputs:
     db_name: "netbox"
     db_user: "netbox"
     db_password_env: "NETBOX_DB_PASSWORD"
+    source_replication_user: "replicator"
 
     target_user: "opsadmin"
     target_port: 22
@@ -64,6 +65,7 @@ outputs:
     - source_leader_host
     - source_export_ready
     - source_replication_candidate
+    - source_replication_user
     - db_name
     - db_user
     - db_password_env

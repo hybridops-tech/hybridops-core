@@ -141,6 +141,9 @@ outputs:
   publish:
     - cap.db.postgresql_ha_backup
     - pgbackrest_repo
+    - pgbackrest_latest_backup
+    - pgbackrest_latest_backup_set
+    - pgbackrest_latest_backup_timeline
 
 probes: []
 constraints: []

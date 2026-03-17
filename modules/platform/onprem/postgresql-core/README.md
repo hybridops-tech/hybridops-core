@@ -25,6 +25,10 @@ Secrets are read from environment variables (optionally from runtime vault env):
 
 - `NETBOX_DB_PASSWORD` (default)
 
+Operational note:
+
+- On Debian-family targets, the wrapped PostgreSQL service role refreshes APT metadata before package install so fresh template clones do not fail on stale package indexes.
+
 ## Outputs
 
 Published module state keys:

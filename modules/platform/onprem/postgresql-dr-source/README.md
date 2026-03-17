@@ -19,6 +19,15 @@ Preferred state-driven composition:
 - `inventory_state_ref=platform/postgresql-ha`
 - `db_state_ref=platform/postgresql-ha`
 
+When more than one PostgreSQL HA state instance exists, point both refs at the
+current authoritative instance instead of relying on a stale bare latest slot.
+For example, after an on-prem failback drill, use
+`platform/postgresql-ha#postgresql_restore_onprem_failback`.
+
+`inventory_requires_ipam` defaults to `false` because this module only assesses
+an existing HA lane. Turn it on only when you deliberately want provenance
+enforcement from an upstream NetBox/IPAM-managed VM inventory contract.
+
 ## Usage
 
 ```bash
@@ -41,6 +50,11 @@ Key inputs:
 - `inventory_state_ref`
 - `db_state_ref`
 - `allowed_consumer_cidrs`
+- `source_replication_user`
+
+When the managed standby lane reaches the source through a site-extension SNAT
+path, `allowed_consumer_cidrs` should describe the effective translated source
+that PostgreSQL will actually see, not a stale pre-NAT runner IP.
 
 ## Outputs
 
@@ -55,6 +69,11 @@ Key inputs:
 
 ## Notes
 
-- For `managed-cloudsql`, the module requires a minimum replication posture on the source leader and fails clearly if it is absent.
+- For `managed-cloudsql`, the module requires a minimum logical-replication posture on the source leader and fails clearly if it is absent.
+- `managed-cloudsql` also requires `pglogical` to be available on the source node, installed in the selected database, present in `shared_preload_libraries`, and usable by the replication user on schema `pglogical`.
+- The intended upstream reconcile is `platform/postgresql-ha` (or `platform/onprem/postgresql-ha`) with:
+  - `apply_mode=maintenance`
+  - `pglogical_enable=true`
+  - `pending_restart=true`
 - `db_*` outputs are preserved from the selected application contract to support export-driven DR paths.
 - This module is the source-side building block for the managed DR lane; it does not replace the existing backup/restore DR path.

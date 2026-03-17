@@ -10,6 +10,7 @@ Legacy compatibility ref `platform/onprem/postgresql-ha-backup` remains supporte
 - Configures WAL archiving to the pgBackRest repository (enables DR-grade PITR).
 - Installs cron jobs (guarded to run backups only on the primary node).
 - Publishes module state outputs describing backup readiness.
+- Publishes the latest repo1 backup metadata after configure/backup runs so restore workflows can consume backup label and timeline from state.
 - Supports optional `repo2` configuration (`secondary_enabled=true`) for secondary backup copy to another backend/cloud.
 
 ## What this module does not do
@@ -201,4 +202,14 @@ hyops destroy --env <env> \
   --inputs modules/platform/postgresql-ha-backup/examples/inputs.minio.yml
 ```
 
-Note: destroy currently disables the scheduled cron jobs, but does not attempt to remove archive configuration from a running Patroni cluster.
+Note: destroy currently disables the scheduled cron jobs, but does not attempt to remove archive configuration from a running Patroni cluster. Destroy only requires reachable `postgres_cluster` inventory; it no longer depends on backup backend credentials or an upstream ready state snapshot.
+
+## Published outputs
+
+- `cap.db.postgresql_ha_backup`
+- `pgbackrest_repo`
+- `pgbackrest_latest_backup`
+- `pgbackrest_latest_backup_set`
+- `pgbackrest_latest_backup_timeline`
+
+`pgbackrest_latest_backup*` is populated from repo1. `pgbackrest_latest_backup_set` is the safe automatic selector for DR restore/failback overlays. `pgbackrest_latest_backup_timeline` is published for operator inspection and explicit timeline pinning when a drill needs it.

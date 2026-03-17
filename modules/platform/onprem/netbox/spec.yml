@@ -37,6 +37,8 @@ inputs:
     netbox_hostname: "netbox"
     netbox_domain: "hybzone.local"
     install_docker_engine: true
+    netbox_readiness_retries: 80
+    netbox_readiness_delay: 3
 
     # PostgreSQL (required)
     # Prefer db_state_ref for stable, state-driven DB contract consumption in blueprints.

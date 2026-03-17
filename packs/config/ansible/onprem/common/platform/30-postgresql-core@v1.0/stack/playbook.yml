@@ -106,13 +106,13 @@
   roles:
     - role: hybridops.common.postgresql_service
       vars:
-        hybridops_postgres_port: "{{ pg_port }}"
-        hybridops_postgres_listen_addresses: "{{ listen_addresses }}"
-        hybridops_postgres_allowed_clients: "{{ allowed_clients }}"
+        postgresql_service_port: "{{ pg_port }}"
+        postgresql_service_listen_addresses: "{{ listen_addresses }}"
+        postgresql_service_allowed_clients: "{{ allowed_clients }}"
 
-        hybridops_postgres_databases: "{{ _hyops_pg_databases }}"
-        hybridops_postgres_users: "{{ _hyops_pg_users }}"
-        hybridops_postgres_privs: "{{ _hyops_pg_privs }}"
+        postgresql_service_databases: "{{ _hyops_pg_databases }}"
+        postgresql_service_users: "{{ _hyops_pg_users }}"
+        postgresql_service_privs: "{{ _hyops_pg_privs }}"
 
   post_tasks:
     - name: Write HyOps outputs

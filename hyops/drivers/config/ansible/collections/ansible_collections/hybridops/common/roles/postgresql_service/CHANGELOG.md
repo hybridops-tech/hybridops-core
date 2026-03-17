@@ -7,13 +7,13 @@ The format is based on *Keep a Changelog*, and this role follows *Semantic Versi
 ## [Unreleased]
 
 ### Added
-- Optional evidence capture (`systemctl-status.txt`, `pg_isready.txt`, `timestamp.txt`) gated by `hybridops_evidence_enabled`.
-- Declarative allowlist input `hybridops_postgres_allowed_clients` to generate TCP host rules in `pg_hba.conf`.
+- Optional evidence capture (`systemctl-status.txt`, `pg_isready.txt`, `timestamp.txt`) gated by `postgresql_service_evidence_enabled`.
+- Declarative allowlist input `postgresql_service_allowed_clients` to generate TCP host rules in `pg_hba.conf`.
 
 ### Changed
 - Default posture is secure-by-default: localhost-only listen unless additional addresses are configured.
 - Privilege entries follow upstream schema; use `db` for database selection (not `database`).
-- Sensitive output suppression is enabled by default via `hybridops_postgres_users_no_log` (debug override supported).
+- Sensitive output suppression is enabled by default via `postgresql_service_users_no_log` (debug override supported).
 
 ### Fixed
 - Guardrails and smoke-test behaviour tightened to avoid accidental remote exposure without an allowlist.
@@ -23,7 +23,7 @@ The format is based on *Keep a Changelog*, and this role follows *Semantic Versi
 
 ### Added
 - Initial release of `postgresql_service` wrapper role around `geerlingguy.postgresql`.
-- Stable variable schema prefixed with `hybridops_postgres_*` for:
+- Stable variable schema prefixed with `postgresql_service_*` for:
   - Core settings (`port`, `listen_addresses`, `log_directory`)
   - HBA defaults and allowlisting
   - Database/user/privilege management (pass-through to upstream role)

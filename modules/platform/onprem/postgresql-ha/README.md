@@ -48,7 +48,22 @@ hyops apply --env dev --module platform/onprem/postgresql-ha \
 This mode is intentionally guarded:
 
 - You must set `inputs.restore_confirm=true`
+- You must select the recovery source explicitly with one of:
+  - `inputs.backup_state_ref`
+  - `inputs.restore_set`
+  - `inputs.restore_target_time`
 - By default `inputs.restore_delta=false` (safer). If you set `restore_delta=true`, pgBackRest can overwrite an existing data directory.
+- When the repository contains divergent timelines from earlier drills/promotions, prefer pinning:
+  - `inputs.restore_set`
+  - `inputs.restore_target_timeline`
+  - and optionally `inputs.restore_target_time` for PITR
+- Instead of inspecting pgBackRest manually, you can point restore at a backup-run
+  module state and let HyOps resolve the backup label:
+  - `inputs.backup_state_ref`
+  - `inputs.backup_state_env` (optional)
+  - `inputs.allow_cross_env_state=true` when `backup_state_env` points to a non-`shared` env for a controlled drill or migration
+- Keep `inputs.restore_target_timeline` explicit when you need to pin a specific
+  recovery timeline.
 
 Typical workflow:
 
@@ -68,6 +83,42 @@ hyops apply --env dev \
 ```bash
 HYOPS_INPUT_apply_mode=restore \
 HYOPS_INPUT_restore_confirm=true \
+hyops apply --env dev \
+  --module platform/onprem/postgresql-ha \
+  --inputs modules/platform/onprem/postgresql-ha/examples/inputs.restore.gcs.yml
+```
+
+If you have a recent backup-run state, prefer consuming it directly:
+
+```bash
+HYOPS_INPUT_apply_mode=restore \
+HYOPS_INPUT_restore_confirm=true \
+HYOPS_INPUT_backup_state_ref=platform/onprem/postgresql-ha-backup#postgresql_backup_run_onprem_app_proof_drill \
+hyops apply --env drill \
+  --module platform/onprem/postgresql-ha \
+  --inputs modules/platform/onprem/postgresql-ha/examples/inputs.restore.gcs.yml
+```
+
+For isolated drills that restore from another env, add both:
+
+- `HYOPS_INPUT_backup_state_env=<env>`
+- `HYOPS_INPUT_allow_cross_env_state=true`
+
+Same-env resolution is the default. `shared` is the only normal cross-env authority.
+
+If pgBackRest reports a timeline mismatch or no backup-run state exists yet, inspect the repository first:
+
+```bash
+sudo -u postgres pgbackrest --stanza=postgres-ha info --output=json
+```
+
+Then rerun with an explicit backup set and target timeline, for example:
+
+```bash
+HYOPS_INPUT_apply_mode=restore \
+HYOPS_INPUT_restore_confirm=true \
+HYOPS_INPUT_restore_set=20260308-030002F \
+HYOPS_INPUT_restore_target_timeline=7 \
 hyops apply --env dev \
   --module platform/onprem/postgresql-ha \
   --inputs modules/platform/onprem/postgresql-ha/examples/inputs.restore.gcs.yml
@@ -105,7 +156,7 @@ Use `execution_plane` to declare where HyOps is expected to run from:
 - `workstation-direct` (default): operator shell/laptop with direct reachability
 - `runner-local`: shared runner in or near the target environment
 
-Cloud DR blueprints should prefer `execution_plane: runner-local` so preflight and evidence reflect the intended pipeline-driven operating model.
+Cloud DR blueprints should prefer `execution_plane: runner-local` so preflight and run records reflect the intended pipeline-driven operating model.
 
 ## Inputs (high level)
 
@@ -113,7 +164,31 @@ Cloud DR blueprints should prefer `execution_plane: runner-local` so preflight a
 - `endpoint_dns_name` (recommended for DR): stable DNS name that applications should use across failover/failback. When set, outputs publish `endpoint_target=<dns name>` while `db_host`/`pg_host` continue to show the current active host or VIP.
 - `allowed_clients`: explicit `pg_hba` allowlist; avoid broad networks.
 - `apps`: multi-service DB contract (authoritative when non-empty).
+- `netdata_install`: optional node-local Netdata install; defaults to `false` so DR/bootstrap is not blocked on monitoring package installs.
+- `pending_restart`: explicit approval for controlled Patroni restart during maintenance when parameters require it.
+- `pglogical_enable`: day-2 managed Cloud SQL source posture. Use only with `apply_mode=maintenance`.
+- `pglogical_databases`: optional list of databases that must have the `pglogical` extension. When omitted, HyOps uses the normalized application contract (for example `netbox`).
 - `patroni_cluster_name`, `postgresql_version`, `postgresql_port`, `dcs_type`, `dcs_exists`.
+
+## Managed Cloud SQL source posture
+
+When the cluster is the source for `platform/onprem/postgresql-dr-source` in
+`managed-cloudsql` mode, first reconcile the source HA lane with:
+
+- `apply_mode=maintenance`
+- `pglogical_enable=true`
+- `pending_restart=true`
+
+This maintenance run:
+
+- installs the `pglogical` package on each PostgreSQL node
+- appends `pglogical` to Patroni-managed `shared_preload_libraries`
+- performs the controlled restart required for that parameter change
+- ensures the `pglogical` extension exists in the selected application databases
+- grants the replication user `USAGE` on schema `pglogical` in those databases
+
+This is intentionally explicit because `shared_preload_libraries` changes are
+restart-bearing and should not happen silently during normal HA reconciles.
 
 ## Outputs
 
@@ -132,7 +207,7 @@ Endpoint semantics:
   - `dns` when `endpoint_dns_name` is set
   - `vip` when `cluster_vip` is set and no DNS name is set
   - `host` when neither DNS nor VIP is configured
-- `endpoint_host`: current active host/VIP behind the endpoint
+- `endpoint_host`: current active data-plane address behind the endpoint; this is the VIP when configured, otherwise the resolved leader address used for direct host cutover
 - `endpoint_cutover_required`:
   - `true` when clients are pinned to a raw host or when DNS must be updated during DR
   - `false` when a stable in-cluster VIP is already the client endpoint

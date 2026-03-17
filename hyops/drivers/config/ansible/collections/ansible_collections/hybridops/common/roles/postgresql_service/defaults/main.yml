@@ -1,50 +1,71 @@
 ---
 # purpose: Defaults for HybridOps PostgreSQL service
 # adr: ADR-0101, ADR-0103
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
-hybridops_postgres_version: null
-hybridops_postgres_log_dir: "log"
+postgresql_service_version: "{{ hybridops_postgres_version | default(None) }}"
+postgresql_service_log_dir: "{{ hybridops_postgres_log_dir | default('log') }}"
 
-hybridops_postgres_users_no_log: true
+postgresql_service_users_no_log: "{{ hybridops_postgres_users_no_log | default(true) }}"
 
-hybridops_postgres_port: 5432
-hybridops_postgres_listen_addresses:
-  - "127.0.0.1"
+postgresql_service_port: "{{ hybridops_postgres_port | default(5432) }}"
+postgresql_service_listen_addresses: "{{ hybridops_postgres_listen_addresses | default(['127.0.0.1']) }}"
 
-hybridops_postgres_auth_method: "scram-sha-256"
-hybridops_postgres_allowed_clients: []
+postgresql_service_auth_method: "{{ hybridops_postgres_auth_method | default('scram-sha-256') }}"
+postgresql_service_allowed_clients: "{{ hybridops_postgres_allowed_clients | default([]) }}"
 
-hybridops_postgres_databases: []
-hybridops_postgres_users: []
-hybridops_postgres_privs: []
+postgresql_service_databases: "{{ hybridops_postgres_databases | default([]) }}"
+postgresql_service_users: "{{ hybridops_postgres_users | default([]) }}"
+postgresql_service_privs: "{{ hybridops_postgres_privs | default([]) }}"
 
-hybridops_postgres_hba_local_defaults:
-  - type: local
-    database: all
-    user: postgres
-    auth_method: peer
-  - type: local
-    database: all
-    user: all
-    auth_method: peer
-  - type: host
-    database: all
-    user: all
-    address: "127.0.0.1/32"
-    auth_method: "scram-sha-256"
-  - type: host
-    database: all
-    user: all
-    address: "::1/128"
-    auth_method: "scram-sha-256"
+postgresql_service_hba_local_defaults: >-
+  {{
+    hybridops_postgres_hba_local_defaults
+    | default([
+        {
+          'type': 'local',
+          'database': 'all',
+          'user': 'postgres',
+          'auth_method': 'peer'
+        },
+        {
+          'type': 'local',
+          'database': 'all',
+          'user': 'all',
+          'auth_method': 'peer'
+        },
+        {
+          'type': 'host',
+          'database': 'all',
+          'user': 'all',
+          'address': '127.0.0.1/32',
+          'auth_method': 'scram-sha-256'
+        },
+        {
+          'type': 'host',
+          'database': 'all',
+          'user': 'all',
+          'address': '::1/128',
+          'auth_method': 'scram-sha-256'
+        }
+      ])
+  }}
 
-hybridops_postgres_extra_conf:
-  - option: password_encryption
-    value: "scram-sha-256"
+postgresql_service_extra_conf: >-
+  {{
+    hybridops_postgres_extra_conf
+    | default([
+        {
+          'option': 'password_encryption',
+          'value': 'scram-sha-256'
+        }
+      ])
+  }}
 
-hybridops_postgres_service_state: started
-hybridops_postgres_service_enabled: true
+postgresql_service_service_state: "{{ hybridops_postgres_service_state | default('started') }}"
+postgresql_service_service_enabled: "{{ hybridops_postgres_service_enabled | default(true) }}"
+postgresql_service_apt_update_cache: "{{ hybridops_postgres_apt_update_cache | default(true) }}"
+postgresql_service_apt_cache_valid_time: "{{ hybridops_postgres_apt_cache_valid_time | default(3600) }}"
 
-hybridops_evidence_enabled: false
-hybridops_evidence_dir: "/var/lib/hybridops/evidence/postgresql"
+postgresql_service_evidence_enabled: "{{ hybridops_evidence_enabled | default(false) }}"
+postgresql_service_evidence_dir: "{{ hybridops_evidence_dir | default('/var/lib/hybridops/evidence/postgresql') }}"

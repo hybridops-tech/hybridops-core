@@ -1,18 +1,18 @@
 ---
 # purpose: OS vars shim for RedHat family v10 (compat with upstream geerlingguy.postgresql)
 # adr: ADR-0101, ADR-0103
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
-__postgresql_version: "13"
-__postgresql_data_dir: "/var/lib/pgsql/data"
-__postgresql_bin_path: "/usr/bin"
-__postgresql_config_path: "/var/lib/pgsql/data"
-__postgresql_daemon: postgresql
+postgresql_service_upstream_version: "13"
+postgresql_service_upstream_data_dir: "/var/lib/pgsql/data"
+postgresql_service_upstream_bin_path: "/usr/bin"
+postgresql_service_upstream_config_path: "/var/lib/pgsql/data"
+postgresql_service_upstream_daemon: postgresql
 
-__postgresql_packages:
+postgresql_service_upstream_packages:
   - postgresql
   - postgresql-server
   - postgresql-contrib
 
-__postgresql_unix_socket_directories_mode: "0755"
-postgresql_python_library: python3-psycopg2
+postgresql_service_upstream_unix_socket_directories_mode: "0755"
+postgresql_service_upstream_python_library: python3-psycopg2

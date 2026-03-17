@@ -1,11 +1,11 @@
 ---
 # purpose: Role metadata for postgresql_service
 # adr: ADR-0606-ansible-collections-release-process
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 galaxy_info:
   role_name: postgresql_service
-  author: HybridOps.Studio
+  author: HybridOps.Tech
   description: >-
     Wrapper for geerlingguy.postgresql with HybridOps defaults and evidence hooks
   license: MIT-0

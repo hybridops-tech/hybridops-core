@@ -77,6 +77,9 @@ steps:
         # Shared NetBox authority VM (dual-homed) reaches the shared PGHA DB via vnetdata.
         - database: "netbox"
           user: "netbox"
+          cidr: "10.10.0.11/32"
+        - database: "netbox"
+          user: "netbox"
           cidr: "10.12.0.11/32"
       inventory_vm_groups:
         etcd_cluster:

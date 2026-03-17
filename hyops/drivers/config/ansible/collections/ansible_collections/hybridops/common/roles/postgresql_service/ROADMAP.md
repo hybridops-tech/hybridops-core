@@ -1,10 +1,10 @@
 # purpose: Roadmap for PostgreSQL data tier and NetBox bring-up (platform backbone)
 # adr: ADR-0101, ADR-0102, ADR-0103, ADR-0104
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 ## Scope
 
-This roadmap captures the next execution steps to move from a validated PostgreSQL wrapper role to a working NetBox deployment backed by the shared PostgreSQL data tier, aligned to the HybridOps.Studio network segmentation model.
+This roadmap captures the next execution steps to move from a validated PostgreSQL wrapper role to a working NetBox deployment backed by the shared PostgreSQL data tier, aligned to the HybridOps.Tech network segmentation model.
 
 This is an execution checklist, not a design document.
 
@@ -16,7 +16,7 @@ This is an execution checklist, not a design document.
 - Non-interactive privilege escalation validated:
   - `ssh <user>@<ip> 'sudo -n id'` succeeds.
 - `hybridops.common.postgresql_service` converges successfully on a test host.
-- `pg_hba.conf` allowlist generation works and matches `hybridops_postgres_allowed_clients`.
+- `pg_hba.conf` allowlist generation works and matches `postgresql_service_allowed_clients`.
 - PostgreSQL config is being applied (e.g., `listen_addresses` rendered into `postgresql.conf`).
 - Evidence capture tasks produce:
   - `systemctl-status.txt`

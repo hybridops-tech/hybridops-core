@@ -5,32 +5,32 @@
 
 - name: Wait for NetBox HTTP to respond
   ansible.builtin.uri:
-    url: "http://127.0.0.1:8000{{ netbox_base_url }}"
+    url: "http://127.0.0.1:8000{{ netbox_service_base_url }}"
     method: GET
     status_code: [200, 302, 401, 403]
-  register: _nb_http
+  register: netbox_service_http
   retries: 30
   delay: 2
-  until: _nb_http.status is defined
+  until: netbox_service_http.status is defined
   changed_when: false
 
 - name: Check whether NetBox superuser exists
   ansible.builtin.command:
     cmd: >-
       docker compose
-      --project-name "{{ netbox_compose_project }}"
-      --env-file "{{ netbox_install_root }}/compose/netbox.env"
-      -f "{{ netbox_install_root }}/compose/docker-compose.yml"
+      --project-name "{{ netbox_service_compose_project }}"
+      --env-file "{{ netbox_service_install_root }}/compose/netbox.env"
+      -f "{{ netbox_service_install_root }}/compose/docker-compose.yml"
       exec -T
-      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_superuser_password }}"
+      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_service_superuser_password }}"
       netbox
       /opt/netbox/venv/bin/python
       /opt/netbox/netbox/manage.py shell -c
       "from django.contrib.auth import get_user_model; U=get_user_model(); import sys;
-      sys.exit(0 if U.objects.filter(username='{{ netbox_superuser_name }}').exists() else 1)"
+      sys.exit(0 if U.objects.filter(username='{{ netbox_service_superuser_name }}').exists() else 1)"
   args:
-    chdir: "{{ netbox_install_root }}/compose"
-  register: _nb_su_exists
+    chdir: "{{ netbox_service_install_root }}/compose"
+  register: netbox_service_superuser_exists
   changed_when: false
   failed_when: false
 
@@ -38,78 +38,78 @@
   ansible.builtin.command:
     cmd: >-
       docker compose
-      --project-name "{{ netbox_compose_project }}"
-      --env-file "{{ netbox_install_root }}/compose/netbox.env"
-      -f "{{ netbox_install_root }}/compose/docker-compose.yml"
+      --project-name "{{ netbox_service_compose_project }}"
+      --env-file "{{ netbox_service_install_root }}/compose/netbox.env"
+      -f "{{ netbox_service_install_root }}/compose/docker-compose.yml"
       exec -T
-      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_superuser_password }}"
+      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_service_superuser_password }}"
       netbox
       /opt/netbox/venv/bin/python
       /opt/netbox/netbox/manage.py createsuperuser --no-input
   args:
-    chdir: "{{ netbox_install_root }}/compose"
+    chdir: "{{ netbox_service_install_root }}/compose"
   environment:
-    DJANGO_SUPERUSER_USERNAME: "{{ netbox_superuser_name }}"
-    DJANGO_SUPERUSER_EMAIL: "{{ netbox_superuser_email }}"
-    DJANGO_SUPERUSER_PASSWORD: "{{ netbox_superuser_password }}"
+    DJANGO_SUPERUSER_USERNAME: "{{ netbox_service_superuser_name }}"
+    DJANGO_SUPERUSER_EMAIL: "{{ netbox_service_superuser_email }}"
+    DJANGO_SUPERUSER_PASSWORD: "{{ netbox_service_superuser_password }}"
   changed_when: true
   no_log: true
-  when: _nb_su_exists.rc != 0
+  when: netbox_service_superuser_exists.rc != 0
 
 - name: Check whether NetBox superuser password matches desired value
   ansible.builtin.command:
     cmd: >-
       docker compose
-      --project-name "{{ netbox_compose_project }}"
-      --env-file "{{ netbox_install_root }}/compose/netbox.env"
-      -f "{{ netbox_install_root }}/compose/docker-compose.yml"
+      --project-name "{{ netbox_service_compose_project }}"
+      --env-file "{{ netbox_service_install_root }}/compose/netbox.env"
+      -f "{{ netbox_service_install_root }}/compose/docker-compose.yml"
       exec -T
-      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_superuser_password }}"
+      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_service_superuser_password }}"
       netbox
       /opt/netbox/venv/bin/python
       /opt/netbox/netbox/manage.py shell -c
       "from django.contrib.auth import get_user_model; import os, sys;
       U=get_user_model();
-      u=U.objects.filter(username='{{ netbox_superuser_name }}').first();
+      u=U.objects.filter(username='{{ netbox_service_superuser_name }}').first();
       sys.exit(0 if (u and u.check_password(os.environ['HYOPS_NETBOX_SUPERUSER_PASSWORD'])) else 1)"
   args:
-    chdir: "{{ netbox_install_root }}/compose"
+    chdir: "{{ netbox_service_install_root }}/compose"
   environment:
-    HYOPS_NETBOX_SUPERUSER_PASSWORD: "{{ netbox_superuser_password }}"
-  register: _nb_su_password_matches
+    HYOPS_NETBOX_SUPERUSER_PASSWORD: "{{ netbox_service_superuser_password }}"
+  register: netbox_service_superuser_password_matches
   changed_when: false
-  failed_when: _nb_su_password_matches.rc not in [0, 1]
+  failed_when: netbox_service_superuser_password_matches.rc not in [0, 1]
   no_log: true
   when:
-    - _nb_su_exists.rc == 0
-    - netbox_superuser_password_enforce | bool
+    - netbox_service_superuser_exists.rc == 0
+    - netbox_service_superuser_password_enforce | bool
 
 - name: Reconcile NetBox superuser password to configured value
   ansible.builtin.command:
     cmd: >-
       docker compose
-      --project-name "{{ netbox_compose_project }}"
-      --env-file "{{ netbox_install_root }}/compose/netbox.env"
-      -f "{{ netbox_install_root }}/compose/docker-compose.yml"
+      --project-name "{{ netbox_service_compose_project }}"
+      --env-file "{{ netbox_service_install_root }}/compose/netbox.env"
+      -f "{{ netbox_service_install_root }}/compose/docker-compose.yml"
       exec -T
-      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_superuser_password }}"
+      -e HYOPS_NETBOX_SUPERUSER_PASSWORD="{{ netbox_service_superuser_password }}"
       netbox
       /opt/netbox/venv/bin/python
       /opt/netbox/netbox/manage.py shell -c
       "from django.contrib.auth import get_user_model; import os;
       U=get_user_model();
-      u=U.objects.get(username='{{ netbox_superuser_name }}');
+      u=U.objects.get(username='{{ netbox_service_superuser_name }}');
       u.set_password(os.environ['HYOPS_NETBOX_SUPERUSER_PASSWORD']);
       u.save(update_fields=['password']);
       print('password reconciled')"
   args:
-    chdir: "{{ netbox_install_root }}/compose"
+    chdir: "{{ netbox_service_install_root }}/compose"
   environment:
-    HYOPS_NETBOX_SUPERUSER_PASSWORD: "{{ netbox_superuser_password }}"
+    HYOPS_NETBOX_SUPERUSER_PASSWORD: "{{ netbox_service_superuser_password }}"
   changed_when: true
   no_log: true
   when:
-    - _nb_su_exists.rc == 0
-    - netbox_superuser_password_enforce | bool
-    - _nb_su_password_matches is defined
-    - _nb_su_password_matches.rc != 0
+    - netbox_service_superuser_exists.rc == 0
+    - netbox_service_superuser_password_enforce | bool
+    - netbox_service_superuser_password_matches is defined
+    - netbox_service_superuser_password_matches.rc != 0
