@@ -8,30 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_port(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < 1 or value > 65535:
-        raise ValueError(f"{field} must be between 1 and 65535")
-    return value
-
-
-def _normalize_required_env(value: Any, field: str) -> list[str]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"{field} must be a list when set")
-    out: list[str] = []
-    for idx, item in enumerate(value, start=1):
-        out.append(_require_non_empty_str(item, f"{field}[{idx}]"))
-    return out
+from hyops.validators.common import normalize_required_env, require_non_empty_str, require_port
 
 
 def _validate_inventory(data: dict[str, Any]) -> None:
@@ -103,7 +80,7 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_port(data.get("powerdns_api_port"), "inputs.powerdns_api_port")
     _require_port(data.get("powerdns_dns_port"), "inputs.powerdns_dns_port")
 
-    required_env = _normalize_required_env(data.get("required_env"), "inputs.required_env")
+    required_env = normalize_required_env(data.get("required_env"), "inputs.required_env")
 
     if not isinstance(data.get("powerdns_api_enabled"), bool):
         raise ValueError("inputs.powerdns_api_enabled must be a boolean")

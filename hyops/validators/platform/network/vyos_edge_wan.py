@@ -11,22 +11,10 @@ import ipaddress
 import re
 from typing import Any
 
+from hyops.validators.common import normalize_required_env, require_non_empty_str, require_port
+
 
 _IFNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
-
-
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_port(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < 1 or value > 65535:
-        raise ValueError(f"{field} must be between 1 and 65535")
-    return value
 
 
 def _require_asn(value: Any, field: str) -> int:
@@ -38,7 +26,7 @@ def _require_asn(value: Any, field: str) -> int:
 
 
 def _require_ipv4(value: Any, field: str) -> str:
-    token = _require_non_empty_str(value, field)
+    token = require_non_empty_str(value, field)
     try:
         ip = ipaddress.ip_address(token)
     except Exception as exc:
@@ -48,17 +36,6 @@ def _require_ipv4(value: Any, field: str) -> str:
     return token
 
 
-def _normalize_required_env(value: Any, field: str) -> list[str]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"{field} must be a list when set")
-    out: list[str] = []
-    for idx, item in enumerate(value, start=1):
-        out.append(_require_non_empty_str(item, f"{field}[{idx}]") )
-    return out
-
-
 def _require_cidr_list(value: Any, field: str, *, allow_empty: bool = False) -> list[str]:
     if not isinstance(value, list):
         raise ValueError(f"{field} must be a list")
@@ -66,7 +43,7 @@ def _require_cidr_list(value: Any, field: str, *, allow_empty: bool = False) -> 
         raise ValueError(f"{field} must be a non-empty list")
     out: list[str] = []
     for idx, item in enumerate(value, start=1):
-        token = _require_non_empty_str(item, f"{field}[{idx}]")
+        token = require_non_empty_str(item, f"{field}[{idx}]")
         try:
             ipaddress.ip_network(token, strict=False)
         except Exception as exc:
@@ -96,8 +73,8 @@ def _validate_inventory(data: dict[str, Any]) -> None:
         for idx, item in enumerate(group, start=1):
             if not isinstance(item, dict):
                 raise ValueError(f"inputs.inventory_groups.edge_control[{idx}] must be a mapping")
-            _require_non_empty_str(item.get("name"), f"inputs.inventory_groups.edge_control[{idx}].name")
-            _require_non_empty_str(
+            require_non_empty_str(item.get("name"), f"inputs.inventory_groups.edge_control[{idx}].name")
+            require_non_empty_str(
                 item.get("host") or item.get("ansible_host"),
                 f"inputs.inventory_groups.edge_control[{idx}].host",
             )
@@ -119,7 +96,7 @@ def _validate_inventory(data: dict[str, Any]) -> None:
         raise ValueError("inputs.inventory_vm_groups must include key 'edge_control' with at least one VM key")
 
     for idx, item in enumerate(edge_control, start=1):
-        _require_non_empty_str(item, f"inputs.inventory_vm_groups.edge_control[{idx}]")
+        require_non_empty_str(item, f"inputs.inventory_vm_groups.edge_control[{idx}]")
 
 
 def validate(inputs: dict[str, Any]) -> None:
@@ -129,43 +106,43 @@ def validate(inputs: dict[str, Any]) -> None:
 
     _validate_inventory(data)
 
-    _require_non_empty_str(data.get("target_user"), "inputs.target_user")
+    require_non_empty_str(data.get("target_user"), "inputs.target_user")
     if data.get("target_port") is not None:
-        _require_port(data.get("target_port"), "inputs.target_port")
+        require_port(data.get("target_port"), "inputs.target_port")
 
     if data.get("ssh_private_key_file") is not None and str(data.get("ssh_private_key_file") or "").strip() != "":
-        _require_non_empty_str(data.get("ssh_private_key_file"), "inputs.ssh_private_key_file")
+        require_non_empty_str(data.get("ssh_private_key_file"), "inputs.ssh_private_key_file")
 
     if data.get("ssh_proxy_jump_host") is not None and str(data.get("ssh_proxy_jump_host") or "").strip() != "":
-        _require_non_empty_str(data.get("ssh_proxy_jump_host"), "inputs.ssh_proxy_jump_host")
+        require_non_empty_str(data.get("ssh_proxy_jump_host"), "inputs.ssh_proxy_jump_host")
         if data.get("ssh_proxy_jump_user") is not None:
-            _require_non_empty_str(data.get("ssh_proxy_jump_user"), "inputs.ssh_proxy_jump_user")
+            require_non_empty_str(data.get("ssh_proxy_jump_user"), "inputs.ssh_proxy_jump_user")
         if data.get("ssh_proxy_jump_port") is not None:
-            _require_port(data.get("ssh_proxy_jump_port"), "inputs.ssh_proxy_jump_port")
+            require_port(data.get("ssh_proxy_jump_port"), "inputs.ssh_proxy_jump_port")
     if data.get("ssh_proxy_jump_auto") is not None and not isinstance(data.get("ssh_proxy_jump_auto"), bool):
         raise ValueError("inputs.ssh_proxy_jump_auto must be a boolean when set")
 
     if data.get("become") is not None and not isinstance(data.get("become"), bool):
         raise ValueError("inputs.become must be a boolean when set")
     if data.get("become_user") is not None and str(data.get("become_user") or "").strip() != "":
-        _require_non_empty_str(data.get("become_user"), "inputs.become_user")
+        require_non_empty_str(data.get("become_user"), "inputs.become_user")
 
-    _require_non_empty_str(data.get("vyos_wan_role_fqcn"), "inputs.vyos_wan_role_fqcn")
+    require_non_empty_str(data.get("vyos_wan_role_fqcn"), "inputs.vyos_wan_role_fqcn")
 
-    state = _require_non_empty_str(data.get("vyos_wan_state"), "inputs.vyos_wan_state").lower()
+    state = require_non_empty_str(data.get("vyos_wan_state"), "inputs.vyos_wan_state").lower()
     if state not in {"present", "absent"}:
         raise ValueError("inputs.vyos_wan_state must be 'present' or 'absent'")
 
-    wan_ipsec_psk_env = _require_non_empty_str(data.get("wan_ipsec_psk_env"), "inputs.wan_ipsec_psk_env")
-    required_env = _normalize_required_env(data.get("required_env"), "inputs.required_env")
+    wan_ipsec_psk_env = require_non_empty_str(data.get("wan_ipsec_psk_env"), "inputs.wan_ipsec_psk_env")
+    required_env = normalize_required_env(data.get("required_env"), "inputs.required_env")
     if state == "present" and wan_ipsec_psk_env not in required_env:
         raise ValueError(
             f"inputs.required_env must include: {wan_ipsec_psk_env} (referenced by inputs.wan_ipsec_psk_env)"
         )
 
-    _require_non_empty_str(data.get("vyos_ssh_user"), "inputs.vyos_ssh_user")
+    require_non_empty_str(data.get("vyos_ssh_user"), "inputs.vyos_ssh_user")
     if data.get("vyos_ssh_port") is not None:
-        _require_port(data.get("vyos_ssh_port"), "inputs.vyos_ssh_port")
+        require_port(data.get("vyos_ssh_port"), "inputs.vyos_ssh_port")
 
     if data.get("edge_ssh_connectivity_timeout_s") is not None:
         if isinstance(data.get("edge_ssh_connectivity_timeout_s"), bool) or not isinstance(data.get("edge_ssh_connectivity_timeout_s"), int):
@@ -186,19 +163,19 @@ def validate(inputs: dict[str, Any]) -> None:
             "for control-host -> VyOS authentication"
         )
     if vyos_ssh_key_file:
-        _require_non_empty_str(vyos_ssh_key_file, "inputs.vyos_ssh_key_file")
+        require_non_empty_str(vyos_ssh_key_file, "inputs.vyos_ssh_key_file")
     if vyos_ssh_private_key_env:
-        _require_non_empty_str(vyos_ssh_private_key_env, "inputs.vyos_ssh_private_key_env")
+        require_non_empty_str(vyos_ssh_private_key_env, "inputs.vyos_ssh_private_key_env")
 
     vyos_ssh_opts = data.get("vyos_ssh_opts")
     if vyos_ssh_opts is not None:
         if not isinstance(vyos_ssh_opts, list):
             raise ValueError("inputs.vyos_ssh_opts must be a list when set")
         for idx, item in enumerate(vyos_ssh_opts, start=1):
-            _require_non_empty_str(item, f"inputs.vyos_ssh_opts[{idx}]")
+            require_non_empty_str(item, f"inputs.vyos_ssh_opts[{idx}]")
 
-    _require_non_empty_str(data.get("edge01_name"), "inputs.edge01_name")
-    _require_non_empty_str(data.get("edge02_name"), "inputs.edge02_name")
+    require_non_empty_str(data.get("edge01_name"), "inputs.edge01_name")
+    require_non_empty_str(data.get("edge02_name"), "inputs.edge02_name")
     _validate_optional_ipv4(data.get("edge01_ssh_host"), "inputs.edge01_ssh_host")
     _validate_optional_ipv4(data.get("edge02_ssh_host"), "inputs.edge02_ssh_host")
     _validate_optional_ipv4(data.get("edge01_public_ip"), "inputs.edge01_public_ip")
@@ -233,14 +210,14 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_ipv4(data.get("edge01_router_id"), "inputs.edge01_router_id")
     _require_ipv4(data.get("edge02_router_id"), "inputs.edge02_router_id")
 
-    edge01_ifname = _require_non_empty_str(data.get("edge01_tunnel_ifname"), "inputs.edge01_tunnel_ifname")
-    edge02_ifname = _require_non_empty_str(data.get("edge02_tunnel_ifname"), "inputs.edge02_tunnel_ifname")
+    edge01_ifname = require_non_empty_str(data.get("edge01_tunnel_ifname"), "inputs.edge01_tunnel_ifname")
+    edge02_ifname = require_non_empty_str(data.get("edge02_tunnel_ifname"), "inputs.edge02_tunnel_ifname")
     for token, field in ((edge01_ifname, "inputs.edge01_tunnel_ifname"), (edge02_ifname, "inputs.edge02_tunnel_ifname")):
         if not _IFNAME_RE.fullmatch(token):
             raise ValueError(f"{field} must match ^[a-zA-Z0-9_.-]+$")
 
-    _require_non_empty_str(data.get("edge01_tunnel_name"), "inputs.edge01_tunnel_name")
-    _require_non_empty_str(data.get("edge02_tunnel_name"), "inputs.edge02_tunnel_name")
+    require_non_empty_str(data.get("edge01_tunnel_name"), "inputs.edge01_tunnel_name")
+    require_non_empty_str(data.get("edge02_tunnel_name"), "inputs.edge02_tunnel_name")
 
     if data.get("inside_prefix_len") is None:
         raise ValueError("inputs.inside_prefix_len is required")
@@ -255,12 +232,12 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_cidr_list(data.get("advertise_prefixes"), "inputs.advertise_prefixes", allow_empty=True)
     _require_cidr_list(data.get("import_allow_prefixes"), "inputs.import_allow_prefixes")
 
-    _require_non_empty_str(data.get("ipsec_ike_group"), "inputs.ipsec_ike_group")
-    _require_non_empty_str(data.get("ipsec_esp_group"), "inputs.ipsec_esp_group")
-    _require_non_empty_str(data.get("bgp_export_prefix_list"), "inputs.bgp_export_prefix_list")
-    _require_non_empty_str(data.get("bgp_import_prefix_list"), "inputs.bgp_import_prefix_list")
-    _require_non_empty_str(data.get("bgp_export_route_map"), "inputs.bgp_export_route_map")
-    _require_non_empty_str(data.get("bgp_import_route_map"), "inputs.bgp_import_route_map")
+    require_non_empty_str(data.get("ipsec_ike_group"), "inputs.ipsec_ike_group")
+    require_non_empty_str(data.get("ipsec_esp_group"), "inputs.ipsec_esp_group")
+    require_non_empty_str(data.get("bgp_export_prefix_list"), "inputs.bgp_export_prefix_list")
+    require_non_empty_str(data.get("bgp_import_prefix_list"), "inputs.bgp_import_prefix_list")
+    require_non_empty_str(data.get("bgp_export_route_map"), "inputs.bgp_export_route_map")
+    require_non_empty_str(data.get("bgp_import_route_map"), "inputs.bgp_import_route_map")
 
     if data.get("validate_post_apply") is not None and not isinstance(data.get("validate_post_apply"), bool):
         raise ValueError("inputs.validate_post_apply must be a boolean when set")
