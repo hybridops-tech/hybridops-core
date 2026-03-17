@@ -1,0 +1,64 @@
+---
+- name: platform/network/decision-consumer (configure)
+  hosts: edge_control
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    consumer_role_fqcn: "{{ consumer_role_fqcn | default('hybridops.common.decision_consumer') }}"
+    _hyops_input_consumer_state: "{{ consumer_state | default('present') }}"
+    _hyops_input_consumer_dispatch_requests_dir: "{{ consumer_dispatch_requests_dir | default('/opt/hybridops/decision-dispatcher/state/requests') }}"
+    _hyops_input_consumer_execution_mode: "{{ consumer_execution_mode | default('approval-only') }}"
+    _hyops_input_consumer_require_approval: "{{ consumer_require_approval | default(true) | bool }}"
+    _hyops_input_consumer_poll_seconds: "{{ consumer_poll_seconds | default(15) | int }}"
+    _hyops_input_consumer_log_level: "{{ consumer_log_level | default('INFO') }}"
+
+  tasks:
+    - name: Run decision consumer role
+      ansible.builtin.include_role:
+        name: "{{ consumer_role_fqcn }}"
+      vars:
+        consumer_state: "{{ _hyops_input_consumer_state }}"
+        consumer_dispatch_requests_dir: "{{ _hyops_input_consumer_dispatch_requests_dir }}"
+        consumer_execution_mode: "{{ _hyops_input_consumer_execution_mode }}"
+        consumer_require_approval: "{{ _hyops_input_consumer_require_approval }}"
+        consumer_poll_seconds: "{{ _hyops_input_consumer_poll_seconds }}"
+        consumer_log_level: "{{ _hyops_input_consumer_log_level }}"
+
+    - name: Wait for consumer state file
+      ansible.builtin.wait_for:
+        path: "/opt/hybridops/decision-consumer/state/state.json"
+        state: present
+        timeout: 30
+      register: __consumer_state_wait
+
+    - name: Read consumer state
+      ansible.builtin.slurp:
+        path: "/opt/hybridops/decision-consumer/state/state.json"
+      register: __consumer_state_raw
+      when: __consumer_state_wait is succeeded
+
+    - name: Normalize consumer state
+      ansible.builtin.set_fact:
+        __consumer_state_payload: >-
+          {{
+            ((__consumer_state_raw.content | b64decode) | from_json)
+            if (__consumer_state_raw is defined and __consumer_state_raw.content is defined)
+            else {}
+          }}
+
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'decision_consumer.status': 'ready',
+            'decision_consumer.last_tick': (__consumer_state_payload.timestamp_utc | default('')),
+            'decision_consumer.last_request_id': (__consumer_state_payload.last_request_id | default('')),
+            'decision_consumer.last_execution_id': (__consumer_state_payload.last_execution_id | default('')),
+            'decision_consumer.execution_mode': (__consumer_state_payload.execution_mode | default(consumer_execution_mode | default('approval-only'))),
+            'cap.control.decision_consumer': 'ready'
+          } | to_json }}

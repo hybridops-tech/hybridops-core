@@ -32,6 +32,7 @@
   ansible.builtin.copy:
     src: "{{ eveng_images_local_path }}"
     dest: "{{ eveng_images_cache_dir }}/{{ eveng_images_local_path | basename }}"
+    mode: "0644"
   when: local_path.stat.isreg | default(false) | bool
 
 - name: Sync directory to cache

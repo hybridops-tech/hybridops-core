@@ -314,6 +314,7 @@
       - /etc/patroni/patroni.yml
   tasks:
     - name: Read current shared_preload_libraries from source primary
+      become: true
       become_user: postgres
       ansible.builtin.command:
         argv:
@@ -375,6 +376,7 @@
       when:
         - pglogical_enable | default(false) | bool
         - _hyops_pglogical_restart_required | default(false) | bool
+      changed_when: true
 
 - name: platform/postgresql-ha (restart replicas for pglogical)
   hosts: replica
@@ -429,6 +431,7 @@
   become: true
   tasks:
     - name: Detect whether this node is the writable primary
+      become: true
       become_user: postgres
       ansible.builtin.command:
         argv:
@@ -443,6 +446,7 @@
       when: pglogical_enable | default(false) | bool
 
     - name: Ensure pglogical extension exists in requested databases
+      become: true
       become_user: postgres
       ansible.builtin.command:
         argv:
@@ -457,8 +461,10 @@
       when:
         - pglogical_enable | default(false) | bool
         - (_hyops_pglogical_recovery_state.stdout | default('t') | string | trim | lower) in ['false', 'f', '0']
+      changed_when: true
 
     - name: Ensure replication user can read pglogical catalog tables in requested databases
+      become: true
       become_user: postgres
       ansible.builtin.command:
         argv:
@@ -477,6 +483,7 @@
       when:
         - pglogical_enable | default(false) | bool
         - (_hyops_pglogical_recovery_state.stdout | default('t') | string | trim | lower) in ['false', 'f', '0']
+      changed_when: true
 
 - name: platform/postgresql-ha (ensure VIP is configured)
   hosts: postgres_cluster
@@ -525,6 +532,7 @@
       ansible.builtin.get_url:
         url: "{{ _hyops_vip_manager_package_repo }}"
         dest: "/tmp/{{ _hyops_vip_manager_package_repo | basename }}"
+        mode: "0644"
         timeout: 60
         validate_certs: false
       when:

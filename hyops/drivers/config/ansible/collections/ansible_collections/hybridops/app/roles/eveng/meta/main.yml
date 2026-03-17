@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: eveng
-  author: yourusername
+  author: HybridOps.Tech
   description: Automated EVE-NG installation and configuration
   company: HybridOps
 
@@ -17,9 +17,9 @@ galaxy_info:
   galaxy_tags:
     - networking
     - emulation
-    - eve-ng
+    - eveng
     - virtualization
-    - network-automation
+    - networkautomation
     - lab
     - cisco
     - juniper

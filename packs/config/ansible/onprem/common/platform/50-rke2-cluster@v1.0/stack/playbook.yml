@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/rke2-cluster (validate inventory)
+- name: Platform/onprem/rke2-cluster (validate inventory)
   hosts: localhost
   become: false
   gather_facts: false
@@ -10,7 +10,7 @@
           - groups.get('rke2_servers', []) | length > 0
         fail_msg: "inventory must define group 'rke2_servers' with at least one host"
 
-- name: platform/onprem/rke2-cluster (server play)
+- name: Platform/onprem/rke2-cluster (server play)
   hosts: rke2_servers
   any_errors_fatal: true
   become: true
@@ -160,7 +160,7 @@
       ansible.builtin.include_role:
         name: "{{ rke2_server_role_fqcn }}"
 
-- name: platform/onprem/rke2-cluster (agent play)
+- name: Platform/onprem/rke2-cluster (agent play)
   hosts: rke2_agents
   any_errors_fatal: true
   become: true
@@ -310,7 +310,7 @@
       ansible.builtin.include_role:
         name: "{{ rke2_agent_role_fqcn }}"
 
-- name: platform/onprem/rke2-cluster (manifest play)
+- name: Platform/onprem/rke2-cluster (manifest play)
   hosts: rke2_servers
   any_errors_fatal: true
   become: true
@@ -334,7 +334,7 @@
       ansible.builtin.include_role:
         name: "{{ rke2_manifest_role_fqcn }}"
 
-- name: platform/onprem/rke2-cluster (publish outputs)
+- name: Platform/onprem/rke2-cluster (publish outputs)
   hosts: localhost
   become: false
   gather_facts: false

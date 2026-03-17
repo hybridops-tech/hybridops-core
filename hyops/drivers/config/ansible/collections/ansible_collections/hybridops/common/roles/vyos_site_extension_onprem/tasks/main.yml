@@ -125,6 +125,52 @@
   loop_control:
     label: "{{ item.key }}"
 
+- name: Build on-prem consumer SNAT rule matrix
+  ansible.builtin.set_fact:
+    vyos_site_extension_onprem_consumer_snat_rules: []
+  changed_when: false
+
+- name: Expand on-prem consumer SNAT rule matrix
+  ansible.builtin.set_fact:
+    vyos_site_extension_onprem_consumer_snat_rules: >-
+      {{
+        vyos_site_extension_onprem_consumer_snat_rules
+        + [
+          {
+            'rule_id': (consumer_snat_rule_base | int) + vyos_site_extension_onprem_consumer_snat_rule_index,
+            'source_cidr': item.0,
+            'destination_cidr': item.1
+          }
+        ]
+      }}
+  changed_when: false
+  loop: "{{ consumer_snat_source_cidrs | product(consumer_snat_destination_cidrs) | list }}"
+  loop_control:
+    index_var: vyos_site_extension_onprem_consumer_snat_rule_index
+    label: "{{ item.0 }} -> {{ item.1 }}"
+  when:
+    - vyos_site_extension_state == "present"
+    - consumer_snat_enabled | bool
+
+- name: Preflight | assert consumer SNAT contract when enabled
+  ansible.builtin.assert:
+    that:
+      - (consumer_snat_rule_base | int) > 0
+      - (consumer_snat_rule_slots | int) > 0
+      - (consumer_snat_source_cidrs | length) > 0
+      - (consumer_snat_destination_cidrs | length) > 0
+      - (consumer_snat_translation_address | default('', true) | string | trim | length) > 0
+      - (consumer_snat_outbound_interface | default('', true) | string | trim | length) > 0
+      - (vyos_site_extension_onprem_consumer_snat_rules | length) <= (consumer_snat_rule_slots | int)
+    fail_msg: >-
+      Consumer SNAT is enabled, but its contract is incomplete. Set
+      consumer_snat_source_cidrs, consumer_snat_destination_cidrs,
+      consumer_snat_translation_address, and consumer_snat_outbound_interface,
+      and keep the total rule count within consumer_snat_rule_slots.
+  when:
+    - vyos_site_extension_state == "present"
+    - consumer_snat_enabled | bool
+
 - name: Preflight | wait for on-prem edge SSH reachability
   ansible.builtin.wait_for:
     host: "{{ target_host }}"
@@ -216,6 +262,19 @@
     set protocols static route '{{ prefix }}' next-hop '{{ internal_route_next_hop }}'
     {% endfor %}
 
+    {% for rule_offset in range(consumer_snat_rule_slots | int) %}
+    delete nat source rule '{{ (consumer_snat_rule_base | int) + rule_offset }}'
+    {% endfor %}
+    {% if consumer_snat_enabled | bool %}
+    {% for item in vyos_site_extension_onprem_consumer_snat_rules %}
+    set nat source rule '{{ item.rule_id }}' description 'HYOPS-SITEEXT-CONSUMER-SNAT'
+    set nat source rule '{{ item.rule_id }}' outbound-interface '{{ consumer_snat_outbound_interface }}'
+    set nat source rule '{{ item.rule_id }}' source address '{{ item.source_cidr }}'
+    set nat source rule '{{ item.rule_id }}' destination address '{{ item.destination_cidr }}'
+    set nat source rule '{{ item.rule_id }}' translation address '{{ consumer_snat_translation_address }}'
+    {% endfor %}
+    {% endif %}
+
     {% for item in _onprem_edge_peers %}
     delete protocols static route '{{ item.public_ip }}/32'
     {% if public_peer_route_next_hop | default('', true) | string | trim | length > 0 %}
@@ -292,6 +351,9 @@
     VYOS_EOF
   args:
     executable: /bin/bash
+  register: vyos_site_extension_onprem_apply_result
+  changed_when: true
+  failed_when: false
   no_log: "{{ vyos_site_extension_no_log_sensitive | bool }}"
   when: vyos_site_extension_state == "present"
 
@@ -315,6 +377,9 @@
     delete policy route-map {{ bgp_import_route_map }}
     delete policy prefix-list {{ bgp_export_prefix_list }}
     delete policy prefix-list {{ bgp_import_prefix_list }}
+    {% for rule_offset in range(consumer_snat_rule_slots | int) %}
+    delete nat source rule '{{ (consumer_snat_rule_base | int) + rule_offset }}'
+    {% endfor %}
     {% for prefix in static_route_prefixes %}
     delete protocols static route '{{ prefix }}'
     {% endfor %}
@@ -324,6 +389,7 @@
     VYOS_EOF
   args:
     executable: /bin/bash
+  changed_when: true
   when: vyos_site_extension_state == "absent"
 
 - name: Collect on-prem site-extension live status (present)
@@ -369,6 +435,18 @@
     state: absent
   no_log: true
   when: _onprem_ssh_private_key_inline | default('') | length > 0
+
+- name: Assert on-prem site-extension apply completed when live validation is disabled
+  ansible.builtin.assert:
+    that:
+      - vyos_site_extension_onprem_apply_result.rc == 0
+    fail_msg: >-
+      On-prem site-extension apply returned a non-zero exit code before live
+      validation was disabled. Re-run with validate_post_apply=true to confirm
+      tunnel and BGP convergence, or inspect the controller-side run log.
+  when:
+    - vyos_site_extension_state == "present"
+    - not (validate_post_apply | bool)
 
 - name: Assert on-prem site-extension live status (present)
   ansible.builtin.assert:

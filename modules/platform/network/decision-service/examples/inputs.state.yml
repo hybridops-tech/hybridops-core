@@ -1,7 +1,7 @@
 inventory_state_ref: org/hetzner/shared-control-host
 inventory_vm_groups:
   edge_control:
-  - control-01
+    - control-01
 thanos_query_url: http://127.0.0.1:10902
 policy:
   version: v1
@@ -24,25 +24,25 @@ actions:
     record_type: A
     ttl: 60
     primary_targets:
-    - 203.0.113.10
+      - 203.0.113.10
     secondary_targets:
-    - 198.51.100.20
+      - 198.51.100.20
     dry_run: true
     dns_apply: false
     inventory_state_ref: org/hetzner/shared-control-host
     inventory_vm_groups:
       edge_control:
-      - control-01
+        - control-01
   module_state_guards:
     cutover:
-    - state_ref: platform/postgresql-ha#postgresql_restore_gcp_dr
-      require_status: ok
-      outputs_non_empty:
-      - endpoint_host
-    - state_ref: platform/k8s/longhorn-dr-volume#moodle_restore_gcp_dr
-      require_status: ok
-      outputs_equal:
-        restore_volume_ready: true
+      - state_ref: platform/postgresql-ha#postgresql_restore_gcp_dr
+        require_status: ok
+        outputs_non_empty:
+          - endpoint_host
+      - state_ref: platform/k8s/longhorn-dr-volume#moodle_restore_gcp_dr
+        require_status: ok
+        outputs_equal:
+          restore_volume_ready: true
 dry_run: true
 decision_enable_actions: false
 decision_require_signal_readiness: true

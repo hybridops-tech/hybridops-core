@@ -1,33 +1,43 @@
 ---
-- name: platform/linux/eve-ng-healthcheck (configure)
+- name: Platform/linux/eve-ng-healthcheck (configure)
   hosts: targets
   become: true
   gather_facts: true
-  collections:
-    - hybridops.helper
 
   vars:
     eveng_healthcheck_role_fqcn: "{{ eveng_healthcheck_role_fqcn | default('hybridops.helper.eveng_healthcheck') }}"
-    eveng_healthcheck_role_name: "{{ eveng_healthcheck_role_fqcn | regex_replace('^hybridops\\.helper\\.', '') }}"
+    _hyops_input_health_check_level: "{{ vars.get('health_check_level', 'basic') | string }}"
+    _hyops_input_health_check_fail_on_warning: "{{ vars.get('health_check_fail_on_warning', false) | bool }}"
+    _hyops_input_health_check_report_format: "{{ vars.get('health_check_report_format', 'summary') | string }}"
+    _hyops_input_health_check_save_output: "{{ vars.get('health_check_save_output', false) | bool }}"
+    _hyops_input_health_check_output_dir: "{{ vars.get('health_check_output_dir', playbook_dir ~ '/var/lib/hybridops/reports/eveng-healthcheck') | string }}"
+    _hyops_input_health_check_reports_dir: "{{ vars.get('health_check_reports_dir', playbook_dir ~ '/var/log/hybridops/eveng-healthcheck') | string }}"
+    _hyops_input_health_check_services: "{{ vars.get('health_check_services', true) | bool }}"
+    _hyops_input_health_check_database: "{{ vars.get('health_check_database', true) | bool }}"
+    _hyops_input_health_check_api: "{{ vars.get('health_check_api', true) | bool }}"
+    _hyops_input_health_check_kvm: "{{ vars.get('health_check_kvm', true) | bool }}"
+    _hyops_input_health_check_images: "{{ vars.get('health_check_images', false) | bool }}"
+    _hyops_input_health_check_labs: "{{ vars.get('health_check_labs', false) | bool }}"
+    _hyops_input_eveng_admin_password_env: "{{ vars.get('eveng_admin_password_env', 'EVENG_ADMIN_PASSWORD') | string }}"
 
   tasks:
     - name: Run EVE-NG health check
       ansible.builtin.include_role:
-        name: "{{ eveng_healthcheck_role_name }}"
+        name: "{{ eveng_healthcheck_role_fqcn }}"
       vars:
-        health_check_level: "{{ health_check_level | default('basic') }}"
-        health_check_fail_on_warning: "{{ health_check_fail_on_warning | default(false) | bool }}"
-        health_check_report_format: "{{ health_check_report_format | default('summary') }}"
-        health_check_save_output: "{{ health_check_save_output | default(false) | bool }}"
-        health_check_output_dir: "{{ health_check_output_dir | default(playbook_dir ~ '/var/lib/hybridops/reports/eveng-healthcheck') }}"
-        health_check_reports_dir: "{{ health_check_reports_dir | default(playbook_dir ~ '/var/log/hybridops/eveng-healthcheck') }}"
-        health_check_services: "{{ health_check_services | default(true) | bool }}"
-        health_check_database: "{{ health_check_database | default(true) | bool }}"
-        health_check_api: "{{ health_check_api | default(true) | bool }}"
-        health_check_kvm: "{{ health_check_kvm | default(true) | bool }}"
-        health_check_images: "{{ health_check_images | default(false) | bool }}"
-        health_check_labs: "{{ health_check_labs | default(false) | bool }}"
-        eveng_admin_password: "{{ lookup('env', eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD')) }}"
+        health_check_level: "{{ _hyops_input_health_check_level }}"
+        health_check_fail_on_warning: "{{ _hyops_input_health_check_fail_on_warning }}"
+        health_check_report_format: "{{ _hyops_input_health_check_report_format }}"
+        health_check_save_output: "{{ _hyops_input_health_check_save_output }}"
+        health_check_output_dir: "{{ _hyops_input_health_check_output_dir }}"
+        health_check_reports_dir: "{{ _hyops_input_health_check_reports_dir }}"
+        health_check_services: "{{ _hyops_input_health_check_services }}"
+        health_check_database: "{{ _hyops_input_health_check_database }}"
+        health_check_api: "{{ _hyops_input_health_check_api }}"
+        health_check_kvm: "{{ _hyops_input_health_check_kvm }}"
+        health_check_images: "{{ _hyops_input_health_check_images }}"
+        health_check_labs: "{{ _hyops_input_health_check_labs }}"
+        eveng_admin_password: "{{ lookup('env', _hyops_input_eveng_admin_password_env) }}"
 
   post_tasks:
     - name: Write HyOps outputs

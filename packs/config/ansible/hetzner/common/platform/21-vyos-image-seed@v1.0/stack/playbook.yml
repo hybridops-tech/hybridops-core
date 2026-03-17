@@ -39,7 +39,17 @@
         or (lookup('env', 'hcloud_token') | default('', true) | trim)
       }}
     hcloud_api_url: "https://api.hetzner.cloud/v1"
+    seed_gcs_sa_json_inline: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON') | default('', true) | trim }}"
+    seed_gcs_sa_json_file_input: "{{ lookup('env', 'HYOPS_VYOS_GCS_SA_JSON_FILE') | default('', true) | trim }}"
     image_source_url_effective: "{{ image_source_url | default('', true) | trim }}"
+    image_source_requires_gcs_auth: >-
+      {{
+        (image_source_url_effective | regex_search('^gs://'))
+        or (
+          ((artifact_state_ref | default('', true) | trim) | regex_search('^core/shared/vyos-image-build'))
+          and (image_source_url_effective | regex_search('^https://storage.googleapis.com/'))
+        )
+      }}
     image_source_is_qcow2: >-
       {{
         (image_source_url_effective | length > 0)
@@ -202,6 +212,7 @@
         - seed_if_missing | bool
         - (seed_command | default('', true) | trim) | length == 0
         - image_source_url_effective | length > 0
+        - not (image_source_requires_gcs_auth | bool)
 
     - name: Probe image source URL reachability with fallback GET
       ansible.builtin.uri:
@@ -235,7 +246,9 @@
             )
           }}
       when:
+        - resolved_image | length == 0
         - image_source_probe_head is defined
+        - not (image_source_probe_head.skipped | default(false))
         - (seed_command | default('', true) | trim) | length == 0
 
     - name: Fail when image source URL is unreachable or invalid
@@ -245,12 +258,47 @@
           {{ image_source_url_effective }}.
           HEAD status={{ image_source_probe_head.status | default('n/a') }},
           GET status={{ image_source_probe_get.status | default('n/a') }}.
-          Provide a valid public http(s) artifact URL, or run core/shared/vyos-image-build
-          and consume its artifact_state_ref/artifact_key outputs.
+          Provide a reachable source URL, or when consuming the shared private GCS-backed
+          artifact contract declare HYOPS_VYOS_GCS_SA_JSON (or HYOPS_VYOS_GCS_SA_JSON_FILE)
+          in inputs.required_env so the wrapper can download it with authenticated GCS access.
       when:
+        - resolved_image | length == 0
         - image_source_probe_head is defined
+        - not (image_source_probe_head.skipped | default(false))
         - (seed_command | default('', true) | trim) | length == 0
         - not (image_source_probe_ok | default(false))
+
+    - name: Materialize temporary GCS service-account file for Hetzner seed
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .json
+      register: seed_gcs_sa_json_temp
+      when:
+        - seed_gcs_sa_json_inline | length > 0
+        - seed_gcs_sa_json_file_input | length == 0
+
+    - name: Write temporary GCS service-account file for Hetzner seed
+      ansible.builtin.copy:
+        dest: "{{ seed_gcs_sa_json_temp.path }}"
+        mode: "0600"
+        content: "{{ seed_gcs_sa_json_inline }}"
+      when:
+        - seed_gcs_sa_json_inline | length > 0
+        - seed_gcs_sa_json_file_input | length == 0
+      no_log: true
+
+    - name: Resolve GCS service-account file for Hetzner seed
+      ansible.builtin.set_fact:
+        seed_gcs_sa_json_file_effective: >-
+          {{
+            (seed_gcs_sa_json_file_input | trim)
+            if (seed_gcs_sa_json_file_input | length > 0)
+            else (
+              seed_gcs_sa_json_temp.path
+              if (seed_gcs_sa_json_temp is defined and (seed_gcs_sa_json_temp.path | default('') | length > 0))
+              else ''
+            )
+          }}
 
     - name: Build effective seeding command
       ansible.builtin.set_fact:
@@ -315,18 +363,32 @@
         - seed_if_missing | bool
 
     - name: Seed Hetzner VyOS image when missing
-      ansible.builtin.shell: "{{ effective_seed_command }}"
-      args:
-        executable: /bin/bash
-      environment:
-        HCLOUD_TOKEN: "{{ hcloud_token }}"
-      register: seed_result
-      changed_when: true
       when:
         - resolved_image | length == 0
         - seed_if_missing | bool
-      async: "{{ seed_timeout_s }}"
-      poll: 15
+      block:
+        - name: Run Hetzner VyOS image seed command
+          ansible.builtin.command:
+            argv:
+              - /bin/bash
+              - -lc
+              - "{{ effective_seed_command }}"
+          environment:
+            HCLOUD_TOKEN: "{{ hcloud_token }}"
+            HYOPS_VYOS_GCS_SA_JSON_FILE: "{{ seed_gcs_sa_json_file_effective | default('') }}"
+          register: seed_result
+          changed_when: true
+          async: "{{ seed_timeout_s }}"
+          poll: 15
+      always:
+        - name: Remove temporary GCS service-account file for Hetzner seed
+          ansible.builtin.file:
+            path: "{{ seed_gcs_sa_json_temp.path }}"
+            state: absent
+          when:
+            - seed_gcs_sa_json_temp is defined
+            - seed_gcs_sa_json_temp.path | default('') | length > 0
+          no_log: true
 
     - name: Capture created image ref from seeding output
       ansible.builtin.set_fact:

@@ -8,407 +8,404 @@ metadata:
     and deploy decision control loop.
   outcome: Edge control plane is ready for deterministic DR/burst signaling.
   notes:
-  - VyOS tunnel/BGP day-2 configuration is not driven by the legacy Linux platform/network/wan-edge module.
-  - This blueprint intentionally excludes that legacy module to avoid applying strongSwan/FRR logic to VyOS appliances.
+    - VyOS tunnel/BGP day-2 configuration is not driven by the legacy Linux platform/network/wan-edge
+      module.
+    - This blueprint intentionally excludes that legacy module to avoid applying strongSwan/FRR
+      logic to VyOS appliances.
 policy:
   fail_fast: true
   evidence_required: true
   ipam_authority: none
 steps:
-- id: vyos_artifact_build
-  module_ref: core/shared/vyos-image-build
-  state_instance: vyos_default_build
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  skip_if_state_ok: true
-  verify_state_on_skip: true
-  inputs:
-    inventory_state_ref: platform/onprem/platform-vm#onprem_ops_runner
-    inventory_vm_groups:
-      runner:
-        - runner-01
-    target_user: opsadmin
-    target_port: 22
-    become: true
-    connectivity_check: true
-    artifact_key: vyos-1.5
-    artifact_format: qcow2
-    artifact_version: 2026.03.03-0027-rolling-r3
-    source_iso_url: https://github.com/vyos/vyos-nightly-build/releases/download/2026.03.03-0027-rolling/vyos-2026.03.03-0027-rolling-generic-amd64.iso
-    artifact_url: ""
-    artifact_local_path: /tmp/hyops-vyos-build/vyos-1.5.qcow2
-    repo_state_ref: org/gcp/object-repo#vyos_artifacts
-    required_env:
-      - HYOPS_VYOS_GCS_SA_JSON
-    build_command: /opt/hybridops/core/app/tools/build/vyos/build-vyos-qcow2.sh
-    build_workdir: /tmp/hyops-vyos-build
-    smoke_verify_required: true
-    publish_command: /opt/hybridops/core/app/tools/build/vyos/publish-vyos-artifact.sh
-    rebuild_if_exists: true
-    allow_iso_build: true
-- id: vyos_image
-  module_ref: core/hetzner/vyos-image-seed
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  skip_if_state_ok: true
-  verify_state_on_skip: true
-  requires:
-  - vyos_artifact_build
-  inputs:
-    artifact_state_ref: core/shared/vyos-image-build#vyos_default_build
-    artifact_key: vyos-1.5
-    image_key: vyos-1.5
-    image_ref: ""
-    image_version: ""
-    image_description: ""
-    image_source_url: ""
-    seed_wrapper_public_base_url: ""
-    seed_if_missing: true
-    seed_tool: hcloud-upload-image
-- id: hetzner_shared_network
-  module_ref: org/hetzner/shared-private-network
-  state_instance: shared_network
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  skip_if_state_ok: true
-  verify_state_on_skip: true
-  contracts:
-    addressing_mode: static
-  inputs:
-    name_prefix: platform
-    context_id: dev
-    network_zone: eu-central
-    private_network_name: net-hyops-edge
-    private_network_cidr: 10.80.0.0/24
-- id: hetzner_edge_foundation
-  module_ref: org/hetzner/vyos-edge-foundation
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  skip_if_state_ok: true
-  verify_state_on_skip: true
-  requires:
-  - vyos_image
-  - hetzner_shared_network
-  contracts:
-    addressing_mode: static
-  inputs:
-    name_prefix: ""
-    context_id: ""
-    foundation_state_ref: org/hetzner/shared-private-network#shared_network
-    image_state_ref: core/hetzner/vyos-image-seed
-    image_key: vyos-1.5
-    network_zone: eu-central
-    edge01_name: edge-a
-    edge02_name: edge-b
-    ssh_key_name: hyops-vyos-edge-r3
-    # Optional when ssh_key_name already exists in Hetzner.
-    # Required only when HyOps must create the SSH key.
-    ssh_public_key: ""
-    firewall_name: fw-hyops-vyos-edge
-    floating_ip_name: fip-hyops-vyos-edge
-    private_network_name: net-hyops-edge
-    private_network_cidr: 10.80.0.0/24
-    edge01_private_ip: 10.80.0.11
-    edge02_private_ip: 10.80.0.12
-    assign_floating_to: edge01
-- id: gcp_wan_hub_network
-  module_ref: org/gcp/wan-hub-network
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  skip_if_state_ok: true
-  verify_state_on_skip: true
-  contracts:
-    addressing_mode: static
-  inputs:
-    name_prefix: platform
-    context_id: dev
-    project_state_ref: org/gcp/project-factory
-    region: europe-west2
-    network_name: hub
-    routing_mode: GLOBAL
-    subnet_core_name: core
-    subnet_core_cidr: 10.72.0.0/20
-    subnet_workloads_name: workloads
-    subnet_workloads_cidr: 10.72.16.0/20
-    enable_workloads_gke_secondary_ranges: true
-    subnet_workloads_pods_secondary_range_name: gke-pods
-    subnet_workloads_pods_secondary_range_cidr: 10.74.0.0/18
-    subnet_workloads_services_secondary_range_name: gke-services
-    subnet_workloads_services_secondary_range_cidr: 10.74.64.0/22
-    enable_iap_ssh: true
-    internal_allow_cidrs:
-      - 10.0.0.0/8
-      - 172.16.0.0/12
-      - 192.168.0.0/16
-- id: gcp_wan_cloud_router
-  module_ref: org/gcp/wan-cloud-router
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  skip_if_state_ok: true
-  verify_state_on_skip: true
-  requires:
-  - gcp_wan_hub_network
-  contracts:
-    addressing_mode: static
-  inputs:
-    name_prefix: platform
-    context_id: dev
-    router_name: hub-router-europe-west2
-    bgp_asn: 64514
-- id: gcp_wan_vpn_to_edge
-  module_ref: org/gcp/wan-vpn-to-edge
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  # Edge rebuilds can change public peer IPs; always reconcile this step on blueprint reruns.
-  skip_if_state_ok: false
-  requires:
-  - hetzner_edge_foundation
-  - gcp_wan_hub_network
-  - gcp_wan_cloud_router
-  contracts:
-    addressing_mode: static
-  inputs:
-    name_prefix: platform
-    context_id: dev
-    ha_vpn_gateway_name: hub-havpn-europe-west2
-    external_vpn_gateway_name: edge-extgw
-    peer_asn: 65010
-    tunnel_a_inside_cidr: 169.254.10.0/30
-    tunnel_b_inside_cidr: 169.254.10.4/30
-    advertised_prefixes:
-    - 10.70.0.0/20
-    advertised_route_priority: 100
-    required_env:
-    - WAN_IPSEC_PSK
-    shared_secret_a_env: WAN_IPSEC_PSK
-    shared_secret_b_env: WAN_IPSEC_PSK
-- id: shared_control_host
-  module_ref: org/hetzner/shared-control-host
-  state_instance: edge_control_host
-  action: deploy
-  phase: bootstrap
-  with_deps: true
-  skip_if_state_ok: true
-  verify_state_on_skip: true
-  requires:
-  - hetzner_shared_network
-  contracts:
-    addressing_mode: static
-  inputs:
-    foundation_state_ref: org/hetzner/shared-private-network#shared_network
-    name_prefix: platform
-    context_id: dev
-    location: ash
-    server_type: cpx21
-    image: ubuntu-24.04
-    host_name: control-01
-    private_ip: 10.80.0.20
-    ssh_username: opsadmin
-    ssh_keys_from_init: true
-    public_ipv6_enabled: false
-    firewall_name: fw-shared-control
-    ssh_source_cidrs:
-    - 0.0.0.0/0
-- id: vyos_edge_day2
-  module_ref: platform/network/vyos-edge-wan
-  action: deploy
-  phase: operations
-  with_deps: true
-  requires:
-  - gcp_wan_vpn_to_edge
-  - shared_control_host
-  contracts:
-    addressing_mode: static
-  inputs:
-    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-    inventory_vm_groups:
-      edge_control:
-      - control-01
-    target_user: opsadmin
-    required_env:
-    - WAN_IPSEC_PSK
-    - WAN_EDGE_SSH_PRIVATE_KEY
-    local_asn: 65010
-    peer_asn: 64514
-    # Keep the WAN baseline honest: do not advertise spoke/on-prem prefixes
-    # until the upstream spoke routes actually exist on the edge.
-    advertise_prefixes: []
-    import_allow_prefixes:
-    - 10.70.0.0/20
-    - 10.70.16.0/20
-- id: edge_observability
-  module_ref: platform/network/edge-observability
-  action: deploy
-  phase: operations
-  with_deps: true
-  skip_if_state_ok: false
-  requires:
-  - shared_control_host
-  contracts:
-    addressing_mode: static
-  inputs:
-    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-    inventory_vm_groups:
-      edge:
-      - control-01
-    target_user: opsadmin
-    required_env:
-    - EDGE_OBS_GRAFANA_ADMIN_PASSWORD
-    edge_obs_enable_receive: false
-    edge_obs_enable_store_gateway: false
-    edge_obs_enable_ruler: false
-    edge_obs_hashring_endpoints:
-    - control-01.internal:10907
-- id: dns_routing_intent
-  module_ref: platform/network/dns-routing
-  action: deploy
-  phase: operations
-  with_deps: true
-  skip_if_state_ok: false
-  requires:
-  - shared_control_host
-  contracts:
-    addressing_mode: static
-  inputs:
-    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-    inventory_vm_groups:
-      edge_control:
-      - control-01
-    target_user: opsadmin
-    provider: manual-command
-    zone: example.com
-    record_fqdn: app.example.com
-    record_type: A
-    ttl: 60
-    primary_targets:
-    - 203.0.113.10
-    secondary_targets:
-    - 198.51.100.20
-    desired: primary
-    dry_run: true
-    dns_apply: false
-- id: decision_service
-  module_ref: platform/network/decision-service
-  action: deploy
-  phase: operations
-  with_deps: true
-  skip_if_state_ok: false
-  requires:
-  - edge_observability
-  - dns_routing_intent
-  contracts:
-    addressing_mode: static
-  inputs:
-    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-    inventory_vm_groups:
-      edge_control:
-      - control-01
-    target_user: opsadmin
-    thanos_query_url: http://127.0.0.1:10902
-    policy:
-      version: v1
-      mode: PRIMARY
-      signals:
-        primary_up_query: vector(1)
-        error_rate_query: vector(0.0)
-      thresholds:
-        primary_up_min: 1
-        error_rate_ratio: 0.02
-    actions:
-      cutover_module_ref: platform/network/dns-routing
-      failback_module_ref: platform/network/dns-routing
-      cutover_desired: secondary
-      failback_desired: primary
-      module_inputs:
-        provider: manual-command
-        zone: example.com
-        record_fqdn: app.example.com
-        record_type: A
-        ttl: 60
-        primary_targets:
-        - 203.0.113.10
-        secondary_targets:
-        - 198.51.100.20
-        dry_run: true
-        dns_apply: false
-        inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-        inventory_vm_groups:
-          edge_control:
+  - id: vyos_artifact_build
+    module_ref: core/shared/vyos-image-build
+    state_instance: vyos_default_build
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    inputs:
+      inventory_state_ref: platform/onprem/platform-vm#onprem_ops_runner
+      inventory_vm_groups:
+        runner:
+          - runner-01
+      target_user: opsadmin
+      target_port: 22
+      become: true
+      connectivity_check: true
+      artifact_key: vyos-1.5
+      artifact_format: qcow2
+      artifact_version: 2026.03.03-0027-rolling-r3
+      source_iso_url: https://github.com/vyos/vyos-nightly-build/releases/download/2026.03.03-0027-rolling/vyos-2026.03.03-0027-rolling-generic-amd64.iso
+      artifact_url: ''
+      artifact_local_path: /tmp/hyops-vyos-build/vyos-1.5.qcow2
+      repo_state_ref: org/gcp/object-repo#vyos_artifacts
+      required_env:
+        - HYOPS_VYOS_GCS_SA_JSON
+      build_command: /opt/hybridops/core/app/tools/build/vyos/build-vyos-qcow2.sh
+      build_workdir: /tmp/hyops-vyos-build
+      smoke_verify_required: true
+      publish_command: /opt/hybridops/core/app/tools/build/vyos/publish-vyos-artifact.sh
+      rebuild_if_exists: true
+      allow_iso_build: true
+  - id: vyos_image
+    module_ref: core/hetzner/vyos-image-seed
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    requires:
+      - vyos_artifact_build
+    inputs:
+      artifact_state_ref: core/shared/vyos-image-build#vyos_default_build
+      artifact_key: vyos-1.5
+      image_key: vyos-1.5
+      image_ref: ''
+      image_version: ''
+      image_description: ''
+      image_source_url: ''
+      seed_wrapper_public_base_url: ''
+      seed_if_missing: true
+      seed_tool: hcloud-upload-image
+  - id: hetzner_shared_network
+    module_ref: org/hetzner/shared-private-network
+    state_instance: shared_network
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: static
+    inputs:
+      name_prefix: platform
+      context_id: dev
+      network_zone: eu-central
+      private_network_name: net-hyops-edge
+      private_network_cidr: 10.80.0.0/24
+  - id: hetzner_edge_foundation
+    module_ref: org/hetzner/vyos-edge-foundation
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    requires:
+      - vyos_image
+      - hetzner_shared_network
+    contracts:
+      addressing_mode: static
+    inputs:
+      name_prefix: ''
+      context_id: ''
+      foundation_state_ref: org/hetzner/shared-private-network#shared_network
+      image_state_ref: core/hetzner/vyos-image-seed
+      image_key: vyos-1.5
+      network_zone: eu-central
+      edge01_name: edge-a
+      edge02_name: edge-b
+      ssh_key_name: hyops-vyos-edge-r3
+      ssh_public_key: ''
+      firewall_name: fw-hyops-vyos-edge
+      floating_ip_name: fip-hyops-vyos-edge
+      private_network_name: net-hyops-edge
+      private_network_cidr: 10.80.0.0/24
+      edge01_private_ip: 10.80.0.11
+      edge02_private_ip: 10.80.0.12
+      assign_floating_to: edge01
+  - id: gcp_wan_hub_network
+    module_ref: org/gcp/wan-hub-network
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: static
+    inputs:
+      name_prefix: platform
+      context_id: dev
+      project_state_ref: org/gcp/project-factory
+      region: europe-west2
+      network_name: hub
+      routing_mode: GLOBAL
+      subnet_core_name: core
+      subnet_core_cidr: 10.72.0.0/20
+      subnet_workloads_name: workloads
+      subnet_workloads_cidr: 10.72.16.0/20
+      enable_workloads_gke_secondary_ranges: true
+      subnet_workloads_pods_secondary_range_name: gke-pods
+      subnet_workloads_pods_secondary_range_cidr: 10.74.0.0/18
+      subnet_workloads_services_secondary_range_name: gke-services
+      subnet_workloads_services_secondary_range_cidr: 10.74.64.0/22
+      enable_iap_ssh: true
+      internal_allow_cidrs:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+  - id: gcp_wan_cloud_router
+    module_ref: org/gcp/wan-cloud-router
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    requires:
+      - gcp_wan_hub_network
+    contracts:
+      addressing_mode: static
+    inputs:
+      name_prefix: platform
+      context_id: dev
+      router_name: hub-router-europe-west2
+      bgp_asn: 64514
+  - id: gcp_wan_vpn_to_edge
+    module_ref: org/gcp/wan-vpn-to-edge
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - hetzner_edge_foundation
+      - gcp_wan_hub_network
+      - gcp_wan_cloud_router
+    contracts:
+      addressing_mode: static
+    inputs:
+      name_prefix: platform
+      context_id: dev
+      ha_vpn_gateway_name: hub-havpn-europe-west2
+      external_vpn_gateway_name: edge-extgw
+      peer_asn: 65010
+      tunnel_a_inside_cidr: 169.254.10.0/30
+      tunnel_b_inside_cidr: 169.254.10.4/30
+      advertised_prefixes:
+        - 10.70.0.0/20
+      advertised_route_priority: 100
+      required_env:
+        - WAN_IPSEC_PSK
+      shared_secret_a_env: WAN_IPSEC_PSK
+      shared_secret_b_env: WAN_IPSEC_PSK
+  - id: shared_control_host
+    module_ref: org/hetzner/shared-control-host
+    state_instance: edge_control_host
+    action: deploy
+    phase: bootstrap
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    requires:
+      - hetzner_shared_network
+    contracts:
+      addressing_mode: static
+    inputs:
+      foundation_state_ref: org/hetzner/shared-private-network#shared_network
+      name_prefix: platform
+      context_id: dev
+      location: ash
+      server_type: cpx21
+      image: ubuntu-24.04
+      host_name: control-01
+      private_ip: 10.80.0.20
+      ssh_username: opsadmin
+      ssh_keys_from_init: true
+      public_ipv6_enabled: false
+      firewall_name: fw-shared-control
+      ssh_source_cidrs:
+        - 0.0.0.0/0
+  - id: vyos_edge_day2
+    module_ref: platform/network/vyos-edge-wan
+    action: deploy
+    phase: operations
+    with_deps: true
+    requires:
+      - gcp_wan_vpn_to_edge
+      - shared_control_host
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        edge_control:
           - control-01
-    dry_run: true
-    decision_enable_actions: false
-- id: decision_dispatcher
-  module_ref: platform/network/decision-dispatcher
-  action: deploy
-  phase: operations
-  with_deps: true
-  skip_if_state_ok: false
-  requires:
-  - decision_service
-  contracts:
-    addressing_mode: static
-  inputs:
-    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-    inventory_vm_groups:
-      edge_control:
-      - control-01
-    target_user: opsadmin
-    dispatcher_execution_mode: record-only
-    dispatcher_require_approval: true
-    dispatcher_routes:
-      cutover:
-        target_kind: blueprint
-        target_ref: dr/postgresql-ha-failover-gcp@v1
-        target_env: dev
-        execution_plane: runner-local
-        requires_approval: true
-      failback:
-        target_kind: blueprint
-        target_ref: dr/postgresql-ha-failback-onprem@v1
-        target_env: dev
-        execution_plane: runner-local
-        requires_approval: true
-- id: decision_consumer
-  module_ref: platform/network/decision-consumer
-  action: deploy
-  phase: operations
-  with_deps: true
-  skip_if_state_ok: false
-  requires:
-  - decision_dispatcher
-  contracts:
-    addressing_mode: static
-  inputs:
-    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-    inventory_vm_groups:
-      edge_control:
-      - control-01
-    target_user: opsadmin
-    consumer_execution_mode: approval-only
-    consumer_require_approval: true
-    consumer_poll_seconds: 5
-- id: decision_executor
-  module_ref: platform/network/decision-executor
-  action: deploy
-  phase: operations
-  with_deps: true
-  skip_if_state_ok: false
-  requires:
-  - decision_consumer
-  contracts:
-    addressing_mode: static
-  inputs:
-    inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-    inventory_vm_groups:
-      edge_control:
-      - control-01
-    target_user: opsadmin
-    executor_execution_mode: dry-run
-    executor_poll_seconds: 5
+      target_user: opsadmin
+      required_env:
+        - WAN_IPSEC_PSK
+        - WAN_EDGE_SSH_PRIVATE_KEY
+      local_asn: 65010
+      peer_asn: 64514
+      advertise_prefixes: []
+      import_allow_prefixes:
+        - 10.70.0.0/20
+        - 10.70.16.0/20
+  - id: edge_observability
+    module_ref: platform/network/edge-observability
+    action: deploy
+    phase: operations
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - shared_control_host
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        edge:
+          - control-01
+      target_user: opsadmin
+      required_env:
+        - EDGE_OBS_GRAFANA_ADMIN_PASSWORD
+      edge_obs_enable_receive: false
+      edge_obs_enable_store_gateway: false
+      edge_obs_enable_ruler: false
+      edge_obs_hashring_endpoints:
+        - control-01.internal:10907
+  - id: dns_routing_intent
+    module_ref: platform/network/dns-routing
+    action: deploy
+    phase: operations
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - shared_control_host
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        edge_control:
+          - control-01
+      target_user: opsadmin
+      provider: manual-command
+      zone: example.com
+      record_fqdn: app.example.com
+      record_type: A
+      ttl: 60
+      primary_targets:
+        - 203.0.113.10
+      secondary_targets:
+        - 198.51.100.20
+      desired: primary
+      dry_run: true
+      dns_apply: false
+  - id: decision_service
+    module_ref: platform/network/decision-service
+    action: deploy
+    phase: operations
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - edge_observability
+      - dns_routing_intent
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        edge_control:
+          - control-01
+      target_user: opsadmin
+      thanos_query_url: http://127.0.0.1:10902
+      policy:
+        version: v1
+        mode: PRIMARY
+        signals:
+          primary_up_query: vector(1)
+          error_rate_query: vector(0.0)
+        thresholds:
+          primary_up_min: 1
+          error_rate_ratio: 0.02
+      actions:
+        cutover_module_ref: platform/network/dns-routing
+        failback_module_ref: platform/network/dns-routing
+        cutover_desired: secondary
+        failback_desired: primary
+        module_inputs:
+          provider: manual-command
+          zone: example.com
+          record_fqdn: app.example.com
+          record_type: A
+          ttl: 60
+          primary_targets:
+            - 203.0.113.10
+          secondary_targets:
+            - 198.51.100.20
+          dry_run: true
+          dns_apply: false
+          inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+          inventory_vm_groups:
+            edge_control:
+              - control-01
+      dry_run: true
+      decision_enable_actions: false
+  - id: decision_dispatcher
+    module_ref: platform/network/decision-dispatcher
+    action: deploy
+    phase: operations
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - decision_service
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        edge_control:
+          - control-01
+      target_user: opsadmin
+      dispatcher_execution_mode: record-only
+      dispatcher_require_approval: true
+      dispatcher_routes:
+        cutover:
+          target_kind: blueprint
+          target_ref: dr/postgresql-ha-failover-gcp@v1
+          target_env: dev
+          execution_plane: runner-local
+          requires_approval: true
+        failback:
+          target_kind: blueprint
+          target_ref: dr/postgresql-ha-failback-onprem@v1
+          target_env: dev
+          execution_plane: runner-local
+          requires_approval: true
+  - id: decision_consumer
+    module_ref: platform/network/decision-consumer
+    action: deploy
+    phase: operations
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - decision_dispatcher
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        edge_control:
+          - control-01
+      target_user: opsadmin
+      consumer_execution_mode: approval-only
+      consumer_require_approval: true
+      consumer_poll_seconds: 5
+  - id: decision_executor
+    module_ref: platform/network/decision-executor
+    action: deploy
+    phase: operations
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - decision_consumer
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        edge_control:
+          - control-01
+      target_user: opsadmin
+      executor_execution_mode: dry-run
+      executor_poll_seconds: 5

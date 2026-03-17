@@ -10,27 +10,27 @@ policy:
     credential_contracts:
       hetzner:
         required_tfvars:
-        - hcloud_token
+          - hcloud_token
 terragrunt:
   bin: terragrunt
   terraform_bin: terraform
   init_args:
-  - init
-  - -no-color
+    - init
+    - -no-color
   apply_args:
-  - apply
-  - -auto-approve
-  - -input=false
-  - -no-color
+    - apply
+    - -auto-approve
+    - -input=false
+    - -no-color
   output_args:
-  - output
-  - -json
-  - -no-color
+    - output
+    - -json
+    - -no-color
 templates:
-- src: hetzner/root.hcl.tmpl
-  dst: root.hcl
-- src: hetzner/hetzner.locals.hcl.tmpl
-  dst: hetzner.locals.hcl
+  - src: hetzner/root.hcl.tmpl
+    dst: root.hcl
+  - src: hetzner/hetzner.locals.hcl.tmpl
+    dst: hetzner.locals.hcl
 env:
   TFC_HOST: app.terraform.io
   TFC_ORG: hybridops-tech
@@ -44,8 +44,8 @@ workspace_policy:
 hooks:
   export_infra:
     command:
-    - hyops
-    - inventory
-    - export-infra
-    - --target
-    - '{target}'
+      - hyops
+      - inventory
+      - export-infra
+      - --target
+      - '{target}'

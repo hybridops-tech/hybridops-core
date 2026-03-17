@@ -3,7 +3,7 @@
 # On-demand backup entrypoint.
 # Assumes pgBackRest is already configured on the cluster.
 
-- name: platform/postgresql-ha-backup (run full backup on primary)
+- name: Platform/postgresql-ha-backup (run full backup on primary)
   hosts: postgres_cluster
   become: true
   gather_facts: false
@@ -20,12 +20,14 @@
       changed_when: false
 
     - name: Detect primary via pg_is_in_recovery()
+      become: true
       become_user: postgres
       ansible.builtin.command: "psql -tAXc 'select pg_is_in_recovery()'"
       register: _hyops_recovery
       changed_when: false
 
     - name: Probe or initialize pgBackRest stanza (primary only)
+      become: true
       become_user: postgres
       ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} stanza-create"
       register: _hyops_stanza_probe
@@ -62,6 +64,7 @@
         - repo_mismatch_action != 'reset'
 
     - name: Reset stale pgBackRest stanza metadata (repo1, opt-in)
+      become: true
       become_user: postgres
       ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} --repo=1 stanza-delete --force"
       register: _hyops_pgbackrest_repo1_reset
@@ -73,6 +76,7 @@
         - repo_mismatch_action == 'reset'
 
     - name: Re-create pgBackRest stanza after reset (repo1, opt-in)
+      become: true
       become_user: postgres
       ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} stanza-create"
       register: _hyops_pgbackrest_repo1_recreate
@@ -83,6 +87,7 @@
         - repo_mismatch_action == 'reset'
 
     - name: Run pgBackRest check (primary only)
+      become: true
       become_user: postgres
       ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} check"
       register: _hyops_check
@@ -90,6 +95,7 @@
       when: (_hyops_recovery.stdout | default('') | trim) == 'f'
 
     - name: Run pgBackRest full backup (primary only)
+      become: true
       become_user: postgres
       ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} --repo=1 --type=full backup"
       register: _hyops_backup
@@ -97,6 +103,7 @@
       when: (_hyops_recovery.stdout | default('') | trim) == 'f'
 
     - name: Run pgBackRest full backup (secondary repo2, primary only)
+      become: true
       become_user: postgres
       ansible.builtin.command: "pgbackrest --stanza={{ patroni_cluster_name }} --repo=2 --type=full backup"
       register: _hyops_backup_secondary
@@ -106,6 +113,7 @@
         - secondary_enabled | default(false) | bool
 
     - name: Collect latest pgBackRest backup metadata (repo1, primary only)
+      become: true
       become_user: postgres
       ansible.builtin.shell: |
         set -euo pipefail
@@ -150,7 +158,7 @@
       changed_when: false
       when: (_hyops_recovery.stdout | default('') | trim) == 'f'
 
-- name: platform/postgresql-ha-backup (publish outputs)
+- name: Platform/postgresql-ha-backup (publish outputs)
   hosts: localhost
   become: false
   gather_facts: false

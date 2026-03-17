@@ -1,0 +1,62 @@
+---
+- name: platform/network/decision-executor (configure)
+  hosts: edge_control
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    executor_role_fqcn: "{{ executor_role_fqcn | default('hybridops.common.decision_executor') }}"
+    _hyops_input_executor_state: "{{ executor_state | default('present') }}"
+    _hyops_input_executor_execution_records_dir: "{{ executor_execution_records_dir | default('/opt/hybridops/decision-consumer/state/executions') }}"
+    _hyops_input_executor_execution_mode: "{{ executor_execution_mode | default('dry-run') }}"
+    _hyops_input_executor_poll_seconds: "{{ executor_poll_seconds | default(15) | int }}"
+    _hyops_input_executor_log_level: "{{ executor_log_level | default('INFO') }}"
+
+  tasks:
+    - name: Run decision executor role
+      ansible.builtin.include_role:
+        name: "{{ executor_role_fqcn }}"
+      vars:
+        executor_state: "{{ _hyops_input_executor_state }}"
+        executor_execution_records_dir: "{{ _hyops_input_executor_execution_records_dir }}"
+        executor_execution_mode: "{{ _hyops_input_executor_execution_mode }}"
+        executor_poll_seconds: "{{ _hyops_input_executor_poll_seconds }}"
+        executor_log_level: "{{ _hyops_input_executor_log_level }}"
+
+    - name: Wait for executor state file
+      ansible.builtin.wait_for:
+        path: "/opt/hybridops/decision-executor/state/state.json"
+        state: present
+        timeout: 30
+      register: __executor_state_wait
+
+    - name: Read executor state
+      ansible.builtin.slurp:
+        path: "/opt/hybridops/decision-executor/state/state.json"
+      register: __executor_state_raw
+      when: __executor_state_wait is succeeded
+
+    - name: Normalize executor state
+      ansible.builtin.set_fact:
+        __executor_state_payload: >-
+          {{
+            ((__executor_state_raw.content | b64decode) | from_json)
+            if (__executor_state_raw is defined and __executor_state_raw.content is defined)
+            else {}
+          }}
+
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'decision_executor.status': 'ready',
+            'decision_executor.last_tick': (__executor_state_payload.timestamp_utc | default('')),
+            'decision_executor.last_execution_id': (__executor_state_payload.last_execution_id | default('')),
+            'decision_executor.last_attempt_id': (__executor_state_payload.last_attempt_id | default('')),
+            'decision_executor.execution_mode': (__executor_state_payload.execution_mode | default(executor_execution_mode | default('dry-run'))),
+            'cap.control.decision_executor': 'ready'
+          } | to_json }}

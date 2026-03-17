@@ -266,6 +266,7 @@
       when:
         - (_hyops_target_table_count_int | int) > 0
         - target_replace_confirm | bool
+      changed_when: true
       no_log: true
 
     - name: Create NetBox DB dump from source
@@ -286,6 +287,7 @@
           - "{{ source_db_name }}"
       environment:
         PGPASSWORD: "{{ lookup('env', source_db_password_env) }}"
+      changed_when: true
       no_log: true
 
     - name: Compute dump artifact sha256
@@ -322,6 +324,7 @@
           - "{{ dump_file }}"
       environment:
         PGPASSWORD: "{{ lookup('env', target_db_password_env) }}"
+      changed_when: true
       no_log: true
 
     - name: Collect target NetBox DB counts (post-migration)
@@ -384,6 +387,7 @@
         argv: [docker, compose, -p, "{{ netbox_compose_project }}", up, -d]
       args:
         chdir: "{{ netbox_compose_dir }}"
+      changed_when: true
       when: start_netbox_after_migration | bool
 
   post_tasks:

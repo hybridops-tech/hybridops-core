@@ -4,17 +4,14 @@
   any_errors_fatal: true
   become: false
   gather_facts: true
-  collections:
-    - hybridops.common
 
   vars:
     vyos_wan_role_fqcn: "{{ vyos_wan_role_fqcn | default('hybridops.common.vyos_edge_wan') }}"
-    vyos_wan_role_name: "{{ vyos_wan_role_fqcn | regex_replace('^hybridops\\.common\\.', '') }}"
 
   tasks:
     - name: Run VyOS edge WAN role
       ansible.builtin.include_role:
-        name: "{{ vyos_wan_role_name }}"
+        name: "{{ vyos_wan_role_fqcn }}"
 
   post_tasks:
     - name: Write HyOps outputs

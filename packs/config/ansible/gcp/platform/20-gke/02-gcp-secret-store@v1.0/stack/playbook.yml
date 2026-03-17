@@ -332,15 +332,20 @@
       changed_when: false
 
     - name: Apply GKE service account manifest
-      ansible.builtin.shell:
-        cmd: |
-          cat <<'EOF' | {{ kubectl_bin }} --kubeconfig {{ _hyops_kubeconfig_path }} apply -f -
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - apply
+          - -f
+          - "-"
+        stdin: |
           apiVersion: v1
           kind: ServiceAccount
           metadata:
             name: {{ service_account_name }}
             namespace: {{ service_account_namespace }}
-          EOF
       register: _hyops_service_account_apply
       changed_when: >-
         (_hyops_service_account_apply.stdout is defined and (
@@ -365,9 +370,15 @@
         ))
 
     - name: Apply ClusterSecretStore manifest
-      ansible.builtin.shell:
-        cmd: |
-          cat <<'EOF' | {{ kubectl_bin }} --kubeconfig {{ _hyops_kubeconfig_path }} apply -f -
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - apply
+          - -f
+          - "-"
+        stdin: |
           apiVersion: external-secrets.io/v1
           kind: ClusterSecretStore
           metadata:
@@ -384,7 +395,6 @@
                     serviceAccountRef:
                       name: {{ service_account_name }}
                       namespace: {{ service_account_namespace }}
-          EOF
       register: _hyops_secret_store_apply
       changed_when: >-
         (_hyops_secret_store_apply.stdout is defined and (

@@ -1,10 +1,10 @@
 ---
-- name: restart apache2
-  systemd:
+- name: Restart Apache2
+  ansible.builtin.systemd:
     name: apache2
     state: restarted
 
-- name: restart sshd
-  systemd:
+- name: Restart sshd
+  ansible.builtin.systemd:
     name: sshd
     state: restarted

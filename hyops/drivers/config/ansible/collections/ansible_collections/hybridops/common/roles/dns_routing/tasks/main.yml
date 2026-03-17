@@ -1,6 +1,6 @@
 ---
 # purpose: Publish DNS routing intent and optional manual execution
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Preflight | assert state value
   ansible.builtin.assert:
@@ -59,23 +59,40 @@
 
 - name: Build PowerDNS record list
   ansible.builtin.set_fact:
-    _powerdns_records_effective: "{{ (_powerdns_records_effective | default([])) + [ {'content': (item | string), 'disabled': false} ] }}"
+    _powerdns_records_effective: "{{ (_powerdns_records_effective | default([])) + [{'content': (item | string), 'disabled': false}] }}"
   loop: "{{ _dns_targets_effective | default([]) }}"
   when: dns_state == "present"
   changed_when: false
 
 - name: Normalize PowerDNS CNAME targets
   ansible.builtin.set_fact:
-    _powerdns_records_effective: >-
+    _powerdns_records_cname_effective: []
+  when:
+    - dns_state == "present"
+    - (record_type | upper) == "CNAME"
+  changed_when: false
+
+- name: Build normalized PowerDNS CNAME record list
+  ansible.builtin.set_fact:
+    _powerdns_records_cname_effective: >-
       {{
-        [
-          {
-            'content': ((item.content | string).endswith('.') | ternary((item.content | string), ((item.content | string) ~ '.'))),
-            'disabled': false
-          }
-          for item in (_powerdns_records_effective | default([]))
-        ]
+        (_powerdns_records_cname_effective | default([]))
+        + [
+            {
+              'content': ((item.content | string).endswith('.') | ternary((item.content | string), ((item.content | string) ~ '.'))),
+              'disabled': false
+            }
+          ]
       }}
+  loop: "{{ _powerdns_records_effective | default([]) }}"
+  when:
+    - dns_state == "present"
+    - (record_type | upper) == "CNAME"
+  changed_when: false
+
+- name: Replace PowerDNS records with normalized CNAME targets
+  ansible.builtin.set_fact:
+    _powerdns_records_effective: "{{ _powerdns_records_cname_effective | default([]) }}"
   when:
     - dns_state == "present"
     - (record_type | upper) == "CNAME"

@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/postgresql-dr-source (assess source leader)
+- name: Platform/onprem/postgresql-dr-source (assess source leader)
   hosts: master
   become: true
   gather_facts: false
@@ -36,6 +36,7 @@
 
   tasks:
     - name: Collect source PostgreSQL posture from leader
+      become: true
       ansible.builtin.command:
         argv:
           - psql
@@ -132,7 +133,7 @@
           Reconcile the upstream platform/postgresql-ha lane with pglogical enabled before rerunning managed standby.
       when: (dr_mode | string | lower) == 'managed-cloudsql'
 
-- name: platform/onprem/postgresql-dr-source (publish outputs)
+- name: Platform/onprem/postgresql-dr-source (publish outputs)
   hosts: localhost
   gather_facts: false
 

@@ -1,2 +1,3 @@
 ---
-- import_playbook: playbook.establish.yml
+- name: Org/gcp/cloudsql-external-replica status wrapper
+  import_playbook: ./playbook.establish.yml

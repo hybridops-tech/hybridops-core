@@ -1,7 +1,7 @@
 ---
 # purpose: Preflight checks for NetBox deployment (runtime availability, dependency reachability, and port conflicts)
 # adr: ADR-0002, ADR-0501, ADR-0502
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Require docker CLI
   ansible.builtin.command: docker --version
@@ -14,6 +14,9 @@
   changed_when: false
 
 - name: Preflight - DB TCP reachable (required)
+  when:
+    - netbox_require_db | bool
+    - not netbox_smoke_only | bool
   block:
     - name: Wait for PostgreSQL to be reachable
       ansible.builtin.wait_for:
@@ -25,9 +28,6 @@
     - name: Fail fast when DB is required but unreachable
       ansible.builtin.fail:
         msg: "NetBox requires PostgreSQL but {{ netbox_db_host }}:{{ netbox_db_port }} is not reachable."
-  when:
-    - netbox_require_db | bool
-    - not netbox_smoke_only | bool
 
 - name: Preflight - detect local HTTP port conflicts
   ansible.builtin.command: >-

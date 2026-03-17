@@ -74,6 +74,7 @@
 
 - name: Check for running lab nodes
   ansible.builtin.shell: |
+    set -o pipefail
     ps aux | grep -E 'qemu|dynamips' | grep -v grep | wc -l
   args:
     executable: /bin/bash
@@ -136,6 +137,7 @@
 
 - name: Check for zombie processes
   ansible.builtin.shell: |
+    set -o pipefail
     ps aux | grep -E 'qemu|dynamips' | grep -v grep | awk '{if ($8 == "Z") print $0}' | wc -l
   args:
     executable: /bin/bash

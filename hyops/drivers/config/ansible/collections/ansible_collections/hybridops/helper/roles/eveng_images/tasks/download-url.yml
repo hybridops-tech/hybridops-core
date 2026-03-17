@@ -68,6 +68,7 @@
 
     - name: Install MEGAcmd
       ansible.builtin.command: gdebi -n /tmp/megacmd.deb
+      changed_when: true
       when: megacmd_check.rc != 0
 
     - name: Remove MEGAcmd package
@@ -155,6 +156,8 @@
   loop: "{{ eveng_images_list }}"
   loop_control:
     label: "{{ item.name | default(item.url) }}"
+  register: mega_download_result
+  changed_when: "'already exists. Skipping.' not in (mega_download_result.stdout | default(''))"
   when: "'mega.nz' in (item.url | default(''))"
 
 - name: Download from non-MEGA URLs
@@ -199,6 +202,8 @@
   loop: "{{ eveng_images_list }}"
   loop_control:
     label: "{{ item.name | default(item.url) }}"
+  register: http_download_result
+  changed_when: "'already exists. Skipping.' not in (http_download_result.stdout | default(''))"
   when: "'mega.nz' not in (item.url | default(''))"
 
 - name: Discover downloaded files

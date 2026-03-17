@@ -1,38 +1,59 @@
 ---
-- name: platform/linux/eve-ng-images (configure)
+- name: Platform/linux/eve-ng-images (configure)
   hosts: targets
   become: true
   gather_facts: true
-  collections:
-    - hybridops.helper
 
   vars:
     eveng_images_role_fqcn: "{{ eveng_images_role_fqcn | default('hybridops.helper.eveng_images') }}"
-    eveng_images_role_name: "{{ eveng_images_role_fqcn | regex_replace('^hybridops\\.helper\\.', '') }}"
+    _hyops_input_eveng_images_source: "{{ vars.get('eveng_images_source', 'url') | string }}"
+    _hyops_input_eveng_images_download: "{{ vars.get('eveng_images_download', true) | bool }}"
+    _hyops_input_eveng_images_install: "{{ vars.get('eveng_images_install', true) | bool }}"
+    _hyops_input_eveng_images_cache_dir: "{{ vars.get('eveng_images_cache_dir', '/tmp/eveng_images_cache') | string }}"
+    _hyops_input_eveng_images_keep_cache: "{{ vars.get('eveng_images_keep_cache', false) | bool }}"
+    _hyops_input_eveng_images_raw_qemu_layout: "{{ vars.get('eveng_images_raw_qemu_layout', 'foldered') | string }}"
+    _hyops_input_eveng_images_raw_qemu_disk_name: "{{ vars.get('eveng_images_raw_qemu_disk_name', 'virtioa.qcow2') | string }}"
+    _hyops_input_eveng_images_fail_on_corrupt: "{{ vars.get('eveng_images_fail_on_corrupt', true) | bool }}"
+    _hyops_input_eveng_images_logging_enabled: "{{ vars.get('eveng_images_logging_enabled', false) | bool }}"
+    _hyops_input_eveng_images_log_dir_controller: "{{ vars.get('eveng_images_log_dir_controller', playbook_dir ~ '/var/log/hybridops/eveng-images') | string }}"
+    _hyops_input_eveng_images_download_log: >-
+      {{
+        vars.get(
+          'eveng_images_download_log',
+          _hyops_input_eveng_images_log_dir_controller ~ '/downloads-' ~ inventory_hostname ~ '.log'
+        ) | string
+      }}
+    _hyops_input_eveng_images_generate_report: "{{ vars.get('eveng_images_generate_report', false) | bool }}"
+    _hyops_input_eveng_images_report_dir_controller: "{{ vars.get('eveng_images_report_dir_controller', playbook_dir ~ '/var/lib/hybridops/reports/eveng-images') | string }}"
+    _hyops_input_eveng_images_debug: "{{ vars.get('eveng_images_debug', false) | bool }}"
+    _hyops_input_eveng_images_list: "{{ vars.get('eveng_images_list', []) }}"
+    _hyops_input_eveng_images_local_path: "{{ vars.get('eveng_images_local_path', '') | default('', true) | string }}"
+    _hyops_input_eveng_images_remote_host: "{{ vars.get('eveng_images_remote_host', '') | default('', true) | string }}"
+    _hyops_input_eveng_images_remote_path: "{{ vars.get('eveng_images_remote_path', '') | default('', true) | string }}"
 
   tasks:
     - name: Install EVE-NG images
       ansible.builtin.include_role:
-        name: "{{ eveng_images_role_name }}"
+        name: "{{ eveng_images_role_fqcn }}"
       vars:
-        eveng_images_source: "{{ eveng_images_source | default('url') }}"
-        eveng_images_download: "{{ eveng_images_download | default(true) | bool }}"
-        eveng_images_install: "{{ eveng_images_install | default(true) | bool }}"
-        eveng_images_cache_dir: "{{ eveng_images_cache_dir | default('/tmp/eveng_images_cache') }}"
-        eveng_images_keep_cache: "{{ eveng_images_keep_cache | default(false) | bool }}"
-        eveng_images_raw_qemu_layout: "{{ eveng_images_raw_qemu_layout | default('foldered') }}"
-        eveng_images_raw_qemu_disk_name: "{{ eveng_images_raw_qemu_disk_name | default('virtioa.qcow2') }}"
-        eveng_images_fail_on_corrupt: "{{ eveng_images_fail_on_corrupt | default(true) | bool }}"
-        eveng_images_logging_enabled: "{{ eveng_images_logging_enabled | default(false) | bool }}"
-        eveng_images_log_dir_controller: "{{ eveng_images_log_dir_controller | default(playbook_dir ~ '/var/log/hybridops/eveng-images') }}"
-        eveng_images_download_log: "{{ eveng_images_download_log | default((eveng_images_log_dir_controller | default(playbook_dir ~ '/var/log/hybridops/eveng-images')) ~ '/downloads-' ~ inventory_hostname ~ '.log') }}"
-        eveng_images_generate_report: "{{ eveng_images_generate_report | default(false) | bool }}"
-        eveng_images_report_dir_controller: "{{ eveng_images_report_dir_controller | default(playbook_dir ~ '/var/lib/hybridops/reports/eveng-images') }}"
-        eveng_images_debug: "{{ eveng_images_debug | default(false) | bool }}"
-        eveng_images_list: "{{ eveng_images_list | default([]) }}"
-        eveng_images_local_path: "{{ eveng_images_local_path | default('') }}"
-        eveng_images_remote_host: "{{ eveng_images_remote_host | default('') }}"
-        eveng_images_remote_path: "{{ eveng_images_remote_path | default('') }}"
+        eveng_images_source: "{{ _hyops_input_eveng_images_source }}"
+        eveng_images_download: "{{ _hyops_input_eveng_images_download }}"
+        eveng_images_install: "{{ _hyops_input_eveng_images_install }}"
+        eveng_images_cache_dir: "{{ _hyops_input_eveng_images_cache_dir }}"
+        eveng_images_keep_cache: "{{ _hyops_input_eveng_images_keep_cache }}"
+        eveng_images_raw_qemu_layout: "{{ _hyops_input_eveng_images_raw_qemu_layout }}"
+        eveng_images_raw_qemu_disk_name: "{{ _hyops_input_eveng_images_raw_qemu_disk_name }}"
+        eveng_images_fail_on_corrupt: "{{ _hyops_input_eveng_images_fail_on_corrupt }}"
+        eveng_images_logging_enabled: "{{ _hyops_input_eveng_images_logging_enabled }}"
+        eveng_images_log_dir_controller: "{{ _hyops_input_eveng_images_log_dir_controller }}"
+        eveng_images_download_log: "{{ _hyops_input_eveng_images_download_log }}"
+        eveng_images_generate_report: "{{ _hyops_input_eveng_images_generate_report }}"
+        eveng_images_report_dir_controller: "{{ _hyops_input_eveng_images_report_dir_controller }}"
+        eveng_images_debug: "{{ _hyops_input_eveng_images_debug }}"
+        eveng_images_list: "{{ _hyops_input_eveng_images_list }}"
+        eveng_images_local_path: "{{ _hyops_input_eveng_images_local_path }}"
+        eveng_images_remote_host: "{{ _hyops_input_eveng_images_remote_host }}"
+        eveng_images_remote_path: "{{ _hyops_input_eveng_images_remote_path }}"
 
   post_tasks:
     - name: Write HyOps outputs

@@ -1,64 +1,110 @@
 ---
-- name: org/gcp/cloudsql-external-replica (establish or status)
+- name: Org/gcp/cloudsql-external-replica (establish or status)
   hosts: localhost
   connection: local
   gather_facts: false
 
   vars:
-    apply_mode: "{{ apply_mode | default('establish') }}"
-    replication_mode: "{{ replication_mode | default('logical') }}"
-    source_contract_version: "{{ source_contract_version | default(1) | int }}"
-    source_host: "{{ source_host | default('') }}"
-    source_port: "{{ source_port | default(5432) | int }}"
-    source_db_name: "{{ source_db_name | default('') }}"
-    source_leader_name: "{{ source_leader_name | default('') }}"
-    source_replication_candidate: "{{ source_replication_candidate | default(false) | bool }}"
-    source_replication_user: "{{ source_replication_user | default('') }}"
-    source_replication_password_env: "{{ source_replication_password_env | default('PATRONI_REPLICATION_PASSWORD') }}"
-    source_ssl_type: "{{ source_ssl_type | default('NONE') }}"
-    source_ca_certificate_env: "{{ source_ca_certificate_env | default('') }}"
-    source_client_certificate_env: "{{ source_client_certificate_env | default('') }}"
-    source_private_key_env: "{{ source_private_key_env | default('') }}"
+    _hyops_input_apply_mode: "{{ vars.get('apply_mode', 'establish') | string }}"
+    _hyops_input_replication_mode: "{{ vars.get('replication_mode', 'logical') | string }}"
+    _hyops_input_source_contract_version: "{{ vars.get('source_contract_version', 1) | int }}"
+    _hyops_input_source_host: "{{ vars.get('source_host', '') | default('', true) | string }}"
+    _hyops_input_source_port: "{{ vars.get('source_port', 5432) | int }}"
+    _hyops_input_source_db_name: "{{ vars.get('source_db_name', '') | default('', true) | string }}"
+    _hyops_input_source_leader_name: "{{ vars.get('source_leader_name', '') | default('', true) | string }}"
+    _hyops_input_source_replication_candidate: "{{ vars.get('source_replication_candidate', false) | bool }}"
+    _hyops_input_source_replication_user: "{{ vars.get('source_replication_user', '') | default('', true) | string }}"
+    _hyops_input_source_replication_password_env: "{{ vars.get('source_replication_password_env', 'PATRONI_REPLICATION_PASSWORD') | string }}"
+    _hyops_input_source_ssl_type: "{{ vars.get('source_ssl_type', 'NONE') | string }}"
+    _hyops_input_source_ca_certificate_env: "{{ vars.get('source_ca_certificate_env', '') | default('', true) | string }}"
+    _hyops_input_source_client_certificate_env: "{{ vars.get('source_client_certificate_env', '') | default('', true) | string }}"
+    _hyops_input_source_private_key_env: "{{ vars.get('source_private_key_env', '') | default('', true) | string }}"
 
-    project_id: "{{ project_id | default('') }}"
-    region: "{{ region | default('') }}"
-    private_network: "{{ private_network | default('') }}"
+    _hyops_input_project_id: "{{ vars.get('project_id', '') | default('', true) | string }}"
+    _hyops_input_region: "{{ vars.get('region', '') | default('', true) | string }}"
+    _hyops_input_private_network: "{{ vars.get('private_network', '') | default('', true) | string }}"
 
-    source_connection_profile_name: "{{ source_connection_profile_name | default('') }}"
-    destination_connection_profile_name: "{{ destination_connection_profile_name | default('') }}"
-    migration_job_name: "{{ migration_job_name | default('') }}"
-    migration_job_type: "{{ migration_job_type | default('CONTINUOUS') }}"
-    start_migration_job: "{{ start_migration_job | default(true) | bool }}"
-    migration_objects_mode: "{{ migration_objects_mode | default('single-database') }}"
-    destination_database_version: "{{ destination_database_version | default('POSTGRES_16') }}"
-    destination_tier: "{{ destination_tier | default('db-custom-2-8192') }}"
-    destination_edition: "{{ destination_edition | default('ENTERPRISE') }}"
-    destination_availability_type: "{{ destination_availability_type | default('REGIONAL') }}"
-    destination_enable_ipv4: "{{ destination_enable_ipv4 | default(false) | bool }}"
-    destination_allocated_ip_range_name: "{{ destination_allocated_ip_range_name | default('') }}"
-    destination_root_password_env: "{{ destination_root_password_env | default('') }}"
-    target_db_port: "{{ target_db_port | default(5432) | int }}"
-    endpoint_dns_name: "{{ endpoint_dns_name | default('') }}"
-    connectivity_mode: "{{ connectivity_mode | default('static-ip') }}"
-    reverse_ssh_vm: "{{ reverse_ssh_vm | default('') }}"
-    reverse_ssh_vm_ip: "{{ reverse_ssh_vm_ip | default('') }}"
-    reverse_ssh_vm_zone: "{{ reverse_ssh_vm_zone | default('') }}"
-    reverse_ssh_vm_port: "{{ reverse_ssh_vm_port | default(0) | int }}"
-    reverse_ssh_vpc: "{{ reverse_ssh_vpc | default('') }}"
+    _hyops_input_source_connection_profile_name: "{{ vars.get('source_connection_profile_name', '') | default('', true) | string }}"
+    _hyops_input_destination_connection_profile_name: "{{ vars.get('destination_connection_profile_name', '') | default('', true) | string }}"
+    _hyops_input_migration_job_name: "{{ vars.get('migration_job_name', '') | default('', true) | string }}"
+    _hyops_input_migration_job_type: "{{ vars.get('migration_job_type', 'CONTINUOUS') | string }}"
+    _hyops_input_start_migration_job: "{{ vars.get('start_migration_job', true) | bool }}"
+    _hyops_input_migration_objects_mode: "{{ vars.get('migration_objects_mode', 'single-database') | string }}"
+    _hyops_input_destination_database_version: "{{ vars.get('destination_database_version', 'POSTGRES_16') | string }}"
+    _hyops_input_destination_tier: "{{ vars.get('destination_tier', 'db-custom-2-8192') | string }}"
+    _hyops_input_destination_edition: "{{ vars.get('destination_edition', 'ENTERPRISE') | string }}"
+    _hyops_input_destination_availability_type: "{{ vars.get('destination_availability_type', 'REGIONAL') | string }}"
+    _hyops_input_destination_enable_ipv4: "{{ vars.get('destination_enable_ipv4', false) | bool }}"
+    _hyops_input_destination_allocated_ip_range_name: "{{ vars.get('destination_allocated_ip_range_name', '') | default('', true) | string }}"
+    _hyops_input_destination_root_password_env: "{{ vars.get('destination_root_password_env', '') | default('', true) | string }}"
+    _hyops_input_target_db_port: "{{ vars.get('target_db_port', 5432) | int }}"
+    _hyops_input_endpoint_dns_name: "{{ vars.get('endpoint_dns_name', '') | default('', true) | string }}"
+    _hyops_input_connectivity_mode: "{{ vars.get('connectivity_mode', 'static-ip') | string }}"
+    _hyops_input_reverse_ssh_vm: "{{ vars.get('reverse_ssh_vm', '') | default('', true) | string }}"
+    _hyops_input_reverse_ssh_vm_ip: "{{ vars.get('reverse_ssh_vm_ip', '') | default('', true) | string }}"
+    _hyops_input_reverse_ssh_vm_zone: "{{ vars.get('reverse_ssh_vm_zone', '') | default('', true) | string }}"
+    _hyops_input_reverse_ssh_vm_port: "{{ vars.get('reverse_ssh_vm_port', 0) | int }}"
+    _hyops_input_reverse_ssh_vpc: "{{ vars.get('reverse_ssh_vpc', '') | default('', true) | string }}"
 
-    gcloud_bin: "{{ gcloud_bin | default('gcloud') }}"
-    gcloud_copy_default_config: "{{ gcloud_copy_default_config | default(true) | bool }}"
-    gcloud_runtime_config_dir: "{{ gcloud_runtime_config_dir | default('') }}"
-    gcloud_active_account: "{{ gcloud_active_account | default('') }}"
+    _hyops_input_gcloud_bin: "{{ vars.get('gcloud_bin', 'gcloud') | string }}"
+    _hyops_input_gcloud_copy_default_config: "{{ vars.get('gcloud_copy_default_config', true) | bool }}"
+    _hyops_input_gcloud_runtime_config_dir: "{{ vars.get('gcloud_runtime_config_dir', '') | default('', true) | string }}"
+    _hyops_input_gcloud_active_account: "{{ vars.get('gcloud_active_account', '') | default('', true) | string }}"
     _hyops_gcloud_config_dir: >-
       {{
-        (gcloud_runtime_config_dir | string)
-        if (gcloud_runtime_config_dir is string and (gcloud_runtime_config_dir | length) > 0)
+        (_hyops_input_gcloud_runtime_config_dir | string)
+        if (_hyops_input_gcloud_runtime_config_dir is string and (_hyops_input_gcloud_runtime_config_dir | length) > 0)
         else (hyops_runtime_root ~ '/cache/gcloud')
       }}
     _hyops_default_gcloud_config_dir: "{{ lookup('env', 'HOME') ~ '/.config/gcloud' }}"
 
   pre_tasks:
+    - name: Normalize Cloud SQL external replica inputs
+      ansible.builtin.set_fact:
+        apply_mode: "{{ _hyops_input_apply_mode }}"
+        replication_mode: "{{ _hyops_input_replication_mode }}"
+        source_contract_version: "{{ _hyops_input_source_contract_version }}"
+        source_host: "{{ _hyops_input_source_host }}"
+        source_port: "{{ _hyops_input_source_port }}"
+        source_db_name: "{{ _hyops_input_source_db_name }}"
+        source_leader_name: "{{ _hyops_input_source_leader_name }}"
+        source_replication_candidate: "{{ _hyops_input_source_replication_candidate }}"
+        source_replication_user: "{{ _hyops_input_source_replication_user }}"
+        source_replication_password_env: "{{ _hyops_input_source_replication_password_env }}"
+        source_ssl_type: "{{ _hyops_input_source_ssl_type }}"
+        source_ca_certificate_env: "{{ _hyops_input_source_ca_certificate_env }}"
+        source_client_certificate_env: "{{ _hyops_input_source_client_certificate_env }}"
+        source_private_key_env: "{{ _hyops_input_source_private_key_env }}"
+        project_id: "{{ _hyops_input_project_id }}"
+        region: "{{ _hyops_input_region }}"
+        private_network: "{{ _hyops_input_private_network }}"
+        source_connection_profile_name: "{{ _hyops_input_source_connection_profile_name }}"
+        destination_connection_profile_name: "{{ _hyops_input_destination_connection_profile_name }}"
+        migration_job_name: "{{ _hyops_input_migration_job_name }}"
+        migration_job_type: "{{ _hyops_input_migration_job_type }}"
+        start_migration_job: "{{ _hyops_input_start_migration_job }}"
+        migration_objects_mode: "{{ _hyops_input_migration_objects_mode }}"
+        destination_database_version: "{{ _hyops_input_destination_database_version }}"
+        destination_tier: "{{ _hyops_input_destination_tier }}"
+        destination_edition: "{{ _hyops_input_destination_edition }}"
+        destination_availability_type: "{{ _hyops_input_destination_availability_type }}"
+        destination_enable_ipv4: "{{ _hyops_input_destination_enable_ipv4 }}"
+        destination_allocated_ip_range_name: "{{ _hyops_input_destination_allocated_ip_range_name }}"
+        destination_root_password_env: "{{ _hyops_input_destination_root_password_env }}"
+        target_db_port: "{{ _hyops_input_target_db_port }}"
+        endpoint_dns_name: "{{ _hyops_input_endpoint_dns_name }}"
+        connectivity_mode: "{{ _hyops_input_connectivity_mode }}"
+        reverse_ssh_vm: "{{ _hyops_input_reverse_ssh_vm }}"
+        reverse_ssh_vm_ip: "{{ _hyops_input_reverse_ssh_vm_ip }}"
+        reverse_ssh_vm_zone: "{{ _hyops_input_reverse_ssh_vm_zone }}"
+        reverse_ssh_vm_port: "{{ _hyops_input_reverse_ssh_vm_port }}"
+        reverse_ssh_vpc: "{{ _hyops_input_reverse_ssh_vpc }}"
+        gcloud_bin: "{{ _hyops_input_gcloud_bin }}"
+        gcloud_copy_default_config: "{{ _hyops_input_gcloud_copy_default_config }}"
+        gcloud_runtime_config_dir: "{{ _hyops_input_gcloud_runtime_config_dir }}"
+        gcloud_active_account: "{{ _hyops_input_gcloud_active_account }}"
+      changed_when: false
+
     - name: Require supported apply mode
       ansible.builtin.assert:
         that:
@@ -831,7 +877,7 @@
           }}
       changed_when: false
 
-- name: org/gcp/cloudsql-external-replica (publish outputs)
+- name: Org/gcp/cloudsql-external-replica (publish outputs)
   hosts: localhost
   connection: local
   gather_facts: false

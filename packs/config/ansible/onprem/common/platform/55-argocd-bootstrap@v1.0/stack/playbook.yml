@@ -1,40 +1,67 @@
 ---
-- name: platform/k8s/argocd-bootstrap (bootstrap)
+- name: Platform/k8s/argocd-bootstrap (bootstrap)
   hosts: localhost
   connection: local
   become: false
   gather_facts: false
 
   vars:
-    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    _hyops_input_kubeconfig_path: "{{ vars.get('kubeconfig_path', '') | default('', true) | string }}"
 
-    install_argocd: "{{ install_argocd | default(true) }}"
-    argocd_namespace: "{{ argocd_namespace | default('argocd') }}"
-    argocd_install_manifest_url: "{{ argocd_install_manifest_url | default('https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml') }}"
-    argocd_install_force_conflicts: "{{ argocd_install_force_conflicts | default(true) }}"
-    argocd_wait_ready: "{{ argocd_wait_ready | default(true) }}"
-    argocd_wait_timeout_s: "{{ argocd_wait_timeout_s | default(300) }}"
+    _hyops_input_install_argocd: "{{ vars.get('install_argocd', true) | bool }}"
+    _hyops_input_argocd_namespace: "{{ vars.get('argocd_namespace', 'argocd') | string }}"
+    _hyops_input_argocd_install_manifest_url: "{{ vars.get('argocd_install_manifest_url', 'https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml') | string }}"
+    _hyops_input_argocd_install_force_conflicts: "{{ vars.get('argocd_install_force_conflicts', true) | bool }}"
+    _hyops_input_argocd_wait_ready: "{{ vars.get('argocd_wait_ready', true) | bool }}"
+    _hyops_input_argocd_wait_timeout_s: "{{ vars.get('argocd_wait_timeout_s', 300) | int }}"
 
-    root_app_name: "{{ root_app_name | default('hyops-workloads-root') }}"
-    root_app_namespace: "{{ root_app_namespace | default('argocd') }}"
-    root_app_project: "{{ root_app_project | default('default') }}"
-    root_destination_namespace: "{{ root_destination_namespace | default('argocd') }}"
-    destination_server: "{{ destination_server | default('https://kubernetes.default.svc') }}"
+    _hyops_input_root_app_name: "{{ vars.get('root_app_name', 'hyops-workloads-root') | string }}"
+    _hyops_input_root_app_namespace: "{{ vars.get('root_app_namespace', 'argocd') | string }}"
+    _hyops_input_root_app_project: "{{ vars.get('root_app_project', 'default') | string }}"
+    _hyops_input_root_destination_namespace: "{{ vars.get('root_destination_namespace', 'argocd') | string }}"
+    _hyops_input_destination_server: "{{ vars.get('destination_server', 'https://kubernetes.default.svc') | string }}"
 
-    workloads_repo_url: "{{ workloads_repo_url | default('') }}"
-    workloads_revision: "{{ workloads_revision | default('main') }}"
-    workloads_target_path: "{{ workloads_target_path | default('clusters/onprem') }}"
-    repo_access_mode: "{{ repo_access_mode | default('public') }}"
-    repo_secret_name: "{{ repo_secret_name | default('hyops-workloads-repo') }}"
-    repo_ssh_private_key_env: "{{ repo_ssh_private_key_env | default('ARGOCD_REPO_SSH_PRIVATE_KEY') }}"
-    repo_ssh_known_hosts: "{{ repo_ssh_known_hosts | default('') }}"
-    repo_insecure_ignore_host_key: "{{ repo_insecure_ignore_host_key | default(false) }}"
+    _hyops_input_workloads_repo_url: "{{ vars.get('workloads_repo_url', '') | default('', true) | string }}"
+    _hyops_input_workloads_revision: "{{ vars.get('workloads_revision', 'main') | string }}"
+    _hyops_input_workloads_target_path: "{{ vars.get('workloads_target_path', 'clusters/onprem') | string }}"
+    _hyops_input_repo_access_mode: "{{ vars.get('repo_access_mode', 'public') | string }}"
+    _hyops_input_repo_secret_name: "{{ vars.get('repo_secret_name', 'hyops-workloads-repo') | string }}"
+    _hyops_input_repo_ssh_private_key_env: "{{ vars.get('repo_ssh_private_key_env', 'ARGOCD_REPO_SSH_PRIVATE_KEY') | string }}"
+    _hyops_input_repo_ssh_known_hosts: "{{ vars.get('repo_ssh_known_hosts', '') | default('', true) | string }}"
+    _hyops_input_repo_insecure_ignore_host_key: "{{ vars.get('repo_insecure_ignore_host_key', false) | bool }}"
 
-    sync_automated_prune: "{{ sync_automated_prune | default(true) }}"
-    sync_automated_self_heal: "{{ sync_automated_self_heal | default(true) }}"
-    create_namespace: "{{ create_namespace | default(true) }}"
+    _hyops_input_sync_automated_prune: "{{ vars.get('sync_automated_prune', true) | bool }}"
+    _hyops_input_sync_automated_self_heal: "{{ vars.get('sync_automated_self_heal', true) | bool }}"
+    _hyops_input_create_namespace: "{{ vars.get('create_namespace', true) | bool }}"
 
   tasks:
+    - name: Normalize Argo CD bootstrap inputs
+      ansible.builtin.set_fact:
+        kubeconfig_path: "{{ _hyops_input_kubeconfig_path }}"
+        install_argocd: "{{ _hyops_input_install_argocd }}"
+        argocd_namespace: "{{ _hyops_input_argocd_namespace }}"
+        argocd_install_manifest_url: "{{ _hyops_input_argocd_install_manifest_url }}"
+        argocd_install_force_conflicts: "{{ _hyops_input_argocd_install_force_conflicts }}"
+        argocd_wait_ready: "{{ _hyops_input_argocd_wait_ready }}"
+        argocd_wait_timeout_s: "{{ _hyops_input_argocd_wait_timeout_s }}"
+        root_app_name: "{{ _hyops_input_root_app_name }}"
+        root_app_namespace: "{{ _hyops_input_root_app_namespace }}"
+        root_app_project: "{{ _hyops_input_root_app_project }}"
+        root_destination_namespace: "{{ _hyops_input_root_destination_namespace }}"
+        destination_server: "{{ _hyops_input_destination_server }}"
+        workloads_repo_url: "{{ _hyops_input_workloads_repo_url }}"
+        workloads_revision: "{{ _hyops_input_workloads_revision }}"
+        workloads_target_path: "{{ _hyops_input_workloads_target_path }}"
+        repo_access_mode: "{{ _hyops_input_repo_access_mode }}"
+        repo_secret_name: "{{ _hyops_input_repo_secret_name }}"
+        repo_ssh_private_key_env: "{{ _hyops_input_repo_ssh_private_key_env }}"
+        repo_ssh_known_hosts: "{{ _hyops_input_repo_ssh_known_hosts }}"
+        repo_insecure_ignore_host_key: "{{ _hyops_input_repo_insecure_ignore_host_key }}"
+        sync_automated_prune: "{{ _hyops_input_sync_automated_prune }}"
+        sync_automated_self_heal: "{{ _hyops_input_sync_automated_self_heal }}"
+        create_namespace: "{{ _hyops_input_create_namespace }}"
+      changed_when: false
+
     - name: Assert supported repo access mode
       ansible.builtin.assert:
         that:

@@ -4,12 +4,9 @@
   any_errors_fatal: true
   become: true
   gather_facts: true
-  collections:
-    - hybridops.common
 
   vars:
     edge_obs_role_fqcn: "{{ edge_obs_role_fqcn | default('hybridops.common.edge_observability') }}"
-    edge_obs_role_name: "{{ edge_obs_role_fqcn | regex_replace('^hybridops\\.common\\.', '') }}"
     edge_obs_objstore_config_env: "{{ edge_obs_objstore_config_env | default('EDGE_OBS_OBJSTORE_CONFIG') }}"
     edge_obs_grafana_admin_password_env: "{{ edge_obs_grafana_admin_password_env | default('EDGE_OBS_GRAFANA_ADMIN_PASSWORD') }}"
 
@@ -55,7 +52,7 @@
   tasks:
     - name: Run edge observability role
       ansible.builtin.include_role:
-        name: "{{ edge_obs_role_name }}"
+        name: "{{ edge_obs_role_fqcn }}"
 
   post_tasks:
     - name: Write HyOps outputs

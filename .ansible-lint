@@ -7,6 +7,7 @@ exclude_paths:
   - hyops/drivers/config/ansible/collections/ansible_collections/hybridops/**/tests/
 offline: true
 warn_list:
+  - var-naming[no-role-prefix]
   - fqcn[action-core]
   - meta-no-tags
   - name[casing]

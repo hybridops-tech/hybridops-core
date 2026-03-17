@@ -17,7 +17,7 @@
     name: hybridops.common.docker_engine
   vars:
     docker_engine_state: "{{ 'present' if powerdns_state == 'present' else 'absent' }}"
-    docker_engine_enable: "{{ docker_engine_enable | bool }}"
+    docker_engine_enable: "{{ vars.get('docker_engine_enable', true) | bool }}"
 
 - name: Compute PowerDNS role flags
   ansible.builtin.set_fact:
@@ -102,6 +102,7 @@
   when:
     - powerdns_state == "present"
     - not (powerdns_sqlite_db.stat.exists | default(false))
+  changed_when: true
 
 - name: Manage compose-backed PowerDNS service
   ansible.builtin.include_role:
@@ -173,6 +174,7 @@
     - powerdns_mode == "primary"
     - (powerdns_zone_name | default('') | length) > 0
     - (powerdns_zone_check.rc | default(1)) != 0
+  changed_when: true
 
 - name: Bootstrap secondary zone
   ansible.builtin.command:
@@ -193,6 +195,7 @@
     - powerdns_mode == "secondary"
     - (powerdns_zone_name | default('') | length) > 0
     - (powerdns_zone_check.rc | default(1)) != 0
+  changed_when: true
 
 - name: Trigger initial secondary zone retrieve
   ansible.builtin.command:

@@ -1,7 +1,7 @@
 ---
 # purpose: Create/sync NetBox superuser (idempotent)
 # adr: ADR-0002, ADR-0502
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Wait for NetBox HTTP to respond
   ansible.builtin.uri:
@@ -52,6 +52,7 @@
     DJANGO_SUPERUSER_USERNAME: "{{ netbox_superuser_name }}"
     DJANGO_SUPERUSER_EMAIL: "{{ netbox_superuser_email }}"
     DJANGO_SUPERUSER_PASSWORD: "{{ netbox_superuser_password }}"
+  changed_when: true
   no_log: true
   when: _nb_su_exists.rc != 0
 
@@ -105,6 +106,7 @@
     chdir: "{{ netbox_install_root }}/compose"
   environment:
     HYOPS_NETBOX_SUPERUSER_PASSWORD: "{{ netbox_superuser_password }}"
+  changed_when: true
   no_log: true
   when:
     - _nb_su_exists.rc == 0

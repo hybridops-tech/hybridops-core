@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/rke2-cluster (destroy)
+- name: Platform/onprem/rke2-cluster (destroy)
   hosts: targets
   become: true
   gather_facts: true
@@ -13,25 +13,56 @@
       loop:
         - rke2-server
         - rke2-agent
-      ignore_errors: true
+      failed_when: false
 
-    - name: Run uninstall scripts if present (best effort)
-      ansible.builtin.shell: |
-        set -e
-        if [ -x /usr/local/bin/rke2-uninstall.sh ]; then /usr/local/bin/rke2-uninstall.sh; fi
-        if [ -x /usr/local/bin/rke2-agent-uninstall.sh ]; then /usr/local/bin/rke2-agent-uninstall.sh; fi
-      args:
-        executable: /bin/bash
-      ignore_errors: true
+    - name: Check RKE2 server uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/rke2-uninstall.sh
+      register: _hyops_rke2_server_uninstall
+      changed_when: false
+
+    - name: Check RKE2 agent uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/rke2-agent-uninstall.sh
+      register: _hyops_rke2_agent_uninstall
+      changed_when: false
+
+    - name: Run RKE2 server uninstall script when present
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/rke2-uninstall.sh
+      register: _hyops_rke2_server_uninstall_run
+      changed_when: (_hyops_rke2_server_uninstall_run.rc | int) == 0
+      failed_when: false
+      when: _hyops_rke2_server_uninstall.stat.exists
+
+    - name: Run RKE2 agent uninstall script when present
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/rke2-agent-uninstall.sh
+      register: _hyops_rke2_agent_uninstall_run
+      changed_when: (_hyops_rke2_agent_uninstall_run.rc | int) == 0
+      failed_when: false
+      when: _hyops_rke2_agent_uninstall.stat.exists
 
     - name: Kill lingering RKE2 processes (best effort)
       ansible.builtin.shell: |
-        set -e
-        pkill -9 -f '/usr/local/bin/rke2|/usr/bin/rke2|/var/lib/rancher/rke2|/run/k3s' || true
-        pkill -9 -f 'kubelet.*rke2|kube-apiserver|kube-controller-manager|kube-scheduler|etcd' || true
+        set -o pipefail
+        changed=0
+        if pgrep -f '/usr/local/bin/rke2|/usr/bin/rke2|/var/lib/rancher/rke2|/run/k3s' >/dev/null 2>&1; then
+          pkill -9 -f '/usr/local/bin/rke2|/usr/bin/rke2|/var/lib/rancher/rke2|/run/k3s' || true
+          changed=1
+        fi
+        if pgrep -f 'kubelet.*rke2|kube-apiserver|kube-controller-manager|kube-scheduler|etcd' >/dev/null 2>&1; then
+          pkill -9 -f 'kubelet.*rke2|kube-apiserver|kube-controller-manager|kube-scheduler|etcd' || true
+          changed=1
+        fi
+        printf '%s' "${changed}"
       args:
         executable: /bin/bash
-      ignore_errors: true
+      register: _hyops_rke2_kill
+      changed_when: (_hyops_rke2_kill.stdout | default('0') | trim) == '1'
+      failed_when: false
 
     - name: Remove RKE2 directories (best effort)
       ansible.builtin.file:
@@ -44,7 +75,6 @@
         - /var/lib/kubelet
         - /var/lib/cni
         - /etc/cni/net.d
-      ignore_errors: true
 
     - name: Remove RKE2 RPM packages (best effort)
       ansible.builtin.package:
@@ -52,14 +82,15 @@
           - rke2-server
           - rke2-agent
         state: absent
-      ignore_errors: true
+      failed_when: false
 
     - name: Reload systemd daemon (best effort)
       ansible.builtin.systemd:
         daemon_reload: true
-      ignore_errors: true
+      changed_when: false
+      failed_when: false
 
-- name: platform/onprem/rke2-cluster (cleanup local)
+- name: Platform/onprem/rke2-cluster (cleanup local)
   hosts: localhost
   become: false
   gather_facts: false
@@ -72,7 +103,6 @@
       ansible.builtin.file:
         path: "{{ (rke2_kubeconfig_out | length > 0) | ternary(rke2_kubeconfig_out, hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml') }}"
         state: absent
-      ignore_errors: true
 
     - name: Write HyOps outputs
       ansible.builtin.copy:

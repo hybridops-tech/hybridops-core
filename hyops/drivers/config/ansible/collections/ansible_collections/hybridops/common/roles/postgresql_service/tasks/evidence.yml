@@ -1,7 +1,7 @@
 ---
 # purpose: Capture evidence for PostgreSQL deployment and health
 # adr: ADR-0000 (evidence strategy), ADR-0103
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Ensure evidence directory exists
   ansible.builtin.file:
@@ -11,29 +11,30 @@
     group: root
     mode: "0750"
 
-- name: Capture service status
-  ansible.builtin.command: "systemctl --no-pager -l status {{ item }}"
-  loop: >-
-    {{
-      ['postgresql']
-      + (
-          ['postgresql-' ~ hybridops_postgres_version]
-          if (hybridops_postgres_version is string and (hybridops_postgres_version | length) > 0)
-          else []
-        )
-    }}
-  register: _pg_status
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Build PostgreSQL service name list
+  ansible.builtin.set_fact:
+    _hyops_pg_service_names: >-
+      {{
+        ['postgresql']
+        + (
+            ['postgresql-' ~ hybridops_postgres_version]
+            if (hybridops_postgres_version is string and (hybridops_postgres_version | length) > 0)
+            else []
+          )
+      }}
   changed_when: false
-  failed_when: false
 
 - name: Write service status
   ansible.builtin.copy:
     dest: "{{ hybridops_evidence_dir }}/systemctl-status.txt"
     content: |
-      {% for r in _pg_status.results | default([]) %}
-      === {{ r.item }} ===
-      {{ r.stdout | default('') }}
-      {{ r.stderr | default('') }}
+      {% for service_name in _hyops_pg_service_names | default([]) %}
+      === {{ service_name }} ===
+      found={{ service_name in (ansible_facts.services | default({})) }}
+      {{ (ansible_facts.services | default({})).get(service_name, {}) | to_nice_json }}
       {% endfor %}
     owner: root
     group: root

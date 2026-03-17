@@ -5,49 +5,45 @@
   gather_facts: true
 
   vars:
-    netbox_version: "{{ netbox_version | default('v4.1.7') }}"
-    netbox_http_host_port: "{{ netbox_http_host_port | default(8000) }}"
-    netbox_hostname: "{{ netbox_hostname | default('netbox') }}"
-    netbox_domain: "{{ netbox_domain | default('hybzone.local') }}"
+    _hyops_input_netbox_version: "{{ netbox_version | default('v4.1.7') }}"
+    _hyops_input_netbox_http_host_port: "{{ netbox_http_host_port | default(8000) | int }}"
+    _hyops_input_netbox_hostname: "{{ netbox_hostname | default('netbox') }}"
+    _hyops_input_netbox_domain: "{{ netbox_domain | default('hybzone.local') }}"
+    _hyops_input_db_host: "{{ db_host | default('') }}"
+    _hyops_input_db_port: "{{ db_port | default(5432) | int }}"
+    _hyops_input_db_name: "{{ db_name | default('netbox') }}"
+    _hyops_input_db_user: "{{ db_user | default('netbox') }}"
+    _hyops_input_db_password_env: "{{ db_password_env | default('NETBOX_DB_PASSWORD') }}"
+    _hyops_input_secret_key_env: "{{ secret_key_env | default('NETBOX_SECRET_KEY') }}"
+    _hyops_input_superuser_password_env: "{{ superuser_password_env | default('NETBOX_SUPERUSER_PASSWORD') }}"
+    _hyops_input_api_token_env: "{{ api_token_env | default('NETBOX_API_TOKEN') }}"
+    _hyops_input_seed_foundation_netbox_sync: "{{ seed_foundation_netbox_sync | default(false) | bool }}"
+    _hyops_input_seed_foundation_netbox_wait_s: "{{ seed_foundation_netbox_wait_s | default(60) | int }}"
+    _hyops_input_install_docker_engine: "{{ install_docker_engine | default(true) | bool }}"
 
-    db_host: "{{ db_host | default('') }}"
-    db_port: "{{ db_port | default(5432) }}"
-    db_name: "{{ db_name | default('netbox') }}"
-    db_user: "{{ db_user | default('netbox') }}"
-    db_password_env: "{{ db_password_env | default('NETBOX_DB_PASSWORD') }}"
-
-    secret_key_env: "{{ secret_key_env | default('NETBOX_SECRET_KEY') }}"
-    superuser_password_env: "{{ superuser_password_env | default('NETBOX_SUPERUSER_PASSWORD') }}"
-    api_token_env: "{{ api_token_env | default('NETBOX_API_TOKEN') }}"
-    seed_foundation_netbox_sync: "{{ seed_foundation_netbox_sync | default(false) }}"
-    seed_foundation_netbox_wait_s: "{{ seed_foundation_netbox_wait_s | default(60) }}"
-
-    install_docker_engine: "{{ install_docker_engine | default(true) }}"
-
-  roles:
-    - role: hybridops.app.netbox_service
+  tasks:
+    - name: Run NetBox service role
+      ansible.builtin.include_role:
+        name: hybridops.app.netbox_service
       vars:
-        netbox_version: "{{ netbox_version }}"
-        netbox_hostname: "{{ netbox_hostname }}"
-        netbox_domain: "{{ netbox_domain }}"
-        netbox_http_host_port: "{{ netbox_http_host_port | int }}"
-
-        netbox_install_docker_engine: "{{ install_docker_engine | bool }}"
+        netbox_version: "{{ _hyops_input_netbox_version }}"
+        netbox_hostname: "{{ _hyops_input_netbox_hostname }}"
+        netbox_domain: "{{ _hyops_input_netbox_domain }}"
+        netbox_http_host_port: "{{ _hyops_input_netbox_http_host_port }}"
+        netbox_install_docker_engine: "{{ _hyops_input_install_docker_engine }}"
         netbox_smoke_only: false
-
-        netbox_db_host: "{{ db_host }}"
-        netbox_db_port: "{{ db_port | int }}"
-        netbox_db_name: "{{ db_name }}"
-        netbox_db_user: "{{ db_user }}"
-        netbox_db_password: "{{ lookup('env', db_password_env) }}"
-
-        netbox_secret_key: "{{ lookup('env', secret_key_env) }}"
-        netbox_superuser_password: "{{ lookup('env', superuser_password_env) | default('', true) }}"
-        netbox_api_token_key: "{{ lookup('env', api_token_env) | default('', true) }}"
+        netbox_db_host: "{{ _hyops_input_db_host }}"
+        netbox_db_port: "{{ _hyops_input_db_port }}"
+        netbox_db_name: "{{ _hyops_input_db_name }}"
+        netbox_db_user: "{{ _hyops_input_db_user }}"
+        netbox_db_password: "{{ lookup('env', _hyops_input_db_password_env) }}"
+        netbox_secret_key: "{{ lookup('env', _hyops_input_secret_key_env) }}"
+        netbox_superuser_password: "{{ lookup('env', _hyops_input_superuser_password_env) | default('', true) }}"
+        netbox_api_token_key: "{{ lookup('env', _hyops_input_api_token_env) | default('', true) }}"
 
   post_tasks:
     - name: Seed NetBox with foundation IPAM + VM datasets (sync-only)
-      when: seed_foundation_netbox_sync | bool
+      when: _hyops_input_seed_foundation_netbox_sync
       delegate_to: localhost
       become: false
       block:
@@ -92,18 +88,34 @@
                 state: absent
 
             - name: Start controller-local SSH tunnel to NetBox API
-              ansible.builtin.shell: >-
-                ssh -f -N
-                -o BatchMode=yes
-                -o ExitOnForwardFailure=yes
-                -o ControlMaster=yes
-                -o ControlPersist=60
-                -o ControlPath={{ hyops_seed_tunnel_control_path }}
-                -p {{ hyops_seed_netbox_target_port | int }}
-                {{ hyops_seed_netbox_ssh_common_args }}
-                -L 127.0.0.1:{{ hyops_seed_tunnel_port }}:127.0.0.1:{{ netbox_http_host_port | int }}
-                {{ hyops_seed_netbox_target_user }}@{{ hyops_seed_netbox_target_host }}
-              changed_when: false
+              ansible.builtin.command:
+                argv: >-
+                  {{
+                    [
+                      'ssh',
+                      '-f',
+                      '-N',
+                      '-o',
+                      'BatchMode=yes',
+                      '-o',
+                      'ExitOnForwardFailure=yes',
+                      '-o',
+                      'ControlMaster=yes',
+                      '-o',
+                      'ControlPersist=60',
+                      '-o',
+                      'ControlPath=' ~ hyops_seed_tunnel_control_path,
+                      '-p',
+                      (hyops_seed_netbox_target_port | int | string)
+                    ]
+                    + (hyops_seed_netbox_ssh_common_args | default('') | split)
+                    + [
+                      '-L',
+                      '127.0.0.1:' ~ hyops_seed_tunnel_port ~ ':127.0.0.1:' ~ (_hyops_input_netbox_http_host_port | string),
+                      hyops_seed_netbox_target_user ~ '@' ~ hyops_seed_netbox_target_host
+                    ]
+                  }}
+              changed_when: true
 
             - name: Wait for NetBox API to be reachable from controller before seed sync
               ansible.builtin.uri:
@@ -112,7 +124,7 @@
                 status_code: [200, 302, 401, 403]
                 timeout: 5
               register: hyops_seed_api_wait
-              retries: "{{ [1, (((seed_foundation_netbox_wait_s | int) + 4) // 5)] | max }}"
+              retries: "{{ [1, (((_hyops_input_seed_foundation_netbox_wait_s | int) + 4) // 5)] | max }}"
               delay: 5
               until: hyops_seed_api_wait.status in [200, 302, 401, 403]
 
@@ -146,7 +158,8 @@
                   - "onprem-sdn"
               environment:
                 NETBOX_API_URL: "{{ hyops_seed_netbox_api_url }}"
-                NETBOX_API_TOKEN: "{{ lookup('env', api_token_env) }}"
+                NETBOX_API_TOKEN: "{{ lookup('env', _hyops_input_api_token_env) }}"
+              changed_when: true
 
             - name: Sync foundation VM inventory into NetBox (strict)
               ansible.builtin.command:
@@ -160,16 +173,26 @@
                   - "vms"
               environment:
                 NETBOX_API_URL: "{{ hyops_seed_netbox_api_url }}"
-                NETBOX_API_TOKEN: "{{ lookup('env', api_token_env) }}"
+                NETBOX_API_TOKEN: "{{ lookup('env', _hyops_input_api_token_env) }}"
+              changed_when: true
           always:
             - name: Stop controller-local SSH tunnel to NetBox API
-              ansible.builtin.shell: >-
-                ssh -S {{ hyops_seed_tunnel_control_path }}
-                -O exit
-                -p {{ hyops_seed_netbox_target_port | int }}
-                {{ hyops_seed_netbox_ssh_common_args }}
-                {{ hyops_seed_netbox_target_user }}@{{ hyops_seed_netbox_target_host }}
-              changed_when: false
+              ansible.builtin.command:
+                argv: >-
+                  {{
+                    [
+                      'ssh',
+                      '-S',
+                      hyops_seed_tunnel_control_path,
+                      '-O',
+                      'exit',
+                      '-p',
+                      (hyops_seed_netbox_target_port | int | string)
+                    ]
+                    + (hyops_seed_netbox_ssh_common_args | default('') | split)
+                    + [hyops_seed_netbox_target_user ~ '@' ~ hyops_seed_netbox_target_host]
+                  }}
+              changed_when: true
               failed_when: false
 
             - name: Remove seed tunnel control socket
@@ -185,16 +208,16 @@
         mode: "0600"
         content: |
           {{ {
-            'netbox_url': ('http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (netbox_http_host_port | int) ~ '/'),
-            'netbox_api_url': ('http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (netbox_http_host_port | int) ~ '/api/'),
-            'netbox_http_host_port': (netbox_http_host_port | int),
-            'db_host': (db_host | string),
-            'db_port': (db_port | int),
-            'db_name': (db_name | string),
-            'db_user': (db_user | string),
-            'db_password_env': (db_password_env | string),
-            'secret_key_env': (secret_key_env | string),
-            'superuser_password_env': (superuser_password_env | string),
-            'api_token_env': (api_token_env | string),
+            'netbox_url': ('http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (_hyops_input_netbox_http_host_port | int) ~ '/'),
+            'netbox_api_url': ('http://' ~ (hostvars[inventory_hostname].ansible_host | default('')) ~ ':' ~ (_hyops_input_netbox_http_host_port | int) ~ '/api/'),
+            'netbox_http_host_port': (_hyops_input_netbox_http_host_port | int),
+            'db_host': (_hyops_input_db_host | string),
+            'db_port': (_hyops_input_db_port | int),
+            'db_name': (_hyops_input_db_name | string),
+            'db_user': (_hyops_input_db_user | string),
+            'db_password_env': (_hyops_input_db_password_env | string),
+            'secret_key_env': (_hyops_input_secret_key_env | string),
+            'superuser_password_env': (_hyops_input_superuser_password_env | string),
+            'api_token_env': (_hyops_input_api_token_env | string),
             'cap.ipam.netbox': 'ready'
           } | to_json }}

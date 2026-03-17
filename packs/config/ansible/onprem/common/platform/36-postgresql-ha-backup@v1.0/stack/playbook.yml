@@ -3,52 +3,90 @@
 # Configure pgBackRest backups for an existing Patroni cluster.
 # This playbook is on-prem only and intentionally avoids Autobase cloud provisioning.
 
-- name: platform/postgresql-ha-backup (derive pgbackrest config)
+- name: Platform/postgresql-ha-backup (derive pgBackRest config)
   hosts: postgres_cluster
   gather_facts: false
   become: false
 
   vars:
-    patroni_cluster_name: "{{ patroni_cluster_name | default('postgres-ha') }}"
-    backend: "{{ backend | default('s3') | string | lower }}"
-    repo_path: "{{ repo_path | default('/pgbackrest') }}"
-    secondary_enabled: "{{ secondary_enabled | default(false) | bool }}"
-    secondary_backend: "{{ secondary_backend | default('') | string | lower }}"
-    secondary_repo_path: "{{ secondary_repo_path | default('') }}"
-    repo_mismatch_action: "{{ repo_mismatch_action | default('fail') | string | lower }}"
+    _hyops_input_patroni_cluster_name: "{{ vars.get('patroni_cluster_name', 'postgres-ha') | string }}"
+    _hyops_input_backend: "{{ vars.get('backend', 's3') | string | lower }}"
+    _hyops_input_repo_path: "{{ vars.get('repo_path', '/pgbackrest') | string }}"
+    _hyops_input_secondary_enabled: "{{ vars.get('secondary_enabled', false) | bool }}"
+    _hyops_input_secondary_backend: "{{ vars.get('secondary_backend', '') | default('', true) | string | lower }}"
+    _hyops_input_secondary_repo_path: "{{ vars.get('secondary_repo_path', '') | default('', true) | string }}"
+    _hyops_input_repo_mismatch_action: "{{ vars.get('repo_mismatch_action', 'fail') | string | lower }}"
 
-    s3_bucket: "{{ s3_bucket | default('') }}"
-    s3_endpoint: "{{ s3_endpoint | default('') }}"
-    s3_region: "{{ s3_region | default('') }}"
-    s3_uri_style: "{{ s3_uri_style | default('') }}"
-    s3_access_key_env: "{{ s3_access_key_env | default('PG_BACKUP_S3_ACCESS_KEY_ID') }}"
-    s3_secret_key_env: "{{ s3_secret_key_env | default('PG_BACKUP_S3_SECRET_ACCESS_KEY') }}"
-    secondary_s3_bucket: "{{ secondary_s3_bucket | default('') }}"
-    secondary_s3_endpoint: "{{ secondary_s3_endpoint | default('') }}"
-    secondary_s3_region: "{{ secondary_s3_region | default('') }}"
-    secondary_s3_uri_style: "{{ secondary_s3_uri_style | default('') }}"
-    secondary_s3_access_key_env: "{{ secondary_s3_access_key_env | default('PG_BACKUP_SECONDARY_S3_ACCESS_KEY_ID') }}"
-    secondary_s3_secret_key_env: "{{ secondary_s3_secret_key_env | default('PG_BACKUP_SECONDARY_S3_SECRET_ACCESS_KEY') }}"
+    _hyops_input_s3_bucket: "{{ vars.get('s3_bucket', '') | default('', true) | string }}"
+    _hyops_input_s3_endpoint: "{{ vars.get('s3_endpoint', '') | default('', true) | string }}"
+    _hyops_input_s3_region: "{{ vars.get('s3_region', '') | default('', true) | string }}"
+    _hyops_input_s3_uri_style: "{{ vars.get('s3_uri_style', '') | default('', true) | string }}"
+    _hyops_input_s3_access_key_env: "{{ vars.get('s3_access_key_env', 'PG_BACKUP_S3_ACCESS_KEY_ID') | string }}"
+    _hyops_input_s3_secret_key_env: "{{ vars.get('s3_secret_key_env', 'PG_BACKUP_S3_SECRET_ACCESS_KEY') | string }}"
+    _hyops_input_secondary_s3_bucket: "{{ vars.get('secondary_s3_bucket', '') | default('', true) | string }}"
+    _hyops_input_secondary_s3_endpoint: "{{ vars.get('secondary_s3_endpoint', '') | default('', true) | string }}"
+    _hyops_input_secondary_s3_region: "{{ vars.get('secondary_s3_region', '') | default('', true) | string }}"
+    _hyops_input_secondary_s3_uri_style: "{{ vars.get('secondary_s3_uri_style', '') | default('', true) | string }}"
+    _hyops_input_secondary_s3_access_key_env: "{{ vars.get('secondary_s3_access_key_env', 'PG_BACKUP_SECONDARY_S3_ACCESS_KEY_ID') | string }}"
+    _hyops_input_secondary_s3_secret_key_env: "{{ vars.get('secondary_s3_secret_key_env', 'PG_BACKUP_SECONDARY_S3_SECRET_ACCESS_KEY') | string }}"
 
-    gcs_bucket: "{{ gcs_bucket | default('') }}"
-    gcs_sa_json_env: "{{ gcs_sa_json_env | default('PG_BACKUP_GCS_SA_JSON') }}"
-    gcs_sa_dest: "{{ gcs_sa_dest | default('/var/lib/hybridops/pgbackrest/gcs-sa.json') }}"
-    secondary_gcs_bucket: "{{ secondary_gcs_bucket | default('') }}"
-    secondary_gcs_sa_json_env: "{{ secondary_gcs_sa_json_env | default('PG_BACKUP_SECONDARY_GCS_SA_JSON') }}"
-    secondary_gcs_sa_dest: "{{ secondary_gcs_sa_dest | default('/var/lib/hybridops/pgbackrest/gcs-sa-secondary.json') }}"
+    _hyops_input_gcs_bucket: "{{ vars.get('gcs_bucket', '') | default('', true) | string }}"
+    _hyops_input_gcs_sa_json_env: "{{ vars.get('gcs_sa_json_env', 'PG_BACKUP_GCS_SA_JSON') | string }}"
+    _hyops_input_gcs_sa_dest: "{{ vars.get('gcs_sa_dest', '/var/lib/hybridops/pgbackrest/gcs-sa.json') | string }}"
+    _hyops_input_secondary_gcs_bucket: "{{ vars.get('secondary_gcs_bucket', '') | default('', true) | string }}"
+    _hyops_input_secondary_gcs_sa_json_env: "{{ vars.get('secondary_gcs_sa_json_env', 'PG_BACKUP_SECONDARY_GCS_SA_JSON') | string }}"
+    _hyops_input_secondary_gcs_sa_dest: "{{ vars.get('secondary_gcs_sa_dest', '/var/lib/hybridops/pgbackrest/gcs-sa-secondary.json') | string }}"
 
-    azure_storage_account: "{{ azure_storage_account | default('') }}"
-    azure_container: "{{ azure_container | default('') }}"
-    azure_account_key_env: "{{ azure_account_key_env | default('PG_BACKUP_AZURE_ACCOUNT_KEY') }}"
-    secondary_azure_storage_account: "{{ secondary_azure_storage_account | default('') }}"
-    secondary_azure_container: "{{ secondary_azure_container | default('') }}"
-    secondary_azure_account_key_env: "{{ secondary_azure_account_key_env | default('PG_BACKUP_SECONDARY_AZURE_ACCOUNT_KEY') }}"
+    _hyops_input_azure_storage_account: "{{ vars.get('azure_storage_account', '') | default('', true) | string }}"
+    _hyops_input_azure_container: "{{ vars.get('azure_container', '') | default('', true) | string }}"
+    _hyops_input_azure_account_key_env: "{{ vars.get('azure_account_key_env', 'PG_BACKUP_AZURE_ACCOUNT_KEY') | string }}"
+    _hyops_input_secondary_azure_storage_account: "{{ vars.get('secondary_azure_storage_account', '') | default('', true) | string }}"
+    _hyops_input_secondary_azure_container: "{{ vars.get('secondary_azure_container', '') | default('', true) | string }}"
+    _hyops_input_secondary_azure_account_key_env: "{{ vars.get('secondary_azure_account_key_env', 'PG_BACKUP_SECONDARY_AZURE_ACCOUNT_KEY') | string }}"
 
-    retention_full: "{{ retention_full | default(30) | int }}"
-    retention_full_type: "{{ retention_full_type | default('time') }}"
-    backup_hour: "{{ backup_hour | default(3) | int }}"
+    _hyops_input_retention_full: "{{ vars.get('retention_full', 30) | int }}"
+    _hyops_input_retention_full_type: "{{ vars.get('retention_full_type', 'time') | string }}"
+    _hyops_input_backup_hour: "{{ vars.get('backup_hour', 3) | int }}"
 
   tasks:
+    - name: Normalize pgBackRest inputs
+      ansible.builtin.set_fact:
+        patroni_cluster_name: "{{ _hyops_input_patroni_cluster_name }}"
+        backend: "{{ _hyops_input_backend }}"
+        repo_path: "{{ _hyops_input_repo_path }}"
+        secondary_enabled: "{{ _hyops_input_secondary_enabled }}"
+        secondary_backend: "{{ _hyops_input_secondary_backend }}"
+        secondary_repo_path: "{{ _hyops_input_secondary_repo_path }}"
+        repo_mismatch_action: "{{ _hyops_input_repo_mismatch_action }}"
+        s3_bucket: "{{ _hyops_input_s3_bucket }}"
+        s3_endpoint: "{{ _hyops_input_s3_endpoint }}"
+        s3_region: "{{ _hyops_input_s3_region }}"
+        s3_uri_style: "{{ _hyops_input_s3_uri_style }}"
+        s3_access_key_env: "{{ _hyops_input_s3_access_key_env }}"
+        s3_secret_key_env: "{{ _hyops_input_s3_secret_key_env }}"
+        secondary_s3_bucket: "{{ _hyops_input_secondary_s3_bucket }}"
+        secondary_s3_endpoint: "{{ _hyops_input_secondary_s3_endpoint }}"
+        secondary_s3_region: "{{ _hyops_input_secondary_s3_region }}"
+        secondary_s3_uri_style: "{{ _hyops_input_secondary_s3_uri_style }}"
+        secondary_s3_access_key_env: "{{ _hyops_input_secondary_s3_access_key_env }}"
+        secondary_s3_secret_key_env: "{{ _hyops_input_secondary_s3_secret_key_env }}"
+        gcs_bucket: "{{ _hyops_input_gcs_bucket }}"
+        gcs_sa_json_env: "{{ _hyops_input_gcs_sa_json_env }}"
+        gcs_sa_dest: "{{ _hyops_input_gcs_sa_dest }}"
+        secondary_gcs_bucket: "{{ _hyops_input_secondary_gcs_bucket }}"
+        secondary_gcs_sa_json_env: "{{ _hyops_input_secondary_gcs_sa_json_env }}"
+        secondary_gcs_sa_dest: "{{ _hyops_input_secondary_gcs_sa_dest }}"
+        azure_storage_account: "{{ _hyops_input_azure_storage_account }}"
+        azure_container: "{{ _hyops_input_azure_container }}"
+        azure_account_key_env: "{{ _hyops_input_azure_account_key_env }}"
+        secondary_azure_storage_account: "{{ _hyops_input_secondary_azure_storage_account }}"
+        secondary_azure_container: "{{ _hyops_input_secondary_azure_container }}"
+        secondary_azure_account_key_env: "{{ _hyops_input_secondary_azure_account_key_env }}"
+        retention_full: "{{ _hyops_input_retention_full }}"
+        retention_full_type: "{{ _hyops_input_retention_full_type }}"
+        backup_hour: "{{ _hyops_input_backup_hour }}"
+      changed_when: false
+
     - name: Derive pgBackRest repository settings
       ansible.builtin.import_role:
         name: hybridops.app.pgbackrest_repo
@@ -169,10 +207,10 @@
               fi
       changed_when: false
 
-- name: platform/postgresql-ha-backup (pre-checks)
+- name: Platform/postgresql-ha-backup (pre-checks)
   hosts: postgres_cluster:etcd_cluster
   become: true
-  become_method: sudo
+  become_method: ansible.builtin.sudo
   gather_facts: true
 
   pre_tasks:
@@ -254,10 +292,10 @@
       changed_when: false
       check_mode: false
 
-- name: platform/postgresql-ha-backup (configure patroni)
+- name: Platform/postgresql-ha-backup (configure Patroni)
   hosts: "primary:secondary"
   become: true
-  become_method: sudo
+  become_method: ansible.builtin.sudo
   gather_facts: true
   any_errors_fatal: true
   environment: "{{ proxy_env | default({}) }}"
@@ -268,10 +306,10 @@
         name: vitabaks.autobase.patroni
         tasks_from: config
 
-- name: platform/postgresql-ha-backup (configure pgbackrest)
+- name: Platform/postgresql-ha-backup (configure pgBackRest)
   hosts: "pgbackrest:postgres_cluster"
   become: true
-  become_method: sudo
+  become_method: ansible.builtin.sudo
   gather_facts: true
   any_errors_fatal: true
   environment: "{{ proxy_env | default({}) }}"
@@ -280,16 +318,22 @@
     - role: vitabaks.autobase.pgbackrest
       when: pgbackrest_install | default(false) | bool
 
-- name: platform/postgresql-ha-backup (collect latest backup metadata)
+- name: Platform/postgresql-ha-backup (collect latest backup metadata)
   hosts: primary
   become: true
   gather_facts: false
 
   vars:
-    patroni_cluster_name: "{{ patroni_cluster_name | default('postgres-ha') }}"
+    _hyops_input_patroni_cluster_name: "{{ vars.get('patroni_cluster_name', 'postgres-ha') | string }}"
 
   tasks:
+    - name: Normalize pgBackRest metadata inputs
+      ansible.builtin.set_fact:
+        patroni_cluster_name: "{{ _hyops_input_patroni_cluster_name }}"
+      changed_when: false
+
     - name: Collect latest pgBackRest backup metadata (repo1)
+      become: true
       become_user: postgres
       ansible.builtin.shell: |
         set -euo pipefail
@@ -334,15 +378,20 @@
       changed_when: false
       when: (_hyops_pgbackrest_latest_backup.stdout | default('') | length) > 0
 
-- name: platform/postgresql-ha-backup (publish outputs)
+- name: Platform/postgresql-ha-backup (publish outputs)
   hosts: localhost
   become: false
   gather_facts: false
 
   vars:
-    repo_path: "{{ repo_path | default('/pgbackrest') }}"
+    _hyops_input_repo_path: "{{ vars.get('repo_path', '/pgbackrest') | string }}"
 
   tasks:
+    - name: Normalize pgBackRest publish inputs
+      ansible.builtin.set_fact:
+        repo_path: "{{ _hyops_input_repo_path }}"
+      changed_when: false
+
     - name: Write HyOps outputs
       ansible.builtin.copy:
         dest: "{{ hyops_outputs_file }}"

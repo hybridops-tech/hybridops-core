@@ -1,6 +1,6 @@
 ---
 # purpose: Configure VyOS route-based IPsec + BGP from shared control host.
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Preflight | assert supported state
   ansible.builtin.assert:
@@ -259,6 +259,7 @@
   loop: "{{ _vyos_edges }}"
   loop_control:
     label: "{{ item.key }}@{{ item.ssh_host }}"
+  changed_when: true
   no_log: "{{ vyos_wan_no_log_sensitive | bool }}"
   when: vyos_wan_state == "present"
 
@@ -291,6 +292,7 @@
   loop: "{{ _vyos_edges }}"
   loop_control:
     label: "{{ item.key }}@{{ item.ssh_host }}"
+  changed_when: true
   when: vyos_wan_state == "absent"
 
 

@@ -1,5 +1,5 @@
 ---
-- name: platform/k8s/gsm-bootstrap (bootstrap)
+- name: Platform/k8s/gsm-bootstrap (bootstrap)
   hosts: localhost
   connection: local
   become: false
@@ -62,6 +62,7 @@
         - name: Ensure ESO namespace exists (idempotent)
           ansible.builtin.shell:
             cmd: >-
+              set -o pipefail &&
               kubectl --kubeconfig {{ _hyops_kubeconfig_path }}
               create namespace {{ eso_namespace }}
               --dry-run=client -o yaml
@@ -76,6 +77,7 @@
         - name: Apply GSM service account secret (idempotent)
           ansible.builtin.shell:
             cmd: >-
+              set -o pipefail &&
               kubectl --kubeconfig {{ _hyops_kubeconfig_path }}
               create secret generic {{ secret_name }}
               --namespace {{ eso_namespace }}

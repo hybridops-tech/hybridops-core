@@ -241,6 +241,7 @@
     {% else %}
     delete protocols bgp neighbor {{ item.inside_peer_ip }} address-family ipv4-unicast route-map import
     {% endif %}
+    set protocols bgp neighbor {{ item.inside_peer_ip }} address-family ipv4-unicast nexthop-self
     {% if advertise_prefixes | length > 0 %}
     set protocols bgp neighbor {{ item.inside_peer_ip }} address-family ipv4-unicast route-map export '{{ bgp_export_route_map }}'
     {% else %}
@@ -256,6 +257,7 @@
   loop: "{{ _vyos_edges }}"
   loop_control:
     label: "{{ item.key }}@{{ item.ssh_host }}"
+  changed_when: true
   no_log: "{{ vyos_site_extension_no_log_sensitive | bool }}"
   when: vyos_site_extension_state == "present"
 
@@ -283,6 +285,7 @@
   loop: "{{ _vyos_edges }}"
   loop_control:
     label: "{{ item.key }}@{{ item.ssh_host }}"
+  changed_when: true
   when: vyos_site_extension_state == "absent"
 
 - name: Collect edge site-extension live status (present)

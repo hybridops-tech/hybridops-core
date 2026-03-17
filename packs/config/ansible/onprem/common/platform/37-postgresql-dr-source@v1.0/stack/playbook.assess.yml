@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/postgresql-dr-source (assess source leader)
+- name: Platform/onprem/postgresql-dr-source (assess source leader)
   hosts: postgres_cluster
   become: true
   gather_facts: false
@@ -37,6 +37,7 @@
 
   tasks:
     - name: Collect source PostgreSQL posture from cluster node
+      become: true
       ansible.builtin.command:
         argv:
           - psql
@@ -206,7 +207,7 @@
       run_once: true
       delegate_to: localhost
 
-- name: platform/onprem/postgresql-dr-source (publish outputs)
+- name: Platform/onprem/postgresql-dr-source (publish outputs)
   hosts: localhost
   gather_facts: false
 

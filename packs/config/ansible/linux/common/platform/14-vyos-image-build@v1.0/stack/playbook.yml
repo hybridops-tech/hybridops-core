@@ -94,10 +94,15 @@
       when: artifact_local_path | default('') | length > 0
 
     - name: Build local VyOS artifact when required
-      ansible.builtin.shell: "{{ build_command }}"
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - -lc
+          - "{{ build_command }}"
       args:
         chdir: "{{ build_workdir if (build_workdir | default('') | length > 0) else omit }}"
       environment: "{{ build_env_common }}"
+      changed_when: true
       when:
         - build_command | default('') | length > 0
         - artifact_local_path | default('') | length > 0
@@ -202,11 +207,16 @@
           }}
 
     - name: Publish local VyOS artifact when requested
-      ansible.builtin.shell: "{{ publish_command }}"
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - -lc
+          - "{{ publish_command }}"
       args:
         chdir: "{{ publish_workdir if (publish_workdir | default('') | length > 0) else omit }}"
       environment: "{{ publish_env }}"
       register: publish_cmd
+      changed_when: true
       when:
         - publish_command | default('') | length > 0
         - artifact_local_path | default('') | length > 0

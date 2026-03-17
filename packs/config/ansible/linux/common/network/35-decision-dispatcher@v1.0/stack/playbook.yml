@@ -1,0 +1,83 @@
+---
+- name: platform/network/decision-dispatcher (configure)
+  hosts: edge_control
+  any_errors_fatal: true
+  become: true
+  gather_facts: true
+
+  vars:
+    dispatcher_role_fqcn: "{{ dispatcher_role_fqcn | default('hybridops.common.decision_dispatcher') }}"
+    _hyops_input_dispatcher_state: "{{ dispatcher_state | default('present') }}"
+    _hyops_input_dispatcher_decision_records_dir: "{{ dispatcher_decision_records_dir | default('/opt/hybridops/decision-service/state/records') }}"
+    _hyops_input_dispatcher_execution_mode: "{{ dispatcher_execution_mode | default('record-only') }}"
+    _hyops_input_dispatcher_require_approval: "{{ dispatcher_require_approval | default(true) | bool }}"
+    _hyops_input_dispatcher_poll_seconds: "{{ dispatcher_poll_seconds | default(15) | int }}"
+    _hyops_input_dispatcher_log_level: "{{ dispatcher_log_level | default('INFO') }}"
+    _hyops_input_dispatcher_routes: "{{ dispatcher_routes }}"
+
+  pre_tasks:
+    - name: Assert dispatcher route contract
+      ansible.builtin.assert:
+        that:
+          - dispatcher_routes is mapping
+          - (dispatcher_routes | length) > 0
+        fail_msg: "decision-dispatcher requires at least one dispatch route"
+
+  tasks:
+    - name: Run decision dispatcher role
+      ansible.builtin.include_role:
+        name: "{{ dispatcher_role_fqcn }}"
+      vars:
+        dispatcher_state: "{{ _hyops_input_dispatcher_state }}"
+        dispatcher_decision_records_dir: "{{ _hyops_input_dispatcher_decision_records_dir }}"
+        dispatcher_execution_mode: "{{ _hyops_input_dispatcher_execution_mode }}"
+        dispatcher_require_approval: "{{ _hyops_input_dispatcher_require_approval }}"
+        dispatcher_poll_seconds: "{{ _hyops_input_dispatcher_poll_seconds }}"
+        dispatcher_log_level: "{{ _hyops_input_dispatcher_log_level }}"
+        dispatcher_routes: "{{ _hyops_input_dispatcher_routes }}"
+
+  post_tasks:
+    - name: Wait for dispatcher state file
+      run_once: true
+      ansible.builtin.wait_for:
+        path: "/opt/hybridops/decision-dispatcher/state/state.json"
+        state: present
+        timeout: 15
+      register: __dispatcher_state_wait
+      failed_when: false
+
+    - name: Read dispatcher state
+      run_once: true
+      ansible.builtin.slurp:
+        path: "/opt/hybridops/decision-dispatcher/state/state.json"
+      register: __dispatcher_state_raw
+      failed_when: false
+      when: __dispatcher_state_wait is succeeded
+
+    - name: Normalize dispatcher state
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.set_fact:
+        __dispatcher_state_payload: >-
+          {{
+            ((__dispatcher_state_raw.content | b64decode) | from_json)
+            if (__dispatcher_state_raw is defined and __dispatcher_state_raw.content is defined)
+            else {}
+          }}
+
+    - name: Write HyOps outputs
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'decision_dispatcher.status': 'ready',
+            'decision_dispatcher.last_tick': (__dispatcher_state_payload.timestamp_utc | default('')),
+            'decision_dispatcher.last_dispatch_id': (__dispatcher_state_payload.last_dispatch_id | default('')),
+            'decision_dispatcher.execution_mode': (__dispatcher_state_payload.execution_mode | default(dispatcher_execution_mode | default('record-only'))),
+            'cap.control.decision_dispatcher': 'ready'
+          } | to_json }}

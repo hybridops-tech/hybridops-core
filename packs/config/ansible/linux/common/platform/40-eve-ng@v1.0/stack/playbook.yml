@@ -3,25 +3,29 @@
   hosts: targets
   become: true
   gather_facts: true
-  collections:
-    - hybridops.app
 
   vars:
     eveng_role_fqcn: "{{ eveng_role_fqcn | default('hybridops.app.eveng') }}"
-    eveng_role_name: "{{ eveng_role_fqcn | regex_replace('^hybridops\\.app\\.', '') }}"
+    _hyops_input_eveng_resource_profile: "{{ eveng_resource_profile | default('standard') }}"
+    _hyops_input_eveng_environment_name: "{{ eveng_environment_name | default('') }}"
+    _hyops_input_eveng_domain: "{{ eveng_domain | default('lab.local') }}"
+    _hyops_input_eveng_users: "{{ eveng_users | default([]) }}"
+    _hyops_input_eveng_force_reinstall: "{{ eveng_force_reinstall | default(false) | bool }}"
+    _hyops_input_eveng_root_password: "{{ lookup('env', eveng_root_password_env | default('EVENG_ROOT_PASSWORD')) }}"
+    _hyops_input_eveng_admin_password: "{{ lookup('env', eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD')) }}"
 
   tasks:
     - name: Install and configure EVE-NG
       ansible.builtin.include_role:
-        name: "{{ eveng_role_name }}"
+        name: "{{ eveng_role_fqcn }}"
       vars:
-        eveng_resource_profile: "{{ eveng_resource_profile | default('standard') }}"
-        eveng_environment_name: "{{ eveng_environment_name | default('') }}"
-        eveng_domain: "{{ eveng_domain | default('lab.local') }}"
-        eveng_users: "{{ eveng_users | default([]) }}"
-        eveng_force_reinstall: "{{ eveng_force_reinstall | default(false) | bool }}"
-        eveng_root_password: "{{ lookup('env', eveng_root_password_env | default('EVENG_ROOT_PASSWORD')) }}"
-        eveng_admin_password: "{{ lookup('env', eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD')) }}"
+        eveng_resource_profile: "{{ _hyops_input_eveng_resource_profile }}"
+        eveng_environment_name: "{{ _hyops_input_eveng_environment_name }}"
+        eveng_domain: "{{ _hyops_input_eveng_domain }}"
+        eveng_users: "{{ _hyops_input_eveng_users }}"
+        eveng_force_reinstall: "{{ _hyops_input_eveng_force_reinstall }}"
+        eveng_root_password: "{{ _hyops_input_eveng_root_password }}"
+        eveng_admin_password: "{{ _hyops_input_eveng_admin_password }}"
 
   post_tasks:
     - name: Write HyOps outputs
