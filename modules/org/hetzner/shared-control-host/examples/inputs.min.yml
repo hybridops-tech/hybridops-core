@@ -1,4 +1,4 @@
-foundation_state_ref: "org/hetzner/vyos-edge-foundation"
+foundation_state_ref: "org/hetzner/shared-private-network#shared_network"
 
 name_prefix: "platform"
 context_id: "shared"

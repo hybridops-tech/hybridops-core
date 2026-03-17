@@ -6,6 +6,12 @@ State-first defaults:
 
 - `image_state_ref`: resolves the Hetzner VyOS image from `core/hetzner/vyos-image-seed`
 - outputs remain compatible with consumers that only need edge public/private IPs and the private network contract
+- `foundation_state_ref`: optionally resolves `private_network_id` and `private_network_cidr` from `org/hetzner/shared-private-network`
+
+Network ownership:
+
+- default behavior remains self-contained: if no `foundation_state_ref` or `private_network_id` is supplied, the module creates and owns its own Hetzner private network
+- for shared-control-plane deployments, point `foundation_state_ref` at `org/hetzner/shared-private-network` so edge compute and shared control hosts can share the same network without sharing destroy lifecycle
 
 Compatibility:
 

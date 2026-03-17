@@ -4,7 +4,7 @@ Provision a dedicated Hetzner VM on the WAN private network for shared control-p
 
 State-first defaults:
 
-- `foundation_state_ref`: resolves `private_network_id` and `private_network_cidr` from `org/hetzner/vyos-edge-foundation`
+- `foundation_state_ref`: resolves `private_network_id` and `private_network_cidr` from `org/hetzner/shared-private-network`
 - `ssh_keys_from_init: true`: resolves `ssh_keys` from `hyops init hetzner` readiness metadata
 
 The module creates:

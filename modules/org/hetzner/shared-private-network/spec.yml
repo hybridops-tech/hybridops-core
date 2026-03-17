@@ -1,0 +1,43 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "org/hetzner/shared-private-network"
+
+metadata:
+  title: "Hetzner Shared Private Network"
+  description: "Provision a reusable Hetzner private network and subnet for routed edge nodes and shared control-plane hosts."
+
+requirements:
+  credentials: ["hetzner"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+
+    network_zone: "eu-central"
+    private_network_name: "net-shared-private"
+    private_network_cidr: "10.80.0.0/24"
+
+    labels: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "hetzner@v1.0"
+  pack_ref:
+    id: "hetzner/org/19-shared-private-network@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-hetzner"
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - private_network_name
+    - private_network_id
+    - private_network_cidr
+
+probes: []
+constraints: []

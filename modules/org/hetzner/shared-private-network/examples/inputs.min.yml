@@ -1,0 +1,10 @@
+name_prefix: "platform"
+context_id: "dev"
+
+network_zone: "eu-central"
+private_network_name: "net-hyops-edge"
+private_network_cidr: "10.80.0.0/24"
+
+labels:
+  role: "shared-network"
+  service-plane: "shared"

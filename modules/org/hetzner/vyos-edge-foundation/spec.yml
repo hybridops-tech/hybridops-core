@@ -5,7 +5,7 @@ module_ref: "org/hetzner/vyos-edge-foundation"
 
 metadata:
   title: "Hetzner VyOS Edge Foundation"
-  description: "Provision two VyOS routed edge nodes, private network, firewall policy, and floating IPv4 on Hetzner."
+  description: "Provision two VyOS routed edge nodes, optionally on a shared private network, with firewall policy and floating IPv4 on Hetzner."
 
 requirements:
   credentials: ["hetzner"]
@@ -18,6 +18,9 @@ inputs:
     image_state_ref: "core/hetzner/vyos-image-seed"
     image_key: "vyos-1.5"
     image: ""
+
+    foundation_state_ref: ""
+    private_network_id: ""
 
     location: "ash"
     home_location: "ash"
