@@ -3,26 +3,19 @@
   hosts: edge_control
   gather_facts: false
   any_errors_fatal: true
-  tasks:
-    - name: Remove decision consumer service
-      ansible.builtin.include_role:
-        name: hybridops.common.decision_consumer
-      vars:
-        decision_consumer_state: "absent"
 
-    - name: Write HyOps outputs
-      delegate_to: localhost
-      become: false
-      when: inventory_hostname == ansible_play_hosts_all[0]
-      ansible.builtin.copy:
-        dest: "{{ hyops_outputs_file }}"
-        mode: "0600"
-        content: |
-          {{ {
-            'decision_consumer.status': 'absent',
-            'decision_consumer.last_tick': '',
-            'decision_consumer.last_request_id': '',
-            'decision_consumer.last_execution_id': '',
-            'decision_consumer.execution_mode': '',
-            'cap.control.decision_consumer': 'absent'
-          } | to_json }}
+  vars:
+    decision_destroy_role_fqcn: hybridops.common.decision_consumer
+    decision_destroy_state_var: decision_consumer_state
+    decision_destroy_outputs:
+      decision_consumer.status: absent
+      decision_consumer.last_tick: ""
+      decision_consumer.last_request_id: ""
+      decision_consumer.last_execution_id: ""
+      decision_consumer.execution_mode: ""
+      cap.control.decision_consumer: absent
+
+  tasks:
+    - name: Run shared decision destroy sequence
+      ansible.builtin.include_tasks:
+        file: ../../_shared/decision-destroy.tasks.yml

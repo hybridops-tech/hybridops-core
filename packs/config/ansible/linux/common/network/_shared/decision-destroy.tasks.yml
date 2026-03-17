@@ -1,0 +1,22 @@
+---
+- name: Run decision control-plane role (absent)
+  ansible.builtin.include_role:
+    name: "{{ decision_destroy_role_fqcn }}"
+  vars:
+    decision_service_state: >-
+      {{ 'absent' if decision_destroy_state_var == 'decision_service_state' else omit }}
+    decision_dispatcher_state: >-
+      {{ 'absent' if decision_destroy_state_var == 'decision_dispatcher_state' else omit }}
+    decision_consumer_state: >-
+      {{ 'absent' if decision_destroy_state_var == 'decision_consumer_state' else omit }}
+    decision_executor_state: >-
+      {{ 'absent' if decision_destroy_state_var == 'decision_executor_state' else omit }}
+
+- name: Write HyOps outputs
+  delegate_to: localhost
+  become: false
+  when: inventory_hostname == ansible_play_hosts_all[0]
+  ansible.builtin.copy:
+    dest: "{{ hyops_outputs_file }}"
+    mode: "0600"
+    content: "{{ decision_destroy_outputs | to_json }}"

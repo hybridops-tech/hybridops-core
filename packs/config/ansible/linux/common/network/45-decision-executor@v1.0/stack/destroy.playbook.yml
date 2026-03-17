@@ -3,26 +3,19 @@
   hosts: edge_control
   gather_facts: false
   any_errors_fatal: true
-  tasks:
-    - name: Remove decision executor service
-      ansible.builtin.include_role:
-        name: hybridops.common.decision_executor
-      vars:
-        decision_executor_state: "absent"
 
-    - name: Write HyOps outputs
-      delegate_to: localhost
-      become: false
-      when: inventory_hostname == ansible_play_hosts_all[0]
-      ansible.builtin.copy:
-        dest: "{{ hyops_outputs_file }}"
-        mode: "0600"
-        content: |
-          {{ {
-            'decision_executor.status': 'absent',
-            'decision_executor.last_tick': '',
-            'decision_executor.last_execution_id': '',
-            'decision_executor.last_attempt_id': '',
-            'decision_executor.execution_mode': '',
-            'cap.control.decision_executor': 'absent'
-          } | to_json }}
+  vars:
+    decision_destroy_role_fqcn: hybridops.common.decision_executor
+    decision_destroy_state_var: decision_executor_state
+    decision_destroy_outputs:
+      decision_executor.status: absent
+      decision_executor.last_tick: ""
+      decision_executor.last_execution_id: ""
+      decision_executor.last_attempt_id: ""
+      decision_executor.execution_mode: ""
+      cap.control.decision_executor: absent
+
+  tasks:
+    - name: Run shared decision destroy sequence
+      ansible.builtin.include_tasks:
+        file: ../../_shared/decision-destroy.tasks.yml

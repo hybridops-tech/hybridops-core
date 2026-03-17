@@ -6,29 +6,17 @@
   gather_facts: false
 
   vars:
-    decision_role_fqcn: "{{ decision_role_fqcn | default('hybridops.common.decision_service') }}"
+    decision_destroy_role_fqcn: "{{ decision_role_fqcn | default('hybridops.common.decision_service') }}"
+    decision_destroy_state_var: decision_service_state
+    decision_destroy_outputs:
+      decision_service.status: absent
+      decision_service.last_tick: ""
+      decision_service.last_action: "none"
+      decision_service.execution_mode: ""
+      decision_service.last_decision_id: ""
+      cap.control.decision_service: absent
 
   tasks:
-    - name: Run decision service role (absent)
-      ansible.builtin.include_role:
-        name: "{{ decision_role_fqcn }}"
-      vars:
-        decision_service_state: "absent"
-
-  post_tasks:
-    - name: Write HyOps outputs
-      delegate_to: localhost
-      become: false
-      when: inventory_hostname == ansible_play_hosts_all[0]
-      ansible.builtin.copy:
-        dest: "{{ hyops_outputs_file }}"
-        mode: "0600"
-        content: |
-          {{ {
-            'decision_service.status': 'absent',
-            'decision_service.last_tick': '',
-            'decision_service.last_action': 'none',
-            'decision_service.execution_mode': '',
-            'decision_service.last_decision_id': '',
-            'cap.control.decision_service': 'absent'
-          } | to_json }}
+    - name: Run shared decision destroy sequence
+      ansible.builtin.include_tasks:
+        file: ../../_shared/decision-destroy.tasks.yml
