@@ -12,22 +12,12 @@ import re
 from urllib.parse import urlparse
 from typing import Any
 
+from hyops.validators.common import (
+    require_non_empty_str as _require_non_empty_str,
+    require_port as _require_port,
+)
 
 _FQDN_RE = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$")
-
-
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_port(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < 1 or value > 65535:
-        raise ValueError(f"{field} must be between 1 and 65535")
-    return value
 
 
 def _validate_inventory(data: dict[str, Any]) -> None:

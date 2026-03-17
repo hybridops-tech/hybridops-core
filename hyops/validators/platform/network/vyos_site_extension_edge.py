@@ -10,6 +10,8 @@ import ipaddress
 import re
 from typing import Any
 
+from hyops.validators.common import require_port as _require_port
+
 
 _IFNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 _HOST_RE = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$")
@@ -23,14 +25,6 @@ def _require_non_empty_str(value: Any, field: str) -> str:
     if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
         raise ValueError(f"{field} must not contain placeholder values (found {token!r})")
     return token
-
-
-def _require_port(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < 1 or value > 65535:
-        raise ValueError(f"{field} must be between 1 and 65535")
-    return value
 
 
 def _require_asn(value: Any, field: str) -> int:

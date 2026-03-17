@@ -9,24 +9,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from hyops.validators.common import require_mapping, require_non_empty_str
-
-
-def _require_bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
+from hyops.validators.common import (
+    normalize_lifecycle_command,
+    require_bool,
+    require_mapping,
+    require_non_empty_str,
+)
 
 
 def validate(inputs: dict[str, Any]) -> None:
     data = require_mapping(inputs, "inputs")
-    lifecycle = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    lifecycle = normalize_lifecycle_command(data)
     invocation = str(data.get("_hyops_invocation_command") or "").strip().lower()
 
     require_non_empty_str(data.get("gate_name"), "inputs.gate_name")
     require_non_empty_str(data.get("gate_message"), "inputs.gate_message")
 
-    confirm = _require_bool(data.get("confirm"), "inputs.confirm")
+    confirm = require_bool(data.get("confirm"), "inputs.confirm")
     enforce_confirmation = invocation not in {"validate", "preflight", "plan"} and lifecycle != "destroy"
     if enforce_confirmation and not confirm:
         raise ValueError("inputs.confirm must be true (explicit operator confirmation required)")
@@ -38,7 +37,7 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.assertions must be a mapping when set")
     for key, value in assertions.items():
         require_non_empty_str(key, f"inputs.assertions[{key!r}]")
-        current = _require_bool(value, f"inputs.assertions[{key!r}]")
+        current = require_bool(value, f"inputs.assertions[{key!r}]")
         if enforce_confirmation and not current:
             raise ValueError(
                 f"inputs.assertions[{key!r}] must be true "

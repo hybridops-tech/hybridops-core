@@ -9,34 +9,12 @@ from __future__ import annotations
 import os
 from typing import Any
 
-
-def _require_mapping(value: Any, field: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field} must be a mapping")
-    return value
-
-
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return bool(value)
-
-
-def _require_str_list(value: Any, field: str) -> list[str]:
-    if not isinstance(value, list):
-        raise ValueError(f"{field} must be a list")
-    out: list[str] = []
-    for idx, item in enumerate(value, start=1):
-        if not isinstance(item, str) or not item.strip():
-            raise ValueError(f"{field}[{idx}] must be a non-empty string")
-        out.append(item.strip())
-    return out
+from hyops.validators.common import (
+    require_bool as _require_bool,
+    require_mapping as _require_mapping,
+    require_non_empty_str as _require_non_empty_str,
+    require_str_list as _require_str_list,
+)
 
 
 def _require_absolute_or_empty(value: Any, field: str) -> str:

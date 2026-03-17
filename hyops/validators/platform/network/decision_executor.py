@@ -8,28 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_port(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < 1 or value > 65535:
-        raise ValueError(f"{field} must be between 1 and 65535")
-    return value
-
-
-def _require_int_ge(value: Any, field: str, minimum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < minimum:
-        raise ValueError(f"{field} must be >= {minimum}")
-    return value
-
+from hyops.validators.common import (
+    require_int_ge as _require_int_ge,
+    require_non_empty_str as _require_non_empty_str,
+    require_port as _require_port,
+)
 
 def _validate_inventory(data: dict[str, Any]) -> None:
     inventory_groups = data.get("inventory_groups")

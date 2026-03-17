@@ -39,6 +39,27 @@ def require_port(value: Any, field: str) -> int:
     return value
 
 
+def require_int_ge(value: Any, field: str, minimum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be an integer")
+    if value < minimum:
+        raise ValueError(f"{field} must be >= {minimum}")
+    return value
+
+
+def require_positive_int(value: Any, field: str) -> int:
+    return require_int_ge(value, field, 1)
+
+
+def require_number_ge(value: Any, field: str, minimum: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a number")
+    token = float(value)
+    if token < minimum:
+        raise ValueError(f"{field} must be >= {minimum}")
+    return token
+
+
 def require_str_list(value: Any, field: str) -> list[str]:
     if not isinstance(value, list):
         raise ValueError(f"{field} must be a list")

@@ -10,40 +10,16 @@ from __future__ import annotations
 import re
 from typing import Any, cast
 
+from hyops.validators.common import (
+    require_int_ge as _require_int_ge,
+    require_non_empty_str as _require_non_empty_str,
+    require_number_ge as _require_number_ge,
+    require_port as _require_port,
+)
 from hyops.validators.platform.network import dns_routing as dns_routing_validator
 
 
 _REF_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]*[a-z0-9]$")
-
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_port(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < 1 or value > 65535:
-        raise ValueError(f"{field} must be between 1 and 65535")
-    return value
-
-
-def _require_int_ge(value: Any, field: str, minimum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < minimum:
-        raise ValueError(f"{field} must be >= {minimum}")
-    return value
-
-
-def _require_number_ge(value: Any, field: str, minimum: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{field} must be a number")
-    token = float(value)
-    if token < minimum:
-        raise ValueError(f"{field} must be >= {minimum}")
-    return token
 
 
 def _validate_module_ref(value: str, field: str) -> None:

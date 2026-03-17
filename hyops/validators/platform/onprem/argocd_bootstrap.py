@@ -10,35 +10,17 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from hyops.validators.common import (
+    normalize_lifecycle_command,
+    require_bool as _require_bool,
+    require_int_ge as _require_int_ge,
+    require_mapping as _require_mapping,
+    require_non_empty_str as _require_non_empty_str,
+)
+
 
 _K8S_NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 _PATH_SEG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-
-
-def _require_mapping(value: Any, field: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field} must be a mapping")
-    return value
-
-
-def _require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def _require_bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
-
-
-def _require_int_ge(value: Any, field: str, minimum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < minimum:
-        raise ValueError(f"{field} must be >= {minimum}")
-    return value
 
 
 def _validate_k8s_name(value: str, field: str) -> None:
@@ -82,7 +64,7 @@ def _validate_repo_path(value: str, field: str) -> None:
 
 def validate(inputs: dict[str, Any]) -> None:
     data = _require_mapping(inputs, "inputs")
-    lifecycle = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    lifecycle = normalize_lifecycle_command(data)
 
     # Local inventory/driver behavior
     if data.get("connectivity_check") is not None:
