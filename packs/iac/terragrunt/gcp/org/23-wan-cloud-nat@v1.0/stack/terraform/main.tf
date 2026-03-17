@@ -13,10 +13,10 @@ resource "google_compute_router_nat" "hub" {
   router  = var.router_name
   region  = var.region
 
-  nat_ip_allocate_option             = local.nat_mode
-  nat_ips                            = var.auto_allocate_external_ips ? null : var.nat_ip_self_links
-  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
-  min_ports_per_vm                   = var.min_ports_per_vm
+  nat_ip_allocate_option              = local.nat_mode
+  nat_ips                             = var.auto_allocate_external_ips ? null : var.nat_ip_self_links
+  source_subnetwork_ip_ranges_to_nat  = "LIST_OF_SUBNETWORKS"
+  min_ports_per_vm                    = var.min_ports_per_vm
   enable_endpoint_independent_mapping = var.enable_endpoint_independent_mapping
 
   dynamic "subnetwork" {

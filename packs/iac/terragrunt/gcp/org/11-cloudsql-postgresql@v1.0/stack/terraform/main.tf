@@ -1,5 +1,5 @@
 locals {
-  effective_range_name = trimspace(var.allocated_ip_range_name) != "" ? trimspace(var.allocated_ip_range_name) : "${var.instance_name}-sql-psa"
+  effective_range_name         = trimspace(var.allocated_ip_range_name) != "" ? trimspace(var.allocated_ip_range_name) : "${var.instance_name}-sql-psa"
   effective_network_project_id = trimspace(var.network_project_id) != "" ? trimspace(var.network_project_id) : var.project_id
 }
 

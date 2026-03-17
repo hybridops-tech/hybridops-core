@@ -1,0 +1,66 @@
+all:
+  children:
+    balancers:
+      hosts:
+        localhost:
+          ansible_connection: local
+    consul_instances:
+      hosts:
+        localhost:
+          ansible_connection: local
+    dns:
+      hosts:
+        localhost:
+          ansible_connection: local
+    edge:
+      hosts:
+        localhost:
+          ansible_connection: local
+    edge_control:
+      hosts:
+        localhost:
+          ansible_connection: local
+    etcd_cluster:
+      hosts:
+        localhost:
+          ansible_connection: local
+    master:
+      hosts:
+        localhost:
+          ansible_connection: local
+    pgbackrest:
+      hosts:
+        localhost:
+          ansible_connection: local
+    postgres_cluster:
+      hosts:
+        localhost:
+          ansible_connection: local
+    primary:
+      hosts:
+        localhost:
+          ansible_connection: local
+    replica:
+      hosts:
+        localhost:
+          ansible_connection: local
+    rke2_agents:
+      hosts:
+        localhost:
+          ansible_connection: local
+    rke2_servers:
+      hosts:
+        localhost:
+          ansible_connection: local
+    runner:
+      hosts:
+        localhost:
+          ansible_connection: local
+    secondary:
+      hosts:
+        localhost:
+          ansible_connection: local
+    targets:
+      hosts:
+        localhost:
+          ansible_connection: local

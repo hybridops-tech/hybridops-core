@@ -1,6 +1,6 @@
 # purpose: Publish HybridOps.Core release bundles on version tags.
 # adr: ADR-0622
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 name: Publish HybridOps.Core Release Bundle
 
@@ -12,7 +12,11 @@ permissions:
   contents: write
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
+
   publish-bundle:
+    needs: quality
     runs-on: ubuntu-latest
 
     steps:

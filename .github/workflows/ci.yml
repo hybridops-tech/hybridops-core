@@ -1,6 +1,6 @@
 # purpose: CI for HybridOps.Core release-bundle integrity.
 # adr: ADR-0622
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 name: HybridOps.Core CI
 
@@ -20,7 +20,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
+
   build-and-verify-bundle:
+    needs: quality
     runs-on: ubuntu-latest
 
     steps:

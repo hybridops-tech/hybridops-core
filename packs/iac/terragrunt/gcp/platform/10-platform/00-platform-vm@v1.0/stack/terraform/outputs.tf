@@ -18,15 +18,15 @@ output "vms" {
   value = {
     for k, inst in google_compute_instance.vm :
     k => {
-      vm_name                = inst.name
-      vm_id                  = inst.id
-      zone                   = inst.zone
-      role                   = try(var.vms[k].role, null)
-      ipv4_address           = local.preferred_ips[k]
+      vm_name                 = inst.name
+      vm_id                   = inst.id
+      zone                    = inst.zone
+      role                    = try(var.vms[k].role, null)
+      ipv4_address            = local.preferred_ips[k]
       ipv4_configured_primary = local.internal_ips[k]
-      ipv4_addresses         = compact([local.internal_ips[k], local.external_ips[k]])
-      tags                   = inst.tags
-      labels                 = inst.labels
+      ipv4_addresses          = compact([local.internal_ips[k], local.external_ips[k]])
+      tags                    = inst.tags
+      labels                  = inst.labels
     }
   }
 }

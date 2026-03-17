@@ -113,13 +113,3 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ModuleValidationError("inputs.enable_iap_ssh must be a boolean when set")
 
     _req_cidr_list(inputs, "internal_allow_cidrs")
-
-    labels = inputs.get("labels")
-    if labels is not None:
-        if not isinstance(labels, dict):
-            raise ModuleValidationError("inputs.labels must be a mapping when set")
-        for k, v in labels.items():
-            if not isinstance(k, str) or not k.strip():
-                raise ModuleValidationError("inputs.labels keys must be non-empty strings")
-            if not isinstance(v, str):
-                raise ModuleValidationError(f"inputs.labels[{k!r}] must be a string")

@@ -1,7 +1,7 @@
 # purpose: Baseline toolchain versions for HybridOps.Core workstation/runner setup.
 # note: setup accepts newer versions; these are treated as minimums unless explicitly overridden.
 # Architecture Decision: ADR-N/A
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 TERRAFORM_VERSION=1.10.5
 TERRAGRUNT_VERSION=0.72.0
@@ -12,6 +12,9 @@ KUBECTL_VERSION=1.30.7
 # Validation is based on ANSIBLE_CORE_VERSION (what the CLI reports).
 ANSIBLE_VERSION=
 ANSIBLE_CORE_VERSION=2.18.0
+ANSIBLE_LINT_VERSION=26.3.0
+
+TFLINT_VERSION=0.60.0
 
 # Optional. Leave blank unless you intend to manage distro-specific apt version strings.
 GCLOUD_CLI_VERSION=

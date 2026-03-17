@@ -85,12 +85,12 @@ variable "tags" {
 }
 
 locals {
-  derived_rg_name = lower(join("-", compact([trimspace(var.name_prefix), trimspace(var.context_id), "pgbackrest-rg"])))
+  derived_rg_name               = lower(join("-", compact([trimspace(var.name_prefix), trimspace(var.context_id), "pgbackrest-rg"])))
   effective_resource_group_name = trimspace(var.resource_group_name) != "" ? trimspace(var.resource_group_name) : local.derived_rg_name
 
-  sa_seed_raw = lower(join("", compact([trimspace(var.name_prefix), trimspace(var.context_id), "pgbackrest"])))
-  sa_seed     = replace(local.sa_seed_raw, "/[^a-z0-9]/", "")
-  derived_sa  = substr(local.sa_seed != "" ? local.sa_seed : "hyopspgbackrest", 0, 24)
+  sa_seed_raw                    = lower(join("", compact([trimspace(var.name_prefix), trimspace(var.context_id), "pgbackrest"])))
+  sa_seed                        = replace(local.sa_seed_raw, "/[^a-z0-9]/", "")
+  derived_sa                     = substr(local.sa_seed != "" ? local.sa_seed : "hyopspgbackrest", 0, 24)
   effective_storage_account_name = trimspace(var.storage_account_name) != "" ? lower(trimspace(var.storage_account_name)) : local.derived_sa
 
   effective_container_name = lower(trimspace(var.container_name))

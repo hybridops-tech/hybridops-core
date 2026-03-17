@@ -22,6 +22,11 @@ variable "subnetwork" {
   default = ""
 }
 
+variable "network_project_id" {
+  type    = string
+  default = ""
+}
+
 variable "machine_type" {
   type    = string
   default = "e2-standard-2"
@@ -52,6 +57,11 @@ variable "assign_public_ip" {
   default = false
 }
 
+variable "enable_nested_virtualization" {
+  type    = bool
+  default = false
+}
+
 variable "ssh_username" {
   type    = string
   default = "opsadmin"
@@ -76,18 +86,18 @@ variable "vms" {
   type = map(
     object(
       {
-        role               = optional(string)
-        machine_type       = optional(string)
-        zone               = optional(string)
-        boot_disk_size_gb  = optional(number)
-        boot_disk_type     = optional(string)
-        source_image_project = optional(string)
-        source_image_family  = optional(string)
-        assign_public_ip   = optional(bool)
-        tags               = optional(list(string))
-        labels             = optional(map(string))
+        role                         = optional(string)
+        machine_type                 = optional(string)
+        zone                         = optional(string)
+        boot_disk_size_gb            = optional(number)
+        boot_disk_type               = optional(string)
+        source_image_project         = optional(string)
+        source_image_family          = optional(string)
+        assign_public_ip             = optional(bool)
+        enable_nested_virtualization = optional(bool)
+        tags                         = optional(list(string))
+        labels                       = optional(map(string))
       }
     )
   )
 }
-

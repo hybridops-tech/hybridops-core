@@ -52,9 +52,15 @@ TMPDIR=/dev/shm bash pkg/verify_release.sh dist/releases/hybridops-core-<label>.
 - the installed payload matches the shipped checksum manifest
 - the temporary filesystem has enough free space before extraction begins
 
-This keeps source, bundle, and installed runtime aligned before a public
-release is cut.
+This is the authoritative release gate for HybridOps.Core. It keeps source,
+bundle, and installed runtime aligned before a public release is cut.
 
 `build_release.sh` also warns when the temporary filesystem looks tight for the
 current source payload, with a `TMPDIR` hint instead of failing late and
 silently.
+
+GitHub Actions also runs the reusable quality workflow before bundle build and
+publication. The blocking checks are Python compile/import integrity, Ansible
+playbook syntax, and Terraform `fmt`/`validate`/`tflint`. Repo-wide
+`ansible-lint` runs in advisory mode until the remaining legacy role debt is
+removed.

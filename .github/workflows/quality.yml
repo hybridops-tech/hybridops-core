@@ -1,0 +1,131 @@
+# purpose: Shared quality gates for HybridOps.Core source and release workflows.
+# adr: ADR-0622
+# maintainer: HybridOps.Tech
+
+name: HybridOps.Core Quality
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Run Python quality checks
+        shell: bash
+        run: bash tools/ci/check-python.sh
+
+  ansible-syntax:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Load toolchain pins
+        shell: bash
+        run: |
+          source tools/setup/requirements/toolchain.lock
+          echo "ANSIBLE_CORE_VERSION=${ANSIBLE_CORE_VERSION}" >> "${GITHUB_ENV}"
+          echo "ANSIBLE_LINT_VERSION=${ANSIBLE_LINT_VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Install Ansible dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "ansible-core==${ANSIBLE_CORE_VERSION}" \
+            "ansible-lint==${ANSIBLE_LINT_VERSION}" \
+            "PyYAML>=6.0,<7"
+
+      - name: Run Ansible syntax checks
+        shell: bash
+        run: bash tools/ci/check-ansible.sh
+
+  ansible-lint-advisory:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Load toolchain pins
+        shell: bash
+        run: |
+          source tools/setup/requirements/toolchain.lock
+          echo "ANSIBLE_CORE_VERSION=${ANSIBLE_CORE_VERSION}" >> "${GITHUB_ENV}"
+          echo "ANSIBLE_LINT_VERSION=${ANSIBLE_LINT_VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Install Ansible lint dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "ansible-core==${ANSIBLE_CORE_VERSION}" \
+            "ansible-lint==${ANSIBLE_LINT_VERSION}" \
+            "PyYAML>=6.0,<7"
+
+      - name: Run advisory Ansible lint
+        shell: bash
+        run: bash tools/ci/lint-ansible.sh
+
+  terraform-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Load toolchain pins
+        shell: bash
+        run: |
+          source tools/setup/requirements/toolchain.lock
+          echo "TERRAFORM_VERSION=${TERRAFORM_VERSION}" >> "${GITHUB_ENV}"
+          echo "TFLINT_VERSION=${TFLINT_VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v${{ env.TFLINT_VERSION }}
+
+      - name: Run Terraform quality checks
+        shell: bash
+        run: bash tools/ci/check-terraform.sh
