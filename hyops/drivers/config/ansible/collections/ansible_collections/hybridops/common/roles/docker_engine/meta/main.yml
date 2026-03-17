@@ -1,14 +1,14 @@
 ---
 # purpose: Role metadata and dependencies for Docker Engine baseline
 # adr: ADR-0602-docker-engine-baseline
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 galaxy_info:
-  author: HybridOps.Studio
+  author: HybridOps.Tech
   description: >-
     Install and manage Docker Engine and Docker Compose v2 on Linux control
-    nodes for HybridOps.Studio, with simple defaults for Ubuntu and EL9.
-  company: HybridOps.Studio
+    nodes for HybridOps.Tech, with simple defaults for Ubuntu and EL9.
+  company: HybridOps.Tech
   license: MIT
   min_ansible_version: "2.15"
 

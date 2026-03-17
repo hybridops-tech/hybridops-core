@@ -1,6 +1,6 @@
 name_prefix: platform
-context_id: dev
-project_id: hybridops-pf-dev
+context_id: example
+project_id: hyops-example-gcp-project
 region: europe-west2
 billing_account_id: "CHANGE_ME_BILLING_ACCOUNT"
 # Optional (enterprise): set exactly one of org_id or folder_id.
@@ -13,4 +13,4 @@ activate_apis:
   - secretmanager.googleapis.com
 labels:
   owner: hybridops
-  context: dev
+  context: example

@@ -1,6 +1,6 @@
 # purpose: Default variables for Docker Engine baseline
 # adr: ADR-0602-docker-engine-baseline
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 docker_engine_state: present        # present|absent
 docker_engine_enable: true          # start/enable service when present

@@ -1,7 +1,7 @@
 ---
 # purpose: Install and manage Docker Engine and Compose plugin on Linux hosts
 # adr: ADR-0602-docker-engine-baseline
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Fail on unsupported OS family
   ansible.builtin.fail:

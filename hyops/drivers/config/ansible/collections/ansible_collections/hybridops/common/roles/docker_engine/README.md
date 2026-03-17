@@ -2,8 +2,6 @@
 
 Install and manage Docker Engine and the Docker Compose v2 plugin on supported Linux hosts.
 
-Maintainer: HybridOps.Studio
-
 ## Summary
 
 This role provides a small, opinionated Docker CE baseline suitable for control nodes, CI agents, and container-capable application hosts.
@@ -14,7 +12,7 @@ This role provides a small, opinionated Docker CE baseline suitable for control 
 - Optionally adds users to the `docker` group.
 - Fails fast on unsupported OS families to avoid partial configuration.
 
-Design context: [ADR-0602 – Docker Engine baseline](https://docs.hybridops.studio/adr/ADR-0602-docker-engine-baseline/).
+Design context: [ADR-0602 – Docker Engine baseline](https://docs.hybridops.tech/adr/ADR-0602-docker-engine-baseline/).
 
 ## Requirements
 
@@ -73,4 +71,4 @@ A lightweight verification step runs `docker version` for diagnostics.
 - Code: [MIT-0](https://spdx.org/licenses/MIT-0.html)
 - Documentation & diagrams: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 
-See the [HybridOps.Studio licensing overview](https://docs.hybridops.studio/briefings/legal/licensing/) for project-wide licence details, including branding and trademark notes.
+See the [HybridOps licensing overview](https://docs.hybridops.tech/briefings/legal/licensing/) for project-wide licence details, including branding and trademark notes.

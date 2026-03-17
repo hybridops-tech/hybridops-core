@@ -25,4 +25,4 @@ and this role follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Optional evidence hook that runs `docker version` and emits a debug message
   without failing the play if the command is unavailable.
 - Role README describing supported platforms, variables, and usage patterns
-  across the HybridOps.Studio platform.
+  across the HybridOps.Tech platform.

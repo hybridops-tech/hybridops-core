@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: pgbackrest_repo
-  author: HybridOps.Studio
+  author: HybridOps.Tech
   description: "Normalize pgBackRest repo settings for Autobase (S3, GCS, or Azure Blob)."
   license: "MIT"
   min_ansible_version: "2.16"

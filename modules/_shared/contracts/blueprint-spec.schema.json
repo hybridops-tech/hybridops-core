@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hybridops.studio/schemas/blueprint-spec.schema.json",
+  "$id": "https://hybridops.tech/schemas/blueprint-spec.schema.json",
   "title": "BlueprintSpec",
   "description": "Product-level orchestration manifest for ordered module execution.",
   "type": "object",

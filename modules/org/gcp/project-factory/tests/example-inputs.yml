@@ -1,8 +1,8 @@
 name_prefix: platform
-context_id: dev
-project_id: hybridops-pf-dev
+context_id: example
+project_id: hyops-example-gcp-project
 region: europe-west2
-billing_account_id: "01B1FD-FAC417-423408"
+billing_account_id: "CHANGE_ME_BILLING_ACCOUNT"
 # Optional (enterprise): set exactly one of org_id or folder_id.
 # Consumer/trial accounts without an Organization can omit both (project lands under "No organization").
 org_id: "123456789012"      # OR folder_id: "123456789012"
@@ -12,4 +12,4 @@ activate_apis:
   - secretmanager.googleapis.com
 labels:
   owner: hybridops
-  context: dev
+  context: example

@@ -1,6 +1,6 @@
 # Module tests
 
-## Local run (creates evidence)
+## Local run (creates a run record)
 
 ```bash
 rm -rf /tmp/hyops-e2e

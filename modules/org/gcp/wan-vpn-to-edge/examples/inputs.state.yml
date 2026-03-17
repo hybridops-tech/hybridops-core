@@ -1,0 +1,14 @@
+# Preferred state-driven path for durable env overlays.
+# HyOps resolves these from upstream state during preflight/validate/apply:
+# - project_id and network_self_link from org/gcp/wan-hub-network
+# - router_name from org/gcp/wan-cloud-router
+# - peer_ip_a and peer_ip_b from org/hetzner/vyos-edge-foundation when present
+
+region: "europe-west2"
+ha_vpn_gateway_name: "hybridops-hub-havpn-europe-west2"
+external_vpn_gateway_name: "hybridops-edge-extgw"
+peer_asn: 65010
+required_env:
+  - "WAN_IPSEC_PSK"
+shared_secret_a_env: "WAN_IPSEC_PSK"
+shared_secret_b_env: "WAN_IPSEC_PSK"

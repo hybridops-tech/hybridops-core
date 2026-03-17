@@ -1,6 +1,6 @@
 # Purpose: Timeless ModuleSpec template for HybridOps.Core modules.
 # Architecture Decision: ADR-0622
-# Maintainer: HybridOps.Studio
+# Maintainer: HybridOps.Tech
 
 api_version: hybridops/v1
 kind: ModuleSpec

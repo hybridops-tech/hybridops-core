@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # purpose: Install HybridOps.Core into a deterministic user prefix with a runnable `hyops` command.
 # Architecture Decision: ADR-N/A (bootstrap installer)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 set -euo pipefail
 umask 077

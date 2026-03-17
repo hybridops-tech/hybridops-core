@@ -13,7 +13,7 @@ They package repeatable outcomes, not low-level implementation details.
 - `intent`: module input intent is declared per step.
 - `policy`: run behavior guardrails (`fail_fast`, `evidence_required`, `ipam_authority`, `netbox_live_api_check`).
 - `contracts`: per-step delivery contracts (`addressing_mode`, required upstream state).
-- `verification`: probes remain module-level and evidence remains deterministic.
+- `verification`: probes remain module-level and run records remain deterministic.
 
 `netbox_live_api_check` notes:
 - Default: `false` (state-based NetBox authority gate only).
@@ -25,6 +25,7 @@ They package repeatable outcomes, not low-level implementation details.
 - `onprem/netbox-ha-cutover@v1`: re-point NetBox from bootstrap PostgreSQL core to PostgreSQL HA.
 - `onprem/authoritative-foundation@v1`: SDN + NetBox + IPAM-gated platform VMs.
 - `onprem/eve-ng@v1`: EVE-NG foundation chain with optional post-config intent.
+- `gcp/eve-ng@v1`: nested-virtualization-capable GCP EVE-NG host plus provider-neutral EVE-NG configuration.
 - `networking/wan-hub-edge@v1`: Hetzner edge + GCP hub WAN baseline (network/router/HA VPN BGP).
 - `networking/gcp-ops-runner@v1`: private GCP runner VM in the hub core subnet for runner-local DR/burst execution.
 - `networking/onprem-ops-runner@v1`: on-prem runner VM on the management network for runner-local failback and platform execution.

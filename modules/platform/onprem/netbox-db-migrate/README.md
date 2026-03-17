@@ -52,6 +52,7 @@ Defaults assume the shared NetBox bootstrap path:
 Advanced:
 
 - `source_db_state_env` / `target_db_state_env` allow controlled cross-env references
+  only when you also set `allow_cross_env_state=true`. Same-env resolution is the default and `shared` is the only normal cross-env authority.
 - explicit `source_db_*` / `target_db_*` values are supported, but state-driven contracts are preferred
 
 ## Outputs
