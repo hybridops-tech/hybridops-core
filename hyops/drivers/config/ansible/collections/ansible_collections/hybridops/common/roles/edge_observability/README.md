@@ -2,8 +2,6 @@
 
 Install and manage edge observability services via Docker Compose on edge VPS nodes.
 
-Maintainer: HybridOps.Studio
-
 ## Summary
 
 This role deploys a lightweight observability stack on the edge (non-Kubernetes):

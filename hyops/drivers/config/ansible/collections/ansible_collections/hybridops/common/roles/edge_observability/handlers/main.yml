@@ -1,6 +1,6 @@
 ---
 # purpose: Handlers for edge_observability role
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Restart edge observability
   ansible.builtin.service:

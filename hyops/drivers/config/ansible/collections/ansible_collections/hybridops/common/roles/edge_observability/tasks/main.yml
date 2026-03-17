@@ -1,6 +1,6 @@
 ---
 # purpose: Install and manage edge observability services via Docker Compose
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 - name: Preflight | assert supported state
   ansible.builtin.assert:
@@ -66,6 +66,46 @@
     - "{{ edge_obs_logs_dir }}"
   when: edge_obs_state == "present"
 
+- name: Ensure Thanos data directories (present)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ edge_obs_thanos_uid }}"
+    group: "{{ edge_obs_thanos_gid }}"
+    mode: "0750"
+    recurse: true
+  loop:
+    - "{{ edge_obs_data_dir }}/receive"
+    - "{{ edge_obs_data_dir }}/store"
+    - "{{ edge_obs_data_dir }}/ruler"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_receive or edge_obs_enable_store_gateway or edge_obs_enable_ruler
+
+- name: Ensure Grafana data directory (present)
+  ansible.builtin.file:
+    path: "{{ edge_obs_data_dir }}/grafana"
+    state: directory
+    owner: "{{ edge_obs_grafana_uid }}"
+    group: "{{ edge_obs_grafana_gid }}"
+    mode: "0750"
+    recurse: true
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_grafana
+
+- name: Ensure Alertmanager data directory (present)
+  ansible.builtin.file:
+    path: "{{ edge_obs_data_dir }}/alertmanager"
+    state: directory
+    owner: "{{ edge_obs_alertmanager_uid }}"
+    group: "{{ edge_obs_alertmanager_gid }}"
+    mode: "0750"
+    recurse: true
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_alertmanager
+
 - name: Write Grafana env file
   ansible.builtin.copy:
     dest: "{{ edge_obs_env_path }}"
@@ -84,8 +124,8 @@
   ansible.builtin.template:
     src: objstore.yml.j2
     dest: "{{ edge_obs_config_dir }}/objstore.yml"
-    owner: root
-    group: root
+    owner: "{{ edge_obs_thanos_uid }}"
+    group: "{{ edge_obs_thanos_gid }}"
     mode: "0640"
   when: edge_obs_state == "present"
   notify: Restart edge observability
@@ -94,8 +134,8 @@
   ansible.builtin.template:
     src: hashring.json.j2
     dest: "{{ edge_obs_config_dir }}/hashring.json"
-    owner: root
-    group: root
+    owner: "{{ edge_obs_thanos_uid }}"
+    group: "{{ edge_obs_thanos_gid }}"
     mode: "0640"
   when:
     - edge_obs_state == "present"
@@ -106,8 +146,8 @@
   ansible.builtin.template:
     src: grafana-datasources.yaml.j2
     dest: "{{ edge_obs_config_dir }}/grafana-datasources.yaml"
-    owner: root
-    group: root
+    owner: "{{ edge_obs_grafana_uid }}"
+    group: "{{ edge_obs_grafana_gid }}"
     mode: "0640"
   when:
     - edge_obs_state == "present"
@@ -118,8 +158,8 @@
   ansible.builtin.template:
     src: alertmanager.yml.j2
     dest: "{{ edge_obs_config_dir }}/alertmanager.yml"
-    owner: root
-    group: root
+    owner: "{{ edge_obs_alertmanager_uid }}"
+    group: "{{ edge_obs_alertmanager_gid }}"
     mode: "0640"
   when:
     - edge_obs_state == "present"
@@ -130,8 +170,8 @@
   ansible.builtin.template:
     src: thanos-rules.yaml.j2
     dest: "{{ edge_obs_config_dir }}/rules.yaml"
-    owner: root
-    group: root
+    owner: "{{ edge_obs_thanos_uid }}"
+    group: "{{ edge_obs_thanos_gid }}"
     mode: "0640"
   when:
     - edge_obs_state == "present"
@@ -169,3 +209,69 @@
     state: started
     enabled: true
   when: edge_obs_state == "present"
+
+- name: Flush handlers before readiness checks
+  ansible.builtin.meta: flush_handlers
+  when: edge_obs_state == "present"
+
+- name: Compute expected edge observability services
+  ansible.builtin.set_fact:
+    edge_obs_expected_services:
+      "{{ (edge_obs_enable_receive | ternary(['thanos-receive'], []))
+          + (edge_obs_enable_store_gateway | ternary(['thanos-store-gateway'], []))
+          + (edge_obs_enable_query | ternary(['thanos-query'], []))
+          + (edge_obs_enable_ruler | ternary(['thanos-ruler'], []))
+          + (edge_obs_enable_alertmanager | ternary(['alertmanager'], []))
+          + (edge_obs_enable_grafana | ternary(['grafana'], []))
+      }}"
+  when: edge_obs_state == "present"
+
+- name: Wait for expected edge observability containers to be running
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose -f "{{ edge_obs_compose_path }}" ps --services --status running
+  args:
+    executable: /bin/bash
+  register: edge_obs_running_services
+  changed_when: false
+  retries: "{{ edge_obs_startup_retries | int }}"
+  delay: "{{ edge_obs_startup_delay_s | int }}"
+  until:
+    - (edge_obs_expected_services | difference((edge_obs_running_services.stdout_lines | default([]) | map('trim') | reject('equalto', '') | list))) | length == 0
+  when: edge_obs_state == "present"
+
+- name: Wait for Thanos Query HTTP readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ edge_obs_query_http_port }}/-/healthy"
+    status_code: 200
+  register: edge_obs_query_health
+  retries: "{{ edge_obs_startup_retries | int }}"
+  delay: "{{ edge_obs_startup_delay_s | int }}"
+  until: edge_obs_query_health.status == 200
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_query
+
+- name: Wait for Grafana HTTP readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ edge_obs_grafana_http_port }}/api/health"
+    status_code: 200
+  register: edge_obs_grafana_health
+  retries: "{{ edge_obs_startup_retries | int }}"
+  delay: "{{ edge_obs_startup_delay_s | int }}"
+  until: edge_obs_grafana_health.status == 200
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_grafana
+
+- name: Wait for Alertmanager HTTP readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ edge_obs_alertmanager_http_port }}/-/healthy"
+    status_code: 200
+  register: edge_obs_alertmanager_health
+  retries: "{{ edge_obs_startup_retries | int }}"
+  delay: "{{ edge_obs_startup_delay_s | int }}"
+  until: edge_obs_alertmanager_health.status == 200
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_alertmanager

@@ -1,6 +1,6 @@
 ---
 # purpose: Defaults for edge_observability role (edge services via Docker Compose)
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 edge_obs_state: present
 
@@ -10,6 +10,15 @@ edge_obs_env_path: "{{ edge_obs_root }}/.env"
 edge_obs_config_dir: "{{ edge_obs_root }}/config"
 edge_obs_data_dir: "{{ edge_obs_root }}/data"
 edge_obs_logs_dir: "{{ edge_obs_root }}/logs"
+
+edge_obs_thanos_uid: "1001"
+edge_obs_thanos_gid: "1001"
+edge_obs_grafana_uid: "472"
+edge_obs_grafana_gid: "472"
+edge_obs_alertmanager_uid: "65534"
+edge_obs_alertmanager_gid: "65534"
+edge_obs_startup_retries: 18
+edge_obs_startup_delay_s: 5
 
 edge_obs_thanos_image: "docker.io/bitnami/thanos:REPLACE_THANOS_TAG"
 edge_obs_grafana_image: "grafana/grafana:REPLACE_GRAFANA_TAG"

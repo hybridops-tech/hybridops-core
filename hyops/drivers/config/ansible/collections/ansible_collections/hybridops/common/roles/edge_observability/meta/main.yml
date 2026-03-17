@@ -1,13 +1,13 @@
 ---
 # purpose: Role metadata and dependencies for edge_observability
-# maintainer: HybridOps.Studio
+# maintainer: HybridOps.Tech
 
 galaxy_info:
-  author: HybridOps.Studio
+  author: HybridOps.Tech
   description: >-
     Install and manage edge observability services (Thanos, Grafana,
     Alertmanager) via Docker Compose on edge VPS nodes.
-  company: HybridOps.Studio
+  company: HybridOps.Tech
   license: MIT
   min_ansible_version: "2.15"
 
