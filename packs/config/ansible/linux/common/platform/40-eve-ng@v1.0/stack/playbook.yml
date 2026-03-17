@@ -1,0 +1,40 @@
+---
+- name: platform/linux/eve-ng (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+  collections:
+    - hybridops.app
+
+  vars:
+    eveng_role_fqcn: "{{ eveng_role_fqcn | default('hybridops.app.eveng') }}"
+    eveng_role_name: "{{ eveng_role_fqcn | regex_replace('^hybridops\\.app\\.', '') }}"
+
+  tasks:
+    - name: Install and configure EVE-NG
+      ansible.builtin.include_role:
+        name: "{{ eveng_role_name }}"
+      vars:
+        eveng_resource_profile: "{{ eveng_resource_profile | default('standard') }}"
+        eveng_environment_name: "{{ eveng_environment_name | default('') }}"
+        eveng_domain: "{{ eveng_domain | default('lab.local') }}"
+        eveng_users: "{{ eveng_users | default([]) }}"
+        eveng_force_reinstall: "{{ eveng_force_reinstall | default(false) | bool }}"
+        eveng_root_password: "{{ lookup('env', eveng_root_password_env | default('EVENG_ROOT_PASSWORD')) }}"
+        eveng_admin_password: "{{ lookup('env', eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD')) }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'eveng_url': ('http://' ~ (
+              hostvars[inventory_hostname].hyops_resolved_host
+              | default(hostvars[inventory_hostname].hyops_private_host | default(hostvars[inventory_hostname].ansible_host | default('')))
+            ) ~ '/'),
+            'cap.lab.eveng': 'ready'
+          } | to_json }}

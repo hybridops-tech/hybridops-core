@@ -1,0 +1,80 @@
+---
+# purpose: Sync EVE-NG image files from a remote host into the local cache
+# maintainer: HybridOps.Tech
+
+- name: Validate remote configuration
+  ansible.builtin.assert:
+    that:
+      - eveng_images_remote_host is defined
+      - (eveng_images_remote_host | string | trim) != ''
+      - eveng_images_remote_path is defined
+      - (eveng_images_remote_path | string | trim) != ''
+    fail_msg: "eveng_images_remote_host and eveng_images_remote_path must be defined"
+
+- name: Check remote path
+  ansible.builtin.stat:
+    path: "{{ eveng_images_remote_path }}"
+  delegate_to: "{{ eveng_images_remote_host }}"
+  register: remote_path_stat
+
+- name: Fail if remote path not found
+  ansible.builtin.fail:
+    msg: "Remote path not found: {{ eveng_images_remote_path }}"
+  when: not (remote_path_stat.stat.exists | bool)
+
+- name: Create cache directory
+  ansible.builtin.file:
+    path: "{{ eveng_images_cache_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Sync from remote directory
+  ansible.builtin.synchronize:
+    src: "{{ eveng_images_remote_path }}/"
+    dest: "{{ eveng_images_cache_dir }}/"
+    rsync_opts:
+      - "--include=*.tar.gz"
+      - "--include=*.tgz"
+      - "--include=*.zip"
+      - "--include=*.gz"
+      - "--include=*.qcow2"
+      - "--include=*.img"
+      - "--include=*.bin"
+      - "--exclude=*"
+  delegate_to: "{{ eveng_images_remote_host }}"
+  when: remote_path_stat.stat.isdir | bool
+
+- name: Copy remote file
+  ansible.builtin.synchronize:
+    src: "{{ eveng_images_remote_path }}"
+    dest: "{{ eveng_images_cache_dir }}/{{ eveng_images_remote_path | basename }}"
+  delegate_to: "{{ eveng_images_remote_host }}"
+  when: remote_path_stat.stat.isreg | bool
+
+- name: Find synced images
+  ansible.builtin.find:
+    paths: "{{ eveng_images_cache_dir }}"
+    patterns:
+      - "*.tar.gz"
+      - "*.tgz"
+      - "*.zip"
+      - "*.gz"
+      - "*.qcow2"
+      - "*.img"
+      - "*.bin"
+    recurse: true
+  register: downloaded_files
+
+- name: Fail if no images found
+  ansible.builtin.fail:
+    msg: "No image files found in {{ eveng_images_cache_dir }}"
+  when: (downloaded_files.files | default([]) | length) == 0
+
+- name: Record download metadata
+  ansible.builtin.set_fact:
+    eveng_downloaded_files: "{{ downloaded_files.files }}"
+    eveng_images_run_at: "{{ ansible_date_time.iso8601 }}"
+
+- name: Build image report and export logs
+  ansible.builtin.include_tasks: report.yml
+  when: eveng_images_generate_report | default(true) | bool

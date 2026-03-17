@@ -1,0 +1,10 @@
+network_state_ref: "org/gcp/wan-hub-network"
+location: "europe-west2-b"
+cluster_name: "burst"
+node_count: 1
+machine_type: "e2-standard-2"
+master_authorized_networks:
+  - cidr: "203.0.113.10/32"
+    display_name: "operator"
+labels:
+  lane: "burst"

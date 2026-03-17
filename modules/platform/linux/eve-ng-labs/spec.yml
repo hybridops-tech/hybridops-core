@@ -1,0 +1,75 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/eve-ng-labs"
+
+metadata:
+  title: "Linux EVE-NG Labs"
+  description: "Load lab content onto an existing EVE-NG host from a local path, Git repository, or remote file source."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    eveng_labs_role_fqcn: "hybridops.helper.eveng_labs"
+    eveng_labs_source: "local"
+    eveng_labs_local_path: ""
+    eveng_labs_git_repo: ""
+    eveng_labs_git_branch: "main"
+    eveng_labs_remote_host: ""
+    eveng_labs_remote_path: "/mnt/nfs/eveng-labs"
+    eveng_lab_folders: []
+    eveng_labs_staging_dir: "/tmp/eveng_labs_staging"
+    eveng_exclude_patterns: []
+    eveng_labs_sync_exclude_patterns:
+      - "--exclude=.git"
+      - "--exclude=*.md"
+      - "--exclude=README*"
+      - "--exclude=*.bak"
+      - "--exclude=*~"
+      - "--exclude=.DS_Store"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/42-eve-ng-labs@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.eveng.labs
+    - eveng_labs_source
+    - eveng_lab_folder_count
+
+probes: []
+constraints: []

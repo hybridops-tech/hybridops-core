@@ -1,0 +1,107 @@
+---
+- name: platform/k8s/gsm-bootstrap (bootstrap)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    eso_namespace: "{{ eso_namespace | default('external-secrets') }}"
+    secret_name: "{{ secret_name | default('gsm-sa-credentials') }}"
+    secret_key: "{{ secret_key | default('credentials.json') }}"
+    gsm_sa_key_json_env: "{{ gsm_sa_key_json_env | default('HYOPS_GSM_SA_KEY_JSON') }}"
+
+  tasks:
+    - name: Resolve kubeconfig path
+      ansible.builtin.set_fact:
+        _hyops_kubeconfig_path: >-
+          {{
+            (kubeconfig_path | string)
+            if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
+            else (hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml')
+          }}
+      changed_when: false
+
+    - name: Resolve GCP SA key JSON from bootstrap vault
+      ansible.builtin.set_fact:
+        _hyops_gsm_sa_key_json: "{{ lookup('env', gsm_sa_key_json_env) }}"
+      changed_when: false
+      no_log: true
+
+    - name: Assert required inputs are present
+      ansible.builtin.assert:
+        that:
+          - _hyops_kubeconfig_path | length > 0
+          - _hyops_gsm_sa_key_json | length > 0
+        fail_msg: >-
+          kubeconfig_path and {{ gsm_sa_key_json_env }} are both required.
+          Ensure {{ gsm_sa_key_json_env }} is set in the bootstrap vault before running this module.
+
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ _hyops_kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Fail when kubeconfig is missing
+      ansible.builtin.fail:
+        msg: "kubeconfig not found: {{ _hyops_kubeconfig_path }}"
+      when: not _hyops_kubeconfig_stat.stat.exists
+
+    - name: Provision GSM service account secret
+      block:
+        - name: Write SA key JSON to secure temp file
+          ansible.builtin.shell:
+            cmd: >-
+              printenv '{{ gsm_sa_key_json_env }}'
+              > '{{ hyops_runtime_root }}/state/gsm-sa-credentials.json.tmp'
+              && chmod 600 '{{ hyops_runtime_root }}/state/gsm-sa-credentials.json.tmp'
+          changed_when: true
+          no_log: true
+
+        - name: Ensure ESO namespace exists (idempotent)
+          ansible.builtin.shell:
+            cmd: >-
+              kubectl --kubeconfig {{ _hyops_kubeconfig_path }}
+              create namespace {{ eso_namespace }}
+              --dry-run=client -o yaml
+              | kubectl --kubeconfig {{ _hyops_kubeconfig_path }} apply -f -
+          register: _hyops_ns_apply
+          changed_when: >-
+            (_hyops_ns_apply.stdout is defined and (
+              'created' in _hyops_ns_apply.stdout or
+              'configured' in _hyops_ns_apply.stdout
+            ))
+
+        - name: Apply GSM service account secret (idempotent)
+          ansible.builtin.shell:
+            cmd: >-
+              kubectl --kubeconfig {{ _hyops_kubeconfig_path }}
+              create secret generic {{ secret_name }}
+              --namespace {{ eso_namespace }}
+              --from-file={{ secret_key }}={{ hyops_runtime_root }}/state/gsm-sa-credentials.json.tmp
+              --dry-run=client -o yaml
+              | kubectl --kubeconfig {{ _hyops_kubeconfig_path }} apply -f -
+          register: _hyops_secret_apply
+          changed_when: >-
+            (_hyops_secret_apply.stdout is defined and (
+              'created' in _hyops_secret_apply.stdout or
+              'configured' in _hyops_secret_apply.stdout
+            ))
+
+      always:
+        - name: Remove SA key temp file
+          ansible.builtin.file:
+            path: "{{ hyops_runtime_root }}/state/gsm-sa-credentials.json.tmp"
+            state: absent
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'secret_name': (secret_name | string),
+            'eso_namespace': (eso_namespace | string),
+            'cap.k8s.gsm-bootstrap': 'ready'
+          } | to_json }}

@@ -1,6 +1,6 @@
 ---
 # EVE-NG Community Edition deployment for Ubuntu 22.04
-# Ref: ADR-XXXX | HybridOps.Studio
+# Ref: ADR-XXXX | HybridOps.Tech
 
 - name: Set deployment facts
   set_fact:

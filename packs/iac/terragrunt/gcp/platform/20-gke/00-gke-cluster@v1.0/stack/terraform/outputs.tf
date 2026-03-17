@@ -1,0 +1,11 @@
+output "project_id" { value = var.project_id }
+output "region" { value = var.region }
+output "location" { value = google_container_cluster.cluster.location }
+output "cluster_name" { value = google_container_cluster.cluster.name }
+output "endpoint" { value = google_container_cluster.cluster.endpoint }
+output "cluster_ca_certificate" { value = google_container_cluster.cluster.master_auth[0].cluster_ca_certificate }
+output "network" { value = var.network }
+output "subnetwork" { value = var.subnetwork }
+output "node_pool_name" { value = google_container_node_pool.default.name }
+output "node_service_account_email" { value = local.effective_node_service_account }
+output "cap_k8s_gke" { value = "ready" }

@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/argocd-bootstrap (bootstrap)
+- name: platform/k8s/argocd-bootstrap (bootstrap)
   hosts: localhost
   connection: local
   become: false
@@ -24,20 +24,39 @@
     workloads_repo_url: "{{ workloads_repo_url | default('') }}"
     workloads_revision: "{{ workloads_revision | default('main') }}"
     workloads_target_path: "{{ workloads_target_path | default('clusters/onprem') }}"
+    repo_access_mode: "{{ repo_access_mode | default('public') }}"
+    repo_secret_name: "{{ repo_secret_name | default('hyops-workloads-repo') }}"
+    repo_ssh_private_key_env: "{{ repo_ssh_private_key_env | default('ARGOCD_REPO_SSH_PRIVATE_KEY') }}"
+    repo_ssh_known_hosts: "{{ repo_ssh_known_hosts | default('') }}"
+    repo_insecure_ignore_host_key: "{{ repo_insecure_ignore_host_key | default(false) }}"
 
     sync_automated_prune: "{{ sync_automated_prune | default(true) }}"
     sync_automated_self_heal: "{{ sync_automated_self_heal | default(true) }}"
     create_namespace: "{{ create_namespace | default(true) }}"
 
   tasks:
+    - name: Assert supported repo access mode
+      ansible.builtin.assert:
+        that:
+          - repo_access_mode in ['public', 'ssh']
+        fail_msg: "repo_access_mode must be one of: public, ssh"
+
+    - name: Assert repository URL matches repo access mode
+      ansible.builtin.assert:
+        that:
+          - >-
+            (repo_access_mode == 'public' and
+             (workloads_repo_url is match('^https?://.+')))
+            or
+            (repo_access_mode == 'ssh' and
+             (workloads_repo_url is match('^(git@|ssh://).+')))
+        fail_msg: >-
+          public repo mode requires an HTTPS repository URL.
+          ssh repo mode requires an SSH repository URL (git@... or ssh://...).
+
     - name: Resolve kubeconfig path
       ansible.builtin.set_fact:
-        _hyops_kubeconfig_path: >-
-          {{
-            (kubeconfig_path | string)
-            if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
-            else (hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml')
-          }}
+        _hyops_kubeconfig_path: "{{ kubeconfig_path | default('', true) | string }}"
       changed_when: false
 
     - name: Assert required fields
@@ -48,6 +67,31 @@
           - workloads_target_path | length > 0
           - root_app_name | length > 0
         fail_msg: "required inputs are missing for argocd bootstrap"
+
+    - name: Resolve repository SSH private key from environment
+      when: repo_access_mode == 'ssh'
+      ansible.builtin.set_fact:
+        _hyops_repo_ssh_private_key: >-
+          {{
+            (
+              lookup('env', repo_ssh_private_key_env) | default('', true) | string
+            )
+            .replace('\r', '')
+            .replace('\\n', '\n')
+            .strip()
+          }}
+      changed_when: false
+
+    - name: Assert SSH repo credentials are present
+      when: repo_access_mode == 'ssh'
+      ansible.builtin.assert:
+        that:
+          - _hyops_repo_ssh_private_key | default('') | length > 0
+          - repo_secret_name | length > 0
+          - repo_ssh_private_key_env | length > 0
+        fail_msg: >-
+          repo_access_mode=ssh requires a deploy key in env
+          {{ repo_ssh_private_key_env }} (vault-backed env is supported).
 
     - name: Check kubeconfig exists
       ansible.builtin.stat:
@@ -117,6 +161,85 @@
         cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} -n {{ argocd_namespace }} rollout status deploy/argocd-server --timeout={{ argocd_wait_timeout_s | int }}s
       changed_when: false
 
+    - name: Render Argo CD repository secret
+      when: repo_access_mode == 'ssh'
+      ansible.builtin.copy:
+        dest: "{{ (hyops_outputs_file | dirname) ~ '/argocd-repository-secret.yaml' }}"
+        mode: "0600"
+        content: |
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: {{ repo_secret_name }}
+            namespace: {{ argocd_namespace }}
+            labels:
+              argocd.argoproj.io/secret-type: repository
+              hyops.module: platform-k8s-argocd-bootstrap
+            annotations:
+              hyops.root-app-name: {{ root_app_name }}
+          type: Opaque
+          stringData:
+            type: git
+            url: {{ workloads_repo_url }}
+            sshPrivateKey: |
+              {{ (_hyops_repo_ssh_private_key | default('')) | indent(14, true) }}
+            insecureIgnoreHostKey: {{ (repo_insecure_ignore_host_key | bool) | ternary('true', 'false') }}
+          {% if (repo_ssh_known_hosts | string | length) > 0 %}
+            sshKnownHosts: |
+              {{ (repo_ssh_known_hosts | string) | indent(14, true) }}
+          {% endif %}
+
+    - name: Apply Argo CD repository secret
+      when: repo_access_mode == 'ssh'
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} apply -f {{ (hyops_outputs_file | dirname) ~ '/argocd-repository-secret.yaml' }}
+      register: _hyops_repo_secret_apply
+      changed_when: >-
+        (_hyops_repo_secret_apply.stdout is defined and (
+          'created' in _hyops_repo_secret_apply.stdout or
+          'configured' in _hyops_repo_secret_apply.stdout
+        ))
+        or
+        (_hyops_repo_secret_apply.stderr is defined and (
+          'created' in _hyops_repo_secret_apply.stderr or
+          'configured' in _hyops_repo_secret_apply.stderr
+        ))
+
+    - name: Check whether the managed repository secret belongs to this instance
+      when:
+        - repo_access_mode == 'public'
+        - repo_secret_name | length > 0
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - -n
+          - "{{ argocd_namespace }}"
+          - get
+          - secret
+          - "{{ repo_secret_name }}"
+          - -o
+          - jsonpath={.metadata.annotations.hyops\.root-app-name}
+      register: _hyops_repo_secret_owner
+      changed_when: false
+      failed_when: false
+
+    - name: Remove managed repository secret when repo mode is public
+      when:
+        - repo_access_mode == 'public'
+        - repo_secret_name | length > 0
+        - _hyops_repo_secret_owner.rc == 0
+        - _hyops_repo_secret_owner.stdout == root_app_name
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig {{ _hyops_kubeconfig_path }} -n {{ argocd_namespace }} delete secret {{ repo_secret_name }} --ignore-not-found=true
+      register: _hyops_repo_secret_delete
+      changed_when: >-
+        (_hyops_repo_secret_delete.stdout is defined and (
+          'deleted' in _hyops_repo_secret_delete.stdout
+        ))
+      failed_when: false
+
     - name: Render root Application manifest
       ansible.builtin.copy:
         dest: "{{ (hyops_outputs_file | dirname) ~ '/argocd-root-application.yaml' }}"
@@ -128,7 +251,7 @@
             name: {{ root_app_name }}
             namespace: {{ root_app_namespace }}
             labels:
-              hyops.module: platform-onprem-argocd-bootstrap
+              hyops.module: platform-k8s-argocd-bootstrap
           spec:
             project: {{ root_app_project }}
             source:
@@ -168,5 +291,7 @@
             'workloads_repo_url': (workloads_repo_url | string),
             'workloads_revision': (workloads_revision | string),
             'workloads_target_path': (workloads_target_path | string),
+            'repo_access_mode': (repo_access_mode | string),
+            'repo_secret_name': ((repo_secret_name | string) if (repo_access_mode | string) == 'ssh' else ''),
             'cap.gitops.argocd': 'ready'
           } | to_json }}

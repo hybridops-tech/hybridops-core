@@ -1,0 +1,51 @@
+---
+- name: platform/k8s/gsm-bootstrap (destroy)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    eso_namespace: "{{ eso_namespace | default('external-secrets') }}"
+    secret_name: "{{ secret_name | default('gsm-sa-credentials') }}"
+
+  tasks:
+    - name: Resolve kubeconfig path
+      ansible.builtin.set_fact:
+        _hyops_kubeconfig_path: >-
+          {{
+            (kubeconfig_path | string)
+            if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
+            else (hyops_runtime_root ~ '/state/kubeconfigs/rke2.yaml')
+          }}
+      changed_when: false
+
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ _hyops_kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Delete GSM service account secret (best effort)
+      when: _hyops_kubeconfig_stat.stat.exists
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig {{ _hyops_kubeconfig_path }}
+          delete secret {{ secret_name }}
+          --namespace {{ eso_namespace }}
+          --ignore-not-found=true
+      register: _hyops_secret_delete
+      changed_when: >-
+        (_hyops_secret_delete.stdout is defined and 'deleted' in _hyops_secret_delete.stdout)
+      failed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'secret_name': (secret_name | string),
+            'eso_namespace': (eso_namespace | string),
+            'cap.k8s.gsm-bootstrap': 'absent'
+          } | to_json }}

@@ -1,0 +1,41 @@
+---
+- name: platform/linux/eve-ng-labs (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+  collections:
+    - hybridops.helper
+
+  vars:
+    eveng_labs_role_fqcn: "{{ eveng_labs_role_fqcn | default('hybridops.helper.eveng_labs') }}"
+    eveng_labs_role_name: "{{ eveng_labs_role_fqcn | regex_replace('^hybridops\\.helper\\.', '') }}"
+
+  tasks:
+    - name: Install EVE-NG labs
+      ansible.builtin.include_role:
+        name: "{{ eveng_labs_role_name }}"
+      vars:
+        eveng_labs_source: "{{ eveng_labs_source | default('local') }}"
+        eveng_labs_local_path: "{{ eveng_labs_local_path | default('') }}"
+        eveng_labs_git_repo: "{{ eveng_labs_git_repo | default('') }}"
+        eveng_labs_git_branch: "{{ eveng_labs_git_branch | default('main') }}"
+        eveng_labs_remote_host: "{{ eveng_labs_remote_host | default('') }}"
+        eveng_labs_remote_path: "{{ eveng_labs_remote_path | default('/mnt/nfs/eveng-labs') }}"
+        eveng_lab_folders: "{{ eveng_lab_folders | default([]) }}"
+        eveng_labs_staging_dir: "{{ eveng_labs_staging_dir | default('/tmp/eveng_labs_staging') }}"
+        eveng_exclude_patterns: "{{ eveng_exclude_patterns | default([]) }}"
+        eveng_labs_sync_exclude_patterns: "{{ eveng_labs_sync_exclude_patterns | default([]) }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.labs': 'ready',
+            'eveng_labs_source': (eveng_labs_source | default('local')),
+            'eveng_lab_folder_count': ((eveng_lab_folders | default([])) | length)
+          } | to_json }}

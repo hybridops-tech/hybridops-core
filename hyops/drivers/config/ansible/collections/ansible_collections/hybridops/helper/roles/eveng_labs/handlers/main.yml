@@ -1,0 +1,10 @@
+# purpose: Normalise lab permissions for EVE-NG
+# maintainer: HybridOps.Tech
+
+- name: fix lab permissions
+  shell: |
+    find "{{ eveng_labs_install_root | default('/opt/unetlab/labs') }}" -type f -name "*.unl" -exec chmod 664 {} \;
+    find "{{ eveng_labs_install_root | default('/opt/unetlab/labs') }}" -type d -exec chmod 775 {} \;
+  args:
+    executable: /bin/bash
+  changed_when: false

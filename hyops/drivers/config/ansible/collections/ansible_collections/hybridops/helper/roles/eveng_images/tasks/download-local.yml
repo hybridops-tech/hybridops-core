@@ -1,0 +1,80 @@
+---
+# purpose: Copy EVE-NG image files from local filesystem into the cache
+# maintainer: HybridOps.Tech
+
+- name: Validate local path
+  ansible.builtin.assert:
+    that:
+      - eveng_images_local_path is defined
+      - (eveng_images_local_path | string | trim) != ""
+    fail_msg: "eveng_images_local_path must be defined"
+  changed_when: false
+
+- name: Check if local path exists
+  ansible.builtin.stat:
+    path: "{{ eveng_images_local_path }}"
+  delegate_to: localhost
+  register: local_path
+  changed_when: false
+
+- name: Fail if path not found
+  ansible.builtin.fail:
+    msg: "Local path not found: {{ eveng_images_local_path }}"
+  when: not (local_path.stat.exists | default(false) | bool)
+
+- name: Create cache directory
+  ansible.builtin.file:
+    path: "{{ eveng_images_cache_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy archive to cache
+  ansible.builtin.copy:
+    src: "{{ eveng_images_local_path }}"
+    dest: "{{ eveng_images_cache_dir }}/{{ eveng_images_local_path | basename }}"
+  when: local_path.stat.isreg | default(false) | bool
+
+- name: Sync directory to cache
+  ansible.posix.synchronize:
+    src: "{{ eveng_images_local_path }}/"
+    dest: "{{ eveng_images_cache_dir }}/"
+    rsync_opts:
+      - "--include=*.tar.gz"
+      - "--include=*.tgz"
+      - "--include=*.zip"
+      - "--include=*.gz"
+      - "--include=*.qcow2"
+      - "--include=*.img"
+      - "--include=*.bin"
+      - "--exclude=*"
+  when: local_path.stat.isdir | default(false) | bool
+
+- name: Find copied images
+  ansible.builtin.find:
+    paths: "{{ eveng_images_cache_dir }}"
+    patterns:
+      - "*.tar.gz"
+      - "*.tgz"
+      - "*.zip"
+      - "*.gz"
+      - "*.qcow2"
+      - "*.img"
+      - "*.bin"
+    recurse: true
+  register: downloaded_files
+  changed_when: false
+
+- name: Fail if no images found
+  ansible.builtin.fail:
+    msg: "No image files found in {{ eveng_images_local_path }}"
+  when: (downloaded_files.files | default([]) | length) == 0
+
+- name: Record download metadata
+  ansible.builtin.set_fact:
+    eveng_downloaded_files: "{{ downloaded_files.files | default([]) }}"
+    eveng_images_run_at: "{{ ansible_date_time.iso8601 }}"
+  changed_when: false
+
+- name: Build image report and export logs
+  ansible.builtin.include_tasks: report.yml
+  when: eveng_images_generate_report | default(true) | bool

@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for platform/linux/ops-runner module.
 Architecture Decision: ADR-N/A (ops-runner validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations

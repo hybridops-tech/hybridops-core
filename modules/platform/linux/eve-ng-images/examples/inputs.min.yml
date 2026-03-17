@@ -1,0 +1,9 @@
+target_host: "CHANGE_ME_TARGET_HOST"
+target_user: "opsadmin"
+ssh_private_key_file: "~/.ssh/id_ed25519"
+
+eveng_images_source: "url"
+eveng_images_list:
+  - url: "https://example.invalid/images/router-image.tgz"
+    name: "router-image.tgz"
+    type: "qemu"

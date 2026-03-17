@@ -1,0 +1,43 @@
+name: Test eveng_healthcheck Role
+
+on:
+  push:
+    paths:
+      - "roles/eveng_healthcheck/**"
+  pull_request:
+    paths:
+      - "roles/eveng_healthcheck/**"
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible ansible-lint
+
+      - name: Lint role
+        run: |
+          ansible-lint roles/eveng_healthcheck
+
+      - name: Run smoke test
+        run: |
+          cd roles/eveng_healthcheck
+          ansible-playbook tests/quick_test.yml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: /tmp/eveng_health_check_*.json

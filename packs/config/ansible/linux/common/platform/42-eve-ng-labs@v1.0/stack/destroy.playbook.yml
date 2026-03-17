@@ -1,0 +1,32 @@
+---
+- name: platform/linux/eve-ng-labs (destroy)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Remove explicitly managed lab folders
+      ansible.builtin.file:
+        path: "/opt/unetlab/labs/{{ item }}"
+        state: absent
+      loop: "{{ eveng_lab_folders | default([]) }}"
+      when: (eveng_lab_folders | default([]) | length) > 0
+
+    - name: Remove staging directory
+      ansible.builtin.file:
+        path: "{{ eveng_labs_staging_dir | default('/tmp/eveng_labs_staging') }}"
+        state: absent
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.labs': 'cleaned',
+            'eveng_labs_source': (eveng_labs_source | default('local')),
+            'eveng_lab_folder_count': ((eveng_lab_folders | default([])) | length)
+          } | to_json }}

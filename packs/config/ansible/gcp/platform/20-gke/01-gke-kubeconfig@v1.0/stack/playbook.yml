@@ -1,0 +1,308 @@
+---
+- name: platform/gcp/gke-kubeconfig
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    project_id: "{{ project_id | default('') }}"
+    location: "{{ location | default('') }}"
+    cluster_name: "{{ cluster_name | default('') }}"
+    kubeconfig_name: "{{ kubeconfig_name | default('') }}"
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    use_internal_ip: "{{ use_internal_ip | default(false) | bool }}"
+    gcloud_bin: "{{ gcloud_bin | default('gcloud') }}"
+    gcloud_copy_default_config: "{{ gcloud_copy_default_config | default(true) | bool }}"
+    gcloud_runtime_config_dir: "{{ gcloud_runtime_config_dir | default('') }}"
+    gcloud_active_account: "{{ gcloud_active_account | default('') }}"
+    _hyops_effective_kubeconfig_name: >-
+      {{
+        (kubeconfig_name | string)
+        if (kubeconfig_name is string and (kubeconfig_name | length) > 0)
+        else (cluster_name | string)
+      }}
+    _hyops_kubeconfig_path: >-
+      {{
+        (kubeconfig_path | string)
+        if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
+        else (hyops_runtime_root ~ '/state/kubeconfigs/' ~ _hyops_effective_kubeconfig_name ~ '.yaml')
+      }}
+    _hyops_gcloud_config_dir: >-
+      {{
+        (gcloud_runtime_config_dir | string)
+        if (gcloud_runtime_config_dir is string and (gcloud_runtime_config_dir | length) > 0)
+        else (hyops_runtime_root ~ '/cache/gcloud')
+      }}
+    _hyops_default_gcloud_config_dir: "{{ lookup('env', 'HOME') ~ '/.config/gcloud' }}"
+
+  tasks:
+    - name: Require project, location, and cluster name
+      ansible.builtin.assert:
+        that:
+          - (project_id | string | length) > 0
+          - (location | string | length) > 0
+          - (cluster_name | string | length) > 0
+        fail_msg: "inputs.project_id, inputs.location, and inputs.cluster_name are required"
+
+    - name: Ensure runtime gcloud config directory exists
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check default gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_default_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_default_gcloud_cfg
+
+    - name: Check runtime gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_runtime_gcloud_cfg
+
+    - name: Copy default gcloud config into runtime cache (best effort)
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ _hyops_default_gcloud_config_dir }}/."
+          - "{{ _hyops_gcloud_config_dir }}/"
+      changed_when: true
+      when:
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+        - not _hyops_runtime_gcloud_cfg.stat.exists
+
+    - name: Require gcloud binary
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - version
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Require gke-gcloud-auth-plugin binary
+      ansible.builtin.command:
+        argv:
+          - gke-gcloud-auth-plugin
+          - --version
+      changed_when: false
+
+    - name: Require kubectl binary
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - version
+          - --client
+      changed_when: false
+
+    - name: Resolve active gcloud account
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - auth
+          - list
+          - --filter=status:ACTIVE
+          - --format=value(account)
+      register: _hyops_gcloud_active_account
+      changed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Fail when no active gcloud account is available
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_active_account.stdout | trim | length) > 0
+        fail_msg: >-
+          No active gcloud account was found. Authenticate gcloud first, or rerun hyops init gcp
+          and ensure the controller has usable GCP CLI credentials.
+
+    - name: Fail on unexpected gcloud account
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_active_account.stdout | trim) == (gcloud_active_account | trim)
+        fail_msg: >-
+          The active gcloud account does not match inputs.gcloud_active_account.
+          Observed={{ _hyops_gcloud_active_account.stdout | trim }} expected={{ gcloud_active_account | trim }}
+      when: (gcloud_active_account | string | length) > 0
+
+    - name: Describe GKE cluster before kubeconfig fetch
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - container
+          - clusters
+          - describe
+          - "{{ cluster_name }}"
+          - "--project={{ project_id }}"
+          - "--location={{ location }}"
+          - --format=json
+      register: _hyops_gke_cluster_describe
+      changed_when: false
+      failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Detect stale cached gcloud auth
+      ansible.builtin.set_fact:
+        _hyops_gke_refresh_runtime_auth: >-
+          {{
+            ((_hyops_gke_cluster_describe.rc | default(0)) != 0)
+            and (
+              (_hyops_gke_cluster_describe.stderr | default('') | lower is search('invalid_grant'))
+              or (_hyops_gke_cluster_describe.stderr | default('') | lower is search('token has been expired or revoked'))
+            )
+            and (gcloud_copy_default_config | bool)
+            and _hyops_default_gcloud_cfg.stat.exists
+          }}
+
+    - name: Reset runtime gcloud cache after invalid_grant
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: absent
+      when: _hyops_gke_refresh_runtime_auth | bool
+
+    - name: Recreate runtime gcloud config directory after auth refresh
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: directory
+        mode: "0700"
+      when: _hyops_gke_refresh_runtime_auth | bool
+
+    - name: Refresh runtime gcloud cache from default config
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ _hyops_default_gcloud_config_dir }}/."
+          - "{{ _hyops_gcloud_config_dir }}/"
+      changed_when: true
+      when: _hyops_gke_refresh_runtime_auth | bool
+
+    - name: Retry GKE cluster describe after auth refresh
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - container
+          - clusters
+          - describe
+          - "{{ cluster_name }}"
+          - "--project={{ project_id }}"
+          - "--location={{ location }}"
+          - --format=json
+      register: _hyops_gke_cluster_describe_retry
+      changed_when: false
+      failed_when: false
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+      when: _hyops_gke_refresh_runtime_auth | bool
+
+    - name: Resolve effective GKE cluster describe result
+      ansible.builtin.set_fact:
+        _hyops_gke_cluster_describe_effective: >-
+          {{
+            _hyops_gke_cluster_describe_retry
+            if (_hyops_gke_refresh_runtime_auth | bool)
+            else _hyops_gke_cluster_describe
+          }}
+      changed_when: false
+
+    - name: Fail when GKE cluster describe is blocked
+      ansible.builtin.fail:
+        msg: >-
+          Failed to describe GKE cluster {{ cluster_name }} in project {{ project_id }} before kubeconfig fetch.
+          {{ (_hyops_gke_cluster_describe_effective.stderr | default('') | trim) if (_hyops_gke_cluster_describe_effective.stderr | default('') | trim | length) > 0 else (_hyops_gke_cluster_describe_effective.stdout | default('') | trim) }}
+          Hint: confirm the GKE API is reachable, the project is not billing-blocked, and the active gcloud account is authorized for the cluster project.
+      when: (_hyops_gke_cluster_describe_effective.rc | default(0)) != 0
+
+    - name: Parse GKE cluster metadata
+      ansible.builtin.set_fact:
+        _hyops_gke_cluster_info: "{{ _hyops_gke_cluster_describe_effective.stdout | from_json }}"
+
+    - name: Probe GKE control-plane endpoint reachability
+      ansible.builtin.uri:
+        url: "https://{{ _hyops_gke_cluster_info.endpoint }}/readyz"
+        method: GET
+        validate_certs: false
+        timeout: 8
+        return_content: false
+        status_code:
+          - 200
+          - 401
+          - 403
+      register: _hyops_gke_endpoint_probe
+      failed_when: false
+      when:
+        - _hyops_gke_cluster_info is mapping
+        - (_hyops_gke_cluster_info.endpoint | default('') | string | length) > 0
+        - not (use_internal_ip | bool)
+
+    - name: Fail when public GKE control-plane endpoint is unreachable
+      ansible.builtin.fail:
+        msg: >-
+          The GKE control-plane endpoint for {{ cluster_name }} is not reachable from this machine.
+          endpoint={{ _hyops_gke_cluster_info.endpoint }}
+          Check cluster master_authorized_networks, controller public IP, and whether the control plane should be accessed through a runner or internal IP instead.
+      when:
+        - _hyops_gke_endpoint_probe is defined
+        - (_hyops_gke_endpoint_probe.status | default(0) | int) == 0
+
+    - name: Ensure kubeconfig directory exists
+      ansible.builtin.file:
+        path: "{{ _hyops_kubeconfig_path | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Remove existing kubeconfig file before fetch
+      ansible.builtin.file:
+        path: "{{ _hyops_kubeconfig_path }}"
+        state: absent
+
+    - name: Fetch kubeconfig for GKE cluster
+      ansible.builtin.command:
+        argv: >-
+          {{
+            [
+              gcloud_bin,
+              'container',
+              'clusters',
+              'get-credentials',
+              cluster_name,
+              '--project=' ~ project_id,
+              '--location=' ~ location,
+            ] + (
+              ['--internal-ip'] if (use_internal_ip | bool) else []
+            )
+          }}
+      changed_when: true
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+        KUBECONFIG: "{{ _hyops_kubeconfig_path }}"
+
+    - name: Verify kubeconfig can reach cluster
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - cluster-info
+      changed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {
+            "project_id": "{{ project_id }}",
+            "location": "{{ location }}",
+            "cluster_name": "{{ cluster_name }}",
+            "kubeconfig_path": "{{ _hyops_kubeconfig_path }}",
+            "cap_k8s_gke_kubeconfig": "ready"
+          }

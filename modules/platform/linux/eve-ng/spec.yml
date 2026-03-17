@@ -1,0 +1,68 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/eve-ng"
+
+metadata:
+  title: "Linux EVE-NG Service"
+  description: "Install and configure EVE-NG on a single Ubuntu 22.04 Linux host reached directly, through a bastion, or through GCP IAP."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # One target host per module run.
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env:
+      - "EVENG_ROOT_PASSWORD"
+      - "EVENG_ADMIN_PASSWORD"
+    required_env_destroy: []
+    load_vault_env: true
+
+    eveng_role_fqcn: "hybridops.app.eveng"
+    eveng_resource_profile: "standard"
+    eveng_environment_name: ""
+    eveng_domain: "lab.local"
+    eveng_users: []
+    eveng_force_reinstall: false
+    eveng_root_password_env: "EVENG_ROOT_PASSWORD"
+    eveng_admin_password_env: "EVENG_ADMIN_PASSWORD"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/40-eve-ng@v1.0"
+
+outputs:
+  publish:
+    - eveng_url
+    - cap.lab.eveng
+
+probes: []
+constraints: []

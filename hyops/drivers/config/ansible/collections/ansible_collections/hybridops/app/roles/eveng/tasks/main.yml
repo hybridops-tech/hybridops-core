@@ -1,6 +1,13 @@
 ---
 # Main task entry point for EVE-NG role
 
+- name: Install and configure EVE-NG
+  ansible.builtin.include_tasks: setup.yml
+  tags:
+    - eveng
+    - install
+    - setup
+
 - name: Apply resource profile
   ansible.builtin.include_tasks: "profile-{{ eveng_resource_profile }}.yml"
   when:
@@ -10,13 +17,6 @@
     - eveng
     - install
     - config
-
-- name: Install and configure EVE-NG
-  ansible.builtin.include_tasks: setup.yml
-  tags:
-    - eveng
-    - install
-    - setup
 
 - name: Manage additional users
   ansible.builtin.include_tasks: users.yml

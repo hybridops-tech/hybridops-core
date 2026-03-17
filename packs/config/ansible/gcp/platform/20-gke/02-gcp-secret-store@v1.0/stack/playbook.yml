@@ -1,0 +1,423 @@
+---
+- name: platform/k8s/gcp-secret-store
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    project_id: "{{ project_id | default('') }}"
+    location: "{{ location | default('') }}"
+    cluster_name: "{{ cluster_name | default('') }}"
+    secret_project_id: "{{ secret_project_id | default('') }}"
+    ensure_secretmanager_api: "{{ ensure_secretmanager_api | default(true) | bool }}"
+    ensure_eso_crds: "{{ ensure_eso_crds | default(true) | bool }}"
+    eso_crds_bundle_url: "{{ eso_crds_bundle_url | default('https://raw.githubusercontent.com/external-secrets/external-secrets/v2.1.0/deploy/crds/bundle.yaml') }}"
+    iam_role: "{{ iam_role | default('roles/secretmanager.secretAccessor') }}"
+    eso_namespace: "{{ eso_namespace | default('external-secrets') }}"
+    service_account_namespace: "{{ service_account_namespace | default('external-secrets') }}"
+    service_account_name: "{{ service_account_name | default('eso-gcp-secret-manager') }}"
+    secret_store_name: "{{ secret_store_name | default('gcp-secret-manager') }}"
+    kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
+    gcloud_bin: "{{ gcloud_bin | default('gcloud') }}"
+    wait_timeout_s: "{{ wait_timeout_s | default(300) | int }}"
+
+  tasks:
+    - name: Resolve kubeconfig path
+      ansible.builtin.set_fact:
+        _hyops_kubeconfig_path: >-
+          {{
+            (kubeconfig_path | string)
+            if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
+            else (hyops_runtime_root ~ '/state/kubeconfigs/gke-burst.yaml')
+          }}
+        _hyops_secret_project_id: >-
+          {{
+            (secret_project_id | string)
+            if (secret_project_id is string and (secret_project_id | length) > 0)
+            else (project_id | string)
+          }}
+      changed_when: false
+
+    - name: Assert required inputs are present
+      ansible.builtin.assert:
+        that:
+          - _hyops_kubeconfig_path | length > 0
+          - (project_id | string | length) > 0
+          - (location | string | length) > 0
+          - (cluster_name | string | length) > 0
+          - (_hyops_secret_project_id | string | length) > 0
+          - (service_account_name | string | length) > 0
+          - (service_account_namespace | string | length) > 0
+          - (secret_store_name | string | length) > 0
+        fail_msg: >-
+          kubeconfig_path, project_id, location, cluster_name, service_account_name,
+          service_account_namespace, and secret_store_name are required.
+
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ _hyops_kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Fail when kubeconfig is missing
+      ansible.builtin.fail:
+        msg: "kubeconfig not found: {{ _hyops_kubeconfig_path }}"
+      when: not _hyops_kubeconfig_stat.stat.exists
+
+    - name: Require gcloud binary
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - version
+      changed_when: false
+
+    - name: Require kubectl binary
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - version
+          - --client
+      changed_when: false
+
+    - name: Require active gcloud account
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - auth
+          - list
+          - --filter=status:ACTIVE
+          - --format=value(account)
+      register: _hyops_gcloud_active_account
+      changed_when: false
+
+    - name: Fail when no active gcloud account is available
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_active_account.stdout | trim | length) > 0
+        fail_msg: >-
+          No active gcloud account was found. Authenticate gcloud first, or rerun hyops init gcp
+          and ensure the controller has usable GCP CLI credentials.
+
+    - name: Resolve GKE workload identity pool
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - container
+          - clusters
+          - describe
+          - "{{ cluster_name }}"
+          - "--location={{ location }}"
+          - "--project={{ project_id }}"
+          - --format=value(workloadIdentityConfig.workloadPool)
+      register: _hyops_workload_pool
+      changed_when: false
+
+    - name: Fail when GKE Workload Identity is not enabled
+      ansible.builtin.assert:
+        that:
+          - (_hyops_workload_pool.stdout | trim | length) > 0
+        fail_msg: >-
+          GKE Workload Identity is not enabled for cluster {{ cluster_name }} in project {{ project_id }}.
+          Enable Workload Identity on the cluster before running platform/k8s/gcp-secret-store.
+
+    - name: Check Secret Manager API enablement before enable step
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - services
+          - list
+          - --enabled
+          - "--project={{ _hyops_secret_project_id }}"
+          - --filter=config.name:secretmanager.googleapis.com
+          - --format=value(config.name)
+      register: _hyops_secretmanager_api
+      changed_when: false
+
+    - name: Enable Secret Manager API when requested
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - services
+          - enable
+          - secretmanager.googleapis.com
+          - "--project={{ _hyops_secret_project_id }}"
+      register: _hyops_enable_secretmanager
+      changed_when: >-
+        (_hyops_enable_secretmanager.stdout is defined and (
+          'Enable request issued' in _hyops_enable_secretmanager.stdout or
+          'Operation' in _hyops_enable_secretmanager.stdout
+        ))
+      when:
+        - ensure_secretmanager_api | bool
+        - (_hyops_secretmanager_api.stdout | trim) != 'secretmanager.googleapis.com'
+
+    - name: Refresh Secret Manager API enablement after enable step
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - services
+          - list
+          - --enabled
+          - "--project={{ _hyops_secret_project_id }}"
+          - --filter=config.name:secretmanager.googleapis.com
+          - --format=value(config.name)
+      register: _hyops_secretmanager_api
+      changed_when: false
+
+    - name: Fail when Secret Manager API is not enabled
+      ansible.builtin.assert:
+        that:
+          - (_hyops_secretmanager_api.stdout | trim) == 'secretmanager.googleapis.com'
+        fail_msg: >-
+          secretmanager.googleapis.com is not enabled on project {{ _hyops_secret_project_id }}.
+          Re-run with inputs.ensure_secretmanager_api=true or enable the API explicitly.
+
+    - name: Wait for External Secrets namespace
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - get
+          - namespace
+          - "{{ eso_namespace }}"
+      register: _hyops_eso_namespace
+      changed_when: false
+      retries: "{{ [((wait_timeout_s // 10) | int), 1] | max }}"
+      delay: 10
+      until: _hyops_eso_namespace.rc == 0
+
+    - name: Apply External Secrets CRD bundle when requested
+      when: ensure_eso_crds | bool
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - apply
+          - --server-side=true
+          - -f
+          - "{{ eso_crds_bundle_url }}"
+      register: _hyops_eso_crds_apply
+      changed_when: true
+
+    - name: Wait for ClusterSecretStore CRD
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - get
+          - crd
+          - clustersecretstores.external-secrets.io
+      register: _hyops_clustersecretstore_crd
+      changed_when: false
+      retries: "{{ [((wait_timeout_s // 10) | int), 1] | max }}"
+      delay: 10
+      until: _hyops_clustersecretstore_crd.rc == 0
+
+    - name: List External Secrets deployments
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - -n
+          - "{{ eso_namespace }}"
+          - get
+          - deployment
+          - -o
+          - jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}
+      register: _hyops_eso_deployments
+      changed_when: false
+      retries: "{{ [((wait_timeout_s // 10) | int), 1] | max }}"
+      delay: 10
+      until:
+        - _hyops_eso_deployments.rc == 0
+        - ((_hyops_eso_deployments.stdout | regex_search('(?m)^.*external-secrets$')) | default('', true) | length) > 0
+        - ((_hyops_eso_deployments.stdout | regex_search('(?m)^.*external-secrets-cert-controller$')) | default('', true) | length) > 0
+        - ((_hyops_eso_deployments.stdout | regex_search('(?m)^.*external-secrets-webhook$')) | default('', true) | length) > 0
+
+    - name: Resolve External Secrets deployment names
+      ansible.builtin.set_fact:
+        _hyops_eso_controller_deployment: >-
+          {{
+            ((_hyops_eso_deployments.stdout | regex_search('(?m)^.*external-secrets$')) | default('', true))
+          }}
+        _hyops_eso_cert_controller_deployment: >-
+          {{
+            ((_hyops_eso_deployments.stdout | regex_search('(?m)^.*external-secrets-cert-controller$')) | default('', true))
+          }}
+        _hyops_eso_webhook_deployment: >-
+          {{
+            ((_hyops_eso_deployments.stdout | regex_search('(?m)^.*external-secrets-webhook$')) | default('', true))
+          }}
+      changed_when: false
+
+    - name: Fail when External Secrets deployments cannot be resolved
+      ansible.builtin.assert:
+        that:
+          - (_hyops_eso_controller_deployment | length) > 0
+          - (_hyops_eso_cert_controller_deployment | length) > 0
+          - (_hyops_eso_webhook_deployment | length) > 0
+        fail_msg: >-
+          Unable to resolve External Secrets controller deployment names in namespace
+          {{ eso_namespace }}. Ensure the cluster has the External Secrets operator installed
+          before running platform/k8s/gcp-secret-store.
+
+    - name: Wait for External Secrets controller deployment
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - -n
+          - "{{ eso_namespace }}"
+          - rollout
+          - status
+          - "deployment/{{ _hyops_eso_controller_deployment }}"
+          - "--timeout={{ wait_timeout_s }}s"
+      changed_when: false
+
+    - name: Wait for External Secrets cert-controller deployment
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - -n
+          - "{{ eso_namespace }}"
+          - rollout
+          - status
+          - "deployment/{{ _hyops_eso_cert_controller_deployment }}"
+          - "--timeout={{ wait_timeout_s }}s"
+      changed_when: false
+
+    - name: Wait for External Secrets webhook deployment
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - -n
+          - "{{ eso_namespace }}"
+          - rollout
+          - status
+          - "deployment/{{ _hyops_eso_webhook_deployment }}"
+          - "--timeout={{ wait_timeout_s }}s"
+      changed_when: false
+
+    - name: Resolve cluster project number
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - projects
+          - describe
+          - "{{ project_id }}"
+          - --format=value(projectNumber)
+      register: _hyops_cluster_project_number
+      changed_when: false
+
+    - name: Fail when cluster project number cannot be resolved
+      ansible.builtin.assert:
+        that:
+          - (_hyops_cluster_project_number.stdout | trim | length) > 0
+        fail_msg: "Unable to resolve project number for cluster project {{ project_id }}"
+
+    - name: Compute Workload Identity principal
+      ansible.builtin.set_fact:
+        _hyops_wi_member: >-
+          principal://iam.googleapis.com/projects/{{ _hyops_cluster_project_number.stdout | trim }}/locations/global/workloadIdentityPools/{{ project_id }}.svc.id.goog/subject/ns/{{ service_account_namespace }}/sa/{{ service_account_name }}
+      changed_when: false
+
+    - name: Apply GKE service account manifest
+      ansible.builtin.shell:
+        cmd: |
+          cat <<'EOF' | {{ kubectl_bin }} --kubeconfig {{ _hyops_kubeconfig_path }} apply -f -
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: {{ service_account_name }}
+            namespace: {{ service_account_namespace }}
+          EOF
+      register: _hyops_service_account_apply
+      changed_when: >-
+        (_hyops_service_account_apply.stdout is defined and (
+          'created' in _hyops_service_account_apply.stdout or
+          'configured' in _hyops_service_account_apply.stdout
+        ))
+
+    - name: Grant Secret Manager accessor role to Workload Identity principal
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - projects
+          - add-iam-policy-binding
+          - "{{ _hyops_secret_project_id }}"
+          - "--member={{ _hyops_wi_member }}"
+          - "--role={{ iam_role }}"
+      register: _hyops_secretmanager_iam_binding
+      changed_when: >-
+        (_hyops_secretmanager_iam_binding.stdout is defined and (
+          'bindings updated' in _hyops_secretmanager_iam_binding.stdout or
+          'Updated IAM policy' in _hyops_secretmanager_iam_binding.stdout
+        ))
+
+    - name: Apply ClusterSecretStore manifest
+      ansible.builtin.shell:
+        cmd: |
+          cat <<'EOF' | {{ kubectl_bin }} --kubeconfig {{ _hyops_kubeconfig_path }} apply -f -
+          apiVersion: external-secrets.io/v1
+          kind: ClusterSecretStore
+          metadata:
+            name: {{ secret_store_name }}
+          spec:
+            provider:
+              gcpsm:
+                projectID: {{ _hyops_secret_project_id }}
+                auth:
+                  workloadIdentity:
+                    clusterProjectID: {{ project_id }}
+                    clusterLocation: {{ location }}
+                    clusterName: {{ cluster_name }}
+                    serviceAccountRef:
+                      name: {{ service_account_name }}
+                      namespace: {{ service_account_namespace }}
+          EOF
+      register: _hyops_secret_store_apply
+      changed_when: >-
+        (_hyops_secret_store_apply.stdout is defined and (
+          'created' in _hyops_secret_store_apply.stdout or
+          'configured' in _hyops_secret_store_apply.stdout
+        ))
+
+    - name: Wait for ClusterSecretStore to report Ready
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - get
+          - clustersecretstore
+          - "{{ secret_store_name }}"
+          - -o
+          - jsonpath={.status.conditions[?(@.type=="Ready")].status}
+      register: _hyops_secret_store_ready
+      changed_when: false
+      retries: "{{ [((wait_timeout_s // 10) | int), 1] | max }}"
+      delay: 10
+      until: (_hyops_secret_store_ready.stdout | trim) == "True"
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'secret_store_name': (secret_store_name | string),
+            'service_account_name': (service_account_name | string),
+            'service_account_namespace': (service_account_namespace | string),
+            'secret_project_id': (_hyops_secret_project_id | string),
+            'cap.k8s.gcp-secret-store': 'ready'
+          } | to_json }}

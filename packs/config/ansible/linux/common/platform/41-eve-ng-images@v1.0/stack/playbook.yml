@@ -1,0 +1,49 @@
+---
+- name: platform/linux/eve-ng-images (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+  collections:
+    - hybridops.helper
+
+  vars:
+    eveng_images_role_fqcn: "{{ eveng_images_role_fqcn | default('hybridops.helper.eveng_images') }}"
+    eveng_images_role_name: "{{ eveng_images_role_fqcn | regex_replace('^hybridops\\.helper\\.', '') }}"
+
+  tasks:
+    - name: Install EVE-NG images
+      ansible.builtin.include_role:
+        name: "{{ eveng_images_role_name }}"
+      vars:
+        eveng_images_source: "{{ eveng_images_source | default('url') }}"
+        eveng_images_download: "{{ eveng_images_download | default(true) | bool }}"
+        eveng_images_install: "{{ eveng_images_install | default(true) | bool }}"
+        eveng_images_cache_dir: "{{ eveng_images_cache_dir | default('/tmp/eveng_images_cache') }}"
+        eveng_images_keep_cache: "{{ eveng_images_keep_cache | default(false) | bool }}"
+        eveng_images_raw_qemu_layout: "{{ eveng_images_raw_qemu_layout | default('foldered') }}"
+        eveng_images_raw_qemu_disk_name: "{{ eveng_images_raw_qemu_disk_name | default('virtioa.qcow2') }}"
+        eveng_images_fail_on_corrupt: "{{ eveng_images_fail_on_corrupt | default(true) | bool }}"
+        eveng_images_logging_enabled: "{{ eveng_images_logging_enabled | default(false) | bool }}"
+        eveng_images_log_dir_controller: "{{ eveng_images_log_dir_controller | default(playbook_dir ~ '/var/log/hybridops/eveng-images') }}"
+        eveng_images_download_log: "{{ eveng_images_download_log | default((eveng_images_log_dir_controller | default(playbook_dir ~ '/var/log/hybridops/eveng-images')) ~ '/downloads-' ~ inventory_hostname ~ '.log') }}"
+        eveng_images_generate_report: "{{ eveng_images_generate_report | default(false) | bool }}"
+        eveng_images_report_dir_controller: "{{ eveng_images_report_dir_controller | default(playbook_dir ~ '/var/lib/hybridops/reports/eveng-images') }}"
+        eveng_images_debug: "{{ eveng_images_debug | default(false) | bool }}"
+        eveng_images_list: "{{ eveng_images_list | default([]) }}"
+        eveng_images_local_path: "{{ eveng_images_local_path | default('') }}"
+        eveng_images_remote_host: "{{ eveng_images_remote_host | default('') }}"
+        eveng_images_remote_path: "{{ eveng_images_remote_path | default('') }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.images': 'ready',
+            'eveng_images_source': (eveng_images_source | default('url')),
+            'eveng_images_requested_count': ((eveng_images_list | default([])) | length)
+          } | to_json }}

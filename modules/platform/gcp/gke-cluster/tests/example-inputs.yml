@@ -1,0 +1,10 @@
+project_id: "change-me-gcp-project"
+region: "europe-west2"
+location: "europe-west2-b"
+network: "projects/change-me-gcp-project/global/networks/change-me-hub"
+subnetwork: "projects/change-me-gcp-project/regions/europe-west2/subnetworks/change-me-workloads-europe-west2"
+pods_secondary_range_name: "gke-pods"
+services_secondary_range_name: "gke-services"
+master_authorized_networks:
+  - cidr: "203.0.113.10/32"
+    display_name: "operator"

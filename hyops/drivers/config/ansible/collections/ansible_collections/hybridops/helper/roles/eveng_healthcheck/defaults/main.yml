@@ -1,0 +1,21 @@
+---
+# Health check configuration
+health_check_level: basic
+health_check_fail_on_warning: false
+health_check_report_format: summary
+
+# Output configuration
+health_check_save_output: false
+health_check_output_dir: "{{ playbook_dir }}/var/lib/hybridops/reports/eveng-healthcheck"
+health_check_reports_dir: "{{ playbook_dir }}/var/log/hybridops/eveng-healthcheck"
+
+# Component checks
+health_check_services: true
+health_check_database: true
+health_check_api: true
+health_check_kvm: true
+health_check_images: false
+health_check_labs: false
+
+# Credentials
+eveng_admin_password: "{{ lookup('env', 'EVENG_ADMIN_PASSWORD') | default('eve', true) }}"

@@ -1,0 +1,66 @@
+---
+- name: platform/linux/eve-ng (destroy)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Stop Apache (best-effort)
+      ansible.builtin.systemd:
+        name: apache2
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove EVE-NG packages (best-effort)
+      ansible.builtin.apt:
+        name:
+          - eve-ng
+          - eve-ng-qemu
+          - eve-ng-pro-guacamole
+        state: absent
+        purge: true
+        update_cache: true
+      failed_when: false
+      when: ansible_os_family == "Debian"
+
+    - name: Remove EVE-NG apt repo file (best-effort)
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/eve-ng.list
+        state: absent
+      failed_when: false
+      when: ansible_os_family == "Debian"
+
+    - name: Remove EVE-NG apt key (best-effort)
+      ansible.builtin.file:
+        path: /etc/apt/trusted.gpg.d/eve-ng.gpg
+        state: absent
+      failed_when: false
+      when: ansible_os_family == "Debian"
+
+    - name: Remove EVE-NG directories (best-effort)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/unetlab
+        - /opt/ovf
+      failed_when: false
+
+    - name: Remove EVE-NG sysctl file (best-effort)
+      ansible.builtin.file:
+        path: /etc/sysctl.d/99-eveng.conf
+        state: absent
+      failed_when: false
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng': 'absent'
+          } | to_json }}

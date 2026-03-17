@@ -1,7 +1,7 @@
 """
 purpose: Validate inputs for platform/gcp/platform-vm module.
 Architecture Decision: ADR-N/A (gcp platform-vm validator)
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
@@ -52,6 +52,36 @@ def _reject_placeholder(value: str, field: str) -> None:
     marker = value.strip().upper()
     if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
         raise ValueError(f"{field} must not contain placeholder values (found {value!r})")
+
+
+def _post_apply_readiness_requires_iap(tags: list[str], vm_cfg: dict[str, Any], readiness: Any) -> bool:
+    if readiness is None:
+        return False
+    if isinstance(readiness, bool):
+        enabled = readiness
+        readiness_cfg: dict[str, Any] = {}
+    elif isinstance(readiness, dict):
+        enabled = bool(readiness.get("enabled", True))
+        readiness_cfg = readiness
+    else:
+        return False
+    if not enabled:
+        return False
+
+    if str(readiness_cfg.get("ssh_proxy_jump_host") or "").strip():
+        return False
+
+    effective_public_ip = vm_cfg.get("assign_public_ip")
+    if effective_public_ip is None:
+        effective_public_ip = False
+    if bool(effective_public_ip):
+        return False
+
+    effective_tags = list(tags)
+    raw_vm_tags = vm_cfg.get("tags")
+    if isinstance(raw_vm_tags, list):
+        effective_tags.extend(str(item).strip() for item in raw_vm_tags if str(item).strip())
+    return "allow-iap-ssh" not in {item.strip() for item in effective_tags if isinstance(item, str)}
 
 
 def _validate_post_apply_ssh_readiness(inputs: dict[str, Any]) -> None:
@@ -141,6 +171,8 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_non_empty_str(data.get("source_image_family"), "inputs.source_image_family")
     if data.get("assign_public_ip") is not None:
         _require_bool(data.get("assign_public_ip"), "inputs.assign_public_ip")
+    if data.get("enable_nested_virtualization") is not None:
+        _require_bool(data.get("enable_nested_virtualization"), "inputs.enable_nested_virtualization")
 
     _require_non_empty_str(data.get("ssh_username"), "inputs.ssh_username")
     ssh_keys_from_init = bool(data.get("ssh_keys_from_init") is True)
@@ -177,6 +209,11 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ValueError("inputs.vms keys must match ^[a-z0-9][a-z0-9-]{0,62}$")
 
         cfg = _require_mapping(raw_cfg, f"inputs.vms[{key}]")
+        if _post_apply_readiness_requires_iap(tags, cfg, data.get("post_apply_ssh_readiness")):
+            raise ValueError(
+                f"inputs.vms[{key}] uses post_apply_ssh_readiness on a private VM without the allow-iap-ssh tag. "
+                "Add allow-iap-ssh to inputs.tags or the VM-specific tags, or configure an explicit SSH proxy jump."
+            )
         role = cfg.get("role")
         if role is not None and str(role).strip() != "":
             _require_non_empty_str(role, f"inputs.vms[{key}].role")
@@ -189,3 +226,8 @@ def validate(inputs: dict[str, Any]) -> None:
             _require_positive_int(cfg.get("boot_disk_size_gb"), f"inputs.vms[{key}].boot_disk_size_gb")
         if cfg.get("assign_public_ip") is not None:
             _require_bool(cfg.get("assign_public_ip"), f"inputs.vms[{key}].assign_public_ip")
+        if cfg.get("enable_nested_virtualization") is not None:
+            _require_bool(
+                cfg.get("enable_nested_virtualization"),
+                f"inputs.vms[{key}].enable_nested_virtualization",
+            )

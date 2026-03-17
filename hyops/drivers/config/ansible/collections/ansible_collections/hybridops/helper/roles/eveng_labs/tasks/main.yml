@@ -1,0 +1,66 @@
+---
+# purpose: Orchestrate EVE-NG lab deployment
+# maintainer: HybridOps.Tech
+
+- name: Validate lab source
+  ansible.builtin.assert:
+    that:
+      - eveng_labs_source is defined
+      - eveng_labs_source in ['local', 'git', 'remote']
+    fail_msg: "eveng_labs_source must be: local, git, or remote"
+
+- name: Create base labs directory
+  ansible.builtin.file:
+    path: /opt/unetlab/labs
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+
+- name: Create lab folders
+  ansible.builtin.file:
+    path: "/opt/unetlab/labs/{{ item }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+  loop: "{{ eveng_lab_folders }}"
+  when:
+    - eveng_lab_folders is defined
+    - (eveng_lab_folders | length) > 0
+
+- name: Deploy labs from local path
+  ansible.builtin.include_tasks: source-local.yml
+  when: eveng_labs_source == "local"
+
+- name: Deploy labs from Git repository
+  ansible.builtin.include_tasks: source-git.yml
+  when: eveng_labs_source == "git"
+
+- name: Deploy labs from remote path
+  ansible.builtin.include_tasks: source-remote.yml
+  when: eveng_labs_source == "remote"
+
+- name: Exclude labs by patterns
+  ansible.builtin.include_tasks: exclude-patterns.yml
+  when:
+    - eveng_exclude_patterns is defined
+    - (eveng_exclude_patterns | length) > 0
+
+- name: Install labs into target folders
+  ansible.builtin.include_tasks: install.yml
+
+- name: Set correct ownership
+  ansible.builtin.file:
+    path: /opt/unetlab/labs
+    owner: www-data
+    group: www-data
+    recurse: true
+
+- name: Fix lab permissions
+  ansible.builtin.shell: |
+    find /opt/unetlab/labs -type f -name "*.unl" -exec chmod 664 {} \;
+    find /opt/unetlab/labs -type d -exec chmod 775 {} \;
+  args:
+    executable: /bin/bash
+  changed_when: false

@@ -1,0 +1,11 @@
+# kubeconfig_path is normally imported from the argocd-bootstrap module outputs.
+# Override only when running gsm-bootstrap standalone.
+kubeconfig_path: ""
+
+eso_namespace: "external-secrets"
+secret_name: "gsm-sa-credentials"
+secret_key: "credentials.json"
+
+# Env var key holding the GCP SA JSON in the bootstrap vault.
+# Set HYOPS_GSM_SA_KEY_JSON in the bootstrap vault before running this module.
+gsm_sa_key_json_env: "HYOPS_GSM_SA_KEY_JSON"

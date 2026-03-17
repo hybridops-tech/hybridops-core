@@ -1,0 +1,83 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/k8s/gsm-bootstrap"
+
+metadata:
+  title: "GCP Secret Manager Bootstrap (Kubernetes)"
+  description: |
+    Provisions the gsm-sa-credentials Kubernetes secret consumed by the ESO
+    ClusterSecretStore to authenticate against GCP Secret Manager.
+
+    The SA key JSON is sourced from HYOPS_GSM_SA_KEY_JSON in the bootstrap vault
+    and is never written to the workloads repository. The bootstrap vault is
+    decrypted by the Ansible driver and injected into the playbook environment;
+    no credentials file is required at the module level.
+
+    Prerequisites:
+      - org/gcp/gsm-eso-sa applied (eso-gsm-reader service account exists)
+      - `hyops init gcp --with-eso-sa` completed (HYOPS_GSM_SA_KEY_JSON in vault)
+      - RKE2 cluster accessible via the resolved kubeconfig path
+      - External Secrets Operator installed in the target namespace
+
+    Placement in the bootstrap sequence: after platform/k8s/argocd-bootstrap,
+    before platform/k8s/gcp-secret-store.
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Local execution — all kubectl calls run on the Ansible controller node.
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    # Kubernetes access — resolved from argocd-bootstrap output when available.
+    # Falls back to <runtime-root>/state/kubeconfigs/rke2.yaml if not imported.
+    kubeconfig_path: ""
+    kubeconfig_state_ref: ""
+    kubeconfig_state_env: ""
+
+    # Kubernetes secret placement.
+    eso_namespace: "external-secrets"
+    secret_name: "gsm-sa-credentials"
+    secret_key: "credentials.json"
+
+    # Name of the env var holding the GCP SA key JSON in the bootstrap vault.
+    gsm_sa_key_json_env: "HYOPS_GSM_SA_KEY_JSON"
+
+    # Decrypt the bootstrap vault and expose its contents as environment variables
+    # in the ansible-playbook subprocess. Required: the playbook reads
+    # HYOPS_GSM_SA_KEY_JSON via lookup('env', ...) rather than from Ansible vars.
+    load_vault_env: true
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/60-gsm-bootstrap@v1.0"
+
+dependencies:
+  # kubeconfig_path import is optional — the playbook falls back to
+  # <runtime-root>/state/kubeconfigs/rke2.yaml when the value is empty.
+  # required: false allows standalone use against an existing cluster outside
+  # the rke2-workloads@v1 blueprint context.
+  - module_ref: "platform/k8s/argocd-bootstrap"
+    required: false
+    imports:
+      kubeconfig_path: "kubeconfig_path"
+
+outputs:
+  publish:
+    - secret_name
+    - eso_namespace
+    - cap.k8s.gsm-bootstrap
+
+probes: []
+constraints: []

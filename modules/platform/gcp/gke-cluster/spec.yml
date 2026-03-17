@@ -1,0 +1,76 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/gcp/gke-cluster"
+
+metadata:
+  title: "GKE Cluster"
+  description: "Creates or converges a governed GKE cluster on the existing GCP hub network."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    project_state_ref: ""
+    project_id: ""
+    network_state_ref: ""
+    region: ""
+
+    cluster_name: "burst"
+    location: ""
+    network: ""
+    subnetwork: ""
+    subnetwork_output_key: "subnet_workloads_name"
+    pods_secondary_range_name: ""
+    pods_secondary_range_output_key: "subnet_workloads_pods_secondary_range_name"
+    services_secondary_range_name: ""
+    services_secondary_range_output_key: "subnet_workloads_services_secondary_range_name"
+
+    release_channel: "REGULAR"
+    enable_private_nodes: true
+    enable_private_endpoint: false
+    master_ipv4_cidr_block: "172.31.255.240/28"
+    master_authorized_networks: []
+    deletion_protection: false
+
+    node_pool_name: "default-pool"
+    node_count: 1
+    machine_type: "e2-standard-2"
+    disk_size_gb: 50
+    node_locations: []
+    node_service_account: ""
+    node_service_account_id: ""
+
+    tags: ["k8s", "gke", "burst"]
+    labels: {}
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/platform/20-gke/00-gke-cluster@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - project_id
+    - region
+    - location
+    - cluster_name
+    - endpoint
+    - cluster_ca_certificate
+    - network
+    - subnetwork
+    - node_pool_name
+    - node_service_account_email
+    - cap_k8s_gke
+
+probes: []
+constraints: []

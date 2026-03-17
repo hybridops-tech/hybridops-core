@@ -1,0 +1,74 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "gcp/gke-burst@v1"
+mode: "hybrid"
+
+metadata:
+  title: "GCP GKE Burst Cluster"
+  description: "Creates a governed GKE burst cluster on the shared hub network, fetches kubeconfig, then bootstraps Argo CD against the public burst workloads target."
+  outcome: "A burst-ready GKE cluster is available, rooted on the public workloads baseline under clusters/burst."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+
+steps:
+  - id: gke_burst_cluster
+    module_ref: "platform/gcp/gke-cluster"
+    state_instance: "gke_burst_cluster"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    inputs:
+      network_state_ref: "org/gcp/wan-hub-network"
+      subnetwork_output_key: "subnet_workloads_name"
+      pods_secondary_range_output_key: "subnet_workloads_pods_secondary_range_name"
+      services_secondary_range_output_key: "subnet_workloads_services_secondary_range_name"
+      cluster_name: "burst"
+      location: "CHANGE_ME_GCP_LOCATION"
+      node_count: 1
+      machine_type: "e2-standard-2"
+      master_authorized_networks:
+        - cidr: "CHANGE_ME_OPERATOR_CIDR"
+          display_name: "operator"
+      deletion_protection: false
+
+  - id: gke_burst_kubeconfig
+    module_ref: "platform/gcp/gke-kubeconfig"
+    state_instance: "gke_burst_kubeconfig"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gke_burst_cluster
+    inputs:
+      cluster_state_ref: "platform/gcp/gke-cluster#gke_burst_cluster"
+      kubeconfig_name: "gke-burst"
+
+  - id: gitops_workloads
+    module_ref: "platform/k8s/argocd-bootstrap"
+    state_instance: "gke_burst_gitops"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gke_burst_kubeconfig
+    inputs:
+      kubeconfig_state_ref: "platform/gcp/gke-kubeconfig#gke_burst_kubeconfig"
+      workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"
+      workloads_revision: "d19d389c769bc4ebbbc38bc791f808285dbf9e10"
+      workloads_target_path: "clusters/burst"
+
+  - id: gke_burst_secret_store
+    module_ref: "platform/k8s/gcp-secret-store"
+    state_instance: "gke_burst_secret_store"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gke_burst_kubeconfig
+      - gitops_workloads
+    inputs:
+      kubeconfig_state_ref: "platform/gcp/gke-kubeconfig#gke_burst_kubeconfig"
+      cluster_state_ref: "platform/gcp/gke-cluster#gke_burst_cluster"

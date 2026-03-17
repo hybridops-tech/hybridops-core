@@ -1,0 +1,32 @@
+---
+- name: platform/linux/eve-ng-images (destroy)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Remove module-managed image paths when explicitly provided
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ eveng_images_destroy_paths | default([]) }}"
+      when: (eveng_images_destroy_paths | default([]) | length) > 0
+
+    - name: Remove image cache directory
+      ansible.builtin.file:
+        path: "{{ eveng_images_cache_dir | default('/tmp/eveng_images_cache') }}"
+        state: absent
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.images': 'cleaned',
+            'eveng_images_source': (eveng_images_source | default('url')),
+            'eveng_images_requested_count': ((eveng_images_list | default([])) | length)
+          } | to_json }}

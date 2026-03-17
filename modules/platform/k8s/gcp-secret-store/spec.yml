@@ -1,0 +1,72 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/k8s/gcp-secret-store"
+
+metadata:
+  title: "GCP Secret Store (Kubernetes)"
+  description: "Bootstraps a GCP Secret Manager ClusterSecretStore on GKE using Workload Identity instead of a static service account key."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    kubeconfig_path: ""
+    kubeconfig_state_ref: ""
+    kubeconfig_state_env: ""
+
+    cluster_state_ref: ""
+    cluster_state_env: ""
+    project_id: ""
+    location: ""
+    cluster_name: ""
+
+    secret_project_id: ""
+    ensure_secretmanager_api: true
+    ensure_eso_crds: true
+    eso_crds_bundle_url: "https://raw.githubusercontent.com/external-secrets/external-secrets/v2.1.0/deploy/crds/bundle.yaml"
+    iam_role: "roles/secretmanager.secretAccessor"
+
+    eso_namespace: "external-secrets"
+    service_account_namespace: "external-secrets"
+    service_account_name: "eso-gcp-secret-manager"
+    secret_store_name: "gcp-secret-manager"
+    kubectl_bin: "kubectl"
+    gcloud_bin: "gcloud"
+    wait_timeout_s: 300
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "gcp/platform/20-gke/02-gcp-secret-store@v1.0"
+
+dependencies:
+  - module_ref: "platform/gcp/gke-kubeconfig"
+    required: false
+    imports:
+      kubeconfig_path: "kubeconfig_path"
+      project_id: "project_id"
+      location: "location"
+      cluster_name: "cluster_name"
+
+outputs:
+  publish:
+    - secret_store_name
+    - service_account_name
+    - service_account_namespace
+    - secret_project_id
+    - cap.k8s.gcp-secret-store
+
+probes: []
+constraints: []

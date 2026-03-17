@@ -1,0 +1,44 @@
+---
+- name: platform/linux/eve-ng-healthcheck (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+  collections:
+    - hybridops.helper
+
+  vars:
+    eveng_healthcheck_role_fqcn: "{{ eveng_healthcheck_role_fqcn | default('hybridops.helper.eveng_healthcheck') }}"
+    eveng_healthcheck_role_name: "{{ eveng_healthcheck_role_fqcn | regex_replace('^hybridops\\.helper\\.', '') }}"
+
+  tasks:
+    - name: Run EVE-NG health check
+      ansible.builtin.include_role:
+        name: "{{ eveng_healthcheck_role_name }}"
+      vars:
+        health_check_level: "{{ health_check_level | default('basic') }}"
+        health_check_fail_on_warning: "{{ health_check_fail_on_warning | default(false) | bool }}"
+        health_check_report_format: "{{ health_check_report_format | default('summary') }}"
+        health_check_save_output: "{{ health_check_save_output | default(false) | bool }}"
+        health_check_output_dir: "{{ health_check_output_dir | default(playbook_dir ~ '/var/lib/hybridops/reports/eveng-healthcheck') }}"
+        health_check_reports_dir: "{{ health_check_reports_dir | default(playbook_dir ~ '/var/log/hybridops/eveng-healthcheck') }}"
+        health_check_services: "{{ health_check_services | default(true) | bool }}"
+        health_check_database: "{{ health_check_database | default(true) | bool }}"
+        health_check_api: "{{ health_check_api | default(true) | bool }}"
+        health_check_kvm: "{{ health_check_kvm | default(true) | bool }}"
+        health_check_images: "{{ health_check_images | default(false) | bool }}"
+        health_check_labs: "{{ health_check_labs | default(false) | bool }}"
+        eveng_admin_password: "{{ lookup('env', eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD')) }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.health': 'checked',
+            'eveng_health_status': ((health_check_results.overall_status | default('UNKNOWN')) | lower),
+            'eveng_health_level': (health_check_level | default('basic'))
+          } | to_json }}

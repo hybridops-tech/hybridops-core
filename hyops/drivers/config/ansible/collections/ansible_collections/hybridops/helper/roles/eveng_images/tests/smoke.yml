@@ -1,0 +1,31 @@
+---
+# purpose: Smoke test for hybridops.helper.eveng_images
+# maintainer: HybridOps.Tech
+
+- name: Smoke test EVE-NG images deployment
+  hosts: cicd_test
+  become: true
+
+  vars:
+    eveng_images_source: url
+    eveng_images_keep_cache: false
+    eveng_images_fail_on_corrupt: false
+    # eveng_images_cache_dir: /tmp/eveng_images_cache
+
+    eveng_images_list:
+      # - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/2kIywDKR"
+      #   name: android-8.1-x86.tar.gz
+      #   type: qemu
+
+      - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/u1ByjDLC"
+        name: android-9.1-x64.tar.gz
+        type: qemu
+
+      - url: "https://labhub.eu.org/api/raw/?path=/addons/qemu/alpine-base-3-19-1/alpine-base-3-19-1.qcow2"
+        name: alpine-base-3-19-1.qcow2
+        type: qemu
+
+  tasks:
+    - name: Run eveng_images role
+      ansible.builtin.include_role:
+        name: hybridops.helper.eveng_images

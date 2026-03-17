@@ -1,0 +1,46 @@
+# purpose: Default settings for EVE-NG image deployment
+# Architecture Decision: ADR-XXXX
+# maintainer: HybridOps.Tech
+
+# Source selection
+eveng_images_source: url # url | local | remote
+
+# Execution control
+eveng_images_download: true
+eveng_images_install: true
+
+# Cache on target/EVE host
+eveng_images_cache_dir: /tmp/eveng_images_cache
+eveng_images_keep_cache: false
+
+# Raw image layout for QEMU
+eveng_images_raw_qemu_layout: foldered # foldered | generic
+eveng_images_raw_qemu_disk_name: virtioa.qcow2
+
+# Corrupt archive behaviour
+eveng_images_fail_on_corrupt: true
+
+# Logging and report output on controller
+eveng_images_logging_enabled: false
+
+eveng_images_log_dir_controller: "{{ playbook_dir | default('.', true) }}/var/log/hybridops/eveng-images"
+eveng_images_download_log: "{{ eveng_images_log_dir_controller }}/downloads-{{ inventory_hostname }}.log"
+
+eveng_images_generate_report: false
+eveng_images_report_dir_controller: "{{ playbook_dir | default('.', true) }}/var/lib/hybridops/reports/eveng-images"
+
+# Debug
+eveng_images_debug: false
+
+# URL source configuration (example)
+# eveng_images_list:
+#   - url: "https://example.com/image.tar.gz"
+#     name: image.tar.gz
+#     type: qemu  # qemu | iol | dynamips
+
+# Local source configuration
+# eveng_images_local_path: /path/to/images.tar.gz
+
+# Remote source configuration
+# eveng_images_remote_host: fileserver.example.com
+# eveng_images_remote_path: /data/eveng-images

@@ -1,0 +1,129 @@
+---
+- name: platform/k8s/gcp-secret-store (destroy)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    project_id: "{{ project_id | default('') }}"
+    secret_project_id: "{{ secret_project_id | default('') }}"
+    iam_role: "{{ iam_role | default('roles/secretmanager.secretAccessor') }}"
+    service_account_namespace: "{{ service_account_namespace | default('external-secrets') }}"
+    service_account_name: "{{ service_account_name | default('eso-gcp-secret-manager') }}"
+    secret_store_name: "{{ secret_store_name | default('gcp-secret-manager') }}"
+    kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
+    gcloud_bin: "{{ gcloud_bin | default('gcloud') }}"
+
+  tasks:
+    - name: Resolve kubeconfig path and effective secret project
+      ansible.builtin.set_fact:
+        _hyops_kubeconfig_path: >-
+          {{
+            (kubeconfig_path | string)
+            if (kubeconfig_path is string and (kubeconfig_path | length) > 0)
+            else (hyops_runtime_root ~ '/state/kubeconfigs/gke-burst.yaml')
+          }}
+        _hyops_secret_project_id: >-
+          {{
+            (secret_project_id | string)
+            if (secret_project_id is string and (secret_project_id | length) > 0)
+            else (project_id | string)
+          }}
+      changed_when: false
+
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ _hyops_kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Delete ClusterSecretStore (best effort)
+      when: _hyops_kubeconfig_stat.stat.exists
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - delete
+          - clustersecretstore
+          - "{{ secret_store_name }}"
+          - --ignore-not-found=true
+      register: _hyops_secret_store_delete
+      changed_when: >-
+        (_hyops_secret_store_delete.stdout is defined and 'deleted' in _hyops_secret_store_delete.stdout)
+      failed_when: false
+
+    - name: Delete GKE service account (best effort)
+      when: _hyops_kubeconfig_stat.stat.exists
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ _hyops_kubeconfig_path }}"
+          - -n
+          - "{{ service_account_namespace }}"
+          - delete
+          - serviceaccount
+          - "{{ service_account_name }}"
+          - --ignore-not-found=true
+      register: _hyops_service_account_delete
+      changed_when: >-
+        (_hyops_service_account_delete.stdout is defined and 'deleted' in _hyops_service_account_delete.stdout)
+      failed_when: false
+
+    - name: Resolve cluster project number for IAM binding cleanup
+      when:
+        - (project_id | string | length) > 0
+        - (_hyops_secret_project_id | string | length) > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - projects
+          - describe
+          - "{{ project_id }}"
+          - --format=value(projectNumber)
+      register: _hyops_cluster_project_number
+      changed_when: false
+      failed_when: false
+
+    - name: Compute Workload Identity principal for cleanup
+      when: (_hyops_cluster_project_number.stdout | default('') | trim | length) > 0
+      ansible.builtin.set_fact:
+        _hyops_wi_member: >-
+          principal://iam.googleapis.com/projects/{{ _hyops_cluster_project_number.stdout | trim }}/locations/global/workloadIdentityPools/{{ project_id }}.svc.id.goog/subject/ns/{{ service_account_namespace }}/sa/{{ service_account_name }}
+      changed_when: false
+
+    - name: Remove Secret Manager accessor role from Workload Identity principal
+      when:
+        - (_hyops_wi_member | default('') | trim | length) > 0
+        - (_hyops_secret_project_id | string | length) > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - projects
+          - remove-iam-policy-binding
+          - "{{ _hyops_secret_project_id }}"
+          - "--member={{ _hyops_wi_member }}"
+          - "--role={{ iam_role }}"
+          - --quiet
+      register: _hyops_secretmanager_iam_binding_remove
+      changed_when: >-
+        (_hyops_secretmanager_iam_binding_remove.stdout is defined and (
+          'bindings updated' in _hyops_secretmanager_iam_binding_remove.stdout or
+          'Updated IAM policy' in _hyops_secretmanager_iam_binding_remove.stdout
+        ))
+      failed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'secret_store_name': (secret_store_name | string),
+            'service_account_name': (service_account_name | string),
+            'service_account_namespace': (service_account_namespace | string),
+            'secret_project_id': (_hyops_secret_project_id | string),
+            'cap.k8s.gcp-secret-store': 'absent'
+          } | to_json }}

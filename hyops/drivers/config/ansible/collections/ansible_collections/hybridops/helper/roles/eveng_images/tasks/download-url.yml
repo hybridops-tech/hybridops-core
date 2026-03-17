@@ -1,0 +1,229 @@
+---
+# purpose: Download EVE-NG image archives from URL sources into a local cache
+# maintainer: HybridOps.Tech
+
+- name: Show planned image downloads
+  ansible.builtin.debug:
+    msg: >-
+      Downloading {{ eveng_images_list | length }} image(s) into {{ eveng_images_cache_dir }}:
+      {{ eveng_images_list | map(attribute='name') | list }}
+  when: eveng_images_list is defined
+
+- name: Validate image list is defined
+  ansible.builtin.assert:
+    that:
+      - eveng_images_list is defined
+      - (eveng_images_list | length) > 0
+    fail_msg: "eveng_images_list must be defined with at least one image."
+
+- name: Validate image entries
+  ansible.builtin.assert:
+    that:
+      - item.url is defined
+      - item.type is defined
+      - item.type in ['iol', 'qemu', 'dynamips']
+    fail_msg: >-
+      Each image must have 'url' and 'type' (iol, qemu, or dynamips). 'name' is optional.
+  loop: "{{ eveng_images_list }}"
+  loop_control:
+    label: "{{ item.name | default(item.url) }}"
+
+- name: Capture download run timestamp
+  ansible.builtin.set_fact:
+    eveng_images_run_at: "{{ ansible_date_time.iso8601 }}"
+
+- name: Ensure download cache directory exists
+  ansible.builtin.file:
+    path: "{{ eveng_images_cache_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Detect whether MEGA downloads are required
+  ansible.builtin.set_fact:
+    has_mega_downloads: >-
+      {{ (eveng_images_list | selectattr('url', 'search', 'mega.nz') | list | length) > 0 }}
+
+- name: Install MEGAcmd for MEGA downloads
+  when: has_mega_downloads | bool
+  block:
+    - name: Check if MEGAcmd is installed
+      ansible.builtin.command: command -v mega-get
+      register: megacmd_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install gdebi
+      ansible.builtin.apt:
+        name: gdebi-core
+        state: present
+        update_cache: true
+      when: megacmd_check.rc != 0
+
+    - name: Download MEGAcmd package
+      ansible.builtin.get_url:
+        url: "https://mega.nz/linux/repo/xUbuntu_22.04/amd64/megacmd-xUbuntu_22.04_amd64.deb"
+        dest: "/tmp/megacmd.deb"
+        mode: "0644"
+      when: megacmd_check.rc != 0
+
+    - name: Install MEGAcmd
+      ansible.builtin.command: gdebi -n /tmp/megacmd.deb
+      when: megacmd_check.rc != 0
+
+    - name: Remove MEGAcmd package
+      ansible.builtin.file:
+        path: "/tmp/megacmd.deb"
+        state: absent
+      when: megacmd_check.rc != 0
+
+    - name: Wait for MEGAcmd initialisation
+      ansible.builtin.pause:
+        seconds: 3
+      when: megacmd_check.rc != 0
+
+- name: Download from MEGA URLs
+  ansible.builtin.shell: |
+    set -e
+    set -o pipefail
+
+    log() {
+      printf '%s [%s] %s\n' "$(date -Iseconds)" "{{ inventory_hostname }}" "$*"
+    }
+
+    cd "{{ eveng_images_cache_dir }}"
+
+    FILENAME="{{ item.name | default('mega-download-' ~ (item.url | hash('md5'))[:8] ~ '.tar.gz') }}"
+
+    if [ -f "$FILENAME" ]; then
+      log "File $FILENAME already exists. Skipping."
+      exit 0
+    fi
+
+    MARKER=".mega_download_start_$$"
+    touch "$MARKER"
+
+    log "Starting MEGA download for $FILENAME"
+    log "URL: {{ item.url }}"
+    log "Timeout: 900 seconds"
+
+    timeout 900 mega-get "{{ item.url }}" . 2>&1 || {
+      RC=$?
+      if [ $RC -eq 124 ]; then
+        log "Download timed out after 900 seconds."
+      else
+        log "Download failed with error code $RC."
+      fi
+      exit $RC
+    }
+
+    sleep 2
+
+    DOWNLOADED="$(
+      find . -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.zip' -o -name '*.gz' \) \
+        -newer "$MARKER" \
+        | sort -r \
+        | head -1 || true
+    )"
+
+    if [ -z "$DOWNLOADED" ]; then
+      DOWNLOADED="$(ls -1t *.tar.gz *.tgz *.zip *.gz 2>/dev/null | head -1 || true)"
+    fi
+
+    if [ -z "$DOWNLOADED" ]; then
+      log "No archive file detected after MEGA download."
+      ls -lah
+      exit 1
+    fi
+
+    DOWNLOADED="${DOWNLOADED#./}"
+    log "Detected downloaded file: $DOWNLOADED"
+
+    if [ "$DOWNLOADED" != "$FILENAME" ]; then
+      log "Renaming $DOWNLOADED to $FILENAME"
+      mv "$DOWNLOADED" "$FILENAME"
+    fi
+
+    if [ ! -f "$FILENAME" ]; then
+      log "File $FILENAME not found after rename."
+      exit 1
+    fi
+
+    SIZE="$(du -h "$FILENAME" | cut -f1)"
+    log "Completed MEGA download: $FILENAME ($SIZE)"
+  args:
+    executable: /bin/bash
+  loop: "{{ eveng_images_list }}"
+  loop_control:
+    label: "{{ item.name | default(item.url) }}"
+  when: "'mega.nz' in (item.url | default(''))"
+
+- name: Download from non-MEGA URLs
+  ansible.builtin.shell: |
+    set -e
+    set -o pipefail
+
+    log() {
+      printf '%s [%s] %s\n' "$(date -Iseconds)" "{{ inventory_hostname }}" "$*"
+    }
+
+    cd "{{ eveng_images_cache_dir }}"
+
+    FILENAME="{{ item.name | default('http-download-' ~ (item.url | hash('md5'))[:8] ~ '.tar.gz') }}"
+
+    if [ -f "$FILENAME" ]; then
+      log "File $FILENAME already exists. Skipping."
+      exit 0
+    fi
+
+    log "Starting HTTP download for $FILENAME"
+    log "URL: {{ item.url }}"
+    log "Timeout: 900 seconds"
+
+    timeout 900 curl -L --progress-bar \
+      -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+      -o "$FILENAME" \
+      "{{ item.url }}" || {
+      RC=$?
+      if [ $RC -eq 124 ]; then
+        log "Download timed out after 900 seconds."
+      else
+        log "Download failed with error code $RC."
+      fi
+      exit $RC
+    }
+
+    SIZE="$(du -h "$FILENAME" | cut -f1)"
+    log "Completed HTTP download: $FILENAME ($SIZE)"
+  args:
+    executable: /bin/bash
+  loop: "{{ eveng_images_list }}"
+  loop_control:
+    label: "{{ item.name | default(item.url) }}"
+  when: "'mega.nz' not in (item.url | default(''))"
+
+- name: Discover downloaded files
+  ansible.builtin.find:
+    paths: "{{ eveng_images_cache_dir }}"
+    patterns:
+      - "*.tar.gz"
+      - "*.tgz"
+      - "*.zip"
+      - "*.gz"
+      - "*.qcow2"
+      - "*.img"
+      - "*.bin"
+    recurse: false
+  register: downloaded_files
+
+- name: Fail when no files were downloaded
+  ansible.builtin.fail:
+    msg: "No image files found in {{ eveng_images_cache_dir }}"
+  when: (downloaded_files.files | default([]) | length) == 0
+
+- name: Record download metadata
+  ansible.builtin.set_fact:
+    eveng_downloaded_files: "{{ downloaded_files.files }}"
+
+- name: Build image report and export logs
+  ansible.builtin.include_tasks: report.yml
+  when: eveng_images_generate_report | default(true) | bool

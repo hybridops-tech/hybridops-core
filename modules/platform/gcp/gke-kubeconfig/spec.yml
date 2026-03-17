@@ -1,0 +1,53 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/gcp/gke-kubeconfig"
+
+metadata:
+  title: "GKE Kubeconfig"
+  description: "Fetches kubeconfig for an existing GKE cluster into the HyOps runtime."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    cluster_state_ref: ""
+    cluster_state_env: ""
+    project_id: ""
+    location: ""
+    cluster_name: ""
+    kubeconfig_name: ""
+    kubeconfig_path: ""
+    use_internal_ip: false
+
+    gcloud_bin: "gcloud"
+    gcloud_copy_default_config: true
+    gcloud_runtime_config_dir: ""
+    gcloud_active_account: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "gcp/platform/20-gke/01-gke-kubeconfig@v1.0"
+
+outputs:
+  publish:
+    - project_id
+    - location
+    - cluster_name
+    - kubeconfig_path
+    - cap_k8s_gke_kubeconfig
+
+probes: []
+constraints: []

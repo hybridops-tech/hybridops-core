@@ -1,0 +1,21 @@
+---
+- name: platform/linux/eve-ng-healthcheck (destroy)
+  hosts: targets
+  become: false
+  gather_facts: false
+
+  tasks: []
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.health': 'not-run',
+            'eveng_health_status': 'not-run',
+            'eveng_health_level': (health_check_level | default('basic'))
+          } | to_json }}

@@ -1,0 +1,78 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/eve-ng-images"
+
+metadata:
+  title: "Linux EVE-NG Images"
+  description: "Load curated EVE-NG device images onto an existing EVE-NG host reached directly, through a bastion, or through GCP IAP."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    eveng_images_role_fqcn: "hybridops.helper.eveng_images"
+    eveng_images_source: "url"
+    eveng_images_download: true
+    eveng_images_install: true
+    eveng_images_cache_dir: "/tmp/eveng_images_cache"
+    eveng_images_keep_cache: false
+    eveng_images_raw_qemu_layout: "foldered"
+    eveng_images_raw_qemu_disk_name: "virtioa.qcow2"
+    eveng_images_fail_on_corrupt: true
+    eveng_images_logging_enabled: false
+    eveng_images_log_dir_controller: "{{ playbook_dir | default('.', true) }}/var/log/hybridops/eveng-images"
+    eveng_images_download_log: "{{ eveng_images_log_dir_controller }}/downloads-{{ inventory_hostname }}.log"
+    eveng_images_generate_report: false
+    eveng_images_report_dir_controller: "{{ playbook_dir | default('.', true) }}/var/lib/hybridops/reports/eveng-images"
+    eveng_images_debug: false
+    eveng_images_list: []
+    eveng_images_local_path: ""
+    eveng_images_remote_host: ""
+    eveng_images_remote_path: ""
+    eveng_images_destroy_paths: []
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/41-eve-ng-images@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.eveng.images
+    - eveng_images_source
+    - eveng_images_requested_count
+
+probes: []
+constraints: []

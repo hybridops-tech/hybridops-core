@@ -1,0 +1,157 @@
+---
+# Image health checks
+
+- name: Find QEMU images
+  ansible.builtin.find:
+    paths: /opt/unetlab/addons/qemu
+    file_type: directory
+    recurse: false
+  register: qemu_images
+  tags:
+    - health_images
+    - images
+    - qemu_images
+
+- name: Set QEMU image count
+  ansible.builtin.set_fact:
+    health_check_results: >-
+      {{
+        health_check_results
+        | combine(
+            {
+              'images': health_check_results.images
+              | combine({'qemu_count': (qemu_images.files | default([]) | length)})
+            }
+          )
+      }}
+  tags:
+    - health_images
+    - images
+    - qemu_images
+
+- name: Find IOL images
+  ansible.builtin.find:
+    paths: /opt/unetlab/addons/iol/bin
+    patterns: '*'
+    file_type: file
+  register: iol_images
+  failed_when: false
+  tags:
+    - health_images
+    - images
+    - iol_images
+
+- name: Set IOL image count
+  ansible.builtin.set_fact:
+    health_check_results: >-
+      {{
+        health_check_results
+        | combine(
+            {
+              'images': health_check_results.images
+              | combine({'iol_count': (iol_images.files | default([]) | length)})
+            }
+          )
+      }}
+  tags:
+    - health_images
+    - images
+    - iol_images
+
+- name: Find Dynamips images
+  ansible.builtin.find:
+    paths: /opt/unetlab/addons/dynamips
+    patterns: '*'
+    file_type: file
+  register: dynamips_images
+  failed_when: false
+  tags:
+    - health_images
+    - images
+    - dynamips_images
+
+- name: Set Dynamips image count
+  ansible.builtin.set_fact:
+    health_check_results: >-
+      {{
+        health_check_results
+        | combine(
+            {
+              'images': health_check_results.images
+              | combine({'dynamips_count': (dynamips_images.files | default([]) | length)})
+            }
+          )
+      }}
+  tags:
+    - health_images
+    - images
+    - dynamips_images
+
+- name: List QEMU image names
+  ansible.builtin.set_fact:
+    health_check_results: >-
+      {{
+        health_check_results
+        | combine(
+            {
+              'images': health_check_results.images
+              | combine({'qemu_list': qemu_list})
+            }
+          )
+      }}
+  vars:
+    qemu_list: >-
+      {{
+        qemu_images.files
+        | default([])
+        | map(attribute='path')
+        | map('basename')
+        | list
+      }}
+  tags:
+    - health_images
+    - images
+    - qemu_images
+    - image_list
+
+- name: Check for common images
+  ansible.builtin.set_fact:
+    health_check_results: >-
+      {{
+        health_check_results
+        | combine(
+            {
+              'images': health_check_results.images
+              | combine({'common_images': common_present})
+            }
+          )
+      }}
+  vars:
+    qemu_list: >-
+      {{
+        qemu_images.files
+        | default([])
+        | map(attribute='path')
+        | map('basename')
+        | list
+      }}
+    common_present:
+      cisco_iosv: "{{ (qemu_list | select('search', 'vios') | list | length) > 0 }}"
+      cisco_iosvl2: "{{ (qemu_list | select('search', 'viosl2') | list | length) > 0 }}"
+      cisco_asav: "{{ (qemu_list | select('search', 'asav') | list | length) > 0 }}"
+      juniper_vmx: "{{ (qemu_list | select('search', 'vmx') | list | length) > 0 }}"
+  tags:
+    - health_images
+    - images
+    - common_images
+
+- name: Images health summary
+  ansible.builtin.debug:
+    msg:
+      - "QEMU images: {{ health_check_results.images.qemu_count }}"
+      - "IOL images: {{ health_check_results.images.iol_count }}"
+      - "Dynamips images: {{ health_check_results.images.dynamips_count }}"
+  when: (health_check_report_format | default('summary')) == 'detailed'
+  tags:
+    - health_images
+    - images

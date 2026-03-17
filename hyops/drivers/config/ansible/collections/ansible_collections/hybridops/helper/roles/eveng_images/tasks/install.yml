@@ -1,0 +1,86 @@
+---
+# purpose: Install EVE-NG images from cache into the addons tree
+# maintainer: HybridOps.Tech
+
+- name: Discover installable files when metadata is not provided
+  ansible.builtin.find:
+    paths: "{{ eveng_images_cache_dir }}"
+    patterns:
+      - "*.tar.gz"
+      - "*.tgz"
+      - "*.zip"
+      - "*.gz"
+      - "*.qcow2"
+      - "*.img"
+      - "*.bin"
+    recurse: false
+  register: install_files
+  when: eveng_downloaded_files is not defined
+
+- name: Use previously discovered download metadata when available
+  ansible.builtin.set_fact:
+    install_files:
+      files: "{{ eveng_downloaded_files }}"
+  when: eveng_downloaded_files is defined
+  changed_when: false
+
+- name: Fail when there is nothing to install
+  ansible.builtin.fail:
+    msg: "No archives or images found to install in {{ eveng_images_cache_dir }}"
+  when: (install_files.files | default([]) | length) == 0
+
+- name: Detect type for each file
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ARCHIVE="{{ item.path }}"
+    BASENAME="$(basename "$ARCHIVE")"
+    EXT="${BASENAME##*.}"
+
+    case "$EXT" in
+      qcow2|img)
+        echo "raw:qemu"
+        exit 0
+        ;;
+      bin)
+        echo "raw:iol"
+        exit 0
+        ;;
+    esac
+
+    {% if eveng_images_list is defined %}
+    # Metadata mapping for archives
+    case "$BASENAME" in
+    {% for img in eveng_images_list if img.name is defined %}
+      "{{ img.name }}")
+        echo "{{ img.type }}"
+        exit 0
+        ;;
+    {% endfor %}
+    esac
+    {% endif %}
+
+    if [[ "$BASENAME" == *.tar.gz || "$EXT" == "tgz" || "$EXT" == "zip" || "$EXT" == "gz" ]]; then
+      if ! LIST_OUTPUT="$(tar -tzf "$ARCHIVE" 2>&1 | head -1)"; then
+        echo "invalid"
+        exit 0
+      fi
+
+      FIRST_DIR="$(printf '%s\n' "$LIST_OUTPUT" | cut -d'/' -f1)"
+
+      if [[ "$FIRST_DIR" == "iol" || "$FIRST_DIR" == "qemu" || "$FIRST_DIR" == "dynamips" ]]; then
+        echo "structured:$FIRST_DIR"
+        exit 0
+      fi
+
+      echo "qemu"
+      exit 0
+    fi
+
+    echo "qemu"
+  args:
+    executable: /bin/bash
+  loop: "{{ install_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  register: detected_types
+  changed_when: false

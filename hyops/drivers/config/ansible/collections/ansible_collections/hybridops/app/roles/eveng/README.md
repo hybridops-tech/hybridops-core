@@ -250,7 +250,7 @@ ansible-galaxy collection install -r requirements.yml
 
     - name: Validate installation
       include_role:
-        name: hybridops.app.eveng_healthcheck
+        name: hybridops.helper.eveng_healthcheck
       vars:
         health_check_level: basic
         health_check_fail_on_warning: true
@@ -394,27 +394,27 @@ Recommended controls for platform-grade deployments:
 
 ## Related Roles
 
-- `hybridops.app.eveng_healthcheck` – health monitoring and validation
+- `hybridops.helper.eveng_healthcheck` – health monitoring and validation
 - `hybridops.helper.eveng_images` – device image management
 - `hybridops.helper.eveng_labs` – lab topology deployment
 
 ## Documentation
 
-Further context is provided in the HybridOps.Studio documentation set, including:
+Further context is provided in the HybridOps.Tech documentation set, including:
 
 - Platform documentation and operational runbooks
-- Evidence and outputs overview
+- Lifecycle guidance for EVE-NG platform operations
 - Licensing overview
 
 ## License
 
 MIT.
 
-See the [HybridOps.Studio licensing overview](https://docs.hybridops.studio/briefings/legal/licensing/)
+See the [HybridOps.Tech licensing overview](https://docs.hybridops.tech/briefings/legal/licensing/)
 for project-wide licence details, including branding and trademark notes.
 
 ## Author
 
 HybridOps Team.
 
-Repository and collection metadata are maintained in the central HybridOps.Studio namespace.
+Repository and collection metadata are maintained in the central HybridOps.Tech namespace.

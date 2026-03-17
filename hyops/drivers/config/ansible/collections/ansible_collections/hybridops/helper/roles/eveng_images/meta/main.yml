@@ -1,0 +1,28 @@
+---
+galaxy_info:
+  role_name: eveng_images
+  author: HybridOps Team
+  description: Deploy network device images to EVE-NG from various sources
+  license: MIT
+  min_ansible_version: "2.10"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+  galaxy_tags:
+    - networking
+    - eveng
+    - eve-ng
+    - cisco
+    - network-automation
+    - images
+    - deployment
+
+dependencies: []

@@ -1,0 +1,3 @@
+project_id: "change-me-gcp-project"
+location: "europe-west2-b"
+cluster_name: "burst"

@@ -1,0 +1,6 @@
+# Minimal EVE-NG example for an existing Linux host.
+# Secrets are supplied via env/vault:
+#   - EVENG_ROOT_PASSWORD
+#   - EVENG_ADMIN_PASSWORD
+
+target_host: "10.10.0.41"

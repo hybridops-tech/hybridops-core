@@ -1,0 +1,107 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "gcp/eve-ng@v1"
+mode: "hybrid"
+
+metadata:
+  title: "GCP EVE-NG Lab Host"
+  description: "Provision a single nested-virtualization-capable GCP VM and configure EVE-NG over IAP."
+  outcome: "A private EVE-NG host exists in GCP and is configured for governed lab use."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: gcp_eve_ng_vm
+    module_ref: "platform/gcp/platform-vm"
+    state_instance: "gcp_eve_ng_vm"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "academy"
+      network_state_ref: "org/gcp/wan-hub-network"
+      subnetwork_output_key: "subnet_workloads_name"
+      zone: "CHANGE_ME_GCP_ZONE"
+      machine_type: "n2-standard-8"
+      boot_disk_size_gb: 256
+      boot_disk_type: "pd-standard"
+      source_image_project: "ubuntu-os-cloud"
+      source_image_family: "ubuntu-2204-lts"
+      assign_public_ip: false
+      enable_nested_virtualization: true
+      ssh_username: "opsadmin"
+      ssh_keys_from_init: true
+      post_apply_ssh_readiness:
+        enabled: true
+        required: true
+        target_user: "opsadmin"
+        connectivity_wait_s: 90
+      tags:
+        - "platform"
+        - "gcp"
+        - "eve-ng"
+        - "lab"
+        - "allow-iap-ssh"
+      labels:
+        role: "eve-ng"
+        workload: "network-lab"
+      vms:
+        eve-ng-01:
+          role: "eve-ng"
+
+  - id: gcp_eve_ng_config
+    module_ref: "platform/linux/eve-ng"
+    state_instance: "gcp_eve_ng_config"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_eve_ng_vm
+    with_deps: true
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_eve_ng_vm"
+      inventory_vm_groups:
+        targets:
+          - "eve-ng-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      eveng_resource_profile: "standard"
+
+  - id: gcp_eve_ng_healthcheck
+    module_ref: "platform/linux/eve-ng-healthcheck"
+    state_instance: "gcp_eve_ng_healthcheck"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_eve_ng_config
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_eve_ng_vm"
+      inventory_vm_groups:
+        targets:
+          - "eve-ng-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      load_vault_env: true
+      required_env:
+        - "EVENG_ADMIN_PASSWORD"
+      health_check_level: "basic"
