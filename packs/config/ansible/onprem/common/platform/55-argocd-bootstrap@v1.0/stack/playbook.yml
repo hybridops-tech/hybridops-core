@@ -209,11 +209,11 @@
             type: git
             url: {{ workloads_repo_url }}
             sshPrivateKey: |
-              {{ (_hyops_repo_ssh_private_key | default('')) | indent(14, true) }}
-            insecureIgnoreHostKey: {{ (repo_insecure_ignore_host_key | bool) | ternary('true', 'false') }}
+          {{ (_hyops_repo_ssh_private_key | default('')) | indent(14, true) }}
+            insecureIgnoreHostKey: "{{ (repo_insecure_ignore_host_key | bool) | ternary('true', 'false') }}"
           {% if (repo_ssh_known_hosts | string | length) > 0 %}
             sshKnownHosts: |
-              {{ (repo_ssh_known_hosts | string) | indent(14, true) }}
+          {{ (repo_ssh_known_hosts | string) | indent(14, true) }}
           {% endif %}
 
     - name: Apply Argo CD repository secret
