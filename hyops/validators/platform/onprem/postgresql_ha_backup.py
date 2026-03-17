@@ -11,7 +11,9 @@ import re
 from typing import Any
 
 from hyops.validators.common import (
+    normalize_lifecycle_command,
     normalize_required_env,
+    require_mapping,
     require_non_empty_str,
     require_port,
 )
@@ -29,12 +31,6 @@ def _state_ref_publishes_inventory(raw_ref: Any) -> bool:
         return False
     base = ref.split("#", 1)[0].strip().lower()
     return base in _PGHA_STATE_REFS
-
-
-def _lifecycle(data: dict[str, Any]) -> str:
-    return str(data.get("hyops_lifecycle_command") or data.get("_hyops_lifecycle_command") or "").strip().lower()
-
-
 def _validate_inventory(data: dict[str, Any], *, lifecycle: str) -> None:
     inventory_groups = data.get("inventory_groups")
     inventory_state_ref = data.get("inventory_state_ref")
@@ -117,10 +113,8 @@ def _validate_backend_settings(data: dict[str, Any], *, backend: str, prefix: st
 
 
 def validate(inputs: dict[str, Any]) -> None:
-    data = inputs or {}
-    if not isinstance(data, dict):
-        raise ValueError("inputs must be a mapping")
-    lifecycle = _lifecycle(data)
+    data = require_mapping(inputs, "inputs")
+    lifecycle = normalize_lifecycle_command(data)
 
     # Dependency guard: backup only makes sense once the HA cluster is ready.
     upstream_cap = str(data.get("upstream", {}).get("cap_db_postgresql_ha") if isinstance(data.get("upstream"), dict) else "")

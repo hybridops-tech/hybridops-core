@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from hyops.validators.common import (
+    normalize_lifecycle_command,
     normalize_required_env,
     require_mapping,
     require_non_empty_str,
@@ -131,7 +132,7 @@ def _validate_inventory(data: dict[str, Any]) -> None:
 def validate(inputs: dict[str, Any]) -> None:
     data = require_mapping(inputs, "inputs")
 
-    lifecycle = str(data.get("hyops_lifecycle_command") or data.get("_hyops_lifecycle_command") or "").strip().lower()
+    lifecycle = normalize_lifecycle_command(data)
 
     apply_mode = str(data.get("apply_mode") or "auto").strip().lower() or "auto"
     if apply_mode not in ("auto", "bootstrap", "maintenance", "restore"):

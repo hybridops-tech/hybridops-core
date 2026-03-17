@@ -14,51 +14,16 @@ import ipaddress
 from pathlib import Path
 from typing import Any
 
+from hyops.validators.common import (
+    normalize_lifecycle_command,
+    require_bool,
+    require_mapping,
+    require_non_empty_str,
+    require_port,
+)
+
 
 _PLACEHOLDER_HOSTS = {"0.0.0.0", "127.0.0.1"}
-
-
-def require_mapping(value: Any, field: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field} must be a mapping")
-    return value
-
-
-def require_non_empty_str(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def require_bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return bool(value)
-
-
-def require_port(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    if value < 1 or value > 65535:
-        raise ValueError(f"{field} must be between 1 and 65535")
-    return value
-
-
-def require_str_list(value: Any, field: str) -> list[str]:
-    if not isinstance(value, list):
-        raise ValueError(f"{field} must be a list")
-    out: list[str] = []
-    for idx, item in enumerate(value, start=1):
-        if not isinstance(item, str) or not item.strip():
-            raise ValueError(f"{field}[{idx}] must be a non-empty string")
-        out.append(item.strip())
-    return out
-
-
-def normalize_required_env(value: Any) -> list[str]:
-    if value is None:
-        return []
-    return require_str_list(value, "inputs.required_env")
 
 
 def require_secret_seeding(
@@ -274,8 +239,36 @@ def run_remote_command(
     return proc.stdout
 
 
-def read_target_os_release(**kwargs: Any) -> dict[str, str]:
-    return parse_os_release(run_remote_command(command="cat /etc/os-release", **kwargs))
+def read_target_os_release(
+    *,
+    target_host: str,
+    target_user: str,
+    target_port: int,
+    ssh_private_key_file: str,
+    ssh_access_mode: str,
+    proxy_host: str,
+    proxy_user: str,
+    proxy_port: int,
+    gcp_iap_instance: str,
+    gcp_iap_project_id: str,
+    gcp_iap_zone: str,
+) -> dict[str, str]:
+    return parse_os_release(
+        run_remote_command(
+            target_host=target_host,
+            target_user=target_user,
+            target_port=target_port,
+            ssh_private_key_file=ssh_private_key_file,
+            ssh_access_mode=ssh_access_mode,
+            proxy_host=proxy_host,
+            proxy_user=proxy_user,
+            proxy_port=proxy_port,
+            gcp_iap_instance=gcp_iap_instance,
+            gcp_iap_project_id=gcp_iap_project_id,
+            gcp_iap_zone=gcp_iap_zone,
+            command="cat /etc/os-release",
+        )
+    )
 
 
 def require_ubuntu_22(target_os: dict[str, str]) -> None:
@@ -296,11 +289,34 @@ def require_ubuntu_22(target_os: dict[str, str]) -> None:
     )
 
 
-def require_eveng_host(*, module_ref: str, **kwargs: Any) -> None:
+def require_eveng_host(
+    *,
+    target_host: str,
+    target_user: str,
+    target_port: int,
+    ssh_private_key_file: str,
+    ssh_access_mode: str,
+    proxy_host: str,
+    proxy_user: str,
+    proxy_port: int,
+    gcp_iap_instance: str,
+    gcp_iap_project_id: str,
+    gcp_iap_zone: str,
+) -> None:
     run_remote_command(
+        target_host=target_host,
+        target_user=target_user,
+        target_port=target_port,
+        ssh_private_key_file=ssh_private_key_file,
+        ssh_access_mode=ssh_access_mode,
+        proxy_host=proxy_host,
+        proxy_user=proxy_user,
+        proxy_port=proxy_port,
+        gcp_iap_instance=gcp_iap_instance,
+        gcp_iap_project_id=gcp_iap_project_id,
+        gcp_iap_zone=gcp_iap_zone,
         command="test -d /opt/unetlab && test -d /opt/unetlab/addons && test -d /opt/unetlab/labs",
         timeout=12,
-        **kwargs,
     )
 
 
@@ -371,7 +387,7 @@ def validate_target_access(
     require_ubuntu: bool,
     require_eveng: bool,
 ) -> dict[str, Any]:
-    lifecycle_command = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    lifecycle_command = normalize_lifecycle_command(data)
     is_destroy = lifecycle_command == "destroy"
     defer_connectivity_probe = False
 
@@ -486,7 +502,7 @@ def validate_target_access(
             require_ubuntu_22(target_os)
         if require_eveng:
             try:
-                require_eveng_host(module_ref=module_ref, **remote_kwargs)
+                require_eveng_host(**remote_kwargs)
             except ValueError as exc:
                 raise ValueError(
                     f"EVE-NG base was not detected on the target host for {module_ref}. "

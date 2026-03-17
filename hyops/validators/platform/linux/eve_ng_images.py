@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from hyops.validators.platform.linux._eve_ng_common import (
+from hyops.validators.common import (
     normalize_required_env,
     require_bool,
     require_mapping,
     require_non_empty_str,
     require_str_list,
+)
+from hyops.validators.platform.linux._eve_ng_common import (
     validate_target_access,
 )
 
@@ -77,7 +79,7 @@ def validate(inputs: dict[str, Any]) -> None:
 
     if data.get("required_env_destroy") is not None:
         require_str_list(data.get("required_env_destroy"), "inputs.required_env_destroy")
-    normalize_required_env(data.get("required_env"))
+    normalize_required_env(data.get("required_env"), "inputs.required_env")
 
     if source == "url":
         _validate_image_list(data.get("eveng_images_list"))

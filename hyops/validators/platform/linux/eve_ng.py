@@ -8,13 +8,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from hyops.validators.platform.linux._eve_ng_common import (
+from hyops.validators.common import (
+    normalize_lifecycle_command,
     normalize_required_env,
     require_bool,
-    require_secret_seeding,
     require_mapping,
     require_non_empty_str,
     require_str_list,
+)
+from hyops.validators.platform.linux._eve_ng_common import (
+    require_secret_seeding,
     validate_target_access,
 )
 
@@ -38,10 +41,10 @@ def _validate_users(value: Any) -> None:
 
 def validate(inputs: dict[str, Any]) -> None:
     data = require_mapping(inputs, "inputs")
-    lifecycle_command = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    lifecycle_command = normalize_lifecycle_command(data)
     is_destroy = lifecycle_command == "destroy"
 
-    required_env = normalize_required_env(data.get("required_env"))
+    required_env = normalize_required_env(data.get("required_env"), "inputs.required_env")
     if data.get("required_env_destroy") is not None:
         require_str_list(data.get("required_env_destroy"), "inputs.required_env_destroy")
 

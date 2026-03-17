@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hyops.validators.common import normalize_lifecycle_command
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -35,14 +36,8 @@ def _opt_str(inputs: dict[str, Any], key: str) -> str:
     if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
         raise ModuleValidationError(f"inputs.{key} must not contain placeholder values")
     return token
-
-
-def _lifecycle(inputs: dict[str, Any]) -> str:
-    return str(inputs.get("hyops_lifecycle_command") or inputs.get("_hyops_lifecycle_command") or "").strip().lower()
-
-
 def validate(inputs: dict[str, Any]) -> None:
-    lifecycle = _lifecycle(inputs)
+    lifecycle = normalize_lifecycle_command(inputs)
 
     raw_kube_state_ref = _opt_str(inputs, "kubeconfig_state_ref")
     raw_kube_path = _opt_str(inputs, "kubeconfig_path")

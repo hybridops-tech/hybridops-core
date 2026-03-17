@@ -10,13 +10,14 @@ from __future__ import annotations
 import ipaddress
 from typing import Any
 
-from hyops.validators.common import normalize_required_env, require_mapping, require_non_empty_str, require_port
-
-
-def _require_bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
+from hyops.validators.common import (
+    normalize_lifecycle_command,
+    normalize_required_env,
+    require_bool,
+    require_mapping,
+    require_non_empty_str,
+    require_port,
+)
 
 
 def _require_int(value: Any, field: str) -> int:
@@ -82,7 +83,7 @@ def _validate_cidrs(value: Any, field: str) -> None:
 
 def validate(inputs: dict[str, Any]) -> None:
     data = require_mapping(inputs, "inputs")
-    lifecycle = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    lifecycle = normalize_lifecycle_command(data)
 
     _validate_inventory_contract(data)
 
@@ -93,7 +94,7 @@ def validate(inputs: dict[str, Any]) -> None:
     if data.get("ssh_private_key_file") is not None and str(data.get("ssh_private_key_file") or "").strip():
         require_non_empty_str(data.get("ssh_private_key_file"), "inputs.ssh_private_key_file")
     if data.get("ssh_proxy_jump_auto") is not None:
-        _require_bool(data.get("ssh_proxy_jump_auto"), "inputs.ssh_proxy_jump_auto")
+        require_bool(data.get("ssh_proxy_jump_auto"), "inputs.ssh_proxy_jump_auto")
     if data.get("ssh_proxy_jump_host") is not None and str(data.get("ssh_proxy_jump_host") or "").strip():
         require_non_empty_str(data.get("ssh_proxy_jump_host"), "inputs.ssh_proxy_jump_host")
     if data.get("ssh_proxy_jump_user") is not None:
@@ -101,14 +102,14 @@ def validate(inputs: dict[str, Any]) -> None:
     if data.get("ssh_proxy_jump_port") is not None:
         require_port(data.get("ssh_proxy_jump_port"), "inputs.ssh_proxy_jump_port")
     if data.get("become") is not None:
-        _require_bool(data.get("become"), "inputs.become")
+        require_bool(data.get("become"), "inputs.become")
     if data.get("become_user") is not None:
         require_non_empty_str(data.get("become_user"), "inputs.become_user")
 
     if data.get("inventory_requires_ipam") is not None:
-        _require_bool(data.get("inventory_requires_ipam"), "inputs.inventory_requires_ipam")
+        require_bool(data.get("inventory_requires_ipam"), "inputs.inventory_requires_ipam")
     if data.get("connectivity_check") is not None:
-        _require_bool(data.get("connectivity_check"), "inputs.connectivity_check")
+        require_bool(data.get("connectivity_check"), "inputs.connectivity_check")
     if data.get("connectivity_timeout_s") is not None:
         timeout = _require_int(data.get("connectivity_timeout_s"), "inputs.connectivity_timeout_s")
         if timeout < 1:
@@ -119,7 +120,7 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ValueError("inputs.connectivity_wait_s must be >= 0")
 
     if data.get("load_vault_env") is not None:
-        _require_bool(data.get("load_vault_env"), "inputs.load_vault_env")
+        require_bool(data.get("load_vault_env"), "inputs.load_vault_env")
     normalize_required_env(data.get("required_env"), "inputs.required_env")
 
     if lifecycle == "destroy":

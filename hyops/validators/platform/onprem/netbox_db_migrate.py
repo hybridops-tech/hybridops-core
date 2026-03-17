@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from hyops.validators.common import normalize_required_env, require_mapping, require_non_empty_str, require_port
-
-
-def _require_bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
+from hyops.validators.common import (
+    normalize_lifecycle_command,
+    normalize_required_env,
+    require_bool,
+    require_mapping,
+    require_non_empty_str,
+    require_port,
+)
 
 
 def _validate_target_host_contract(data: dict[str, Any]) -> None:
@@ -54,7 +55,7 @@ def _validate_db_endpoint_or_state(data: dict[str, Any], *, prefix: str) -> None
 
 def validate(inputs: dict[str, Any]) -> None:
     data = require_mapping(inputs, "inputs")
-    lifecycle = str(data.get("_hyops_lifecycle_command") or "").strip().lower()
+    lifecycle = normalize_lifecycle_command(data)
 
     _validate_target_host_contract(data)
     if data.get("target_user") is not None:
@@ -64,7 +65,7 @@ def validate(inputs: dict[str, Any]) -> None:
     if data.get("ssh_private_key_file") is not None and str(data.get("ssh_private_key_file") or "").strip():
         require_non_empty_str(data.get("ssh_private_key_file"), "inputs.ssh_private_key_file")
     if data.get("become") is not None:
-        _require_bool(data.get("become"), "inputs.become")
+        require_bool(data.get("become"), "inputs.become")
     if data.get("become_user") is not None:
         require_non_empty_str(data.get("become_user"), "inputs.become_user")
 
@@ -76,7 +77,7 @@ def validate(inputs: dict[str, Any]) -> None:
     _validate_db_endpoint_or_state(data, prefix="target_")
 
     if data.get("load_vault_env") is not None:
-        _require_bool(data.get("load_vault_env"), "inputs.load_vault_env")
+        require_bool(data.get("load_vault_env"), "inputs.load_vault_env")
 
     required_env = normalize_required_env(data.get("required_env"), "inputs.required_env")
 
@@ -94,12 +95,12 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.migration_method must be pg_dump_restore (v1)")
 
     for field in ("migration_confirm", "maintenance_confirm"):
-        _require_bool(data.get(field), f"inputs.{field}")
+        require_bool(data.get(field), f"inputs.{field}")
         if not bool(data.get(field)):
             raise ValueError(f"inputs.{field} must be true (explicit confirmation required)")
 
     if data.get("target_replace_confirm") is not None:
-        _require_bool(data.get("target_replace_confirm"), "inputs.target_replace_confirm")
+        require_bool(data.get("target_replace_confirm"), "inputs.target_replace_confirm")
 
     for field in (
         "quiesce_netbox",
@@ -108,7 +109,7 @@ def validate(inputs: dict[str, Any]) -> None:
         "validate_row_counts",
     ):
         if data.get(field) is not None:
-            _require_bool(data.get(field), f"inputs.{field}")
+            require_bool(data.get(field), f"inputs.{field}")
 
     require_non_empty_str(data.get("dump_artifact_dir"), "inputs.dump_artifact_dir")
     require_non_empty_str(data.get("netbox_compose_dir"), "inputs.netbox_compose_dir")
@@ -119,4 +120,3 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.netbox_quiesce_services must be a non-empty list")
     for idx, item in enumerate(svc, start=1):
         require_non_empty_str(item, f"inputs.netbox_quiesce_services[{idx}]")
-
