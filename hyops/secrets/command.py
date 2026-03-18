@@ -28,6 +28,8 @@ from hyops.runtime.readiness import read_marker
 from hyops.runtime.source_roots import resolve_input_path, resolve_module_root
 from hyops.runtime.vault import VaultAuth, merge_set, read_env
 
+PAIR_USAGE_HINT = "use KEY=VALUE with no spaces around '='; quote VALUE when needed"
+
 
 @dataclass(frozen=True)
 class SecretMapEntry:
@@ -182,7 +184,7 @@ def add_secrets_subparser(sp: argparse._SubParsersAction) -> None:
     s.add_argument(
         "pairs",
         nargs="*",
-        help="KEY=VALUE pairs to write to the runtime vault.",
+        help="KEY=VALUE pairs to write to the runtime vault (no spaces around '='; quote VALUE when needed).",
     )
     s.set_defaults(_handler=run_set)
 
@@ -758,16 +760,16 @@ def run_set(ns) -> int:
         if not token:
             continue
         if "=" not in token:
-            print(f"ERR: invalid pair #{idx}: expected KEY=VALUE")
+            print(f"ERR: invalid pair #{idx}: expected KEY=VALUE; {PAIR_USAGE_HINT}")
             return CONFIG_INVALID
         k, v = token.split("=", 1)
         k = k.strip()
         v = v.strip()
         if not k:
-            print(f"ERR: invalid pair #{idx}: KEY is empty")
+            print(f"ERR: invalid pair #{idx}: KEY is empty; {PAIR_USAGE_HINT}")
             return CONFIG_INVALID
         if not v:
-            print(f"ERR: invalid pair #{idx}: VALUE is empty")
+            print(f"ERR: invalid pair #{idx}: VALUE is empty; {PAIR_USAGE_HINT}")
             return CONFIG_INVALID
         updates[k] = v
 
