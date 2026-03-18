@@ -30,6 +30,8 @@ inputs:
     secret_name: ""
     bundle_source_path: ""
     bundle_key: "dist.tgz"
+    restart_targets: []
+    rollout_timeout_s: 300
 
     kubectl_bin: "kubectl"
 
@@ -51,6 +53,7 @@ outputs:
     - secret_name
     - bundle_key
     - bundle_sha256
+    - restarted_targets
     - cap.k8s.runtime_bundle_secret
 
 probes: []

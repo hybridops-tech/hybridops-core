@@ -19,6 +19,7 @@ What it does:
 - stores the source file under `bundle_key`
 - publishes the SHA-256 of the current bundle so downstream steps can track what
   was applied
+- can optionally restart named rollout targets when the bundle SHA changes
 
 Important:
 
@@ -39,10 +40,19 @@ Required inputs:
   - `kubeconfig_path`
   - `kubeconfig_state_ref`
 
+Optional rollout inputs:
+
+- `restart_targets`
+  - list of Kubernetes rollout resources in the same namespace, for example
+    `deployment/showcase-burst-web`
+- `rollout_timeout_s`
+  - timeout used for `kubectl rollout status` after a restart
+
 Outputs:
 
 - `namespace`
 - `secret_name`
 - `bundle_key`
 - `bundle_sha256`
+- `restarted_targets`
 - `cap.k8s.runtime_bundle_secret = ready`

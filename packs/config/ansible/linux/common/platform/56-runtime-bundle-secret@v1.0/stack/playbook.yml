@@ -12,9 +12,20 @@
     secret_name: "{{ secret_name | default('') }}"
     bundle_source_path: "{{ bundle_source_path | default('') }}"
     bundle_key: "{{ bundle_key | default('dist.tgz') }}"
+    restart_targets: "{{ restart_targets | default([]) }}"
+    rollout_timeout_s: "{{ rollout_timeout_s | default(300) | int }}"
     kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
 
   tasks:
+    - name: Require namespace and secret inputs
+      ansible.builtin.assert:
+        that:
+          - (target_namespace | length) > 0
+          - (secret_name | length) > 0
+          - (bundle_key | length) > 0
+          - (kubectl_bin | length) > 0
+        fail_msg: "namespace, secret_name, bundle_key, and kubectl_bin must be non-empty"
+
     - name: Check kubeconfig exists
       ansible.builtin.stat:
         path: "{{ kubeconfig_path }}"
@@ -56,6 +67,23 @@
           'configured' in _hyops_namespace_apply.stdout
         ))
 
+    - name: Read existing runtime bundle SHA annotation
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ target_namespace }}"
+          - get
+          - secret
+          - "{{ secret_name }}"
+          - -o
+          - jsonpath={.metadata.annotations.hyops\.bundle-sha256}
+      register: _hyops_existing_bundle_sha
+      failed_when: false
+      changed_when: false
+
     - name: Apply runtime bundle Secret
       ansible.builtin.shell: |
         set -o pipefail
@@ -93,6 +121,82 @@
           'configured' in _hyops_secret_annotate.stdout
         ))
 
+    - name: Resolve bundle-change and restart intent
+      ansible.builtin.set_fact:
+        _hyops_bundle_changed: >-
+          {{ (_hyops_existing_bundle_sha.stdout | default('') | trim) != (_hyops_bundle_stat.stat.checksum | string) }}
+        _hyops_restarted_targets: []
+
+    - name: Check restart targets that already exist
+      when:
+        - _hyops_bundle_changed
+        - (restart_targets | length) > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ target_namespace }}"
+          - get
+          - "{{ item }}"
+          - -o
+          - name
+      loop: "{{ restart_targets }}"
+      register: _hyops_restart_target_probe
+      failed_when: false
+      changed_when: false
+
+    - name: Select restart targets present in cluster
+      when:
+        - _hyops_bundle_changed
+        - (restart_targets | length) > 0
+      ansible.builtin.set_fact:
+        _hyops_restarted_targets: >-
+          {{
+            (_hyops_restart_target_probe.results | default([]))
+            | selectattr('rc', 'eq', 0)
+            | map(attribute='item')
+            | list
+          }}
+
+    - name: Restart workloads consuming the runtime bundle
+      when:
+        - _hyops_bundle_changed
+        - (_hyops_restarted_targets | length) > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ target_namespace }}"
+          - rollout
+          - restart
+          - "{{ item }}"
+      loop: "{{ _hyops_restarted_targets }}"
+      register: _hyops_rollout_restart
+      changed_when: true
+
+    - name: Wait for restarted workloads to become ready
+      when:
+        - _hyops_bundle_changed
+        - (_hyops_restarted_targets | length) > 0
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ target_namespace }}"
+          - rollout
+          - status
+          - "{{ item }}"
+          - "--timeout={{ rollout_timeout_s }}s"
+      loop: "{{ _hyops_restarted_targets }}"
+      register: _hyops_rollout_status
+      changed_when: false
+
     - name: Write HyOps outputs
       ansible.builtin.copy:
         dest: "{{ hyops_outputs_file }}"
@@ -103,5 +207,6 @@
             'secret_name': (secret_name | string),
             'bundle_key': (bundle_key | string),
             'bundle_sha256': (_hyops_bundle_stat.stat.checksum | string),
+            'restarted_targets': (_hyops_restarted_targets | default([])),
             'cap.k8s.runtime_bundle_secret': 'ready'
           } | to_json }}

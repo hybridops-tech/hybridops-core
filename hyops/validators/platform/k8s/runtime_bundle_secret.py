@@ -12,7 +12,9 @@ from typing import Any
 from hyops.validators.common import (
     check_no_placeholder,
     normalize_lifecycle_command,
+    opt_int,
     opt_str,
+    opt_str_list,
     require_non_empty_str,
 )
 from hyops.validators.registry import ModuleValidationError
@@ -42,10 +44,14 @@ def validate(inputs: dict[str, Any]) -> None:
     _req_str(inputs, "secret_name")
     _req_str(inputs, "bundle_key")
     _req_str(inputs, "kubectl_bin")
+    opt_str_list(inputs.get("restart_targets"), "inputs.restart_targets")
+    rollout_timeout_s = opt_int(inputs.get("rollout_timeout_s"), "inputs.rollout_timeout_s", minimum=1)
 
     ensure_namespace = inputs.get("ensure_namespace")
     if ensure_namespace is not None and not isinstance(ensure_namespace, bool):
         raise ModuleValidationError("inputs.ensure_namespace must be a boolean")
+    if rollout_timeout_s is None:
+        raise ModuleValidationError("inputs.rollout_timeout_s must be set")
 
     if lifecycle == "destroy":
         return
