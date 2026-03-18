@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # purpose: High-level installer orchestration for HybridOps.Core.
 # Architecture Decision: ADR-N/A (bootstrap installer)
 # maintainer: HybridOps.Tech

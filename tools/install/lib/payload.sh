@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # purpose: Payload copy and permission normalization helpers for installer.
 # Architecture Decision: ADR-N/A (bootstrap installer)
 # maintainer: HybridOps.Tech

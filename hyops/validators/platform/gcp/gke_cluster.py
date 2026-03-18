@@ -10,6 +10,13 @@ import ipaddress
 import re
 from typing import Any
 
+from hyops.validators.common import (
+    check_no_placeholder,
+    opt_bool,
+    opt_int,
+    opt_str,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -20,28 +27,23 @@ _SA_EMAIL_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    token = value.strip()
-    marker = token.upper()
-    if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
-        raise ModuleValidationError(f"inputs.{key} must not contain placeholder values")
-    return token
+    return check_no_placeholder(
+        require_non_empty_str(inputs.get(key), f"inputs.{key}"),
+        f"inputs.{key}",
+    )
 
 
-def _opt_bool(inputs: dict[str, Any], key: str) -> bool:
-    value = inputs.get(key)
-    if not isinstance(value, bool):
-        raise ModuleValidationError(f"inputs.{key} must be a boolean")
-    return value
+def _opt_str(inputs: dict[str, Any], key: str) -> str:
+    v = opt_str(inputs.get(key), f"inputs.{key}")
+    return check_no_placeholder(v, f"inputs.{key}") if v else v
 
 
-def _opt_int(inputs: dict[str, Any], key: str) -> int:
-    value = inputs.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ModuleValidationError(f"inputs.{key} must be a positive integer")
-    return int(value)
+def _opt_bool(inputs: dict[str, Any], key: str) -> bool | None:
+    return opt_bool(inputs.get(key), f"inputs.{key}")
+
+
+def _opt_int(inputs: dict[str, Any], key: str) -> int | None:
+    return opt_int(inputs.get(key), f"inputs.{key}", minimum=1)
 
 
 def _req_list_of_strings(inputs: dict[str, Any], key: str) -> list[str]:

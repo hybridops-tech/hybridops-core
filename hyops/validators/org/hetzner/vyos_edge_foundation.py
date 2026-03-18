@@ -10,6 +10,11 @@ import ipaddress
 import re
 from typing import Any
 
+from hyops.validators.common import (
+    check_no_placeholder,
+    opt_str,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -22,28 +27,15 @@ _SSH_PUBKEY_RE = re.compile(
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    token = value.strip()
-    marker = token.upper().replace("-", "_")
-    if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
-        raise ModuleValidationError(f"inputs.{key} must not contain placeholder values (found {token!r})")
-    return token
+    return check_no_placeholder(
+        require_non_empty_str(inputs.get(key), f"inputs.{key}"),
+        f"inputs.{key}",
+    )
 
 
 def _opt_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise ModuleValidationError(f"inputs.{key} must be a string when set")
-    token = value.strip()
-    if token:
-        marker = token.upper().replace("-", "_")
-        if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
-            raise ModuleValidationError(f"inputs.{key} must not contain placeholder values (found {token!r})")
-    return token
+    v = opt_str(inputs.get(key), f"inputs.{key}")
+    return check_no_placeholder(v, f"inputs.{key}") if v else v
 
 
 def _opt_map(inputs: dict[str, Any], key: str) -> dict[str, Any]:

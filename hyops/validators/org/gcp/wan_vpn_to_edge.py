@@ -10,33 +10,29 @@ import ipaddress
 import re
 from typing import Any
 
-from hyops.validators.common import normalize_required_env
+from hyops.validators.common import (
+    normalize_required_env,
+    opt_str,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
 _PROJECT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 
 
+def _req_str(inputs: dict[str, Any], key: str) -> str:
+    return require_non_empty_str(inputs.get(key), f"inputs.{key}")
+
+
+def _opt_str(inputs: dict[str, Any], key: str) -> str:
+    return opt_str(inputs.get(key), f"inputs.{key}")
+
+
 def _reject_placeholder(value: str, field: str) -> None:
     marker = value.strip().upper()
     if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
         raise ModuleValidationError(f"{field} must not contain placeholder values (found {value!r})")
-
-
-def _req_str(inputs: dict[str, Any], key: str) -> str:
-    v = inputs.get(key)
-    if not isinstance(v, str) or not v.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    return v.strip()
-
-
-def _opt_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise ModuleValidationError(f"inputs.{key} must be a string when set")
-    return value.strip()
 
 
 def _req_ipv4(inputs: dict[str, Any], key: str) -> str:

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # purpose: Shared low-level install helpers.
 # Architecture Decision: ADR-N/A (bootstrap installer)
 # maintainer: HybridOps.Tech

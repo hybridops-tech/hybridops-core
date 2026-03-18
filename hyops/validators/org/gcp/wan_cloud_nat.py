@@ -9,6 +9,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from hyops.validators.common import (
+    opt_str,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -17,10 +21,11 @@ _NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,61}[a-z0-9]$")
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    return value.strip()
+    return require_non_empty_str(inputs.get(key), f"inputs.{key}")
+
+
+def _opt_str(inputs: dict[str, Any], key: str) -> str:
+    return opt_str(inputs.get(key), f"inputs.{key}")
 
 
 def _req_non_empty_list(inputs: dict[str, Any], key: str) -> list[str]:

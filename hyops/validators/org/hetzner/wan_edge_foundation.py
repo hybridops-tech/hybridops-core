@@ -10,6 +10,11 @@ import ipaddress
 import re
 from typing import Any
 
+from hyops.validators.common import (
+    check_no_placeholder,
+    opt_str,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -22,10 +27,15 @@ _SSH_PUBKEY_RE = re.compile(
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
-    v = inputs.get(key)
-    if not isinstance(v, str) or not v.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    return v.strip()
+    return check_no_placeholder(
+        require_non_empty_str(inputs.get(key), f"inputs.{key}"),
+        f"inputs.{key}",
+    )
+
+
+def _opt_str(inputs: dict[str, Any], key: str) -> str:
+    v = opt_str(inputs.get(key), f"inputs.{key}")
+    return check_no_placeholder(v, f"inputs.{key}") if v else v
 
 
 def _opt_map(inputs: dict[str, Any], key: str) -> dict[str, Any]:

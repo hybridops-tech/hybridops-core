@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # purpose: Shared helpers for HybridOps.Core CI quality scripts.
 # adr: ADR-0622
 # maintainer: HybridOps.Tech

@@ -9,34 +9,27 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from hyops.validators.common import normalize_lifecycle_command
+from hyops.validators.common import (
+    check_no_placeholder,
+    normalize_lifecycle_command,
+    opt_str,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    token = value.strip()
-    marker = token.upper()
-    if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
-        raise ModuleValidationError(f"inputs.{key} must not contain placeholder values")
-    return token
+    return check_no_placeholder(
+        require_non_empty_str(inputs.get(key), f"inputs.{key}"),
+        f"inputs.{key}",
+    )
 
 
 def _opt_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise ModuleValidationError(f"inputs.{key} must be a string when set")
-    token = value.strip()
-    if not token:
-        return ""
-    marker = token.upper()
-    if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
-        raise ModuleValidationError(f"inputs.{key} must not contain placeholder values")
-    return token
+    v = opt_str(inputs.get(key), f"inputs.{key}")
+    return check_no_placeholder(v, f"inputs.{key}") if v else v
+
+
 def validate(inputs: dict[str, Any]) -> None:
     lifecycle = normalize_lifecycle_command(inputs)
 

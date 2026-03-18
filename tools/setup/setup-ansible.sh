@@ -385,8 +385,4 @@ install_set "platform/onprem/rke2-cluster" "module" "platform/onprem/rke2-cluste
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.rke2-cluster.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__onprem__rke2-cluster"
 
-install_set "platform/network/wan-edge" "module" "platform/network/wan-edge" \
-  "${RELEASE_ROOT}/tools/setup/requirements/ansible.wan-edge.galaxy.yml" \
-  "${RUNTIME_ROOT}/state/ansible/modules/platform__network__wan-edge"
-
 echo "[setup] ansible deps ready"

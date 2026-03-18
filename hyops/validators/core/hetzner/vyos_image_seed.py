@@ -9,7 +9,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from hyops.validators.common import normalize_required_env
+from hyops.validators.common import (
+    check_no_placeholder,
+    normalize_required_env,
+    opt_str,
+    require_bool,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -27,35 +33,19 @@ _GCS_ENV_KEYS = (
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    token = value.strip()
-    marker = token.upper().replace("-", "_")
-    if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
-        raise ModuleValidationError(f"inputs.{key} must not contain placeholder values (found {token!r})")
-    return token
+    return check_no_placeholder(
+        require_non_empty_str(inputs.get(key), f"inputs.{key}"),
+        f"inputs.{key}",
+    )
 
 
 def _opt_str(inputs: dict[str, Any], key: str) -> str:
-    value = inputs.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise ModuleValidationError(f"inputs.{key} must be a string when set")
-    token = value.strip()
-    if token:
-        marker = token.upper().replace("-", "_")
-        if marker.startswith("CHANGE_ME") or "CHANGE_ME_" in marker:
-            raise ModuleValidationError(f"inputs.{key} must not contain placeholder values (found {token!r})")
-    return token
+    v = opt_str(inputs.get(key), f"inputs.{key}")
+    return check_no_placeholder(v, f"inputs.{key}") if v else v
 
 
 def _req_bool(inputs: dict[str, Any], key: str) -> bool:
-    value = inputs.get(key)
-    if not isinstance(value, bool):
-        raise ModuleValidationError(f"inputs.{key} must be true or false")
-    return value
+    return require_bool(inputs.get(key), f"inputs.{key}")
 
 
 def _private_gcs_download_expected(*, artifact_state_ref: str, source_url: str) -> bool:

@@ -10,6 +10,10 @@ import ipaddress
 import re
 from typing import Any
 
+from hyops.validators.common import (
+    opt_str,
+    require_non_empty_str,
+)
 from hyops.validators.registry import ModuleValidationError
 
 
@@ -18,10 +22,11 @@ _NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,61}[a-z0-9]$")
 
 
 def _req_str(inputs: dict[str, Any], key: str) -> str:
-    v = inputs.get(key)
-    if not isinstance(v, str) or not v.strip():
-        raise ModuleValidationError(f"inputs.{key} must be a non-empty string")
-    return v.strip()
+    return require_non_empty_str(inputs.get(key), f"inputs.{key}")
+
+
+def _opt_str(inputs: dict[str, Any], key: str) -> str:
+    return opt_str(inputs.get(key), f"inputs.{key}")
 
 
 def _req_cidr(inputs: dict[str, Any], key: str) -> ipaddress.IPv4Network:
