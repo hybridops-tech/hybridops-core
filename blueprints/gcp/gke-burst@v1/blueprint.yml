@@ -21,7 +21,11 @@ steps:
     phase: "bootstrap"
     with_deps: false
     inputs:
+      name_prefix: "platform"
+      context_id: "CHANGE_ME_CONTEXT_ID"
+      project_state_ref: "org/gcp/project-factory"
       network_state_ref: "org/gcp/wan-hub-network"
+      region: "CHANGE_ME_GCP_REGION"
       subnetwork_output_key: "subnet_workloads_name"
       pods_secondary_range_output_key: "subnet_workloads_pods_secondary_range_name"
       services_secondary_range_output_key: "subnet_workloads_services_secondary_range_name"
