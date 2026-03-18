@@ -1,5 +1,6 @@
 ---
 - name: Restart Apache2
+  listen: restart apache2
   ansible.builtin.systemd:
     name: apache2
     state: restarted

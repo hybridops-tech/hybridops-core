@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import ipaddress
 from pathlib import Path
 from typing import Any
@@ -220,23 +221,37 @@ def run_remote_command(
 
     argv.extend([f"{target_user}@{target_host}", command])
 
-    try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        raise ValueError(f"ssh check timed out after {exc.timeout}s (host={target_host})") from exc
+    attempts = 3 if ssh_access_mode == "gcp-iap" else 1
+    last_error = ""
 
-    if int(proc.returncode) != 0:
-        detail = (proc.stderr or "").strip() or (proc.stdout or "").strip() or f"rc={proc.returncode}"
-        detail_lower = detail.lower()
-        if ssh_access_mode == "gcp-iap" and "not authorized" in detail_lower and "iap" in detail_lower:
-            raise ValueError(
-                "gcp-iap tunnel authorisation failed "
-                f"(instance={gcp_iap_instance} project={gcp_iap_project_id} zone={gcp_iap_zone} host={target_host}). "
-                "Confirm the active gcloud identity has IAP-secured Tunnel User access and OS/Login or SSH access."
+    for attempt in range(1, attempts + 1):
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            last_error = f"ssh check timed out after {exc.timeout}s (host={target_host})"
+            retryable = ssh_access_mode == "gcp-iap"
+        else:
+            if int(proc.returncode) == 0:
+                return proc.stdout
+
+            detail = (proc.stderr or "").strip() or (proc.stdout or "").strip() or f"rc={proc.returncode}"
+            detail_lower = detail.lower()
+            if ssh_access_mode == "gcp-iap" and "not authorized" in detail_lower and "iap" in detail_lower:
+                raise ValueError(
+                    "gcp-iap tunnel authorisation failed "
+                    f"(instance={gcp_iap_instance} project={gcp_iap_project_id} zone={gcp_iap_zone} host={target_host}). "
+                    "Confirm the active gcloud identity has IAP-secured Tunnel User access and OS/Login or SSH access."
+                )
+            last_error = f"ssh check failed (host={target_host}): {detail}"
+            retryable = ssh_access_mode == "gcp-iap" and (
+                "banner exchange" in detail_lower or "connection timed out" in detail_lower
             )
-        raise ValueError(f"ssh check failed (host={target_host}): {detail}")
 
-    return proc.stdout
+        if not retryable or attempt >= attempts:
+            break
+        time.sleep(2)
+
+    raise ValueError(last_error)
 
 
 def read_target_os_release(

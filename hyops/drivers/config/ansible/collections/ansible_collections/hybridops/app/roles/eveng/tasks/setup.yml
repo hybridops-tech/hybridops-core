@@ -326,14 +326,29 @@
   changed_when: false
   when:
     - eveng_db_init is defined
-    - eveng_db_init.rc == 0
+    - not (eveng_db_init.skipped | default(false))
+    - (eveng_db_init.rc | default(1)) == 0
+
+- name: Record database readiness
+  ansible.builtin.set_fact:
+    eveng_db_ready: >-
+      {{
+        ('eve_ng_db' in (eveng_db_check.stdout | default(''))) or
+        ('eve_ng_db' in (eveng_db_recheck.stdout | default('')))
+      }}
+
+- name: Fail when EVE-NG database is unavailable
+  ansible.builtin.assert:
+    that:
+      - eveng_db_ready | bool
+    fail_msg: "EVE-NG database eve_ng_db is not available after initialization."
 
 - name: Check admin user exists
   ansible.builtin.command: mysql eve_ng_db -e "SELECT COUNT(*) FROM users WHERE username='admin';"
   register: admin_exists
   changed_when: false
   failed_when: false
-  when: "'eve_ng_db' in eveng_db_check.stdout"
+  when: eveng_db_ready | bool
 
 - name: Ensure admin pod exists
   ansible.builtin.command: mysql eve_ng_db -e "INSERT IGNORE INTO pods (id, username) VALUES (0, 'admin');"
@@ -342,7 +357,7 @@
     'Records: 1' in admin_pod_result.stderr or 'Records: 1' in admin_pod_result.stdout
   failed_when: false
   when:
-    - "'eve_ng_db' in eveng_db_check.stdout"
+    - eveng_db_ready | bool
     - admin_exists is defined
     - admin_exists.rc == 0
 
@@ -357,7 +372,7 @@
   when:
     - eveng_admin_password is defined
     - eveng_admin_password != ''
-    - "'eve_ng_db' in eveng_db_check.stdout"
+    - eveng_db_ready | bool
     - admin_exists is defined
     - admin_exists.stdout_lines[1] != '0'
   no_log: true
@@ -380,7 +395,7 @@
   when:
     - eveng_users is defined
     - eveng_users | length > 0
-    - "'eve_ng_db' in eveng_db_check.stdout"
+    - eveng_db_ready | bool
 
 - name: Create user pods
   ansible.builtin.command: >-
@@ -394,7 +409,7 @@
   when:
     - eveng_users is defined
     - eveng_users | length > 0
-    - "'eve_ng_db' in eveng_db_check.stdout"
+    - eveng_db_ready | bool
 
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers
