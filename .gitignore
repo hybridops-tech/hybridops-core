@@ -11,9 +11,7 @@ build/
 dist/
 *.egg-info/
 
-# Local internal/draft/misc working notes (not part of release artifacts)
-.internal/*
-!.internal/notes/
-!.internal/notes/*.md
+# Local internal/draft/misc working notes (not part of the public repo or release artifacts)
+.internal/
 .draft/
 .misc/
