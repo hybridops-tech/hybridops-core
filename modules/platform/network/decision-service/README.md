@@ -1,30 +1,30 @@
 # platform/network/decision-service
 
-Deploys a deterministic decision service on edge Linux nodes.
+Deploy a deterministic edge decision service for burst and failover control loops.
 
-This is the control-loop surface for DR/burst policy execution.
+This module turns live observability signals into gated operational actions.
 
 ## v1 scope
 
 - Runs a local decision loop service (systemd) on edge control nodes.
 - Queries a Prometheus-compatible HTTP API (`/api/v1/query`) for policy signals.
 - Evaluates thresholds with confirm/stable/cooldown timing guards.
-- Emits structured decision records for runner consumption by default.
-- Can execute `hyops apply` locally only in explicit transitional mode.
+- Emits structured decision records for downstream automation.
+- Can execute approved `hyops apply` actions locally when explicitly enabled.
 - Writes service state, decision records, and local action results to filesystem.
 
 ## Runtime model
 
 HybridOps installs this service with an Ansible role and runs it under `systemd`.
 
-This is the preferred shipping model for now because decision service is a small
-host-local control-plane process:
+That model is intentional for the current product shape because decision-service
+is a small host-local control-plane process:
 
 - no container runtime dependency
 - simple lifecycle under the shared control host
 - easy integration with local Thanos Query, PowerDNS, and runner services
 
-If container packaging is added later, the module contract should stay the same.
+If container packaging is added later, the module contract should remain the same.
 
 ## Deployment topology
 
@@ -39,13 +39,15 @@ This keeps decision latency low and avoids direct bucket API dependencies in con
 
 ## Execution model
 
-Default shipped mode is `emit-only`:
+## Operating modes
+
+Default mode is `emit-only`:
 
 - decision service writes a decision record under `state/records/`
-- a runner or workflow engine is expected to consume that record
+- a runner or workflow engine consumes that record
 - no local `hyops apply` is executed by default
 
-Optional transitional mode is `local-hyops`:
+Optional automation mode is `local-hyops`:
 
 - decision service still emits a decision record
 - local `hyops apply` is allowed only when:
@@ -66,10 +68,12 @@ Execution summary:
   decision, freshness, cooldown, and state-guard checks pass
 
 Actions can target any module ref the edge runtime can execute. Common current cases
-are `platform/network/dns-routing` and `platform/network/cloudflare-traffic-steering`,
-with base inputs in:
+are `platform/network/dns-routing` and `platform/network/cloudflare-traffic-steering`.
+Base action inputs are supplied in:
+
 - `actions.module_inputs`
-- `actions.module_inputs` must include the target module's normal execution contract
+
+`actions.module_inputs` must satisfy the target module's normal execution contract.
 
 Example burst-steering path:
 
@@ -86,7 +90,7 @@ That lets the decision loop move a single public host between:
 
 ## Signal readiness and freshness guards
 
-Use these inputs to fail closed:
+Use these inputs to fail closed when signals are incomplete or stale:
 
 - `decision_require_signal_readiness` (default: `true`)
 - `decision_require_fresh_signals` (default: `true`)
@@ -121,9 +125,10 @@ Each guard item supports:
 - `outputs_non_empty`
 
 Typical use:
-- require PostgreSQL restore state to be `ok`
-- require Longhorn restore state to publish `restore_volume_ready=true`
-- require DNS cutover targets to stay blocked until those guards pass
+
+- require a restore or replica module to be `ok`
+- require published outputs such as `restore_volume_ready=true`
+- block DNS or traffic-steering actions until those guards pass
 
 See:
 - `modules/platform/network/decision-service/examples/inputs.dr-gates.yml`

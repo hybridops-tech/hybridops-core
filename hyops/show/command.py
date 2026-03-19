@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -136,6 +139,178 @@ def _print_outputs(outputs: dict[str, Any], *, limit: int = 12) -> None:
         print(f"  ... {remainder} more")
 
 
+def _normalize_module_ref(value: str) -> str:
+    token = str(value or "").strip().replace(".", "/")
+    while "//" in token:
+        token = token.replace("//", "/")
+    return token.strip("/")
+
+
+def _extract_primary_ip(outputs: dict[str, Any]) -> str:
+    direct = str(outputs.get("public_ipv4") or outputs.get("ipv4_configured_primary") or "").strip()
+    if direct:
+        return direct
+
+    mapped = outputs.get("ipv4_configured_primary")
+    if isinstance(mapped, dict):
+        for key in sorted(mapped):
+            value = str(mapped.get(key) or "").strip()
+            if value:
+                return value
+
+    vms = outputs.get("vms")
+    if isinstance(vms, dict):
+        for key in sorted(vms):
+            item = vms.get(key)
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("ipv4_configured_primary") or item.get("ipv4_address") or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _decision_service_live_state(paths, payload: dict[str, Any]) -> dict[str, Any]:
+    module_ref = _normalize_module_ref(str(payload.get("module_ref") or ""))
+    if module_ref != "platform/network/decision-service":
+        return {}
+
+    input_contract = payload.get("input_contract")
+    if not isinstance(input_contract, dict):
+        return {
+            "available": False,
+            "error": "missing_input_contract",
+        }
+
+    inventory_state_ref = str(input_contract.get("inventory_state_ref") or "").strip()
+    if not inventory_state_ref:
+        return {
+            "available": False,
+            "error": "missing_inventory_state_ref",
+        }
+
+    try:
+        host_payload = read_module_state(paths.state_dir, inventory_state_ref)
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": f"inventory_state_read_failed:{exc}",
+            "inventory_state_ref": inventory_state_ref,
+        }
+
+    outputs = host_payload.get("outputs")
+    if not isinstance(outputs, dict):
+        return {
+            "available": False,
+            "error": "inventory_outputs_missing",
+            "inventory_state_ref": inventory_state_ref,
+        }
+
+    host = _extract_primary_ip(outputs)
+    if not host:
+        return {
+            "available": False,
+            "error": "inventory_host_ip_missing",
+            "inventory_state_ref": inventory_state_ref,
+        }
+
+    ssh_user = str(os.environ.get("HYOPS_SHOW_SSH_USER") or "opsadmin").strip() or "opsadmin"
+    state_file = str(
+        os.environ.get("HYOPS_SHOW_DECISION_SERVICE_STATE_FILE")
+        or "/opt/hybridops/decision-service/state/state.json"
+    ).strip()
+
+    try:
+        proc = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "ConnectTimeout=5",
+                f"{ssh_user}@{host}",
+                f"sudo cat {shlex.quote(state_file)}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "available": False,
+            "error": "ssh_timeout",
+            "host": host,
+            "ssh_user": ssh_user,
+            "state_file": state_file,
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": f"ssh_exec_failed:{exc}",
+            "host": host,
+            "ssh_user": ssh_user,
+            "state_file": state_file,
+        }
+
+    if proc.returncode != 0:
+        stderr = str(proc.stderr or "").strip()
+        return {
+            "available": False,
+            "error": f"ssh_rc_{proc.returncode}",
+            "host": host,
+            "ssh_user": ssh_user,
+            "state_file": state_file,
+            "stderr": stderr[-200:] if stderr else "",
+        }
+
+    try:
+        live_payload = json.loads(proc.stdout or "{}")
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": f"invalid_live_json:{exc}",
+            "host": host,
+            "ssh_user": ssh_user,
+            "state_file": state_file,
+        }
+
+    if not isinstance(live_payload, dict):
+        return {
+            "available": False,
+            "error": "invalid_live_payload",
+            "host": host,
+            "ssh_user": ssh_user,
+            "state_file": state_file,
+        }
+
+    return {
+        "available": True,
+        "host": host,
+        "ssh_user": ssh_user,
+        "state_file": state_file,
+        "mode": str(live_payload.get("mode") or ""),
+        "reason": str(live_payload.get("reason") or ""),
+        "recommended_action": str(live_payload.get("recommended_action") or ""),
+        "last_action": str(live_payload.get("last_action") or ""),
+        "last_action_rc": live_payload.get("last_action_rc"),
+        "last_decision_id": str(live_payload.get("last_decision_id") or ""),
+        "signal_ready": live_payload.get("signal_ready"),
+        "status": str(live_payload.get("status") or ""),
+        "timestamp_utc": str(live_payload.get("timestamp_utc") or ""),
+    }
+
+
+def _print_section(title: str, payload: dict[str, Any]) -> None:
+    if not payload:
+        return
+    print(f"{title}:")
+    for key, value in sorted(payload.items(), key=lambda item: item[0]):
+        print(f"  {key}: {_format_scalar(value)}")
+
+
 def run_show_init(ns) -> int:
     try:
         paths = _resolve_paths(ns, label="show init")
@@ -211,6 +386,11 @@ def run_show_module(ns) -> int:
         print(f"ERR: failed to read module state for {module_ref}: {exc}", file=sys.stderr)
         return 1
 
+    live_state = _decision_service_live_state(paths, payload)
+    if live_state:
+        payload = dict(payload)
+        payload["live_state"] = live_state
+
     if getattr(ns, "json", False):
         return _emit_json(payload)
 
@@ -252,6 +432,10 @@ def run_show_module(ns) -> int:
         _print_outputs(outputs)
     else:
         print("outputs: none")
+
+    live_state_payload = payload.get("live_state")
+    if isinstance(live_state_payload, dict) and live_state_payload:
+        _print_section("live_state", live_state_payload)
 
     record = str(payload.get("evidence_dir") or "").strip()
     if record:

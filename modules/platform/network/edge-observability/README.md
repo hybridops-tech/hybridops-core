@@ -1,6 +1,6 @@
 # platform/network/edge-observability
 
-Deploy edge observability services (Thanos, Grafana, Alertmanager, and optional local probe metrics) on Linux edge nodes.
+Deploy the edge observability stack on Linux control nodes.
 
 This module configures runtime services only. It does not provision infrastructure.
 The apply path now verifies that enabled containers stay running and that the
@@ -29,7 +29,7 @@ before module state is marked `ok`.
 
 ## Local metrics mode
 
-For burst-control and local edge decision loops, the module can run a self-contained probe path:
+For burst-control and edge decision loops, the module can run a local probe path:
 
 - Blackbox Exporter probes primary and burst origins
 - Prometheus scrapes those probe metrics locally
@@ -37,7 +37,8 @@ For burst-control and local edge decision loops, the module can run a self-conta
 - Prometheus needs unique external labels for the sidecar; the role derives stable labels from the HyOps env and host name unless you set `edge_obs_prometheus_external_labels` explicitly
 - decision-service can keep using `http://127.0.0.1:10902`
 
-This is the fastest honest signal path when the broader cluster remote-write topology is not deployed yet.
+This gives the control plane a fast local signal path even before a broader
+remote-write topology is deployed.
 
 ## Required secrets
 
