@@ -26,17 +26,52 @@
     - edge_obs_state == "present"
     - edge_obs_enable_receive
 
+- name: Preflight | assert local metrics dependencies
+  ansible.builtin.assert:
+    that:
+      - not (edge_obs_enable_blackbox_exporter or edge_obs_enable_thanos_sidecar) or edge_obs_enable_prometheus
+      - not (edge_obs_enable_prometheus or edge_obs_enable_blackbox_exporter or edge_obs_enable_thanos_sidecar) or (edge_obs_probe_targets | default([]) | length) > 0
+    fail_msg: >-
+      Local probe metrics require edge_obs_enable_prometheus=true and at least one edge_obs_probe_targets entry.
+  when: edge_obs_state == "present"
+
 - name: Preflight | compute query upstreams when empty
   ansible.builtin.set_fact:
     edge_obs_query_upstreams_effective: >-
       {{ (edge_obs_query_upstreams | length > 0)
           | ternary(edge_obs_query_upstreams,
-              ( (edge_obs_enable_receive | ternary(['thanos-receive:10901'], []))
+              ( (edge_obs_enable_thanos_sidecar | ternary(['thanos-sidecar:10901'], []))
+                + (edge_obs_enable_receive | ternary(['thanos-receive:10901'], []))
                 + (edge_obs_enable_store_gateway | ternary(['thanos-store-gateway:10901'], []))
               )
             )
       }}
   when: edge_obs_state == "present"
+
+- name: Preflight | compute Prometheus external labels when sidecar enabled
+  ansible.builtin.set_fact:
+    edge_obs_prometheus_external_labels_effective: >-
+      {{
+        (edge_obs_prometheus_external_labels | default({}))
+        if (edge_obs_prometheus_external_labels | default({}) | length) > 0
+        else {
+          'hyops_env': ((hyops_runtime_root | default('/var/lib/hyops')) | regex_replace('/+$', '') | basename),
+          'edge_node': inventory_hostname,
+        }
+      }}
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_thanos_sidecar
+
+- name: Preflight | assert Prometheus external labels when sidecar enabled
+  ansible.builtin.assert:
+    that:
+      - (edge_obs_prometheus_external_labels_effective | default({}) | length) > 0
+    fail_msg: >-
+      edge_obs_enable_thanos_sidecar requires non-empty Prometheus external labels.
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_thanos_sidecar
 
 - name: Stop edge observability (absent)
   ansible.builtin.service:
@@ -81,6 +116,18 @@
   when:
     - edge_obs_state == "present"
     - edge_obs_enable_receive or edge_obs_enable_store_gateway or edge_obs_enable_ruler
+
+- name: Ensure Prometheus data directory (present)
+  ansible.builtin.file:
+    path: "{{ edge_obs_data_dir }}/prometheus"
+    state: directory
+    owner: "{{ edge_obs_prometheus_uid }}"
+    group: "{{ edge_obs_prometheus_gid }}"
+    mode: "0750"
+    recurse: true
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_prometheus
 
 - name: Ensure Grafana data directory (present)
   ansible.builtin.file:
@@ -154,6 +201,30 @@
     - edge_obs_enable_grafana
   notify: Restart edge observability
 
+- name: Render Prometheus config
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ edge_obs_config_dir }}/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_prometheus
+  notify: Restart edge observability
+
+- name: Render Blackbox Exporter config
+  ansible.builtin.template:
+    src: blackbox.yml.j2
+    dest: "{{ edge_obs_config_dir }}/blackbox.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_blackbox_exporter
+  notify: Restart edge observability
+
 - name: Render Alertmanager config
   ansible.builtin.template:
     src: alertmanager.yml.j2
@@ -223,6 +294,9 @@
           + (edge_obs_enable_ruler | ternary(['thanos-ruler'], []))
           + (edge_obs_enable_alertmanager | ternary(['alertmanager'], []))
           + (edge_obs_enable_grafana | ternary(['grafana'], []))
+          + (edge_obs_enable_prometheus | ternary(['prometheus'], []))
+          + (edge_obs_enable_blackbox_exporter | ternary(['blackbox-exporter'], []))
+          + (edge_obs_enable_thanos_sidecar | ternary(['thanos-sidecar'], []))
       }}"
   when: edge_obs_state == "present"
 
@@ -251,6 +325,49 @@
   when:
     - edge_obs_state == "present"
     - edge_obs_enable_query
+
+- name: Wait for Prometheus HTTP readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ edge_obs_prometheus_http_port }}/-/ready"
+    status_code: 200
+  register: edge_obs_prometheus_health
+  retries: "{{ edge_obs_startup_retries | int }}"
+  delay: "{{ edge_obs_startup_delay_s | int }}"
+  until: edge_obs_prometheus_health.status == 200
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_prometheus
+
+- name: Wait for Blackbox Exporter HTTP readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ edge_obs_blackbox_exporter_http_port }}/metrics"
+    status_code: 200
+  register: edge_obs_blackbox_health
+  retries: "{{ edge_obs_startup_retries | int }}"
+  delay: "{{ edge_obs_startup_delay_s | int }}"
+  until: edge_obs_blackbox_health.status == 200
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_blackbox_exporter
+
+- name: Wait for probe metrics to appear in Thanos Query
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ edge_obs_query_http_port }}/api/v1/query?query=probe_success"
+    status_code: 200
+    return_content: true
+  register: edge_obs_probe_metrics
+  retries: "{{ edge_obs_startup_retries | int }}"
+  delay: "{{ edge_obs_startup_delay_s | int }}"
+  until:
+    - edge_obs_probe_metrics.status == 200
+    - edge_obs_probe_metrics.json.status | default('') == 'success'
+    - (edge_obs_probe_metrics.json.data.result | default([]) | length) > 0
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_query
+    - edge_obs_enable_prometheus
+    - edge_obs_enable_blackbox_exporter
+    - edge_obs_enable_thanos_sidecar
 
 - name: Wait for Grafana HTTP readiness
   ansible.builtin.uri:

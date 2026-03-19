@@ -371,6 +371,7 @@ def _evaluate_signals(policy: dict, config: dict) -> dict:
 def _run_action(action_name: str, module_ref: str, desired: str, config: dict, actions: dict) -> dict:
     hyops_bin = str(config.get("hyops_bin") or "").strip()
     runtime_env = str(config.get("runtime_env") or "").strip()
+    runtime_root = str(config.get("runtime_root") or "").strip()
     action_timeout_s = int(config.get("action_timeout_s", 600) or 600)
     if action_timeout_s < 30:
         action_timeout_s = 30
@@ -408,6 +409,9 @@ def _run_action(action_name: str, module_ref: str, desired: str, config: dict, a
     ]
     env = dict(os.environ)
     env["HYOPS_INPUT_desired"] = str(desired)
+    if runtime_root:
+        env["HYOPS_RUNTIME_ROOT"] = runtime_root
+    env["HYOPS_ENV"] = runtime_env
 
     try:
         proc = subprocess.run(
@@ -706,7 +710,8 @@ def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
                 action_executed = trigger
                 last_action = trigger
                 last_action_epoch = now_epoch
-                last_action_rc = int(action_result.get("rc") or 1)
+                action_rc = action_result.get("rc")
+                last_action_rc = int(action_rc) if action_rc is not None else 1
                 last_action_result_file = str(action_result.get("result_file") or "")
                 if action_result.get("ok"):
                     reason = f"trigger={trigger} emitted and applied locally"

@@ -16,6 +16,7 @@ from hyops.validators.common import (
     require_number_ge as _require_number_ge,
     require_port as _require_port,
 )
+from hyops.validators.platform.network import cloudflare_traffic_steering as cloudflare_traffic_steering_validator
 from hyops.validators.platform.network import dns_routing as dns_routing_validator
 
 
@@ -139,6 +140,50 @@ def _validate_dns_routing_base_inputs(base: dict[str, Any]) -> None:
         raise ValueError(f"inputs.actions.module_inputs invalid for platform/network/dns-routing: {exc}") from exc
 
 
+def _validate_cloudflare_traffic_steering_base_inputs(base: dict[str, Any], desired: str) -> None:
+    payload: dict[str, Any] = {
+        "inventory_groups": base.get("inventory_groups") if isinstance(base.get("inventory_groups"), dict) else {},
+        "target_user": str(base.get("target_user") or "root"),
+        "target_port": base.get("target_port", 22),
+        "become": base.get("become", False),
+        "required_env": base.get("required_env") if isinstance(base.get("required_env"), list) else [],
+        "required_env_destroy": base.get("required_env_destroy") if isinstance(base.get("required_env_destroy"), list) else [],
+        "load_vault_env": base.get("load_vault_env", False),
+        "steering_state": str(base.get("steering_state") or "present"),
+        "apply_mode": str(base.get("apply_mode") or "bootstrap"),
+        "cloudflare_api_token_env": str(base.get("cloudflare_api_token_env") or "CLOUDFLARE_API_TOKEN"),
+        "cloudflare_account_id": str(base.get("cloudflare_account_id") or ""),
+        "cloudflare_account_name": str(base.get("cloudflare_account_name") or ""),
+        "zone_name": base.get("zone_name"),
+        "hostname": base.get("hostname"),
+        "route_pattern": base.get("route_pattern"),
+        "worker_name": base.get("worker_name"),
+        "compatibility_date": str(base.get("compatibility_date") or "2026-03-19"),
+        "ensure_dns_record": base.get("ensure_dns_record", False),
+        "dns_record_type": base.get("dns_record_type"),
+        "dns_record_name": base.get("dns_record_name"),
+        "dns_record_target": base.get("dns_record_target"),
+        "dns_record_proxied": base.get("dns_record_proxied", True),
+        "desired": desired,
+        "balanced_burst_weight_pct": base.get("balanced_burst_weight_pct"),
+        "cookie_name": base.get("cookie_name"),
+        "cookie_ttl_s": base.get("cookie_ttl_s"),
+        "root_redirect_path": base.get("root_redirect_path"),
+        "forward_prefixes": base.get("forward_prefixes"),
+        "primary_origin_url": base.get("primary_origin_url"),
+        "burst_origin_url": base.get("burst_origin_url"),
+        "status_timeout_s": base.get("status_timeout_s"),
+        "status_retries": base.get("status_retries"),
+        "status_retry_delay_s": base.get("status_retry_delay_s"),
+    }
+    try:
+        cloudflare_traffic_steering_validator.validate(payload)
+    except Exception as exc:
+        raise ValueError(
+            f"inputs.actions.module_inputs invalid for platform/network/cloudflare-traffic-steering: {exc}"
+        ) from exc
+
+
 def _validate_module_state_guards(actions: dict[str, Any]) -> None:
     guards = actions.get("module_state_guards")
     if guards is None:
@@ -242,10 +287,20 @@ def validate(inputs: dict[str, Any]) -> None:
 
     cutover_desired = str(actions.get("cutover_desired") or "secondary").strip().lower()
     failback_desired = str(actions.get("failback_desired") or "primary").strip().lower()
-    if cutover_desired not in {"primary", "secondary"}:
-        raise ValueError("inputs.actions.cutover_desired must be one of: primary, secondary")
-    if failback_desired not in {"primary", "secondary"}:
-        raise ValueError("inputs.actions.failback_desired must be one of: primary, secondary")
+    desired_by_module = {
+        "platform/network/dns-routing": {"primary", "secondary"},
+        "platform/network/cloudflare-traffic-steering": {"primary", "balanced", "burst"},
+    }
+    cutover_allowed = desired_by_module.get(cutover_ref, {"primary", "secondary"})
+    failback_allowed = desired_by_module.get(failback_ref, {"primary", "secondary"})
+    if cutover_desired not in cutover_allowed:
+        raise ValueError(
+            "inputs.actions.cutover_desired must be one of: " + ", ".join(sorted(cutover_allowed))
+        )
+    if failback_desired not in failback_allowed:
+        raise ValueError(
+            "inputs.actions.failback_desired must be one of: " + ", ".join(sorted(failback_allowed))
+        )
 
     dry_run = data.get("dry_run")
     if not isinstance(dry_run, bool):
@@ -287,6 +342,14 @@ def validate(inputs: dict[str, Any]) -> None:
     runtime_root = data.get("decision_runtime_root")
     if runtime_root is not None and str(runtime_root).strip():
         _require_non_empty_str(runtime_root, "inputs.decision_runtime_root")
+    action_env_names = data.get("decision_action_env_names", [])
+    if action_env_names not in (None, ""):
+        if not isinstance(action_env_names, list):
+            raise ValueError("inputs.decision_action_env_names must be a list when set")
+        for idx, item in enumerate(action_env_names, start=1):
+            token = _require_non_empty_str(item, f"inputs.decision_action_env_names[{idx}]")
+            if "REPLACE_" in token.upper():
+                raise ValueError(f"inputs.decision_action_env_names[{idx}] contains placeholder token")
     _require_int_ge(data.get("decision_action_timeout_s"), "inputs.decision_action_timeout_s", 30)
     _require_int_ge(data.get("decision_signal_query_timeout_s"), "inputs.decision_signal_query_timeout_s", 1)
 
@@ -313,8 +376,14 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ValueError(
                 "inputs.actions.module_inputs must be a non-empty mapping when decision actions are enabled"
             )
-        if "platform/network/dns-routing" in {cutover_ref, failback_ref}:
-            _validate_dns_routing_base_inputs(base_inputs)
+        if cutover_ref == "platform/network/dns-routing":
+            _validate_dns_routing_base_inputs({**base_inputs, "desired": cutover_desired})
+        if failback_ref == "platform/network/dns-routing":
+            _validate_dns_routing_base_inputs({**base_inputs, "desired": failback_desired})
+        if cutover_ref == "platform/network/cloudflare-traffic-steering":
+            _validate_cloudflare_traffic_steering_base_inputs(base_inputs, cutover_desired)
+        if failback_ref == "platform/network/cloudflare-traffic-steering":
+            _validate_cloudflare_traffic_steering_base_inputs(base_inputs, failback_desired)
 
     if require_action_state_guards:
         guards = actions.get("module_state_guards")

@@ -215,6 +215,23 @@ steps:
       firewall_name: fw-shared-control
       ssh_source_cidrs:
         - 0.0.0.0/0
+  - id: edge_control_runner
+    module_ref: platform/linux/ops-runner
+    state_instance: edge_control_runner
+    action: deploy
+    phase: operations
+    with_deps: true
+    skip_if_state_ok: false
+    requires:
+      - shared_control_host
+    contracts:
+      addressing_mode: static
+    inputs:
+      inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
+      inventory_vm_groups:
+        runner:
+          - control-01
+      target_user: opsadmin
   - id: vyos_edge_day2
     module_ref: platform/network/vyos-edge-wan
     action: deploy
@@ -261,8 +278,14 @@ steps:
       edge_obs_enable_receive: false
       edge_obs_enable_store_gateway: false
       edge_obs_enable_ruler: false
-      edge_obs_hashring_endpoints:
-        - control-01.internal:10907
+      edge_obs_enable_prometheus: true
+      edge_obs_enable_blackbox_exporter: true
+      edge_obs_enable_thanos_sidecar: true
+      edge_obs_probe_targets:
+        - name: primary
+          url: https://hybridops-tech-site.pages.dev/showcase/burst/
+        - name: burst
+          url: http://34.149.69.218.nip.io/showcase/burst/
   - id: dns_routing_intent
     module_ref: platform/network/dns-routing
     action: deploy
@@ -299,7 +322,7 @@ steps:
     skip_if_state_ok: false
     requires:
       - edge_observability
-      - dns_routing_intent
+      - edge_control_runner
     contracts:
       addressing_mode: static
     inputs:
@@ -308,39 +331,93 @@ steps:
         edge_control:
           - control-01
       target_user: opsadmin
+      required_env:
+        - CLOUDFLARE_API_TOKEN
+      load_vault_env: true
       thanos_query_url: http://127.0.0.1:10902
+      decision_runtime_root: /opt/hybridops/decision-service/runtime/dev
+      decision_action_env_names:
+        - CLOUDFLARE_API_TOKEN
       policy:
         version: v1
         mode: PRIMARY
         signals:
-          primary_up_query: vector(1)
-          error_rate_query: vector(0.0)
+          primary_up_query: min_over_time(probe_success{job="edge_blackbox_http",probe_target="primary"}[1m])
+          edge_reachability_query: min_over_time(probe_success{job="edge_blackbox_http",probe_target="burst"}[1m])
+          error_rate_query: 1 - avg_over_time(probe_success{job="edge_blackbox_http",probe_target="primary"}[2m])
+          primary_latency_p95_query: max_over_time(probe_duration_seconds{job="edge_blackbox_http",probe_target="primary"}[2m]) * 1000
         thresholds:
           primary_up_min: 1
-          error_rate_ratio: 0.02
+          edge_reachability_min: 1
+          error_rate_ratio: 0.05
+          primary_latency_p95_ms: 1200
       actions:
-        cutover_module_ref: platform/network/dns-routing
-        failback_module_ref: platform/network/dns-routing
-        cutover_desired: secondary
+        cutover_module_ref: platform/network/cloudflare-traffic-steering
+        failback_module_ref: platform/network/cloudflare-traffic-steering
+        cutover_desired: balanced
         failback_desired: primary
         module_inputs:
-          provider: manual-command
-          zone: example.com
-          record_fqdn: app.example.com
-          record_type: A
-          ttl: 60
-          primary_targets:
-            - 203.0.113.10
-          secondary_targets:
-            - 198.51.100.20
-          dry_run: true
-          dns_apply: false
-          inventory_state_ref: org/hetzner/shared-control-host#edge_control_host
-          inventory_vm_groups:
-            edge_control:
-              - control-01
-      dry_run: true
-      decision_enable_actions: false
+          inventory_groups:
+            localhost:
+              - name: localhost
+                host: 127.0.0.1
+          target_user: root
+          target_port: 22
+          become: false
+          connectivity_check: false
+          required_env:
+            - CLOUDFLARE_API_TOKEN
+          load_vault_env: false
+          steering_state: present
+          apply_mode: bootstrap
+          cloudflare_api_token_env: CLOUDFLARE_API_TOKEN
+          zone_name: hybridops.tech
+          hostname: burst.hybridops.tech
+          route_pattern: burst.hybridops.tech/*
+          worker_name: hyops-burst-web-proxy
+          compatibility_date: "2026-03-19"
+          ensure_dns_record: true
+          dns_record_type: CNAME
+          dns_record_name: burst.hybridops.tech
+          dns_record_target: hyops-burst-web-proxy.omoyemi4reel.workers.dev
+          dns_record_proxied: true
+          primary_origin_url: https://hybridops-tech-site.pages.dev
+          burst_origin_url: http://34.149.69.218.nip.io
+          desired: primary
+          balanced_burst_weight_pct: 50
+          cookie_name: __hyops_burst_lane
+          cookie_ttl_s: 900
+          root_redirect_path: /showcase/burst/
+          forward_prefixes:
+            - /showcase/burst
+            - /privacy
+            - /terms
+            - /favicon.svg
+            - /hybridops-logo.svg
+            - /hybridops-wordmark.svg
+            - /_astro
+          status_timeout_s: 10
+          status_retries: 12
+          status_retry_delay_s: 5
+        module_state_guards:
+          cutover:
+            - state_ref: platform/network/cloudflare-traffic-steering#showcase_burst_balancer_status
+              require_status: ok
+              outputs_non_empty:
+                - traffic.hostname
+                - traffic.status_url
+          failback:
+            - state_ref: platform/network/cloudflare-traffic-steering#showcase_burst_balancer_status
+              require_status: ok
+              outputs_non_empty:
+                - traffic.hostname
+                - traffic.status_url
+      dry_run: false
+      decision_enable_actions: true
+      decision_execution_mode: local-hyops
+      confirm_for_seconds: 15
+      stable_for_seconds: 30
+      cooldown_seconds: 60
   - id: decision_dispatcher
     module_ref: platform/network/decision-dispatcher
     action: deploy

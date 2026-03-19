@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from hyops.validators.common import normalize_required_env, require_non_empty_str, require_port
 
@@ -36,6 +37,35 @@ def _validate_hostport_list(value: Any, field: str, *, required: bool) -> None:
         port = int(token.rsplit(":", 1)[1])
         if port < 1 or port > 65535:
             raise ValueError(f"{field}[{idx}] has invalid port")
+
+
+def _validate_probe_targets(value: Any, field: str, *, required: bool) -> None:
+    if value is None:
+        if required:
+            raise ValueError(f"{field} must be a non-empty list")
+        return
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list")
+    if required and not value:
+        raise ValueError(f"{field} must be a non-empty list")
+    for idx, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"{field}[{idx}] must be a mapping")
+        require_non_empty_str(item.get("name"), f"{field}[{idx}].name")
+        token = require_non_empty_str(item.get("url"), f"{field}[{idx}].url")
+        parsed = urlparse(token)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(f"{field}[{idx}].url must be a valid http(s) URL")
+
+
+def _validate_string_mapping(value: Any, field: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise ValueError(f"{field} must be a mapping")
+    for key, item in value.items():
+        require_non_empty_str(key, f"{field}.key")
+        require_non_empty_str(item, f"{field}.{key}")
 
 
 def _validate_inventory(data: dict[str, Any]) -> None:
@@ -105,6 +135,8 @@ def validate(inputs: dict[str, Any]) -> None:
         "edge_obs_thanos_image",
         "edge_obs_grafana_image",
         "edge_obs_alertmanager_image",
+        "edge_obs_prometheus_image",
+        "edge_obs_blackbox_exporter_image",
     ):
         token = require_non_empty_str(data.get(key), f"inputs.{key}")
         if _is_placeholder(token):
@@ -117,6 +149,9 @@ def validate(inputs: dict[str, Any]) -> None:
         "edge_obs_enable_grafana",
         "edge_obs_enable_alertmanager",
         "edge_obs_enable_ruler",
+        "edge_obs_enable_prometheus",
+        "edge_obs_enable_blackbox_exporter",
+        "edge_obs_enable_thanos_sidecar",
     ):
         if not isinstance(data.get(key), bool):
             raise ValueError(f"inputs.{key} must be a boolean")
@@ -126,15 +161,33 @@ def validate(inputs: dict[str, Any]) -> None:
         "edge_obs_query_http_port",
         "edge_obs_grafana_http_port",
         "edge_obs_alertmanager_http_port",
+        "edge_obs_prometheus_http_port",
+        "edge_obs_blackbox_exporter_http_port",
     ):
         require_port(data.get(key), f"inputs.{key}")
 
     require_non_empty_str(data.get("edge_obs_grafana_admin_user"), "inputs.edge_obs_grafana_admin_user")
     require_non_empty_str(data.get("edge_obs_grafana_datasource_url"), "inputs.edge_obs_grafana_datasource_url")
+    require_non_empty_str(data.get("edge_obs_prometheus_retention_time"), "inputs.edge_obs_prometheus_retention_time")
+    require_non_empty_str(data.get("edge_obs_prometheus_scrape_interval"), "inputs.edge_obs_prometheus_scrape_interval")
+
+    if bool(data.get("edge_obs_enable_blackbox_exporter")) and not bool(data.get("edge_obs_enable_prometheus")):
+        raise ValueError("inputs.edge_obs_enable_blackbox_exporter requires inputs.edge_obs_enable_prometheus=true")
+    if bool(data.get("edge_obs_enable_thanos_sidecar")) and not bool(data.get("edge_obs_enable_prometheus")):
+        raise ValueError("inputs.edge_obs_enable_thanos_sidecar requires inputs.edge_obs_enable_prometheus=true")
 
     hashring_required = bool(data.get("edge_obs_enable_receive"))
     _validate_hostport_list(data.get("edge_obs_hashring_endpoints"), "inputs.edge_obs_hashring_endpoints", required=hashring_required)
     _validate_hostport_list(data.get("edge_obs_query_upstreams"), "inputs.edge_obs_query_upstreams", required=False)
+    _validate_string_mapping(
+        data.get("edge_obs_prometheus_external_labels"),
+        "inputs.edge_obs_prometheus_external_labels",
+    )
+    _validate_probe_targets(
+        data.get("edge_obs_probe_targets"),
+        "inputs.edge_obs_probe_targets",
+        required=bool(data.get("edge_obs_enable_prometheus")) or bool(data.get("edge_obs_enable_blackbox_exporter")) or bool(data.get("edge_obs_enable_thanos_sidecar")),
+    )
 
     objstore_needed = bool(data.get("edge_obs_enable_receive")) or bool(data.get("edge_obs_enable_store_gateway")) or bool(data.get("edge_obs_enable_ruler"))
     if objstore_needed:

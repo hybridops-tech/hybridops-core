@@ -6,15 +6,22 @@ load_vault_env: true
 required_env:
   - CLOUDFLARE_API_TOKEN
 thanos_query_url: http://127.0.0.1:10902
+decision_runtime_root: /opt/hybridops/decision-service/runtime/dev
+decision_action_env_names:
+  - CLOUDFLARE_API_TOKEN
 policy:
   version: v1
   mode: PRIMARY
   signals:
-    primary_up_query: vector(0)
-    error_rate_query: vector(0.08)
+    primary_up_query: min_over_time(probe_success{job="edge_blackbox_http",probe_target="primary"}[1m])
+    edge_reachability_query: min_over_time(probe_success{job="edge_blackbox_http",probe_target="burst"}[1m])
+    error_rate_query: 1 - avg_over_time(probe_success{job="edge_blackbox_http",probe_target="primary"}[2m])
+    primary_latency_p95_query: max_over_time(probe_duration_seconds{job="edge_blackbox_http",probe_target="primary"}[2m]) * 1000
   thresholds:
     primary_up_min: 1
-    error_rate_ratio: 0.02
+    edge_reachability_min: 1
+    error_rate_ratio: 0.05
+    primary_latency_p95_ms: 1200
 actions:
   cutover_module_ref: platform/network/cloudflare-traffic-steering
   failback_module_ref: platform/network/cloudflare-traffic-steering
@@ -23,7 +30,7 @@ actions:
   module_inputs:
     required_env:
       - CLOUDFLARE_API_TOKEN
-    load_vault_env: true
+    load_vault_env: false
     zone_name: hybridops.tech
     hostname: burst.hybridops.tech
     route_pattern: burst.hybridops.tech/*
@@ -57,7 +64,7 @@ decision_execution_mode: local-hyops
 decision_require_signal_readiness: true
 decision_require_fresh_signals: true
 decision_max_signal_age_s: 120
-decision_min_ready_checks: 2
-confirm_for_seconds: 30
-stable_for_seconds: 60
-cooldown_seconds: 300
+decision_min_ready_checks: 4
+confirm_for_seconds: 15
+stable_for_seconds: 30
+cooldown_seconds: 60

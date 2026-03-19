@@ -1,6 +1,66 @@
 version: "3.8"
 
 services:
+{% if edge_obs_enable_prometheus %}
+  prometheus:
+    image: {{ edge_obs_prometheus_image }}
+    user: "{{ edge_obs_prometheus_uid }}:{{ edge_obs_prometheus_gid }}"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time={{ edge_obs_prometheus_retention_time }}
+      - --web.listen-address=0.0.0.0:9090
+    volumes:
+      - "{{ edge_obs_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "{{ edge_obs_data_dir }}/prometheus:/prometheus"
+    ports:
+      - "127.0.0.1:{{ edge_obs_prometheus_http_port }}:9090"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ edge_obs_docker_log_max_size }}"
+        max-file: "{{ edge_obs_docker_log_max_file }}"
+{% endif %}
+
+{% if edge_obs_enable_blackbox_exporter %}
+  blackbox-exporter:
+    image: {{ edge_obs_blackbox_exporter_image }}
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - "{{ edge_obs_config_dir }}/blackbox.yml:/etc/blackbox/blackbox.yml:ro"
+    ports:
+      - "127.0.0.1:{{ edge_obs_blackbox_exporter_http_port }}:9115"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ edge_obs_docker_log_max_size }}"
+        max-file: "{{ edge_obs_docker_log_max_file }}"
+{% endif %}
+
+{% if edge_obs_enable_thanos_sidecar %}
+  thanos-sidecar:
+    image: {{ edge_obs_thanos_image }}
+    command:
+      - sidecar
+      - --grpc-address=0.0.0.0:10901
+      - --http-address=0.0.0.0:10902
+      - --prometheus.url=http://prometheus:9090
+      - --tsdb.path=/prometheus
+    volumes:
+      - "{{ edge_obs_data_dir }}/prometheus:/prometheus:ro"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ edge_obs_docker_log_max_size }}"
+        max-file: "{{ edge_obs_docker_log_max_file }}"
+{% endif %}
+
 {% if edge_obs_enable_receive %}
   thanos-receive:
     image: {{ edge_obs_thanos_image }}

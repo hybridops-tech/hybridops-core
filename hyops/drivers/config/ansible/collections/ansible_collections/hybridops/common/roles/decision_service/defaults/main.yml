@@ -21,6 +21,7 @@ decision_service_execution_mode: "emit-only"
 decision_service_hyops_bin: "/usr/local/bin/hyops"
 decision_service_runtime_env: "dev"
 decision_service_runtime_root: ""
+decision_service_action_env_names: []
 decision_service_action_timeout_s: 600
 decision_service_signal_query_timeout_s: 5
 decision_service_require_signal_readiness: true
@@ -36,3 +37,4 @@ decision_service_confirm_for_seconds: 120
 decision_service_stable_for_seconds: 300
 decision_service_cooldown_seconds: 600
 decision_service_log_level: "INFO"
+decision_service_env_path: "{{ decision_service_root }}/config/action.env"

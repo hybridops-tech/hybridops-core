@@ -5,7 +5,7 @@ module_ref: "platform/network/edge-observability"
 
 metadata:
   title: "Edge Observability Services"
-  description: "Deploys Thanos/Grafana/Alertmanager services on edge Linux nodes via Ansible role consumption."
+  description: "Deploys Thanos/Grafana/Alertmanager services on edge Linux nodes via Ansible role consumption, with optional local Prometheus probing for control-plane decisions."
 
 requirements:
   credentials: []
@@ -57,6 +57,8 @@ inputs:
     edge_obs_thanos_image: "quay.io/thanos/thanos:v0.36.1"
     edge_obs_grafana_image: "grafana/grafana:11.2.0"
     edge_obs_alertmanager_image: "prom/alertmanager:v0.27.0"
+    edge_obs_prometheus_image: "prom/prometheus:v2.54.1"
+    edge_obs_blackbox_exporter_image: "prom/blackbox-exporter:v0.25.0"
 
     edge_obs_enable_receive: true
     edge_obs_enable_query: true
@@ -64,14 +66,23 @@ inputs:
     edge_obs_enable_grafana: true
     edge_obs_enable_alertmanager: true
     edge_obs_enable_ruler: true
+    edge_obs_enable_prometheus: false
+    edge_obs_enable_blackbox_exporter: false
+    edge_obs_enable_thanos_sidecar: false
 
     edge_obs_receive_remote_write_port: 10907
     edge_obs_query_http_port: 10902
     edge_obs_grafana_http_port: 3000
     edge_obs_alertmanager_http_port: 9093
+    edge_obs_prometheus_http_port: 9090
+    edge_obs_blackbox_exporter_http_port: 9115
 
     edge_obs_hashring_endpoints: []
     edge_obs_query_upstreams: []
+    edge_obs_prometheus_external_labels: {}
+    edge_obs_prometheus_retention_time: "24h"
+    edge_obs_prometheus_scrape_interval: "15s"
+    edge_obs_probe_targets: []
     edge_obs_ruler_rules: ""
     edge_obs_grafana_admin_user: "admin"
     edge_obs_grafana_datasource_url: "http://thanos-query:10902"
@@ -98,6 +109,7 @@ outputs:
     - edge_obs_query_http_port
     - edge_obs_grafana_http_port
     - edge_obs_alertmanager_http_port
+    - edge_obs_prometheus_http_port
     - cap.obs.edge
 
 probes: []

@@ -13,3 +13,7 @@ does not execute HyOps actions directly.
 
 An explicit transitional mode, `local-hyops`, can still execute `hyops apply`
 locally when enabled by the caller.
+
+When `decision_service_runtime_root` is set, the role also seeds the minimal
+runtime directories needed for host-local module actions and can inject selected
+controller environment variables into the service environment file.

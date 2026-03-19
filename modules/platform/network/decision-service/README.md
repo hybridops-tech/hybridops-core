@@ -7,7 +7,7 @@ This is the control-loop surface for DR/burst policy execution.
 ## v1 scope
 
 - Runs a local decision loop service (systemd) on edge control nodes.
-- Queries Thanos Query HTTP API (`/api/v1/query`) for policy signals.
+- Queries a Prometheus-compatible HTTP API (`/api/v1/query`) for policy signals.
 - Evaluates thresholds with confirm/stable/cooldown timing guards.
 - Emits structured decision records for runner consumption by default.
 - Can execute `hyops apply` locally only in explicit transitional mode.
@@ -30,10 +30,10 @@ If container packaging is added later, the module contract should stay the same.
 
 Recommended topology is to run decision-service on the same edge VM as Thanos Query:
 
-- site Prometheus -> Thanos Receive (fresh ingest)
+- site Prometheus -> Thanos Receive (fresh ingest), or local edge probes -> Prometheus -> Thanos Sidecar
 - Thanos Receive/Store Gateway -> object storage (durability)
-- Thanos Query -> Receive + Store Gateway
-- decision-service -> local Thanos Query (`http://127.0.0.1:10902`)
+- Thanos Query -> Receive + Store Gateway + Sidecar
+- decision-service -> local query API (`http://127.0.0.1:10902`)
 
 This keeps decision latency low and avoids direct bucket API dependencies in control logic.
 
@@ -56,6 +56,7 @@ Optional transitional mode is `local-hyops`:
   - cooldown guard is clear
   - signal readiness/freshness guards are satisfied
   - module state guards are satisfied when enabled or configured
+  - the host has an installed HybridOps release plus a minimal runtime root
 
 Execution summary:
 
@@ -105,6 +106,13 @@ Use these inputs to block actions until prerequisite module states are ready:
 
 If `decision_runtime_root` is unset, the service reads module state from:
 - `~/.hybridops/envs/<decision_runtime_env>`
+
+If `decision_runtime_root` is set, the service reads and writes state there instead.
+For Cloudflare steering actions, a minimal local runtime root only needs:
+
+- `<runtime_root>/meta/`
+- `<runtime_root>/credentials/cloudflare.credentials.tfvars`
+- the required API token exposed in the service environment
 
 Each guard item supports:
 - `state_ref`

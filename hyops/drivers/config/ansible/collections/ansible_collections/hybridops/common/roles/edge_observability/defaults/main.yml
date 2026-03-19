@@ -17,12 +17,16 @@ edge_obs_grafana_uid: "472"
 edge_obs_grafana_gid: "472"
 edge_obs_alertmanager_uid: "65534"
 edge_obs_alertmanager_gid: "65534"
+edge_obs_prometheus_uid: "1001"
+edge_obs_prometheus_gid: "1001"
 edge_obs_startup_retries: 18
 edge_obs_startup_delay_s: 5
 
 edge_obs_thanos_image: "docker.io/bitnami/thanos:REPLACE_THANOS_TAG"
 edge_obs_grafana_image: "grafana/grafana:REPLACE_GRAFANA_TAG"
 edge_obs_alertmanager_image: "prom/alertmanager:REPLACE_ALERTMANAGER_TAG"
+edge_obs_prometheus_image: "prom/prometheus:v2.54.1"
+edge_obs_blackbox_exporter_image: "prom/blackbox-exporter:v0.25.0"
 
 edge_obs_enable_receive: true
 edge_obs_enable_query: true
@@ -30,11 +34,16 @@ edge_obs_enable_store_gateway: true
 edge_obs_enable_grafana: true
 edge_obs_enable_alertmanager: true
 edge_obs_enable_ruler: true
+edge_obs_enable_prometheus: false
+edge_obs_enable_blackbox_exporter: false
+edge_obs_enable_thanos_sidecar: false
 
 edge_obs_receive_remote_write_port: 10907
 edge_obs_query_http_port: 10902
 edge_obs_grafana_http_port: 3000
 edge_obs_alertmanager_http_port: 9093
+edge_obs_prometheus_http_port: 9090
+edge_obs_blackbox_exporter_http_port: 9115
 
 # Raw YAML content for Thanos objstore.yml
 edge_obs_objstore_config: ""
@@ -44,6 +53,10 @@ edge_obs_hashring_endpoints: []
 
 # Query upstreams for Thanos Query (gRPC endpoints). If empty, defaults to local services.
 edge_obs_query_upstreams: []
+edge_obs_prometheus_external_labels: {}
+edge_obs_prometheus_retention_time: "24h"
+edge_obs_prometheus_scrape_interval: "15s"
+edge_obs_probe_targets: []
 
 # Optional rule groups for Thanos Ruler (YAML)
 edge_obs_ruler_rules: ""

@@ -1,6 +1,6 @@
 # platform/network/edge-observability
 
-Deploy edge observability services (Thanos, Grafana, Alertmanager) on Linux edge nodes.
+Deploy edge observability services (Thanos, Grafana, Alertmanager, and optional local probe metrics) on Linux edge nodes.
 
 This module configures runtime services only. It does not provision infrastructure.
 The apply path now verifies that enabled containers stay running and that the
@@ -10,6 +10,9 @@ before module state is marked `ok`.
 ## What it does
 
 - Installs and manages:
+  - Local Prometheus (optional)
+  - Blackbox Exporter probe targets (optional)
+  - Thanos Sidecar for local Prometheus query fan-in (optional)
   - Thanos Receive
   - Thanos Query
   - Thanos Store Gateway
@@ -24,15 +27,29 @@ before module state is marked `ok`.
 - Does not create cloud credentials.
 - Does not orchestrate WAN or DR cutover modules.
 
+## Local metrics mode
+
+For burst-control and local edge decision loops, the module can run a self-contained probe path:
+
+- Blackbox Exporter probes primary and burst origins
+- Prometheus scrapes those probe metrics locally
+- Thanos Sidecar exposes Prometheus data to local Thanos Query
+- Prometheus needs unique external labels for the sidecar; the role derives stable labels from the HyOps env and host name unless you set `edge_obs_prometheus_external_labels` explicitly
+- decision-service can keep using `http://127.0.0.1:10902`
+
+This is the fastest honest signal path when the broader cluster remote-write topology is not deployed yet.
+
 ## Required secrets
 
-- `EDGE_OBS_GRAFANA_ADMIN_PASSWORD`
-- `EDGE_OBS_OBJSTORE_CONFIG`
+- Always:
+  - `EDGE_OBS_GRAFANA_ADMIN_PASSWORD`
+- Only when receive/store/ruler are enabled:
+  - `EDGE_OBS_OBJSTORE_CONFIG`
 
 Use vault-backed flows:
 
 ```bash
-hyops secrets ensure --env <env> EDGE_OBS_GRAFANA_ADMIN_PASSWORD EDGE_OBS_OBJSTORE_CONFIG
+hyops secrets ensure --env <env> EDGE_OBS_GRAFANA_ADMIN_PASSWORD
 ```
 
 ## Usage

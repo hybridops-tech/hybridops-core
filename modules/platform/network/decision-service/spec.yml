@@ -44,6 +44,7 @@ inputs:
     decision_hyops_bin: "/usr/local/bin/hyops"
     decision_runtime_env: "dev"
     decision_runtime_root: ""
+    decision_action_env_names: []
     decision_action_timeout_s: 600
     decision_signal_query_timeout_s: 5
     decision_require_signal_readiness: true
@@ -52,7 +53,7 @@ inputs:
     decision_min_ready_checks: 1
     decision_require_action_state_guards: false
 
-    # Core decision contract
+    # Core decision contract. `thanos_query_url` can target Thanos Query or any Prometheus-compatible query API.
     thanos_query_url: "http://127.0.0.1:10902"
     policy: {}
     actions:
