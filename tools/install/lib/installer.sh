@@ -28,6 +28,8 @@ hyops_install_run() {
 
   APP_DIR="${PREFIX}/app"
   VENV_DIR="${PREFIX}/venv"
+  SYSTEM_LINK_PATH="${HYOPS_INSTALL_SYSTEM_LINK_PATH:-/usr/local/bin/hyops}"
+  SYSTEM_LINK_DIR="$(dirname -- "${SYSTEM_LINK_PATH}")"
 
   RUNTIME_ROOT="${HOME}/.hybridops"
   TOOLS_DIR="${RUNTIME_ROOT}/tools"
@@ -53,12 +55,16 @@ hyops_install_run() {
   echo "[install] setup_all=${SETUP_ALL}"
 
   if [[ "${SYSTEM_LINK}" == "true" ]]; then
-    hyops_install_need_cmd sudo
-    echo "[install] sudo required for /usr/local/bin/hyops"
-    sudo -v || {
-      echo "ERR: sudo cancelled; global hyops not installed" >&2
-      exit 3
-    }
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+      echo "[install] running as root; skipping sudo preflight for ${SYSTEM_LINK_PATH}"
+    else
+      hyops_install_need_cmd sudo
+      echo "[install] sudo required for ${SYSTEM_LINK_PATH}"
+      sudo -v || {
+        echo "ERR: sudo cancelled; global hyops not installed" >&2
+        exit 3
+      }
+    fi
   fi
 
   hyops_install_remove_or_fail_dir "${APP_DIR}" "app dir"

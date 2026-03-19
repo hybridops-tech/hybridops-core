@@ -13,11 +13,16 @@ hyops_install_run_setup_all() {
     exit 2
   fi
 
+  echo "[install] running setup-all"
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    bash "${setup_all_script}"
+    return 0
+  fi
+
   command -v sudo >/dev/null 2>&1 || {
     echo "ERR: sudo required for --setup-all" >&2
     exit 2
   }
 
-  echo "[install] running setup-all"
   sudo -E bash "${setup_all_script}"
 }

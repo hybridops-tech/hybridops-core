@@ -47,6 +47,9 @@ HOME_DIR="${WORK_DIR}/home"
 INSTALL_ROOT="${HOME_DIR}/.hybridops/core"
 INSTALLED_APP="${INSTALL_ROOT}/app"
 INSTALLED_HYOPS="${HOME_DIR}/.local/bin/hyops"
+ROOT_HOME_DIR="${WORK_DIR}/root-home"
+ROOT_LINK_DIR="${WORK_DIR}/root-bin"
+ROOT_LINK_HYOPS="${ROOT_LINK_DIR}/hyops"
 BUNDLE_BYTES="$(stat -c %s "${BUNDLE_PATH}")"
 REQUIRED_FREE_BYTES=$(( BUNDLE_BYTES * 20 ))
 if (( REQUIRED_FREE_BYTES < 536870912 )); then
@@ -55,6 +58,9 @@ fi
 
 cleanup() {
   if [[ "${KEEP_WORKDIR:-false}" != "true" ]]; then
+    if sudo -n true >/dev/null 2>&1; then
+      sudo rm -rf "${WORK_DIR}" 2>/dev/null || true
+    fi
     rm -rf "${WORK_DIR}"
   fi
 }
@@ -110,10 +116,72 @@ fi
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" init --help >/dev/null
 )
 
+env "${install_env[@]}" \
+  bash "${RELEASE_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
+(
+  cd /
+  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" show --help >/dev/null
+)
+
 (
   cd "${INSTALLED_APP}"
   sha256sum -c pkg/release-files.sha256 >/dev/null
 )
+
+if sudo -n true >/dev/null 2>&1; then
+  ROOT_SHARED_DIR="${WORK_DIR}/root-shared"
+  ROOT_PREFIX_DIR="${ROOT_SHARED_DIR}/prefix"
+  ROOT_USER_BIN_DIR="${ROOT_SHARED_DIR}/user-bin"
+  ROOT_CACHE_DIR="${ROOT_SHARED_DIR}/pip-cache"
+  ROOT_FAKE_APP_DIR="${ROOT_SHARED_DIR}/fake-app"
+  ROOT_SETUP_MARKER="${ROOT_SHARED_DIR}/setup-all-marker.txt"
+
+  mkdir -p "${ROOT_SHARED_DIR}" "${ROOT_HOME_DIR}" "${ROOT_LINK_DIR}" "${ROOT_PREFIX_DIR}" "${ROOT_USER_BIN_DIR}" "${ROOT_CACHE_DIR}" "${ROOT_FAKE_APP_DIR}/tools/setup"
+  chmod 0755 "${ROOT_SHARED_DIR}" "${ROOT_HOME_DIR}" "${ROOT_LINK_DIR}" "${ROOT_PREFIX_DIR}" "${ROOT_USER_BIN_DIR}" "${ROOT_CACHE_DIR}" "${ROOT_FAKE_APP_DIR}" "${ROOT_FAKE_APP_DIR}/tools" "${ROOT_FAKE_APP_DIR}/tools/setup"
+  sudo install -d -m 0755 "${ROOT_CACHE_DIR}"
+
+  sudo env HOME="${ROOT_HOME_DIR}" PATH="/usr/bin:/bin:${PATH}" \
+    HYOPS_INSTALL_SYSTEM_LINK_PATH="${ROOT_LINK_HYOPS}" \
+    HYOPS_INSTALL_USE_SYSTEM_DEPS=true \
+    PIP_CACHE_DIR="${ROOT_CACHE_DIR}" \
+    bash "${RELEASE_ROOT}/install.sh" \
+      --prefix "${ROOT_PREFIX_DIR}" \
+      --bin-dir "${ROOT_USER_BIN_DIR}" \
+      --force \
+      --no-wrapper \
+      --no-setup-all >/dev/null
+
+  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" --help >/dev/null
+  sudo env HOME="${ROOT_HOME_DIR}" PATH="/usr/bin:/bin:${PATH}" \
+    HYOPS_INSTALL_SYSTEM_LINK_PATH="${ROOT_LINK_HYOPS}" \
+    HYOPS_INSTALL_USE_SYSTEM_DEPS=true \
+    PIP_CACHE_DIR="${ROOT_CACHE_DIR}" \
+    bash "${RELEASE_ROOT}/install.sh" \
+      --prefix "${ROOT_PREFIX_DIR}" \
+      --bin-dir "${ROOT_USER_BIN_DIR}" \
+      --force \
+      --no-wrapper \
+      --no-setup-all >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" show --help >/dev/null
+
+  cat > "${ROOT_FAKE_APP_DIR}/tools/setup/setup-all.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'root=%s\n' "$(id -u)" > "${APP_MARKER}"
+EOF
+  chmod 0755 "${ROOT_FAKE_APP_DIR}/tools/setup/setup-all.sh"
+
+  sudo env APP_DIR="${ROOT_FAKE_APP_DIR}" SETUP_ALL=true APP_MARKER="${ROOT_SETUP_MARKER}" bash -s >/dev/null <<EOF
+sudo() {
+  echo "unexpected sudo invocation from root setup-all smoke" >&2
+  return 99
+}
+source "${RELEASE_ROOT}/tools/install/lib/setup.sh"
+hyops_install_run_setup_all
+EOF
+
+  grep -qx 'root=0' "${ROOT_SETUP_MARKER}"
+fi
 
 echo "Verified bundle:"
 echo "  ${BUNDLE_PATH}"

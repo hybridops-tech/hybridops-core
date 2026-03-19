@@ -35,9 +35,11 @@ hyops_install_install_user_wrapper() {
 hyops_install_install_system_link() {
   [[ "${SYSTEM_LINK}" == "true" ]] || return 0
 
-  echo "[install] installing global hyops"
-  sudo install -d -m 0755 /usr/local/bin
-  sudo tee /usr/local/bin/hyops >/dev/null <<EOS
+  echo "[install] installing global hyops at ${SYSTEM_LINK_PATH}"
+
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    install -d -m 0755 "${SYSTEM_LINK_DIR}"
+    cat >"${SYSTEM_LINK_PATH}" <<EOS
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -49,5 +51,22 @@ fi
 
 exec "${VENV_DIR}/bin/hyops" "\$@"
 EOS
-  sudo chmod 0755 /usr/local/bin/hyops
+    chmod 0755 "${SYSTEM_LINK_PATH}"
+    return 0
+  fi
+
+  sudo install -d -m 0755 "${SYSTEM_LINK_DIR}"
+  sudo tee "${SYSTEM_LINK_PATH}" >/dev/null <<EOS
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HYOPS_CORE_ROOT="${APP_DIR}"
+export HYOPS_VAULT_PASS_SCRIPT="${VAULT_PASS_DST}"
+if [[ -d "${APP_DIR}/vendor/python" ]]; then
+  export PYTHONPATH="${APP_DIR}/vendor/python\${PYTHONPATH:+:\${PYTHONPATH}}"
+fi
+
+exec "${VENV_DIR}/bin/hyops" "\$@"
+EOS
+  sudo chmod 0755 "${SYSTEM_LINK_PATH}"
 }
