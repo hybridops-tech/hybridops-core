@@ -2,6 +2,11 @@ inventory_groups:
   edge_control:
     - name: control-01
       host: 198.51.100.10
+# Same-host true burst pattern:
+# - one public hostname
+# - primary origin remains the default
+# - decision-service can move that host to balanced traffic when the
+#   burst-pressure signal crosses threshold
 load_vault_env: true
 required_env:
   - CLOUDFLARE_API_TOKEN
@@ -9,6 +14,11 @@ thanos_query_url: http://127.0.0.1:10902
 decision_runtime_root: /opt/hybridops/decision-service/runtime/dev
 decision_action_env_names:
   - CLOUDFLARE_API_TOKEN
+decision_service_metrics_enabled: true
+decision_service_metrics_bind_host: 0.0.0.0
+decision_service_metrics_port: 9727
+decision_service_demo_signal_enabled: true
+decision_service_demo_signal_default_pressure: 0
 policy:
   version: v1
   mode: PRIMARY
@@ -17,11 +27,15 @@ policy:
     edge_reachability_query: min_over_time(probe_success{job="edge_blackbox_http",probe_target="burst"}[1m])
     error_rate_query: 1 - avg_over_time(probe_success{job="edge_blackbox_http",probe_target="primary"}[2m])
     primary_latency_p95_query: max_over_time(probe_duration_seconds{job="edge_blackbox_http",probe_target="primary"}[2m]) * 1000
+    # For controlled demos this can be driven by the built-in demo signal helper.
+    # In production, point this at a real saturation or queue-pressure metric.
+    burst_pressure_query: max_over_time(hyops_burst_demo_pressure[30s])
   thresholds:
     primary_up_min: 1
     edge_reachability_min: 1
     error_rate_ratio: 0.05
     primary_latency_p95_ms: 1200
+    burst_pressure_score: 70
 actions:
   cutover_module_ref: platform/network/cloudflare-traffic-steering
   failback_module_ref: platform/network/cloudflare-traffic-steering
@@ -65,6 +79,6 @@ decision_require_signal_readiness: true
 decision_require_fresh_signals: true
 decision_max_signal_age_s: 120
 decision_min_ready_checks: 4
-confirm_for_seconds: 15
-stable_for_seconds: 30
-cooldown_seconds: 60
+confirm_for_seconds: 10
+stable_for_seconds: 20
+cooldown_seconds: 30

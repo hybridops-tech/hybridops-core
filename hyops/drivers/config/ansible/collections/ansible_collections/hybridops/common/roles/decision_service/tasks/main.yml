@@ -45,6 +45,7 @@
     - "{{ decision_service_config_dir }}"
     - "{{ decision_service_state_dir }}"
     - "{{ decision_service_state_dir }}/records"
+    - "{{ decision_service_state_dir }}/metrics"
     - "{{ decision_service_logs_dir }}"
   when: decision_service_state == "present"
 
@@ -263,6 +264,24 @@
   when: decision_service_state == "present"
   notify: Restart decision service
 
+- name: Seed decision demo signal file
+  ansible.builtin.copy:
+    dest: "{{ decision_service_demo_signal_path }}"
+    owner: "{{ decision_service_run_as_user }}"
+    group: "{{ decision_service_run_as_group }}"
+    mode: "0640"
+    content: |
+      {
+        "pressure": {{ decision_service_demo_signal_default_pressure | int }},
+        "active_until_epoch": null,
+        "note": "",
+        "updated_at": ""
+      }
+  when:
+    - decision_service_state == "present"
+    - decision_service_demo_signal_enabled | bool
+  notify: Restart decision service
+
 - name: Write decision runtime config
   ansible.builtin.copy:
     dest: "{{ decision_service_config_dir }}/config.json"
@@ -284,6 +303,11 @@
           'max_signal_age_s': (decision_service_max_signal_age_s | int),
           'min_ready_checks': (decision_service_min_ready_checks | int),
           'require_action_state_guards': (decision_service_require_action_state_guards | bool),
+          'metrics_enabled': (decision_service_metrics_enabled | bool),
+          'metrics_bind_host': (decision_service_metrics_bind_host | string),
+          'metrics_port': (decision_service_metrics_port | int),
+          'demo_signal_enabled': (decision_service_demo_signal_enabled | bool),
+          'demo_signal_path': (decision_service_demo_signal_path | string),
           'dry_run': (decision_service_dry_run | bool),
           'enable_actions': (decision_service_enable_actions | bool),
           'tick_seconds': (decision_service_tick_seconds | int),
@@ -294,6 +318,16 @@
           'actions': (decision_service_actions | default({}))
         } | to_nice_json
       }}
+  when: decision_service_state == "present"
+  notify: Restart decision service
+
+- name: Render decision demo signal helper
+  ansible.builtin.template:
+    src: decision-demo-signal.py.j2
+    dest: "{{ decision_service_demo_signal_bin_path }}"
+    owner: "{{ decision_service_run_as_user }}"
+    group: "{{ decision_service_run_as_group }}"
+    mode: "0750"
   when: decision_service_state == "present"
   notify: Restart decision service
 

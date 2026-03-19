@@ -88,6 +88,7 @@ def _validate_policy(policy: dict[str, Any]) -> None:
         "error_rate_ratio": "error_rate_query",
         "edge_reachability_min": "edge_reachability_query",
         "primary_latency_p95_ms": "primary_latency_p95_query",
+        "burst_pressure_score": "burst_pressure_query",
     }
 
     seen_supported = False
@@ -352,6 +353,19 @@ def validate(inputs: dict[str, Any]) -> None:
                 raise ValueError(f"inputs.decision_action_env_names[{idx}] contains placeholder token")
     _require_int_ge(data.get("decision_action_timeout_s"), "inputs.decision_action_timeout_s", 30)
     _require_int_ge(data.get("decision_signal_query_timeout_s"), "inputs.decision_signal_query_timeout_s", 1)
+    metrics_enabled = data.get("decision_service_metrics_enabled")
+    if not isinstance(metrics_enabled, bool):
+        raise ValueError("inputs.decision_service_metrics_enabled must be a boolean")
+    _require_non_empty_str(data.get("decision_service_metrics_bind_host"), "inputs.decision_service_metrics_bind_host")
+    _require_port(data.get("decision_service_metrics_port"), "inputs.decision_service_metrics_port")
+    demo_signal_enabled = data.get("decision_service_demo_signal_enabled")
+    if not isinstance(demo_signal_enabled, bool):
+        raise ValueError("inputs.decision_service_demo_signal_enabled must be a boolean")
+    _require_int_ge(
+        data.get("decision_service_demo_signal_default_pressure"),
+        "inputs.decision_service_demo_signal_default_pressure",
+        0,
+    )
 
     require_signal_readiness = data.get("decision_require_signal_readiness")
     if not isinstance(require_signal_readiness, bool):

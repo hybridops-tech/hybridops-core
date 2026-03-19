@@ -29,6 +29,13 @@ decision_service_require_fresh_signals: true
 decision_service_max_signal_age_s: 180
 decision_service_min_ready_checks: 1
 decision_service_require_action_state_guards: false
+decision_service_metrics_enabled: false
+decision_service_metrics_bind_host: "127.0.0.1"
+decision_service_metrics_port: 9727
+decision_service_demo_signal_enabled: false
+decision_service_demo_signal_default_pressure: 0
+decision_service_demo_signal_path: "{{ decision_service_config_dir }}/demo-signal.json"
+decision_service_demo_signal_bin_path: "{{ decision_service_root }}/decision-demo-signal"
 
 decision_service_dry_run: true
 decision_service_enable_actions: false

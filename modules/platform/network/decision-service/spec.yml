@@ -52,6 +52,11 @@ inputs:
     decision_max_signal_age_s: 180
     decision_min_ready_checks: 1
     decision_require_action_state_guards: false
+    decision_service_metrics_enabled: false
+    decision_service_metrics_bind_host: "127.0.0.1"
+    decision_service_metrics_port: 9727
+    decision_service_demo_signal_enabled: false
+    decision_service_demo_signal_default_pressure: 0
 
     # Core decision contract. `thanos_query_url` can target Thanos Query or any Prometheus-compatible query API.
     thanos_query_url: "http://127.0.0.1:10902"

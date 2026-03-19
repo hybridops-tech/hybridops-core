@@ -152,6 +152,8 @@ def validate(inputs: dict[str, Any]) -> None:
         "edge_obs_enable_prometheus",
         "edge_obs_enable_blackbox_exporter",
         "edge_obs_enable_thanos_sidecar",
+        "edge_obs_enable_decision_service_scrape",
+        "edge_obs_enable_burst_dashboard",
     ):
         if not isinstance(data.get(key), bool):
             raise ValueError(f"inputs.{key} must be a boolean")
@@ -163,11 +165,14 @@ def validate(inputs: dict[str, Any]) -> None:
         "edge_obs_alertmanager_http_port",
         "edge_obs_prometheus_http_port",
         "edge_obs_blackbox_exporter_http_port",
+        "edge_obs_decision_service_metrics_port",
     ):
         require_port(data.get(key), f"inputs.{key}")
 
     require_non_empty_str(data.get("edge_obs_grafana_admin_user"), "inputs.edge_obs_grafana_admin_user")
     require_non_empty_str(data.get("edge_obs_grafana_datasource_url"), "inputs.edge_obs_grafana_datasource_url")
+    require_non_empty_str(data.get("edge_obs_decision_service_metrics_host"), "inputs.edge_obs_decision_service_metrics_host")
+    require_non_empty_str(data.get("edge_obs_burst_dashboard_title"), "inputs.edge_obs_burst_dashboard_title")
     require_non_empty_str(data.get("edge_obs_prometheus_retention_time"), "inputs.edge_obs_prometheus_retention_time")
     require_non_empty_str(data.get("edge_obs_prometheus_scrape_interval"), "inputs.edge_obs_prometheus_scrape_interval")
 
@@ -175,6 +180,10 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.edge_obs_enable_blackbox_exporter requires inputs.edge_obs_enable_prometheus=true")
     if bool(data.get("edge_obs_enable_thanos_sidecar")) and not bool(data.get("edge_obs_enable_prometheus")):
         raise ValueError("inputs.edge_obs_enable_thanos_sidecar requires inputs.edge_obs_enable_prometheus=true")
+    if bool(data.get("edge_obs_enable_decision_service_scrape")) and not bool(data.get("edge_obs_enable_prometheus")):
+        raise ValueError("inputs.edge_obs_enable_decision_service_scrape requires inputs.edge_obs_enable_prometheus=true")
+    if bool(data.get("edge_obs_enable_burst_dashboard")) and not bool(data.get("edge_obs_enable_grafana")):
+        raise ValueError("inputs.edge_obs_enable_burst_dashboard requires inputs.edge_obs_enable_grafana=true")
 
     hashring_required = bool(data.get("edge_obs_enable_receive"))
     _validate_hostport_list(data.get("edge_obs_hashring_endpoints"), "inputs.edge_obs_hashring_endpoints", required=hashring_required)

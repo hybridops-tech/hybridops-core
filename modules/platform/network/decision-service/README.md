@@ -86,6 +86,49 @@ That lets the decision loop move a single public host between:
 - weighted same-host split
 - full burst-origin delivery
 
+## Metrics and demo signal path
+
+When `decision_service_metrics_enabled=true`, the service exposes a local
+Prometheus-format endpoint. This is intended for edge-local observability and
+for dashboards that need to show the decision loop in real time.
+
+Key inputs:
+
+- `decision_service_metrics_enabled`
+- `decision_service_metrics_bind_host`
+- `decision_service_metrics_port`
+
+Key exported metrics:
+
+- `hyops_burst_demo_pressure`
+- `hyops_burst_demo_active`
+- `hyops_decision_degraded`
+- `hyops_decision_mode`
+- `hyops_decision_recommended_action`
+- `hyops_decision_check_value`
+- `hyops_decision_check_ok`
+- `hyops_decision_check_sample_age_seconds`
+
+When `decision_service_demo_signal_enabled=true`, the role also installs a
+controlled demo helper on the edge host:
+
+- `/opt/hybridops/decision-service/decision-demo-signal`
+
+Typical operator flow:
+
+```bash
+ssh <edge-host> sudo /opt/hybridops/decision-service/decision-demo-signal set \
+  --pressure 100 \
+  --ttl-s 120 \
+  --note "showcase burst trigger"
+
+ssh <edge-host> sudo /opt/hybridops/decision-service/decision-demo-signal clear
+```
+
+This helper is meant for demos and controlled rehearsals. In production policy,
+`burst_pressure_query` can point at any Prometheus-compatible signal that
+represents real load or saturation pressure.
+
 ## Signal readiness and freshness guards
 
 Use these inputs to fail closed when signals are incomplete or stale:
@@ -131,6 +174,19 @@ Typical uses:
 See:
 - `modules/platform/network/decision-service/examples/inputs.dr-gates.yml`
 - `modules/platform/network/decision-service/examples/inputs.cloudflare-burst.yml`
+
+## True burst steering example
+
+`inputs.cloudflare-burst.yml` is the reference pattern for a same-host burst
+story:
+
+- one public hostname
+- Cloudflare traffic steering as the execution target
+- probe-based health and latency checks
+- optional `burst_pressure_query` for load-driven promotion to balanced traffic
+
+In that pattern, decision-service does not publish a second demo hostname. It
+changes the live delivery state for a single public host.
 
 ## Usage
 

@@ -13,6 +13,10 @@ services:
     volumes:
       - "{{ edge_obs_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
       - "{{ edge_obs_data_dir }}/prometheus:/prometheus"
+{% if edge_obs_enable_decision_service_scrape and edge_obs_decision_service_metrics_host == 'host.docker.internal' %}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+{% endif %}
     ports:
       - "127.0.0.1:{{ edge_obs_prometheus_http_port }}:9090"
     restart: unless-stopped
@@ -175,6 +179,10 @@ services:
       - "{{ edge_obs_env_path }}"
     volumes:
       - "{{ edge_obs_config_dir }}/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro"
+{% if edge_obs_enable_burst_dashboard %}
+      - "{{ edge_obs_grafana_dashboard_provider_path }}:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro"
+      - "{{ edge_obs_grafana_dashboards_dir }}:/var/lib/grafana/dashboards:ro"
+{% endif %}
       - "{{ edge_obs_data_dir }}/grafana:/var/lib/grafana"
     ports:
       - "{{ edge_obs_grafana_http_port }}:3000"

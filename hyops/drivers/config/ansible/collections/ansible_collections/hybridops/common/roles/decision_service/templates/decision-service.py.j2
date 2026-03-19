@@ -7,10 +7,12 @@ maintainer: HybridOps
 from __future__ import annotations
 
 import datetime
+import http.server
 import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -25,6 +27,10 @@ STATE_PATH = ROOT / "state" / "state.json"
 LOG_PATH = ROOT / "logs" / "decision.log"
 ACTIONS_DIR = ROOT / "state" / "actions"
 RECORDS_DIR = ROOT / "state" / "records"
+METRICS_DIR = ROOT / "state" / "metrics"
+METRICS_PATH = METRICS_DIR / "metrics-state.json"
+_METRICS_LOCK = threading.Lock()
+_METRICS_STATE: dict[str, object] = {}
 
 
 def _utc_now() -> str:
@@ -52,6 +58,207 @@ def _append_log(payload: dict) -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _clone_jsonable(payload: object) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    try:
+        return json.loads(json.dumps(payload))
+    except Exception:
+        return {}
+
+
+def _read_demo_signal(config: dict) -> dict:
+    enabled = bool(config.get("demo_signal_enabled", False))
+    path = Path(str(config.get("demo_signal_path") or (ROOT / "config" / "demo-signal.json"))).expanduser()
+    payload = _read_json(path) if path.exists() else {}
+    pressure = _to_float(payload.get("pressure"))
+    if pressure is None or pressure < 0:
+        pressure = 0.0
+    active_until_epoch = _to_float(payload.get("active_until_epoch"))
+    note = str(payload.get("note") or "").strip()
+    updated_at = str(payload.get("updated_at") or "").strip()
+    now_epoch = float(time.time())
+    active = pressure > 0
+    if active_until_epoch is not None and now_epoch > active_until_epoch:
+        active = False
+        pressure = 0.0
+    return {
+        "enabled": enabled,
+        "path": str(path),
+        "pressure": float(pressure),
+        "active": bool(enabled and active),
+        "note": note,
+        "updated_at": updated_at,
+        "active_until_epoch": active_until_epoch,
+    }
+
+
+def _prom_escape(value: object) -> str:
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace('"', '\\"')
+    )
+
+
+def _render_metrics(payload: dict) -> str:
+    snapshot = _clone_jsonable(payload)
+    checks = snapshot.get("checks")
+    if not isinstance(checks, list):
+        checks = []
+    demo = snapshot.get("demo_signal")
+    if not isinstance(demo, dict):
+        demo = {}
+
+    lines = [
+        "# HELP hyops_burst_demo_pressure Synthetic burst-pressure signal for controlled demos.",
+        "# TYPE hyops_burst_demo_pressure gauge",
+        f"hyops_burst_demo_pressure {float(demo.get('pressure') or 0.0)}",
+        "# HELP hyops_burst_demo_active Whether the synthetic burst-pressure signal is currently active.",
+        "# TYPE hyops_burst_demo_active gauge",
+        f"hyops_burst_demo_active {1 if bool(demo.get('active')) else 0}",
+        "# HELP hyops_decision_signal_ready Whether decision-service currently considers signals ready.",
+        "# TYPE hyops_decision_signal_ready gauge",
+        f"hyops_decision_signal_ready {1 if bool(snapshot.get('signal_ready')) else 0}",
+        "# HELP hyops_decision_action_state_ready Whether action state guards currently pass.",
+        "# TYPE hyops_decision_action_state_ready gauge",
+        f"hyops_decision_action_state_ready {1 if bool(snapshot.get('action_state_ready')) else 0}",
+        "# HELP hyops_decision_degraded Whether the current policy evaluation is degraded.",
+        "# TYPE hyops_decision_degraded gauge",
+        f"hyops_decision_degraded {1 if snapshot.get('degraded') is True else 0}",
+        "# HELP hyops_decision_last_action_rc Return code from the last executed action.",
+        "# TYPE hyops_decision_last_action_rc gauge",
+        f"hyops_decision_last_action_rc {int(snapshot.get('last_action_rc') or 0)}",
+        "# HELP hyops_decision_tick_unixtime Last decision-service evaluation time as Unix epoch seconds.",
+        "# TYPE hyops_decision_tick_unixtime gauge",
+        f"hyops_decision_tick_unixtime {float(time.time())}",
+    ]
+
+    current_mode = str(snapshot.get("mode") or "").strip().upper()
+    lines.extend(
+        [
+            "# HELP hyops_decision_mode Current decision-service mode.",
+            "# TYPE hyops_decision_mode gauge",
+            'hyops_decision_mode{mode="PRIMARY"} ' + str(1 if current_mode == "PRIMARY" else 0),
+            'hyops_decision_mode{mode="SECONDARY"} ' + str(1 if current_mode == "SECONDARY" else 0),
+        ]
+    )
+
+    current_action = str(snapshot.get("recommended_action") or "none").strip().lower() or "none"
+    lines.extend(
+        [
+            "# HELP hyops_decision_recommended_action Current recommended action.",
+            "# TYPE hyops_decision_recommended_action gauge",
+            'hyops_decision_recommended_action{action="none"} ' + str(1 if current_action == "none" else 0),
+            'hyops_decision_recommended_action{action="cutover"} ' + str(1 if current_action == "cutover" else 0),
+            'hyops_decision_recommended_action{action="failback"} ' + str(1 if current_action == "failback" else 0),
+        ]
+    )
+
+    lines.extend(
+        [
+            "# HELP hyops_decision_check_value Current value for each evaluated decision check.",
+            "# TYPE hyops_decision_check_value gauge",
+            "# HELP hyops_decision_check_ok Whether each evaluated decision check is currently passing.",
+            "# TYPE hyops_decision_check_ok gauge",
+            "# HELP hyops_decision_check_sample_age_seconds Sample age for each evaluated decision check.",
+            "# TYPE hyops_decision_check_sample_age_seconds gauge",
+        ]
+    )
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        metric = _prom_escape(item.get("metric") or "unknown")
+        value = _to_float(item.get("value"))
+        if value is not None:
+            lines.append('hyops_decision_check_value{metric="' + metric + '"} ' + str(value))
+        lines.append('hyops_decision_check_ok{metric="' + metric + '"} ' + str(1 if bool(item.get("ok")) else 0))
+        age = _to_float(item.get("sample_age_s"))
+        if age is not None:
+            lines.append('hyops_decision_check_sample_age_seconds{metric="' + metric + '"} ' + str(age))
+
+    return "\n".join(lines) + "\n"
+
+
+def _metrics_snapshot() -> dict:
+    with _METRICS_LOCK:
+        return _clone_jsonable(_METRICS_STATE)
+
+
+def _update_metrics_state(payload: dict) -> None:
+    snapshot = _clone_jsonable(payload)
+    with _METRICS_LOCK:
+        _METRICS_STATE.clear()
+        _METRICS_STATE.update(snapshot)
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    _write_json(METRICS_PATH, snapshot)
+
+
+class _MetricsHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path in {"/metrics", "/metrics/"}:
+            body = _render_metrics(_metrics_snapshot()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path in {"/healthz", "/healthz/", "/-/healthy"}:
+            body = b"OK\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path in {"/state", "/state/"}:
+            body = json.dumps(_metrics_snapshot(), sort_keys=True, indent=2).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+        return
+
+
+def _start_metrics_server(config: dict) -> object | None:
+    if not bool(config.get("metrics_enabled", False)):
+        return None
+    host = str(config.get("metrics_bind_host") or "127.0.0.1").strip() or "127.0.0.1"
+    port = int(config.get("metrics_port", 9727) or 9727)
+    try:
+        server = http.server.ThreadingHTTPServer((host, port), _MetricsHandler)
+    except Exception as exc:
+        _append_log(
+            {
+                "timestamp_utc": _utc_now(),
+                "status": "metrics_bind_failed",
+                "host": host,
+                "port": port,
+                "error": str(exc),
+            }
+        )
+        return None
+    thread = threading.Thread(target=server.serve_forever, daemon=True, name="decision-service-metrics")
+    thread.start()
+    _append_log(
+        {
+            "timestamp_utc": _utc_now(),
+            "status": "metrics_started",
+            "host": host,
+            "port": port,
+        }
+    )
+    return server
 
 
 def _normalize_module_ref(value: str) -> str:
@@ -254,6 +461,7 @@ def _evaluate_signals(policy: dict, config: dict) -> dict:
         ("error_rate_ratio", "error_rate_query", "lte"),
         ("edge_reachability_min", "edge_reachability_query", "gte"),
         ("primary_latency_p95_ms", "primary_latency_p95_query", "lte"),
+        ("burst_pressure_score", "burst_pressure_query", "lte"),
     ]
 
     checks: list[dict] = []
@@ -549,6 +757,7 @@ def _evaluate_action_state_guards(action_name: str, config: dict, actions: dict)
 
 def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
     now_epoch = float(time.time())
+    demo_signal = _read_demo_signal(config)
     mode = str(prior.get("mode") or policy.get("mode") or "PRIMARY").strip().upper()
     if mode not in {"PRIMARY", "SECONDARY"}:
         mode = "PRIMARY"
@@ -733,6 +942,7 @@ def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
         "reason": reason,
         "execution_mode": execution_mode,
         "thanos_query_url": str(config.get("thanos_query_url") or ""),
+        "demo_signal": demo_signal,
         "dry_run": dry_run,
         "enable_actions": enable_actions,
         "signal_ready": signal_ready,
@@ -769,6 +979,8 @@ def _evaluate(policy: dict, config: dict, prior: dict) -> dict:
 
 
 def main() -> int:
+    config = _read_json(CONFIG_PATH)
+    _start_metrics_server(config)
     prior = _read_json(STATE_PATH)
     while True:
         config = _read_json(CONFIG_PATH)
@@ -780,6 +992,7 @@ def main() -> int:
 
         payload = _evaluate(policy=policy, config=config, prior=prior)
         _write_json(STATE_PATH, payload)
+        _update_metrics_state(payload)
         _append_log(payload)
         prior = payload
         time.sleep(tick_seconds)

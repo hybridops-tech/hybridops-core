@@ -83,7 +83,12 @@ inputs:
     edge_obs_prometheus_retention_time: "24h"
     edge_obs_prometheus_scrape_interval: "15s"
     edge_obs_probe_targets: []
+    edge_obs_enable_decision_service_scrape: false
+    edge_obs_decision_service_metrics_host: "host.docker.internal"
+    edge_obs_decision_service_metrics_port: 9727
     edge_obs_ruler_rules: ""
+    edge_obs_enable_burst_dashboard: false
+    edge_obs_burst_dashboard_title: "HybridOps Burst Control"
     edge_obs_grafana_admin_user: "admin"
     edge_obs_grafana_datasource_url: "http://thanos-query:10902"
     edge_obs_alertmanager_config: |

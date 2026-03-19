@@ -101,6 +101,18 @@
     - "{{ edge_obs_logs_dir }}"
   when: edge_obs_state == "present"
 
+- name: Ensure Grafana dashboard directory (present)
+  ansible.builtin.file:
+    path: "{{ edge_obs_grafana_dashboards_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_grafana
+    - edge_obs_enable_burst_dashboard
+
 - name: Ensure Thanos data directories (present)
   ansible.builtin.file:
     path: "{{ item }}"
@@ -199,6 +211,32 @@
   when:
     - edge_obs_state == "present"
     - edge_obs_enable_grafana
+  notify: Restart edge observability
+
+- name: Render Grafana dashboard provisioning
+  ansible.builtin.template:
+    src: grafana-dashboards.yaml.j2
+    dest: "{{ edge_obs_grafana_dashboard_provider_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_grafana
+    - edge_obs_enable_burst_dashboard
+  notify: Restart edge observability
+
+- name: Render burst control dashboard
+  ansible.builtin.template:
+    src: grafana-burst-dashboard.json.j2
+    dest: "{{ edge_obs_grafana_dashboards_dir }}/burst-control.json"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - edge_obs_state == "present"
+    - edge_obs_enable_grafana
+    - edge_obs_enable_burst_dashboard
   notify: Restart edge observability
 
 - name: Render Prometheus config

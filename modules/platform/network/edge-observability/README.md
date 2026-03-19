@@ -40,6 +40,30 @@ For burst control and edge decision loops, the module can run a local probe path
 This gives the control plane a fast local signal path even before a broader
 remote-write topology is deployed.
 
+## Burst dashboard path
+
+For burst-control demos and operator review, the module can also provision a
+Grafana dashboard sourced from the local Thanos Query path.
+
+Relevant inputs:
+
+- `edge_obs_enable_decision_service_scrape`
+- `edge_obs_decision_service_metrics_host`
+- `edge_obs_decision_service_metrics_port`
+- `edge_obs_enable_burst_dashboard`
+- `edge_obs_burst_dashboard_title`
+
+When enabled:
+
+- Prometheus scrapes decision-service metrics directly from the host
+- Thanos Query exposes those metrics through the existing Grafana datasource
+- Grafana provisions a dashboard showing burst pressure, degraded state, probe
+  health, latency, and current decision mode
+
+This is the intended capture path for the burst showcase because it lets the
+operator show the metric spike, the decision transition, and the traffic-state
+change without switching tools.
+
 ## Required secrets
 
 - Always:
@@ -79,3 +103,6 @@ hyops apply --env <env> \
   bind-mounted host paths to the expected service ownership before startup.
 - If the module reports `ok`, the enabled services are not only started through
   Docker Compose; they have also passed the built-in readiness checks.
+- When the burst dashboard path is enabled, the dashboard JSON and provisioning
+  files are written into the Grafana container mount and survive normal module
+  replays.

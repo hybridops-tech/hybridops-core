@@ -37,3 +37,10 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox-exporter:9115
 {% endif %}
+
+{% if edge_obs_enable_decision_service_scrape %}
+  - job_name: decision_service
+    static_configs:
+      - targets:
+          - "{{ edge_obs_decision_service_metrics_host }}:{{ edge_obs_decision_service_metrics_port }}"
+{% endif %}
