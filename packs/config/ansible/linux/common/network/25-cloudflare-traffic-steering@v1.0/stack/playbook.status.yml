@@ -1,0 +1,88 @@
+---
+- name: platform/network/cloudflare-traffic-steering (status)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    _hyops_cloudflare_workdir: "{{ lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true) }}/hyops-cloudflare-traffic-steering"
+    _hyops_cloudflare_config_file: "{{ _hyops_cloudflare_workdir }}/config.json"
+    _hyops_cloudflare_helper: "{{ playbook_dir }}/bin/manage-cloudflare-traffic-steering.py"
+
+  tasks:
+    - name: Require status apply mode
+      ansible.builtin.assert:
+        that:
+          - (apply_mode | default('bootstrap') | string | lower) == 'status'
+          - (steering_state | default('present') | string | lower) == 'present'
+        fail_msg: "inputs.apply_mode must be status and inputs.steering_state must be present for this playbook"
+
+    - name: Ensure local workdir exists
+      ansible.builtin.file:
+        path: "{{ _hyops_cloudflare_workdir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write steering config
+      ansible.builtin.copy:
+        dest: "{{ _hyops_cloudflare_config_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'zone_name': (zone_name | string),
+              'hostname': (hostname | string),
+              'route_pattern': ((route_pattern | default('', true) | string) or ((hostname | string) ~ '/*')),
+              'worker_name': (worker_name | string),
+              'primary_origin_url': (primary_origin_url | string),
+              'burst_origin_url': (burst_origin_url | string),
+              'desired': (desired | lower | string),
+              'balanced_burst_weight_pct': (balanced_burst_weight_pct | int),
+              'cookie_name': (cookie_name | string),
+              'cookie_ttl_s': (cookie_ttl_s | int),
+              'root_redirect_path': (root_redirect_path | string),
+              'forward_prefixes': (forward_prefixes | default([])),
+              'status_timeout_s': (status_timeout_s | int),
+              'status_retries': (status_retries | int),
+              'status_retry_delay_s': (status_retry_delay_s | int)
+            } | to_nice_json
+          }}
+
+    - name: Read live Cloudflare steering status
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ _hyops_cloudflare_helper }}"
+          - status
+          - "{{ _hyops_cloudflare_config_file }}"
+      register: _hyops_cloudflare_status
+      changed_when: false
+
+    - name: Decode status result
+      ansible.builtin.set_fact:
+        _hyops_cloudflare_result: "{{ _hyops_cloudflare_status.stdout | from_json }}"
+      changed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'traffic.status': (_hyops_cloudflare_result.status | default('live-ok')),
+              'traffic.provider': 'cloudflare-worker',
+              'traffic.hostname': (_hyops_cloudflare_result.hostname | default(hostname | string)),
+              'traffic.route_pattern': (_hyops_cloudflare_result.route_pattern | default(route_pattern | default((hostname | string) ~ '/*', true))),
+              'traffic.worker_name': (_hyops_cloudflare_result.worker_name | default(worker_name | string)),
+              'traffic.zone_name': (_hyops_cloudflare_result.zone_name | default(zone_name | string)),
+              'traffic.desired': (_hyops_cloudflare_result.desired | default(desired | lower | string)),
+              'traffic.burst_weight_pct': (_hyops_cloudflare_result.burst_weight_pct | default(0)),
+              'traffic.primary_origin_url': (_hyops_cloudflare_result.primary_origin_url | default(primary_origin_url | string)),
+              'traffic.burst_origin_url': (_hyops_cloudflare_result.burst_origin_url | default(burst_origin_url | string)),
+              'traffic.cookie_name': (_hyops_cloudflare_result.cookie_name | default(cookie_name | string)),
+              'traffic.status_url': (_hyops_cloudflare_result.status_url | default(('https://' ~ (hostname | string) ~ '/__burst/status'))),
+              'traffic.route_ready': (_hyops_cloudflare_result.route_ready | default(true)),
+              'cap.network.cloudflare_traffic_steering': 'ready'
+            } | to_json
+          }}

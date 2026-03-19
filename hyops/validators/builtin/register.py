@@ -32,6 +32,7 @@ from hyops.validators.org.hetzner import (
 from hyops.validators.platform.azure import container_registry
 from hyops.validators.platform.k8s import longhorn_dr_volume, runtime_bundle_secret
 from hyops.validators.platform.network import (
+    cloudflare_traffic_steering,
     decision_consumer,
     decision_executor,
     decision_dispatcher,
@@ -105,6 +106,7 @@ def register_all() -> None:
     register("platform/linux/eve-ng-healthcheck", eve_ng_healthcheck.validate)
     register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)
     register("platform/network/edge-observability", edge_observability.validate)
+    register("platform/network/cloudflare-traffic-steering", cloudflare_traffic_steering.validate)
     register("platform/network/decision-consumer", decision_consumer.validate)
     register("platform/network/decision-executor", decision_executor.validate)
     register("platform/network/decision-dispatcher", decision_dispatcher.validate)

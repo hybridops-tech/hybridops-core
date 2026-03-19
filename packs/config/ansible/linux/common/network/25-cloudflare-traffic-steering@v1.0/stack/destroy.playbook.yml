@@ -1,0 +1,73 @@
+---
+- name: platform/network/cloudflare-traffic-steering (destroy)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    _hyops_cloudflare_workdir: "{{ lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true) }}/hyops-cloudflare-traffic-steering"
+    _hyops_cloudflare_config_file: "{{ _hyops_cloudflare_workdir }}/config.json"
+    _hyops_cloudflare_helper: "{{ playbook_dir }}/bin/manage-cloudflare-traffic-steering.py"
+
+  tasks:
+    - name: Ensure local workdir exists
+      ansible.builtin.file:
+        path: "{{ _hyops_cloudflare_workdir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write steering config
+      ansible.builtin.copy:
+        dest: "{{ _hyops_cloudflare_config_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'cloudflare_api_token_env': (cloudflare_api_token_env | string),
+              'cloudflare_account_id': (cloudflare_account_id | default('', true) | string),
+              'cloudflare_account_name': (cloudflare_account_name | default('', true) | string),
+              'zone_name': (zone_name | string),
+              'hostname': (hostname | string),
+              'route_pattern': ((route_pattern | default('', true) | string) or ((hostname | string) ~ '/*')),
+              'worker_name': (worker_name | string),
+              'ensure_dns_record': (ensure_dns_record | bool),
+              'dns_record_type': (dns_record_type | default('CNAME', true) | string),
+              'dns_record_name': ((dns_record_name | default('', true) | string) or (hostname | string)),
+              'dns_record_target': (dns_record_target | default('', true) | string),
+              'delete_dns_record_on_destroy': (delete_dns_record_on_destroy | default(false) | bool),
+              'delete_worker_on_destroy': (delete_worker_on_destroy | default(false) | bool)
+            } | to_nice_json
+          }}
+
+    - name: Remove Cloudflare steering
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ _hyops_cloudflare_helper }}"
+          - absent
+          - "{{ _hyops_cloudflare_config_file }}"
+      register: _hyops_cloudflare_destroy
+      changed_when: true
+
+    - name: Decode destroy result
+      ansible.builtin.set_fact:
+        _hyops_cloudflare_result: "{{ _hyops_cloudflare_destroy.stdout | from_json }}"
+      changed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'traffic.status': (_hyops_cloudflare_result.status | default('absent')),
+              'traffic.provider': 'cloudflare-worker',
+              'traffic.hostname': (_hyops_cloudflare_result.hostname | default(hostname | string)),
+              'traffic.route_pattern': (_hyops_cloudflare_result.route_pattern | default(route_pattern | default((hostname | string) ~ '/*', true))),
+              'traffic.worker_name': (_hyops_cloudflare_result.worker_name | default(worker_name | string)),
+              'traffic.zone_name': (_hyops_cloudflare_result.zone_name | default(zone_name | string)),
+              'traffic.route_ready': false,
+              'cap.network.cloudflare_traffic_steering': 'absent'
+            } | to_json
+          }}

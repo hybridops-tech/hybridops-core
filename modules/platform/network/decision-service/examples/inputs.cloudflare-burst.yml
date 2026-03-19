@@ -1,0 +1,63 @@
+inventory_groups:
+  edge_control:
+    - name: control-01
+      host: 198.51.100.10
+load_vault_env: true
+required_env:
+  - CLOUDFLARE_API_TOKEN
+thanos_query_url: http://127.0.0.1:10902
+policy:
+  version: v1
+  mode: PRIMARY
+  signals:
+    primary_up_query: vector(0)
+    error_rate_query: vector(0.08)
+  thresholds:
+    primary_up_min: 1
+    error_rate_ratio: 0.02
+actions:
+  cutover_module_ref: platform/network/cloudflare-traffic-steering
+  failback_module_ref: platform/network/cloudflare-traffic-steering
+  cutover_desired: balanced
+  failback_desired: primary
+  module_inputs:
+    required_env:
+      - CLOUDFLARE_API_TOKEN
+    load_vault_env: true
+    zone_name: hybridops.tech
+    hostname: burst.hybridops.tech
+    route_pattern: burst.hybridops.tech/*
+    worker_name: hyops-burst-web-proxy
+    ensure_dns_record: true
+    dns_record_type: CNAME
+    dns_record_name: burst.hybridops.tech
+    dns_record_target: hyops-burst-web-proxy.omoyemi4reel.workers.dev
+    dns_record_proxied: true
+    primary_origin_url: https://hybridops-tech-site.pages.dev
+    burst_origin_url: http://34.149.69.218.nip.io
+    desired: primary
+    balanced_burst_weight_pct: 50
+    cookie_name: __hyops_burst_lane
+    cookie_ttl_s: 900
+    root_redirect_path: /showcase/burst/
+    forward_prefixes:
+      - /showcase/burst
+      - /privacy
+      - /terms
+      - /favicon.svg
+      - /hybridops-logo.svg
+      - /hybridops-wordmark.svg
+      - /_astro
+    status_timeout_s: 10
+    status_retries: 12
+    status_retry_delay_s: 5
+dry_run: false
+decision_enable_actions: true
+decision_execution_mode: local-hyops
+decision_require_signal_readiness: true
+decision_require_fresh_signals: true
+decision_max_signal_age_s: 120
+decision_min_ready_checks: 2
+confirm_for_seconds: 30
+stable_for_seconds: 60
+cooldown_seconds: 300

@@ -1,0 +1,94 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/network/cloudflare-traffic-steering"
+
+metadata:
+  title: "Cloudflare Traffic Steering"
+  description: "Manages a sticky weighted Cloudflare Worker front door that can steer a single hostname between primary and burst origins."
+
+requirements:
+  credentials: ["cloudflare"]
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    steering_state: "present" # present|absent
+    apply_mode: "bootstrap" # bootstrap|status
+
+    required_env:
+      - "CLOUDFLARE_API_TOKEN"
+    required_env_destroy: []
+    load_vault_env: true
+
+    cloudflare_api_token_env: "CLOUDFLARE_API_TOKEN"
+    cloudflare_account_id: ""
+    cloudflare_account_name: ""
+
+    zone_name: ""
+    hostname: ""
+    route_pattern: ""
+    worker_name: ""
+    compatibility_date: "2026-03-19"
+
+    ensure_dns_record: false
+    dns_record_type: "CNAME"
+    dns_record_name: ""
+    dns_record_target: ""
+    dns_record_proxied: true
+    delete_dns_record_on_destroy: false
+    delete_worker_on_destroy: false
+
+    primary_origin_url: ""
+    burst_origin_url: ""
+    desired: "primary" # primary|balanced|burst
+    balanced_burst_weight_pct: 50
+    cookie_name: "__hyops_burst_lane"
+    cookie_ttl_s: 900
+    root_redirect_path: "/showcase/burst/"
+    forward_prefixes:
+      - "/showcase/burst"
+      - "/privacy"
+      - "/terms"
+      - "/favicon.svg"
+      - "/hybridops-logo.svg"
+      - "/hybridops-wordmark.svg"
+      - "/_astro"
+
+    status_timeout_s: 10
+    status_retries: 12
+    status_retry_delay_s: 5
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/network/25-cloudflare-traffic-steering@v1.0"
+
+outputs:
+  publish:
+    - traffic.status
+    - traffic.provider
+    - traffic.hostname
+    - traffic.route_pattern
+    - traffic.worker_name
+    - traffic.zone_name
+    - traffic.desired
+    - traffic.burst_weight_pct
+    - traffic.primary_origin_url
+    - traffic.burst_origin_url
+    - traffic.cookie_name
+    - traffic.status_url
+    - traffic.route_ready
+    - cap.network.cloudflare_traffic_steering
+
+probes: []
+constraints: []

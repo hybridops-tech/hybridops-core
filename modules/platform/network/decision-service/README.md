@@ -64,10 +64,24 @@ Execution summary:
 - `dry_run=false` + `decision_enable_actions=true`: local actions can execute only after the configured
   decision, freshness, cooldown, and state-guard checks pass
 
-Actions can target any module ref the edge runtime can execute. The common current case
-is `platform/network/dns-routing`, with base inputs in:
+Actions can target any module ref the edge runtime can execute. Common current cases
+are `platform/network/dns-routing` and `platform/network/cloudflare-traffic-steering`,
+with base inputs in:
 - `actions.module_inputs`
-- `actions.module_inputs` must include dns-routing inventory contract (`inventory_groups` or `inventory_state_ref` + `inventory_vm_groups`).
+- `actions.module_inputs` must include the target module's normal execution contract
+
+Example burst-steering path:
+
+- `cutover_module_ref: platform/network/cloudflare-traffic-steering`
+- `failback_module_ref: platform/network/cloudflare-traffic-steering`
+- `cutover_desired: balanced`
+- `failback_desired: primary`
+
+That lets the decision loop move a single public host between:
+
+- primary Pages delivery
+- weighted same-host split
+- full burst-origin delivery
 
 ## Signal readiness and freshness guards
 
@@ -105,6 +119,7 @@ Typical use:
 
 See:
 - `modules/platform/network/decision-service/examples/inputs.dr-gates.yml`
+- `modules/platform/network/decision-service/examples/inputs.cloudflare-burst.yml`
 
 ## Usage
 

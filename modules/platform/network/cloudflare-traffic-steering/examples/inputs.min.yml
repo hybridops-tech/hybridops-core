@@ -1,0 +1,19 @@
+zone_name: hybridops.tech
+hostname: burst.hybridops.tech
+route_pattern: burst.hybridops.tech/*
+worker_name: hyops-burst-web-proxy
+ensure_dns_record: true
+dns_record_name: burst.hybridops.tech
+dns_record_target: hyops-burst-web-proxy.example.workers.dev
+primary_origin_url: https://hybridops-tech-site.pages.dev
+burst_origin_url: http://34.149.69.218.nip.io
+desired: balanced
+balanced_burst_weight_pct: 50
+forward_prefixes:
+  - /showcase/burst
+  - /privacy
+  - /terms
+  - /favicon.svg
+  - /hybridops-logo.svg
+  - /hybridops-wordmark.svg
+  - /_astro

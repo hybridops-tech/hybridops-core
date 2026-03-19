@@ -1,0 +1,98 @@
+---
+- name: platform/network/cloudflare-traffic-steering (bootstrap)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    _hyops_cloudflare_workdir: "{{ lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true) }}/hyops-cloudflare-traffic-steering"
+    _hyops_cloudflare_config_file: "{{ _hyops_cloudflare_workdir }}/config.json"
+    _hyops_cloudflare_helper: "{{ playbook_dir }}/bin/manage-cloudflare-traffic-steering.py"
+
+  tasks:
+    - name: Require bootstrap apply mode
+      ansible.builtin.assert:
+        that:
+          - (apply_mode | default('bootstrap') | string | lower) == 'bootstrap'
+        fail_msg: "inputs.apply_mode must be bootstrap for this playbook"
+
+    - name: Ensure local workdir exists
+      ansible.builtin.file:
+        path: "{{ _hyops_cloudflare_workdir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write steering config
+      ansible.builtin.copy:
+        dest: "{{ _hyops_cloudflare_config_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'cloudflare_api_token_env': (cloudflare_api_token_env | string),
+              'cloudflare_account_id': (cloudflare_account_id | default('', true) | string),
+              'cloudflare_account_name': (cloudflare_account_name | default('', true) | string),
+              'zone_name': (zone_name | string),
+              'hostname': (hostname | string),
+              'route_pattern': ((route_pattern | default('', true) | string) or ((hostname | string) ~ '/*')),
+              'worker_name': (worker_name | string),
+              'compatibility_date': (compatibility_date | string),
+              'ensure_dns_record': (ensure_dns_record | bool),
+              'dns_record_type': (dns_record_type | default('CNAME', true) | string),
+              'dns_record_name': ((dns_record_name | default('', true) | string) or (hostname | string)),
+              'dns_record_target': (dns_record_target | default('', true) | string),
+              'dns_record_proxied': (dns_record_proxied | bool),
+              'delete_dns_record_on_destroy': (delete_dns_record_on_destroy | default(false) | bool),
+              'delete_worker_on_destroy': (delete_worker_on_destroy | default(false) | bool),
+              'primary_origin_url': (primary_origin_url | string),
+              'burst_origin_url': (burst_origin_url | string),
+              'desired': (desired | lower | string),
+              'balanced_burst_weight_pct': (balanced_burst_weight_pct | int),
+              'cookie_name': (cookie_name | string),
+              'cookie_ttl_s': (cookie_ttl_s | int),
+              'root_redirect_path': (root_redirect_path | string),
+              'forward_prefixes': (forward_prefixes | default([])),
+              'status_timeout_s': (status_timeout_s | int),
+              'status_retries': (status_retries | int),
+              'status_retry_delay_s': (status_retry_delay_s | int)
+            } | to_nice_json
+          }}
+
+    - name: Apply Cloudflare steering
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ _hyops_cloudflare_helper }}"
+          - bootstrap
+          - "{{ _hyops_cloudflare_config_file }}"
+      register: _hyops_cloudflare_bootstrap
+      changed_when: true
+
+    - name: Decode bootstrap result
+      ansible.builtin.set_fact:
+        _hyops_cloudflare_result: "{{ _hyops_cloudflare_bootstrap.stdout | from_json }}"
+      changed_when: false
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{
+            {
+              'traffic.status': (_hyops_cloudflare_result.status | default('applied')),
+              'traffic.provider': 'cloudflare-worker',
+              'traffic.hostname': (_hyops_cloudflare_result.hostname | default(hostname | string)),
+              'traffic.route_pattern': (_hyops_cloudflare_result.route_pattern | default(route_pattern | default((hostname | string) ~ '/*', true))),
+              'traffic.worker_name': (_hyops_cloudflare_result.worker_name | default(worker_name | string)),
+              'traffic.zone_name': (_hyops_cloudflare_result.zone_name | default(zone_name | string)),
+              'traffic.desired': (_hyops_cloudflare_result.desired | default(desired | lower | string)),
+              'traffic.burst_weight_pct': (_hyops_cloudflare_result.burst_weight_pct | default(0)),
+              'traffic.primary_origin_url': (_hyops_cloudflare_result.primary_origin_url | default(primary_origin_url | string)),
+              'traffic.burst_origin_url': (_hyops_cloudflare_result.burst_origin_url | default(burst_origin_url | string)),
+              'traffic.cookie_name': (_hyops_cloudflare_result.cookie_name | default(cookie_name | string)),
+              'traffic.status_url': (_hyops_cloudflare_result.status_url | default(('https://' ~ (hostname | string) ~ '/__burst/status'))),
+              'traffic.route_ready': (_hyops_cloudflare_result.route_ready | default(true)),
+              'cap.network.cloudflare_traffic_steering': 'ready'
+            } | to_json
+          }}
