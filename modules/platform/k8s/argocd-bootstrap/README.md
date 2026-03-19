@@ -44,7 +44,7 @@ There is no hidden kubeconfig fallback in this module. For a clean run, provide
 Override `workloads_repo_url` when you intentionally consume a private canonical
 workloads repo. The Argo CD contract stays the same:
 - public/exported workloads repo: `workloads_target_path = clusters/<target>`
-- private/canonical workloads repo: `workloads_target_path = .internal/clusters/<target>`
+- private/canonical workloads repo: `workloads_target_path = <repo-defined operator target path>`
 
 Private repo mode should use SSH deploy keys rather than embedding repo
 credentials in module inputs. Set:
@@ -79,10 +79,7 @@ The bundled DR example currently points at `clusters/burst` because the public
 workloads repo does not yet publish a dedicated `clusters/dr` target.
 
 If you consume a private canonical workloads repo, point `workloads_target_path`
-at the internal target instead, e.g.:
-- `.internal/clusters/onprem-learn-stage1`
-- `.internal/clusters/onprem-ci-stage1`
-- `.internal/clusters/<internal-target>`
+at the operator target defined by that repository.
 
 ## Outputs
 

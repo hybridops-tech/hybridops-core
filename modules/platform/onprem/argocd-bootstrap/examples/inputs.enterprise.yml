@@ -14,7 +14,7 @@ destination_server: "https://kubernetes.default.svc"
 
 workloads_repo_url: "git@github.com:hybridops-tech/hybridops-workloads.git"
 workloads_revision: "d19d389c769bc4ebbbc38bc791f808285dbf9e10"
-workloads_target_path: ".internal/clusters/onprem"
+workloads_target_path: "targets/customer-onprem"
 repo_access_mode: "ssh"
 repo_secret_name: "hyops-workloads-repo"
 repo_ssh_private_key_env: "ARGOCD_REPO_SSH_PRIVATE_KEY"

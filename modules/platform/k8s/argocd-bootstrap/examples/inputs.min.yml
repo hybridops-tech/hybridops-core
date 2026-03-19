@@ -1,7 +1,7 @@
 # Minimal inputs for Argo CD root-app bootstrap.
 # Public/default usage points to the exported HybridOps workloads repository.
 # Private canonical deployments can switch to `repo_access_mode: ssh`,
-# set an SSH repo URL, and use `.internal/clusters/<target>` for
+# set an SSH repo URL, and use a repo-defined operator target path for
 # workloads_target_path while keeping the deploy key in vault-backed env.
 
 kubeconfig_path: "~/.hybridops/envs/dev/state/kubeconfigs/rke2.yaml"

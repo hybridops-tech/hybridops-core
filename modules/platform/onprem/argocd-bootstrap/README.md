@@ -45,7 +45,7 @@ There is no hidden kubeconfig fallback in this module. For a clean run, provide
 Override `workloads_repo_url` when you intentionally consume a private canonical
 workloads repo. The Argo CD contract stays the same:
 - public/exported workloads repo: `workloads_target_path = clusters/<target>`
-- private/canonical workloads repo: `workloads_target_path = .internal/clusters/<target>`
+- private/canonical workloads repo: `workloads_target_path = <repo-defined operator target path>`
 
 `kubeconfig_path` can be imported automatically from `platform/onprem/rke2-cluster` state using `spec.dependencies`.
 
@@ -76,7 +76,7 @@ Current public defaults in this compatibility module use:
 - `workloads_target_path = clusters/onprem`
 
 For a private canonical workloads repo, point `workloads_target_path` at the
-internal target instead, e.g. `.internal/clusters/onprem-learn-stage1`.
+operator target defined by that repository.
 
 ## Outputs
 
