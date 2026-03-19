@@ -29,7 +29,7 @@ before module state is marked `ok`.
 
 ## Local metrics mode
 
-For burst-control and edge decision loops, the module can run a local probe path:
+For burst control and edge decision loops, the module can run a local probe path:
 
 - Blackbox Exporter probes primary and burst origins
 - Prometheus scrapes those probe metrics locally

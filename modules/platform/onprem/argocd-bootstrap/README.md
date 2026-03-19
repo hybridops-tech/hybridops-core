@@ -42,10 +42,10 @@ There is no hidden kubeconfig fallback in this module. For a clean run, provide
 `kubeconfig_path` directly or let HyOps import it from cluster state through
 `kubeconfig_state_ref` or a module dependency.
 
-Override `workloads_repo_url` when you intentionally consume a private canonical
-workloads repo. The Argo CD contract stays the same:
+Override `workloads_repo_url` when you intentionally consume a private workloads
+repository or a managed authoring repository. The Argo CD contract stays the same:
 - public/exported workloads repo: `workloads_target_path = clusters/<target>`
-- private/canonical workloads repo: `workloads_target_path = <repo-defined operator target path>`
+- private/managed workloads repo: `workloads_target_path = <repo-defined managed target path>`
 
 `kubeconfig_path` can be imported automatically from `platform/onprem/rke2-cluster` state using `spec.dependencies`.
 
@@ -71,12 +71,11 @@ For the public workloads repo, `workloads_target_path` should remain under
 `clusters/`, e.g. `clusters/onprem`, `clusters/onprem-stage1`,
 `clusters/onprem-smoke`, or `clusters/burst`.
 
-Current public defaults in this compatibility module use:
-- `workloads_revision = d19d389c769bc4ebbbc38bc791f808285dbf9e10`
-- `workloads_target_path = clusters/onprem`
+The shipped public examples for this compatibility module still use the public
+workloads repo and a public `clusters/<target>` path.
 
-For a private canonical workloads repo, point `workloads_target_path` at the
-operator target defined by that repository.
+For a private or managed workloads repository, point `workloads_target_path` at the
+managed target defined by that repository.
 
 ## Outputs
 

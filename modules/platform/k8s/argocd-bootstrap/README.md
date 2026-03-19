@@ -2,7 +2,7 @@
 
 Bootstraps Argo CD on an existing Kubernetes cluster and applies a root workloads Application.
 
-This module is platform-neutral and can be used for onprem, burst, and DR Kubernetes clusters.
+This module is platform-neutral and can be used for on-prem, burst, and DR Kubernetes clusters.
 
 ## Usage
 
@@ -41,10 +41,10 @@ There is no hidden kubeconfig fallback in this module. For a clean run, provide
 `kubeconfig_path` directly or let HyOps import it from cluster state through
 `kubeconfig_state_ref` or a module dependency.
 
-Override `workloads_repo_url` when you intentionally consume a private canonical
-workloads repo. The Argo CD contract stays the same:
+Override `workloads_repo_url` when you intentionally consume a private workloads
+repository or a managed authoring repository. The Argo CD contract stays the same:
 - public/exported workloads repo: `workloads_target_path = clusters/<target>`
-- private/canonical workloads repo: `workloads_target_path = <repo-defined operator target path>`
+- private/managed workloads repo: `workloads_target_path = <repo-defined managed target path>`
 
 Private repo mode should use SSH deploy keys rather than embedding repo
 credentials in module inputs. Set:
@@ -71,15 +71,14 @@ blindly deleting unrelated repository secrets.
 - `clusters/burst`
 - `clusters/<published-target>`
 
-Current public defaults in this module use:
-- `workloads_revision = d19d389c769bc4ebbbc38bc791f808285dbf9e10`
-- `workloads_target_path = clusters/onprem`
+The shipped public examples use the published workloads repo and a public
+`clusters/<target>` path.
 
 The bundled DR example currently points at `clusters/burst` because the public
 workloads repo does not yet publish a dedicated `clusters/dr` target.
 
-If you consume a private canonical workloads repo, point `workloads_target_path`
-at the operator target defined by that repository.
+If you consume a private or managed workloads repository, point `workloads_target_path`
+at the managed target defined by that repository.
 
 ## Outputs
 

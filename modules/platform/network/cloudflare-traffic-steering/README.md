@@ -1,8 +1,9 @@
 # platform/network/cloudflare-traffic-steering
 
-Manages a single-host Cloudflare burst front door.
+Manages same-host Cloudflare traffic steering for primary and burst origins.
 
-This module is the missing control-plane piece for a true burst story:
+Use this module when one public hostname must steer traffic between a primary
+origin and a burst origin:
 
 - one public hostname
 - one sticky weighted worker
@@ -25,6 +26,13 @@ The deployed worker:
   - `x-hybridops-burst-lane`
   - `x-hybridops-burst-desired`
   - `x-hybridops-burst-weight`
+
+Typical uses:
+
+- controlled same-host burst balancing
+- managed cutover to a secondary origin
+- deterministic failback to the primary origin
+- live status verification for decision-service or operator workflows
 
 ## Inputs
 

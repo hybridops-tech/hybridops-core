@@ -4,7 +4,7 @@ Deploy a deterministic edge decision service for burst and failover control loop
 
 This module turns live observability signals into gated operational actions.
 
-## v1 scope
+## What it does
 
 - Runs a local decision loop service (systemd) on edge control nodes.
 - Queries a Prometheus-compatible HTTP API (`/api/v1/query`) for policy signals.
@@ -36,8 +36,6 @@ Recommended topology is to run decision-service on the same edge VM as Thanos Qu
 - decision-service -> local query API (`http://127.0.0.1:10902`)
 
 This keeps decision latency low and avoids direct bucket API dependencies in control logic.
-
-## Execution model
 
 ## Operating modes
 
@@ -99,7 +97,7 @@ Use these inputs to fail closed when signals are incomplete or stale:
 
 When guards fail, the service records `signal_ready=false` and blocks actions.
 
-## Module State Guards
+## Module state guards
 
 Use these inputs to block actions until prerequisite module states are ready:
 
@@ -124,7 +122,7 @@ Each guard item supports:
 - `outputs_equal`
 - `outputs_non_empty`
 
-Typical use:
+Typical uses:
 
 - require a restore or replica module to be `ok`
 - require published outputs such as `restore_volume_ready=true`

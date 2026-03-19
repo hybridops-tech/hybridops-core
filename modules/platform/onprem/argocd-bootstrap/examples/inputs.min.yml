@@ -1,7 +1,7 @@
 # Minimal inputs for Argo CD root-app bootstrap.
 # Public/default usage points to the exported HybridOps workloads repository.
-# Private canonical deployments can override the repo URL and use
-# a repo-defined operator target path for workloads_target_path.
+# Private or managed-repository deployments can override the repo URL and use
+# a repo-defined managed target path for workloads_target_path.
 
 kubeconfig_path: "~/.hybridops/envs/dev/state/kubeconfigs/rke2.yaml"
 workloads_repo_url: "https://github.com/hybridops-tech/hybridops-workloads.git"

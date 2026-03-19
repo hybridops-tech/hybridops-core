@@ -44,7 +44,7 @@ Optional rollout inputs:
 
 - `restart_targets`
   - list of Kubernetes rollout resources in the same namespace, for example
-    `deployment/showcase-burst-web`
+    `deployment/my-app`
 - `rollout_timeout_s`
   - timeout used for `kubectl rollout status` after a restart
 
