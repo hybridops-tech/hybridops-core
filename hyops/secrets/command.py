@@ -196,6 +196,11 @@ def add_secrets_subparser(sp: argparse._SubParsersAction) -> None:
     v.add_argument("--vault-password-command", default=None, help="Command to output vault password.")
     v.add_argument("--json", action="store_true", help="Print selected values as JSON.")
     v.add_argument(
+        "--raw",
+        action="store_true",
+        help="Print only the raw value when exactly one requested key is selected.",
+    )
+    v.add_argument(
         "--quiet-missing",
         action="store_true",
         help="Do not fail when requested keys are missing; print available matches only.",
@@ -1900,6 +1905,9 @@ def run_show(ns) -> int:
 
     requested = [str(k or "").strip() for k in list(getattr(ns, "keys", []) or [])]
     requested = [k for k in requested if k]
+    if bool(getattr(ns, "json", False)) and bool(getattr(ns, "raw", False)):
+        print("ERR: --json and --raw cannot be used together")
+        return CONFIG_INVALID
     missing: list[str] = []
     selected: dict[str, str]
     if requested:
@@ -1915,7 +1923,12 @@ def run_show(ns) -> int:
     else:
         selected = dict(env_map)
 
-    if bool(getattr(ns, "json", False)):
+    if bool(getattr(ns, "raw", False)):
+        if len(requested) != 1 or len(selected) != 1:
+            print("ERR: --raw requires exactly one requested key")
+            return CONFIG_INVALID
+        print(next(iter(selected.values())))
+    elif bool(getattr(ns, "json", False)):
         print(json.dumps({k: selected[k] for k in sorted(selected.keys())}, indent=2, sort_keys=True))
     else:
         for key in sorted(selected.keys()):

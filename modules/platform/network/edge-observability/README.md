@@ -77,6 +77,13 @@ Use vault-backed flows:
 hyops secrets ensure --env <env> EDGE_OBS_GRAFANA_ADMIN_PASSWORD
 ```
 
+To print the current Grafana admin password for a controlled operator task:
+
+```bash
+hyops vault password >/dev/null
+hyops secrets show --env <env> EDGE_OBS_GRAFANA_ADMIN_PASSWORD --raw
+```
+
 ## Usage
 
 ```bash
