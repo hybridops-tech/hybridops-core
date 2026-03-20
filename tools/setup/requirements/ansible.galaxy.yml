@@ -1,12 +1,12 @@
 collections:
   - name: hybridops.common
-    version: "0.1.5"
+    version: "0.1.6"
 
   - name: hybridops.helper
-    version: "0.1.3"
+    version: "0.1.4"
 
   - name: hybridops.app
-    version: "0.1.3"
+    version: "0.1.4"
 
   - name: ansible.posix
     version: "1.6.2"
