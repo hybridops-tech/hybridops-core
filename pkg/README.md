@@ -1,6 +1,6 @@
-# HybridOps.Core Release Bundle Tooling
+# HybridOps.Core Release Bundle
 
-This directory defines the public release-bundle path for `hybridops-core`.
+This directory defines the public release bundle for `hybridops-core`.
 
 ## Purpose
 
@@ -18,9 +18,9 @@ HybridOps Ansible collection source is not part of the public bundle contract.
 Operators install the pinned released `hybridops.*` collection artifacts through
 `hyops setup ansible`.
 
-## Public Bundle Boundary
+## Public Product Boundary
 
-Keep the shipped bundle capability-oriented.
+Keep the shipped bundle focused on reusable platform capabilities.
 
 What belongs in the public bundle:
 - reusable modules
@@ -29,12 +29,12 @@ What belongs in the public bundle:
 - generic validation and execution logic
 
 What does not belong in the public bundle:
-- business-specific application recovery chains
-- customer- or HybridOps-specific target names
+- application recovery chains tied to one private operator lane
+- customer or HybridOps specific target names
 - blueprints that only make sense for one private operator lane
 
-Application-specific composition should stay in the selected workloads repository
-and target path. Public Core should consume that through generic inputs such as:
+Application composition should stay in the selected workloads repository and
+target path. Public Core should consume that through generic inputs such as:
 - `workloads_repo_url`
 - `workloads_revision`
 - `workloads_target_path`
@@ -80,7 +80,7 @@ TMPDIR=/dev/shm bash pkg/verify_release.sh dist/releases/hybridops-core-<label>.
 - the temporary filesystem has enough free space before extraction begins
 
 This is the authoritative release gate for HybridOps.Core. It keeps source,
-bundle, and installed runtime aligned before a public release is cut.
+bundle, and installed runtime aligned before a public release.
 
 `build_release.sh` also warns when the temporary filesystem looks tight for the
 current source payload, with a `TMPDIR` hint instead of failing late and

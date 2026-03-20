@@ -1,8 +1,8 @@
 # Blueprints
 
-Blueprints are product-level orchestration manifests for known-good module chains.
+Blueprints are product orchestration manifests for supported module chains.
 
-They package repeatable outcomes, not low-level implementation details.
+They package repeatable outcomes, not implementation details.
 
 ## Operating Modes
 - `bootstrap`: Day-0 bring-up with minimal prerequisites.
@@ -53,15 +53,15 @@ They package repeatable outcomes, not low-level implementation details.
 
 ## Shipped Blueprint Boundary
 
-Shipped public blueprints must stay product-neutral.
+Shipped blueprints must stay neutral and reusable.
 
 Use public blueprints for:
-- repeatable infrastructure bring-up
+- repeatable infrastructure delivery
 - reusable DR primitives
 - neutral traffic cutover chains
 - generic GitOps bootstrap patterns
 
-Keep private or operator-only composition out of the shipped blueprint surface when it:
+Keep private or operator specific composition out of the shipped blueprint surface when it:
 - hardcodes one business application lane
 - assumes one private repo layout or target name
 - only makes sense for HybridOps-operated delivery

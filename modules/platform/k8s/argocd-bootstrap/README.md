@@ -2,7 +2,7 @@
 
 Bootstraps Argo CD on an existing Kubernetes cluster and applies a root workloads Application.
 
-This module is platform-neutral and can be used for on-prem, burst, and DR Kubernetes clusters.
+This module can be used for on prem, burst, and DR Kubernetes clusters.
 
 ## Usage
 
@@ -35,7 +35,7 @@ hyops apply --env dev \
 Default workloads repo URL:
 - `https://github.com/hybridops-tech/hybridops-workloads.git`
 
-Use the public workloads repo for customer-facing and baseline deployments.
+Use the public workloads repo for customer and baseline deployments.
 
 There is no hidden kubeconfig fallback in this module. For a clean run, provide
 `kubeconfig_path` directly or let HyOps import it from cluster state through

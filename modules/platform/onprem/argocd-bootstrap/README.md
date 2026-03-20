@@ -1,6 +1,6 @@
 # platform/onprem/argocd-bootstrap
 
-Bootstraps Argo CD on an existing on-prem Kubernetes cluster and applies a root workloads Application.
+Bootstraps Argo CD on an existing on prem Kubernetes cluster and applies a root workloads Application.
 
 This module remains for backward compatibility with existing onprem blueprints.
 For new multi-target designs (onprem + burst + DR), prefer `platform/k8s/argocd-bootstrap`.
@@ -36,7 +36,7 @@ hyops apply --env dev \
 Default workloads repo URL:
 - `https://github.com/hybridops-tech/hybridops-workloads.git`
 
-Use the public workloads repo for customer-facing and baseline deployments.
+Use the public workloads repo for customer and baseline deployments.
 
 There is no hidden kubeconfig fallback in this module. For a clean run, provide
 `kubeconfig_path` directly or let HyOps import it from cluster state through
