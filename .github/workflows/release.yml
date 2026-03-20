@@ -42,9 +42,15 @@ jobs:
           bash pkg/verify_release.sh "${TARBALL}"
 
       - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/releases/*.tar.gz
-            dist/releases/*.tar.gz.sha256
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          assets=(dist/releases/*.tar.gz dist/releases/*.tar.gz.sha256)
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${assets[@]}" --clobber
+          else
+            gh release create "${tag}" "${assets[@]}" --generate-notes --verify-tag
+          fi
