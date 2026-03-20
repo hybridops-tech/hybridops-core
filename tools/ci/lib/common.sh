@@ -83,6 +83,8 @@ PY
 hyops_ci::prepare_ansible_dependencies() {
   local runtime_root="$1"
   local filtered=""
+  local collection_retry_attempts="${HYOPS_CI_ANSIBLE_GALAXY_RETRY_ATTEMPTS:-6}"
+  local collection_retry_delay_s="${HYOPS_CI_ANSIBLE_GALAXY_RETRY_DELAY_S:-20}"
 
   mkdir -p "${runtime_root}/collections" "${runtime_root}/roles"
   export ANSIBLE_COLLECTIONS_PATH="${runtime_root}/collections"
@@ -92,18 +94,22 @@ hyops_ci::prepare_ansible_dependencies() {
     filtered="${runtime_root}/$(basename "${requirements_file}")"
     hyops_ci::write_prepared_requirements "${requirements_file}" "${filtered}"
 
-    ANSIBLE_GALAXY_DISABLE_GPG_VERIFY=1 \
-      ansible-galaxy collection install \
-      -r "${filtered}" \
-      -p "${runtime_root}/collections" \
-      >/dev/null
+    HYOPS_CI_RETRY_DELAY_S="${collection_retry_delay_s}" \
+      ANSIBLE_GALAXY_DISABLE_GPG_VERIFY=1 \
+      hyops_ci::retry "${collection_retry_attempts}" \
+        ansible-galaxy collection install \
+        -r "${filtered}" \
+        -p "${runtime_root}/collections" \
+        >/dev/null
 
     if hyops_ci::requirements_has_roles "${filtered}"; then
-      ANSIBLE_GALAXY_DISABLE_GPG_VERIFY=1 \
-        ansible-galaxy role install \
-        -r "${filtered}" \
-        -p "${runtime_root}/roles" \
-        >/dev/null
+      HYOPS_CI_RETRY_DELAY_S="${collection_retry_delay_s}" \
+        ANSIBLE_GALAXY_DISABLE_GPG_VERIFY=1 \
+        hyops_ci::retry "${collection_retry_attempts}" \
+          ansible-galaxy role install \
+          -r "${filtered}" \
+          -p "${runtime_root}/roles" \
+          >/dev/null
     fi
   done < <(find "${HYOPS_REPO_ROOT}/tools/setup/requirements" -maxdepth 1 -name 'ansible*.galaxy.yml' | sort)
 }
@@ -132,45 +138,30 @@ EOF
 }
 
 hyops_ci::all_shellcheck_targets() {
-  cat <<EOF
-${HYOPS_REPO_ROOT}/install.sh
-${HYOPS_REPO_ROOT}/pkg/build_release.sh
-${HYOPS_REPO_ROOT}/pkg/verify_release.sh
-${HYOPS_REPO_ROOT}/tools/build/vyos/build-vyos-from-iso-packer.sh
-${HYOPS_REPO_ROOT}/tools/build/vyos/build-vyos-from-iso-vyos-vm-images.sh
-${HYOPS_REPO_ROOT}/tools/build/vyos/build-vyos-from-iso.sh
-${HYOPS_REPO_ROOT}/tools/build/vyos/build-vyos-qcow2.sh
-${HYOPS_REPO_ROOT}/tools/build/vyos/patch-vyos-cloud-image.sh
-${HYOPS_REPO_ROOT}/tools/build/vyos/publish-vyos-artifact.sh
-${HYOPS_REPO_ROOT}/tools/build/vyos/verify-vyos-artifact.sh
-${HYOPS_REPO_ROOT}/tools/ci/check-ansible.sh
-${HYOPS_REPO_ROOT}/tools/ci/check-install.sh
-${HYOPS_REPO_ROOT}/tools/ci/check-python.sh
-${HYOPS_REPO_ROOT}/tools/ci/check-ruff.sh
-${HYOPS_REPO_ROOT}/tools/ci/check-shell.sh
-${HYOPS_REPO_ROOT}/tools/ci/check-terraform.sh
-${HYOPS_REPO_ROOT}/tools/ci/check-yaml.sh
-${HYOPS_REPO_ROOT}/tools/ci/lint-ansible.sh
-${HYOPS_REPO_ROOT}/tools/ci/lib/common.sh
-${HYOPS_REPO_ROOT}/tools/install/lib/common.sh
-${HYOPS_REPO_ROOT}/tools/install/lib/installer.sh
-${HYOPS_REPO_ROOT}/tools/install/lib/payload.sh
-${HYOPS_REPO_ROOT}/tools/install/lib/python_env.sh
-${HYOPS_REPO_ROOT}/tools/install/lib/setup.sh
-${HYOPS_REPO_ROOT}/tools/install/lib/wrapper.sh
-${HYOPS_REPO_ROOT}/tools/secrets/akv/sync.sh
-${HYOPS_REPO_ROOT}/tools/secrets/vault/vault-pass.sh
-${HYOPS_REPO_ROOT}/tools/setup/lib/toolchain_lock.sh
-${HYOPS_REPO_ROOT}/tools/setup/setup-all.sh
-${HYOPS_REPO_ROOT}/tools/setup/setup-ansible.sh
-${HYOPS_REPO_ROOT}/tools/setup/setup-base.sh
-${HYOPS_REPO_ROOT}/tools/setup/setup-cloud-azure.sh
-${HYOPS_REPO_ROOT}/tools/setup/setup-cloud-gcp.sh
-${HYOPS_REPO_ROOT}/tools/smoke/hyops-onprem-template-vm-smoke.sh
-${HYOPS_REPO_ROOT}/hyops/assets/init/proxmox/bootstrap-proxmox-remote.sh
-${HYOPS_REPO_ROOT}/packs/config/ansible/onprem/common/platform/11-vyos-template-seed@v1.0/stack/bin/seed-vyos-proxmox-template.sh
-${HYOPS_REPO_ROOT}/packs/config/ansible/hetzner/common/platform/21-vyos-image-seed@v1.0/stack/bin/seed-vyos-hetzner-from-qcow2.sh
-EOF
+  local target=""
+  local targets=(
+    "${HYOPS_REPO_ROOT}/install.sh"
+    "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+    "${HYOPS_REPO_ROOT}/pkg/verify_release.sh"
+    "${HYOPS_REPO_ROOT}/tools/build/vyos"
+    "${HYOPS_REPO_ROOT}/tools/ci"
+    "${HYOPS_REPO_ROOT}/tools/install"
+    "${HYOPS_REPO_ROOT}/tools/secrets"
+    "${HYOPS_REPO_ROOT}/tools/setup"
+    "${HYOPS_REPO_ROOT}/tools/smoke"
+    "${HYOPS_REPO_ROOT}/hyops/assets/init/proxmox"
+    "${HYOPS_REPO_ROOT}/packs/config/ansible/onprem/common/platform/11-vyos-template-seed@v1.0/stack/bin"
+    "${HYOPS_REPO_ROOT}/packs/config/ansible/hetzner/common/platform/21-vyos-image-seed@v1.0/stack/bin"
+  )
+
+  for target in "${targets[@]}"; do
+    if [[ -f "${target}" ]]; then
+      printf '%s\n' "${target}"
+      continue
+    fi
+    [[ -d "${target}" ]] || continue
+    find "${target}" -type f -name '*.sh'
+  done | sort -u
 }
 
 hyops_ci::all_yamllint_targets() {
