@@ -1,6 +1,0 @@
----
-- name: Test eveng role
-  hosts: cicd_test
-  become: true  # Required: EVE-NG installation needs root privileges
-  roles:
-    - hybridops.app.eveng

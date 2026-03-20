@@ -58,11 +58,6 @@ def _has_hybridops_collection(raw_path: str) -> bool:
     return False
 
 
-def allow_vendored_collection_fallback(env: dict[str, str]) -> bool:
-    raw = str(env.get("HYOPS_INTERNAL_ALLOW_VENDORED_COLLECTION_FALLBACK") or "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
-
-
 def _iter_collection_role_dirs(collection_roots: list[str]) -> list[str]:
     """Derive collection role directories for use as a robust role-resolution fallback.
 
@@ -240,7 +235,6 @@ def configure_ansible_search_paths(
     env: dict[str, str],
     runtime_root: Path,
     module_id: str,
-    vendored_collections_dir: Path,
     ev: EvidenceWriter,
     result: dict[str, Any],
 ) -> None:
@@ -295,8 +289,6 @@ def configure_ansible_search_paths(
             global_collections = global_root / "state" / "ansible" / "collections"
         if global_collections.is_dir():
             _append_search_path(collections_path_parts, str(global_collections))
-    if allow_vendored_collection_fallback(env) and vendored_collections_dir.is_dir():
-        _append_search_path(collections_path_parts, str(vendored_collections_dir))
     # Preserve operator overrides if present, otherwise include sane defaults.
     collections_path_tail = str(env.get("ANSIBLE_COLLECTIONS_PATH") or env.get("ANSIBLE_COLLECTIONS_PATHS") or "").strip()
     if not collections_path_tail:

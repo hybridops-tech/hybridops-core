@@ -3,8 +3,6 @@ exclude_paths:
   - .venv/
   - build/
   - dist/
-  - hyops/drivers/config/ansible/collections/ansible_collections/hybridops/**/molecule/
-  - hyops/drivers/config/ansible/collections/ansible_collections/hybridops/**/tests/
 offline: true
 warn_list:
   - var-naming[no-role-prefix]

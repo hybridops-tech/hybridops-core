@@ -19,14 +19,15 @@ trap 'rm -rf "${tmpdir}"' EXIT
 hyops_ci::prepare_ansible_dependencies "${tmpdir}"
 hyops_ci::export_ansible_runtime "${tmpdir}"
 
-mapfile -t ansible_targets < <(hyops_ci::all_ansible_playbooks)
+cd "${HYOPS_REPO_ROOT}"
+
+mapfile -t ansible_targets < <(hyops_ci::all_ansible_playbooks | sed "s#^${HYOPS_REPO_ROOT}/##")
 config_file="${HYOPS_REPO_ROOT}/tools/ci/ansible-lint.yml"
 ansible-lint \
   -c "${config_file}" \
   --offline \
   --exclude 'blueprints/' \
   --exclude 'modules/' \
-  --exclude 'hyops/drivers/config/ansible/collections/ansible_collections/hybridops/' \
   --exclude '*/molecule/' \
   --exclude '*/tests/' \
   "${ansible_targets[@]}"

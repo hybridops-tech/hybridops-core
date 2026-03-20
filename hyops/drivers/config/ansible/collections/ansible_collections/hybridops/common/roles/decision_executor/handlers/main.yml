@@ -1,9 +1,0 @@
----
-# purpose: Handlers for the decision_executor role
-# maintainer: HybridOps
-
-- name: Restart decision executor
-  ansible.builtin.systemd:
-    name: "{{ decision_executor_service_name }}"
-    state: restarted
-    daemon_reload: true

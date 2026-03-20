@@ -56,7 +56,6 @@ from .runtime_env import (
 
 _DRIVER_DIR = Path(__file__).resolve().parent
 _PROFILES_DIR = _DRIVER_DIR / "profiles"
-_VENDORED_COLLECTIONS_DIR = _DRIVER_DIR / "collections"
 _PGHA_MODULE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
 
 def _resolve_hyops_executable() -> str:
@@ -275,7 +274,6 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         env=env,
         runtime_root=runtime_root,
         module_id=module_id,
-        vendored_collections_dir=_VENDORED_COLLECTIONS_DIR,
         ev=ev,
         result=result,
     )

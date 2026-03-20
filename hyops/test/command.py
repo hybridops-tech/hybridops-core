@@ -751,7 +751,6 @@ def run_test_role(ns) -> int:
         env=env,
         runtime_root=paths.root,
         module_id="test__role",
-        vendored_collections_dir=Path("/nonexistent"),
         ev=ev,
         result=result_envelope,
     )
