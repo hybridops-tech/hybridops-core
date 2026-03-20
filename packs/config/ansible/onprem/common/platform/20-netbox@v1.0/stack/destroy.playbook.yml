@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/netbox (destroy)
+- name: Destroy platform/onprem/netbox
   hosts: targets
   become: true
   gather_facts: true

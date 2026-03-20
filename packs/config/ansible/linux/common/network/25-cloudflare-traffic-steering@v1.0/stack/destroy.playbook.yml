@@ -1,5 +1,5 @@
 ---
-- name: platform/network/cloudflare-traffic-steering (destroy)
+- name: Destroy platform/network/cloudflare-traffic-steering
   hosts: localhost
   connection: local
   gather_facts: false

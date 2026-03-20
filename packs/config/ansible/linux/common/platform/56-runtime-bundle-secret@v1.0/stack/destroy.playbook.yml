@@ -1,5 +1,5 @@
 ---
-- name: platform/k8s/runtime-bundle-secret (destroy)
+- name: Destroy platform/k8s/runtime-bundle-secret
   hosts: localhost
   connection: local
   become: false

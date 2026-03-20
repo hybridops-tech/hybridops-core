@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/eve-ng (destroy)
+- name: Destroy platform/onprem/eve-ng
   hosts: targets
   become: true
   gather_facts: true

@@ -1,5 +1,5 @@
 ---
-- name: core/shared/manual-gate (destroy)
+- name: Destroy core/shared/manual-gate
   hosts: localhost
   connection: local
   gather_facts: false

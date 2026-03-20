@@ -1,5 +1,5 @@
 ---
-- name: platform/linux/eve-ng (destroy)
+- name: Destroy platform/linux/eve-ng
   hosts: targets
   become: true
   gather_facts: true

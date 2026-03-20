@@ -1,5 +1,5 @@
 ---
-- name: platform/k8s/gcp-secret-store (destroy)
+- name: Destroy platform/k8s/gcp-secret-store
   hosts: localhost
   connection: local
   become: false
@@ -91,7 +91,16 @@
       when: (_hyops_cluster_project_number.stdout | default('') | trim | length) > 0
       ansible.builtin.set_fact:
         _hyops_wi_member: >-
-          principal://iam.googleapis.com/projects/{{ _hyops_cluster_project_number.stdout | trim }}/locations/global/workloadIdentityPools/{{ project_id }}.svc.id.goog/subject/ns/{{ service_account_namespace }}/sa/{{ service_account_name }}
+          {{
+            'principal://iam.googleapis.com/projects/'
+            ~ (_hyops_cluster_project_number.stdout | trim)
+            ~ '/locations/global/workloadIdentityPools/'
+            ~ (project_id | string)
+            ~ '.svc.id.goog/subject/ns/'
+            ~ (service_account_namespace | string)
+            ~ '/sa/'
+            ~ (service_account_name | string)
+          }}
       changed_when: false
 
     - name: Remove Secret Manager accessor role from Workload Identity principal

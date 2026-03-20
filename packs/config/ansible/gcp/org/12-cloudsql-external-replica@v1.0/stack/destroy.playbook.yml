@@ -1,5 +1,5 @@
 ---
-- name: org/gcp/cloudsql-external-replica (destroy)
+- name: Destroy org/gcp/cloudsql-external-replica
   hosts: localhost
   gather_facts: false
 

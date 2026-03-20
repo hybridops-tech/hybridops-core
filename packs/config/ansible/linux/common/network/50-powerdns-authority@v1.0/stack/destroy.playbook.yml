@@ -1,5 +1,5 @@
 ---
-- name: platform/network/powerdns-authority (destroy)
+- name: Destroy platform/network/powerdns-authority
   hosts: dns
   any_errors_fatal: true
   become: true
@@ -14,11 +14,13 @@
       ansible.builtin.include_role:
         name: "{{ powerdns_role_fqcn }}"
 
-  post_tasks:
+- name: Publish platform/network/powerdns-authority outputs
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  tasks:
     - name: Write HyOps outputs
-      run_once: true
-      delegate_to: localhost
-      become: false
       ansible.builtin.copy:
         dest: "{{ hyops_outputs_file }}"
         mode: "0600"

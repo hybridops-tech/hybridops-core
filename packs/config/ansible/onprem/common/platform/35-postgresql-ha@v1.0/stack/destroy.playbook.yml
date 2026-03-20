@@ -1,5 +1,5 @@
 ---
-- name: platform/postgresql-ha (destroy)
+- name: Destroy platform/postgresql-ha
   ansible.builtin.import_playbook: vitabaks.autobase.remove_cluster
   vars:
     dcs_type: "{{ dcs_type | default('etcd') }}"
@@ -9,7 +9,7 @@
     remove_etcd: "{{ (dcs_type | default('etcd')) == 'etcd' and not (dcs_exists | default(false) | bool) }}"
     remove_consul: "{{ (dcs_type | default('etcd')) == 'consul' and not (dcs_exists | default(false) | bool) }}"
 
-- name: platform/postgresql-ha (publish outputs)
+- name: Publish platform/postgresql-ha outputs
   hosts: localhost
   become: false
   gather_facts: false

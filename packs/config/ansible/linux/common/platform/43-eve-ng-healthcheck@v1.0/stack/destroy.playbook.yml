@@ -1,5 +1,5 @@
 ---
-- name: platform/linux/eve-ng-healthcheck (destroy)
+- name: Destroy platform/linux/eve-ng-healthcheck
   hosts: targets
   become: false
   gather_facts: false

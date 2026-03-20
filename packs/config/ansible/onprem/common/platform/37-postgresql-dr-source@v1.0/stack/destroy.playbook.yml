@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/postgresql-dr-source (destroy)
+- name: Destroy platform/onprem/postgresql-dr-source
   hosts: localhost
   gather_facts: false
 

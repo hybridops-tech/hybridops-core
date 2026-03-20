@@ -1,5 +1,5 @@
 ---
-- name: platform/onprem/postgresql-core (destroy)
+- name: Destroy platform/onprem/postgresql-core
   hosts: targets
   become: true
   gather_facts: true

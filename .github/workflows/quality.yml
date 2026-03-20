@@ -196,10 +196,26 @@ jobs:
           echo "TERRAFORM_VERSION=${TERRAFORM_VERSION}" >> "${GITHUB_ENV}"
           echo "TFLINT_VERSION=${TFLINT_VERSION}" >> "${GITHUB_ENV}"
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - name: Install Terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="${RUNNER_TEMP}/terraform-${TERRAFORM_VERSION}"
+          rm -rf "${install_root}"
+          mkdir -p "${install_root}"
+          curl -fsSLo "${install_root}/terraform.zip" \
+            "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          python - "${install_root}/terraform.zip" "${install_root}" <<'PY'
+          import sys
+          import zipfile
+
+          archive_path = sys.argv[1]
+          install_root = sys.argv[2]
+          with zipfile.ZipFile(archive_path) as archive:
+              archive.extractall(install_root)
+          PY
+          chmod +x "${install_root}/terraform"
+          echo "${install_root}" >> "${GITHUB_PATH}"
 
       - name: Set up TFLint
         uses: terraform-linters/setup-tflint@v6

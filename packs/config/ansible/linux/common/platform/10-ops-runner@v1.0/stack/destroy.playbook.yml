@@ -1,5 +1,5 @@
 ---
-- name: platform/linux/ops-runner (destroy)
+- name: Destroy platform/linux/ops-runner
   hosts: runner
   any_errors_fatal: true
   gather_facts: false
@@ -38,11 +38,21 @@
         path: "{{ runner_stage_root }}"
         state: absent
 
-  post_tasks:
+- name: Publish platform/linux/ops-runner outputs
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  vars:
+    runner_bin_dir_effective: >-
+      {{
+        (runner_bin_dir | string)
+        if (runner_bin_dir is string and (runner_bin_dir | length) > 0)
+        else ('/home/' ~ (target_user | default(ansible_user | default('opsadmin'))) ~ '/.local/bin')
+      }}
+
+  tasks:
     - name: Write HyOps outputs
-      run_once: true
-      delegate_to: localhost
-      become: false
       ansible.builtin.copy:
         dest: "{{ hyops_outputs_file }}"
         mode: "0600"
