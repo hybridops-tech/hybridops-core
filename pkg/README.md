@@ -18,6 +18,27 @@ HybridOps Ansible collection source is not part of the public bundle contract.
 Operators install the pinned released `hybridops.*` collection artifacts through
 `hyops setup ansible`.
 
+## Public Bundle Boundary
+
+Keep the shipped bundle capability-oriented.
+
+What belongs in the public bundle:
+- reusable modules
+- reusable packs
+- neutral blueprints
+- generic validation and execution logic
+
+What does not belong in the public bundle:
+- business-specific application recovery chains
+- customer- or HybridOps-specific target names
+- blueprints that only make sense for one private operator lane
+
+Application-specific composition should stay in the selected workloads repository
+and target path. Public Core should consume that through generic inputs such as:
+- `workloads_repo_url`
+- `workloads_revision`
+- `workloads_target_path`
+
 ## Commands
 
 Build a bundle from the current source tree:

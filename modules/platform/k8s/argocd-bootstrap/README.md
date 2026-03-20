@@ -46,6 +46,11 @@ repository or a managed authoring repository. The Argo CD contract stays the sam
 - public/exported workloads repo: `workloads_target_path = clusters/<target>`
 - private/managed workloads repo: `workloads_target_path = <repo-defined managed target path>`
 
+Promotion boundary:
+- keep this module generic
+- let the selected workloads repository define application composition
+- do not encode business-specific target names or app lanes into public Core contracts
+
 Private repo mode should use SSH deploy keys rather than embedding repo
 credentials in module inputs. Set:
 - `repo_access_mode = ssh`

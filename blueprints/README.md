@@ -50,3 +50,22 @@ They package repeatable outcomes, not low-level implementation details.
 - Community: bootstrap and one authoritative expansion blueprint.
 - Pro: curated multi-module chains (WAN/DR/bursting, hardened profiles, probe packs).
 - Consulting: enterprise topology integration and migration blueprints.
+
+## Shipped Blueprint Boundary
+
+Shipped public blueprints must stay product-neutral.
+
+Use public blueprints for:
+- repeatable infrastructure bring-up
+- reusable DR primitives
+- neutral traffic cutover chains
+- generic GitOps bootstrap patterns
+
+Keep private or operator-only composition out of the shipped blueprint surface when it:
+- hardcodes one business application lane
+- assumes one private repo layout or target name
+- only makes sense for HybridOps-operated delivery
+
+That application-specific composition should live in the selected workloads repo
+and its managed target paths, with Core consuming it through generic repo and
+target inputs instead of encoding the business lane into the blueprint name or contract.
