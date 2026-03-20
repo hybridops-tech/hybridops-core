@@ -14,6 +14,10 @@ Python wheel because operators need the runtime payload as shipped:
 - `tools/`
 - `install.sh`
 
+HybridOps Ansible collection source is not part of the public bundle contract.
+Operators install the pinned released `hybridops.*` collection artifacts through
+`hyops setup ansible`.
+
 ## Commands
 
 Build a bundle from the current source tree:
@@ -49,6 +53,8 @@ TMPDIR=/dev/shm bash pkg/verify_release.sh dist/releases/hybridops-core-<label>.
 - the shipped checksum manifest matches the extracted payload
 - `install.sh` can install the bundle into an isolated runtime root
 - installed `hyops` runs without relying on the source checkout
+- the bundle and installed payload do not include vendored HybridOps collection source
+- installed `hyops` still exposes the `setup ansible` operator path
 - the installed payload matches the shipped checksum manifest
 - the temporary filesystem has enough free space before extraction begins
 
@@ -61,6 +67,4 @@ silently.
 
 GitHub Actions also runs the reusable quality workflow before bundle build and
 publication. The blocking checks are Python compile/import integrity, Ansible
-playbook syntax, and Terraform `fmt`/`validate`/`tflint`. Repo-wide
-`ansible-lint` runs in advisory mode until the remaining legacy role debt is
-removed.
+playbook syntax and pack-surface lint, and Terraform `fmt`/`validate`/`tflint`.

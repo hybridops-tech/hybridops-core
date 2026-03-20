@@ -43,6 +43,8 @@ env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
 
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" --help >/dev/null
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --help >/dev/null
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --runtime-root "${USER_HOME}/.hybridops" --dry-run >/dev/null
 env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" show --help >/dev/null
@@ -60,6 +62,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-setup-all >/dev/null
 
   env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" --help >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" setup ansible --help >/dev/null
   sudo env HOME="${ROOT_HOME}" "${common_env[@]}" \
     PIP_CACHE_DIR="${ROOT_CACHE_DIR}" \
     HYOPS_INSTALL_SYSTEM_LINK_PATH="${ROOT_BIN_DIR}/hyops" \
@@ -70,6 +73,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-wrapper \
       --no-setup-all >/dev/null
   env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" show --help >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" setup ansible --runtime-root "${ROOT_HOME}/.hybridops" --dry-run >/dev/null
 
   cat > "${ROOT_FAKE_APP}/tools/setup/setup-all.sh" <<'EOF'
 #!/usr/bin/env bash

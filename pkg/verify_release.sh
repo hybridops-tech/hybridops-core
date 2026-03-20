@@ -50,6 +50,7 @@ INSTALLED_HYOPS="${HOME_DIR}/.local/bin/hyops"
 ROOT_HOME_DIR="${WORK_DIR}/root-home"
 ROOT_LINK_DIR="${WORK_DIR}/root-bin"
 ROOT_LINK_HYOPS="${ROOT_LINK_DIR}/hyops"
+VENDORED_COLLECTIONS_REL="hyops/drivers/config/ansible/collections/ansible_collections/hybridops"
 BUNDLE_BYTES="$(stat -c %s "${BUNDLE_PATH}")"
 REQUIRED_FREE_BYTES=$(( BUNDLE_BYTES * 20 ))
 if (( REQUIRED_FREE_BYTES < 536870912 )); then
@@ -83,6 +84,10 @@ if [[ ! -f "${RELEASE_ROOT}/pkg/release-files.sha256" ]]; then
   echo "ERR: release checksum manifest missing from extracted bundle" >&2
   exit 3
 fi
+if find "${RELEASE_ROOT}" -path "*/${VENDORED_COLLECTIONS_REL}" -print -quit | grep -q .; then
+  echo "ERR: release bundle still ships vendored HybridOps collections" >&2
+  exit 3
+fi
 
 (
   cd "${RELEASE_ROOT}"
@@ -114,6 +119,8 @@ fi
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" --help >/dev/null
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" preflight --help >/dev/null
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" init --help >/dev/null
+  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup ansible --help >/dev/null
+  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup ansible --runtime-root "${HOME_DIR}/.hybridops" --dry-run >/dev/null
 )
 
 env "${install_env[@]}" \
@@ -127,6 +134,10 @@ env "${install_env[@]}" \
   cd "${INSTALLED_APP}"
   sha256sum -c pkg/release-files.sha256 >/dev/null
 )
+if find "${INSTALLED_APP}" -path "*/${VENDORED_COLLECTIONS_REL}" -print -quit | grep -q .; then
+  echo "ERR: installed bundle still includes vendored HybridOps collections" >&2
+  exit 3
+fi
 
 if sudo -n true >/dev/null 2>&1; then
   ROOT_SHARED_DIR="${WORK_DIR}/root-shared"
@@ -152,6 +163,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-setup-all >/dev/null
 
   env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" --help >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" setup ansible --help >/dev/null
   sudo env HOME="${ROOT_HOME_DIR}" PATH="/usr/bin:/bin:${PATH}" \
     HYOPS_INSTALL_SYSTEM_LINK_PATH="${ROOT_LINK_HYOPS}" \
     HYOPS_INSTALL_USE_SYSTEM_DEPS=true \
@@ -163,6 +175,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-wrapper \
       --no-setup-all >/dev/null
   env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" show --help >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" setup ansible --runtime-root "${ROOT_HOME_DIR}/.hybridops" --dry-run >/dev/null
 
   cat > "${ROOT_FAKE_APP_DIR}/tools/setup/setup-all.sh" <<'EOF'
 #!/usr/bin/env bash

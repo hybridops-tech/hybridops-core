@@ -58,6 +58,9 @@ hyops_release_manifest_items() {
     in_target && /^[[:space:]]*-[[:space:]]+/ {
       line = $0
       sub(/^[[:space:]]*-[[:space:]]+/, "", line)
+      if (line ~ /^".*"$/ || line ~ /^'\''.*'\''$/) {
+        line = substr(line, 2, length(line) - 2)
+      }
       print line
     }
   ' "${manifest}"
@@ -73,6 +76,9 @@ hyops_release_prune_globs() {
     in_target && /^[[:space:]]*-[[:space:]]+/ {
       line = $0
       sub(/^[[:space:]]*-[[:space:]]+/, "", line)
+      if (line ~ /^".*"$/ || line ~ /^'\''.*'\''$/) {
+        line = substr(line, 2, length(line) - 2)
+      }
       print line
     }
   ' "${prune_file}"
