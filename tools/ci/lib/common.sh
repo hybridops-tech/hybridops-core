@@ -86,7 +86,8 @@ hyops_ci::prepare_ansible_dependencies() {
   local collection_retry_attempts="${HYOPS_CI_ANSIBLE_GALAXY_RETRY_ATTEMPTS:-6}"
   local collection_retry_delay_s="${HYOPS_CI_ANSIBLE_GALAXY_RETRY_DELAY_S:-20}"
 
-  mkdir -p "${runtime_root}/collections" "${runtime_root}/roles"
+  mkdir -p "${runtime_root}/collections" "${runtime_root}/roles" "${runtime_root}/.ansible"
+  export ANSIBLE_HOME="${runtime_root}/.ansible"
   export ANSIBLE_COLLECTIONS_PATH="${runtime_root}/collections"
   export ANSIBLE_ROLES_PATH="${runtime_root}/roles"
 
@@ -117,6 +118,8 @@ hyops_ci::prepare_ansible_dependencies() {
 hyops_ci::export_ansible_runtime() {
   local runtime_root="$1"
 
+  mkdir -p "${runtime_root}/.ansible"
+  export ANSIBLE_HOME="${runtime_root}/.ansible"
   export ANSIBLE_COLLECTIONS_PATH="${runtime_root}/collections"
   export ANSIBLE_ROLES_PATH="${runtime_root}/roles"
   export ANSIBLE_NOCOLOR=1
