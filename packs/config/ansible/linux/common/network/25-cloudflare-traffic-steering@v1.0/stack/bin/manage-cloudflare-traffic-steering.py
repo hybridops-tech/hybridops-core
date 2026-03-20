@@ -427,7 +427,7 @@ def _public_status(config: dict[str, Any]) -> dict[str, Any]:
     _fail(f"failed to read live steering status from {url}: {last_error}")
 
 
-def _verify_status(config: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+def _status_mismatch(config: dict[str, Any], payload: dict[str, Any]) -> str:
     expected = {
         "desired": str(config.get("desired") or "primary").strip().lower(),
         "burst_weight_pct": _burst_weight(config),
@@ -440,10 +440,36 @@ def _verify_status(config: dict[str, Any], payload: dict[str, Any]) -> dict[str,
     for key, expected_value in expected.items():
         actual = payload.get(key)
         if actual != expected_value:
-            _fail(f"live steering status mismatch for {key}: expected {expected_value!r}, got {actual!r}")
+            return f"live steering status mismatch for {key}: expected {expected_value!r}, got {actual!r}"
+    return ""
+
+
+def _verify_status(config: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    mismatch = _status_mismatch(config, payload)
+    if mismatch:
+        _fail(mismatch)
     payload["status"] = "live-ok"
     payload["route_ready"] = True
     return payload
+
+
+def _wait_for_verified_status(config: dict[str, Any]) -> dict[str, Any]:
+    retries = int(config.get("status_retries") or 1)
+    delay_s = int(config.get("status_retry_delay_s") or 1)
+    last_mismatch = ""
+
+    for attempt in range(1, retries + 1):
+        payload = _public_status(config)
+        mismatch = _status_mismatch(config, payload)
+        if not mismatch:
+            payload["status"] = "live-ok"
+            payload["route_ready"] = True
+            return payload
+        last_mismatch = mismatch
+        if attempt < retries:
+            time.sleep(delay_s)
+
+    _fail(last_mismatch or "live steering status did not converge")
 
 
 def _require_token(config: dict[str, Any]) -> str:
@@ -468,16 +494,14 @@ def _bootstrap(config: dict[str, Any]) -> dict[str, Any]:
     _upload_worker(token, account_id, config)
     _upsert_route(token, zone_id, str(config.get("route_pattern") or ""), str(config.get("worker_name") or ""))
     _upsert_dns_record(token, zone_id, config)
-    payload = _public_status(config)
-    payload = _verify_status(config, payload)
+    payload = _wait_for_verified_status(config)
     payload["account_id"] = account_id
     payload["zone_id"] = zone_id
     return payload
 
 
 def _status(config: dict[str, Any]) -> dict[str, Any]:
-    payload = _public_status(config)
-    return _verify_status(config, payload)
+    return _wait_for_verified_status(config)
 
 
 def _absent(config: dict[str, Any]) -> dict[str, Any]:
