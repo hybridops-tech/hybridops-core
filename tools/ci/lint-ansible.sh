@@ -20,7 +20,9 @@ hyops_ci::prepare_ansible_dependencies "${tmpdir}"
 hyops_ci::export_ansible_runtime "${tmpdir}"
 
 mapfile -t role_roots < <(hyops_ci::all_ansible_role_roots)
+config_file="${HYOPS_REPO_ROOT}/tools/ci/ansible-lint.yml"
 ansible-lint \
+  -c "${config_file}" \
   --offline \
   --exclude '*/molecule/' \
   --exclude '*/tests/' \
