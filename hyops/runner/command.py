@@ -643,7 +643,6 @@ def _remote_blueprint_command(ns, *, runtime_root: str, remote_blueprint_path: s
     if str(os.environ.get("HYOPS_VERBOSE") or "").strip().lower() in {"1", "true", "yes", "on"}:
         cmd.append("--verbose")
     remote_root = runtime_root
-    remote_envs_shared = f"{runtime_root}/envs/shared"
     cmd.extend(
         [
             "blueprint",

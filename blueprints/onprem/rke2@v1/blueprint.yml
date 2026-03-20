@@ -98,4 +98,3 @@ steps:
         rke2_agents:
           - rke2-wkr-01
           - rke2-wkr-02
- 

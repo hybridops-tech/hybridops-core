@@ -35,6 +35,35 @@ jobs:
         shell: bash
         run: bash tools/ci/check-python.sh
 
+  python-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Load toolchain pins
+        shell: bash
+        run: |
+          source tools/setup/requirements/toolchain.lock
+          echo "RUFF_VERSION=${RUFF_VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Install Ruff
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ruff==${RUFF_VERSION}"
+
+      - name: Run Ruff checks
+        shell: bash
+        run: bash tools/ci/check-ruff.sh
+
   install-quality:
     runs-on: ubuntu-latest
 
@@ -90,6 +119,35 @@ jobs:
       - name: Run Ansible syntax checks
         shell: bash
         run: bash tools/ci/check-ansible.sh
+
+  shell-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Load toolchain pins
+        shell: bash
+        run: |
+          source tools/setup/requirements/toolchain.lock
+          echo "SHELLCHECK_VERSION=${SHELLCHECK_VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Install ShellCheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="${RUNNER_TEMP}/shellcheck-${SHELLCHECK_VERSION}"
+          rm -rf "${install_root}"
+          mkdir -p "${install_root}"
+          curl -fsSLo "${install_root}/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          tar -C "${install_root}" --strip-components=1 -xf "${install_root}/shellcheck.tar.xz"
+          echo "${install_root}" >> "${GITHUB_PATH}"
+
+      - name: Run ShellCheck
+        shell: bash
+        run: bash tools/ci/check-shell.sh
 
   ansible-lint-advisory:
     runs-on: ubuntu-latest
@@ -152,3 +210,32 @@ jobs:
       - name: Run Terraform quality checks
         shell: bash
         run: bash tools/ci/check-terraform.sh
+
+  yaml-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Load toolchain pins
+        shell: bash
+        run: |
+          source tools/setup/requirements/toolchain.lock
+          echo "YAMLLINT_VERSION=${YAMLLINT_VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Install yamllint
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "yamllint==${YAMLLINT_VERSION}"
+
+      - name: Run YAML quality checks
+        shell: bash
+        run: bash tools/ci/check-yaml.sh

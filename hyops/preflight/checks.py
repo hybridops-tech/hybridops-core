@@ -11,8 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 
-from hyops.runtime.root import resolve_runtime_root
-
 
 @dataclass(frozen=True)
 class CheckResult:

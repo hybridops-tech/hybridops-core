@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from hyops.validators.common import normalize_required_env, require_non_empty_str, require_port
+from hyops.validators.common import (
+    normalize_required_env,
+    require_non_empty_str as _require_non_empty_str,
+    require_port as _require_port,
+)
 
 
 def _validate_inventory(data: dict[str, Any]) -> None:

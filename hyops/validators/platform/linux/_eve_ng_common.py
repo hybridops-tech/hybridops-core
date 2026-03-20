@@ -18,7 +18,6 @@ from typing import Any
 from hyops.validators.common import (
     normalize_lifecycle_command,
     require_bool,
-    require_mapping,
     require_non_empty_str,
     require_port,
 )

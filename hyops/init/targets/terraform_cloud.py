@@ -96,9 +96,7 @@ def run(ns) -> int:
     except Exception:
         pass
 
-    template_written = False
     if write_template_if_missing(config_path, _TEMPLATE):
-        template_written = True
         _write_json(
             evidence_dir / "meta.json",
             {

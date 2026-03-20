@@ -774,6 +774,32 @@ def run(ns) -> int:
     return OK
 
 
+def _upsert_kv_file(path: Path, updates: dict[str, str]) -> None:
+    if not updates:
+        return
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    pending = {str(k): str(v) for k, v in updates.items() if str(k).strip()}
+    out: list[str] = []
+    for raw in lines:
+        replaced = False
+        if "=" in raw and not raw.lstrip().startswith("#"):
+            key, _sep, _value = raw.partition("=")
+            key = key.strip()
+            if key in pending:
+                out.append(f"{key}={pending.pop(key)}")
+                replaced = True
+        if not replaced:
+            out.append(raw)
+    if pending:
+        if out and out[-1].strip():
+            out.append("")
+        for key, value in pending.items():
+            out.append(f"{key}={value}")
+    path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+
+
 def _has_cmd(name: str) -> bool:
     return shutil.which(name) is not None
 

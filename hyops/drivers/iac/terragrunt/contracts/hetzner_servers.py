@@ -7,7 +7,6 @@ maintainer: HybridOps.Tech
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 

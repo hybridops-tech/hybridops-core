@@ -137,10 +137,8 @@ def run(ns) -> int:
     except Exception:
         pass
 
-    template_written = False
     if not config_path.exists():
         _write_config_template(config_path)
-        template_written = True
         write_json(
             evidence_dir / "meta.json",
             {

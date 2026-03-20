@@ -14,6 +14,10 @@ ANSIBLE_VERSION=
 ANSIBLE_CORE_VERSION=2.18.0
 ANSIBLE_LINT_VERSION=26.3.0
 
+RUFF_VERSION=0.13.2
+YAMLLINT_VERSION=1.37.1
+SHELLCHECK_VERSION=0.10.0
+
 TFLINT_VERSION=0.60.0
 
 # Optional. Leave blank unless you intend to manage distro-specific apt version strings.
