@@ -26,6 +26,7 @@ from hyops.drivers.config.ansible.inventory import write_inventory
 from hyops.drivers.config.ansible.process import run_capture_with_policy
 from hyops.drivers.config.ansible.runtime_env import (
     configure_ansible_search_paths,
+    ensure_hybridops_collections_available,
     materialize_ssh_private_key_from_env,
     merge_vault_env,
     missing_env,
@@ -757,6 +758,10 @@ def run_test_role(ns) -> int:
     _prepend_env_path(env, "ANSIBLE_COLLECTIONS_PATH", str(collections_cache_root))
     _prepend_env_path(env, "ANSIBLE_COLLECTIONS_PATH", str(collections_overlay))
     _prepend_env_path(env, "ANSIBLE_ROLES_PATH", str(roles_cache_root))
+    collections_error = ensure_hybridops_collections_available(env)
+    if collections_error:
+        print(f"ERR: {collections_error}", file=sys.stderr)
+        return DEPENDENCY_MISSING
 
     ansible_cfg = (role_target.collection_root / "ansible.cfg").resolve()
     if ansible_cfg.exists():

@@ -23,10 +23,9 @@ hyops setup all --sudo
   - `<runtime_root>/state/ansible/galaxy_collections`
   - `<runtime_root>/state/ansible/roles`
   - `<runtime_root>/state/ansible/modules/<module_id>/galaxy_collections` (module-scoped sets)
-- The default shared dependency set explicitly pins the released `hybridops.common`,
-  `hybridops.helper`, and `hybridops.app` collections in
+- The public install contract uses the pinned released `hybridops.common`,
+  `hybridops.helper`, and `hybridops.app` collections from
   [tools/setup/requirements/ansible.galaxy.yml](./requirements/ansible.galaxy.yml).
-- The default shared dependency set now installs released `hybridops.common`, `hybridops.helper`, and `hybridops.app` from Ansible Galaxy.
 - Temporary internal fallback path:
   - `hyops setup ansible --hybridops-source git`
   - this builds/install pinned `hybridops.common`, `hybridops.helper`, and `hybridops.app` from Git into runtime state

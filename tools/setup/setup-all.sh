@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      echo "Usage: setup-all.sh [--force] [--hybridops-source <vendored|git>]"
+      echo "Usage: setup-all.sh [--force] [--hybridops-source <release|git>]"
       exit 0
       ;;
     *)

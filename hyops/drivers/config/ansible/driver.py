@@ -46,6 +46,7 @@ from .process import run_capture_with_policy
 from .results import ansible_error_hint, load_outputs
 from .runtime_env import (
     configure_ansible_search_paths,
+    ensure_hybridops_collections_available,
     materialize_ssh_private_key_from_env,
     merge_vault_env,
     missing_env,
@@ -278,6 +279,9 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         ev=ev,
         result=result,
     )
+    collections_error = ensure_hybridops_collections_available(env)
+    if collections_error:
+        return _fail(ev, result, collections_error)
 
     inputs = request.get("inputs")
     if not isinstance(inputs, dict):

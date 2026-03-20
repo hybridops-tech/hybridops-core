@@ -9,7 +9,7 @@ umask 077
 usage() {
   cat <<'USAGE'
 Usage:
-  setup-ansible.sh [--root <path>] [--requirements <path>] [--hybridops-source <vendored|git>]
+  setup-ansible.sh [--root <path>] [--requirements <path>] [--hybridops-source <release|git>]
                    [--hybridops-git-manifest <path>] [--force]
 
 Options:
@@ -17,11 +17,11 @@ Options:
   --requirements <path> Galaxy requirements file for the shared/common dependency set
                         (default: tools/setup/requirements/ansible.galaxy.yml)
                         If relative, it is resolved relative to this script's release root.
-  --hybridops-source <vendored|git>
+  --hybridops-source <release|git>
                         How to source HybridOps collections for shared installs.
-                        vendored = use only the vendored fallback in hybridops-core
+                        release  = install pinned released collections from Ansible Galaxy
                         git      = build/install pinned collections from Git repos into runtime state
-                        (default: vendored or $HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE)
+                        (default: release or $HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE)
   --hybridops-git-manifest <path>
                         Pinned Git collection manifest used when --hybridops-source git
                         (default: tools/setup/requirements/ansible.hybridops.git.json)
@@ -38,7 +38,7 @@ RELEASE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
 RUNTIME_ROOT="${HYOPS_RUNTIME_ROOT:-$HOME/.hybridops}"
 REQ_PATH=""
-HYBRIDOPS_SOURCE="${HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE:-vendored}"
+HYBRIDOPS_SOURCE="${HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE:-release}"
 HYBRIDOPS_GIT_MANIFEST_PATH="${HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST:-}"
 FORCE="false"
 
@@ -84,10 +84,10 @@ need_cmd python3
 need_cmd ansible-galaxy
 
 case "${HYBRIDOPS_SOURCE}" in
-  vendored|git)
+  release|git)
     ;;
   *)
-    echo "ERR: unsupported --hybridops-source: ${HYBRIDOPS_SOURCE} (expected vendored or git)" >&2
+    echo "ERR: unsupported --hybridops-source: ${HYBRIDOPS_SOURCE} (expected release or git)" >&2
     exit 2
     ;;
 esac

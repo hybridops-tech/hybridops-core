@@ -49,7 +49,7 @@ hyops_ci::retry() {
   done
 }
 
-hyops_ci::write_filtered_requirements() {
+hyops_ci::write_prepared_requirements() {
   local source_file="$1"
   local target_file="$2"
 
@@ -62,19 +62,7 @@ import yaml
 source_path = Path(sys.argv[1]).resolve()
 target_path = Path(sys.argv[2]).resolve()
 data = yaml.safe_load(source_path.read_text(encoding="utf-8")) or {}
-
-collections = [
-    item
-    for item in (data.get("collections") or [])
-    if not str(item.get("name", "")).startswith("hybridops.")
-]
-
-payload = {"collections": collections}
-roles = data.get("roles") or []
-if roles:
-    payload["roles"] = roles
-
-target_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+target_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 PY
 }
 
@@ -102,7 +90,7 @@ hyops_ci::prepare_ansible_dependencies() {
 
   while IFS= read -r requirements_file; do
     filtered="${runtime_root}/$(basename "${requirements_file}")"
-    hyops_ci::write_filtered_requirements "${requirements_file}" "${filtered}"
+    hyops_ci::write_prepared_requirements "${requirements_file}" "${filtered}"
 
     ANSIBLE_GALAXY_DISABLE_GPG_VERIFY=1 \
       ansible-galaxy collection install \
@@ -123,17 +111,13 @@ hyops_ci::prepare_ansible_dependencies() {
 hyops_ci::export_ansible_runtime() {
   local runtime_root="$1"
 
-  export ANSIBLE_COLLECTIONS_PATH="${HYOPS_REPO_ROOT}/hyops/drivers/config/ansible/collections:${runtime_root}/collections"
+  export ANSIBLE_COLLECTIONS_PATH="${runtime_root}/collections"
   export ANSIBLE_ROLES_PATH="${runtime_root}/roles"
   export ANSIBLE_NOCOLOR=1
 }
 
 hyops_ci::all_ansible_playbooks() {
   find "${HYOPS_REPO_ROOT}/packs/config/ansible" -path '*/stack/playbook*.yml' -type f | sort
-}
-
-hyops_ci::all_ansible_role_roots() {
-  find "${HYOPS_REPO_ROOT}/hyops/drivers/config/ansible/collections/ansible_collections/hybridops" -mindepth 2 -maxdepth 2 -type d -name roles | sort
 }
 
 hyops_ci::all_terraform_stacks() {

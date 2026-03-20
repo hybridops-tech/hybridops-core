@@ -4,8 +4,6 @@
   any_errors_fatal: true
   become: true
   gather_facts: true
-  collections:
-    - hybridops.common
 
   vars:
     decision_role_fqcn: "{{ decision_role_fqcn | default('hybridops.common.decision_service') }}"

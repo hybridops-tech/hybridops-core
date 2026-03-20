@@ -55,12 +55,12 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     )
     common.add_argument(
         "--hybridops-source",
-        choices=("vendored", "git"),
+        choices=("release", "git"),
         default=None,
         help=(
             "How to source HybridOps collections for setup ansible/all. "
-            "vendored keeps the built-in fallback only; git installs pinned collections from "
-            "Git repositories into runtime state."
+            "release installs the pinned published collection artifacts; git installs pinned "
+            "collections from Git repositories into runtime state."
         ),
     )
 

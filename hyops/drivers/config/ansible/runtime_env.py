@@ -39,6 +39,30 @@ def _extend_search_path(out: list[str], raw_path: str) -> None:
         _append_search_path(out, token)
 
 
+def _collection_search_roots(raw_path: str) -> list[Path]:
+    roots: list[Path] = []
+    for token in str(raw_path or "").split(":"):
+        raw = str(token or "").strip()
+        if not raw:
+            continue
+        roots.append(Path(raw).expanduser())
+    return roots
+
+
+def _has_hybridops_collection(raw_path: str) -> bool:
+    for root in _collection_search_roots(raw_path):
+        candidates = [root] if root.name == "ansible_collections" else [root / "ansible_collections"]
+        for candidate in candidates:
+            if (candidate / "hybridops").is_dir():
+                return True
+    return False
+
+
+def allow_vendored_collection_fallback(env: dict[str, str]) -> bool:
+    raw = str(env.get("HYOPS_INTERNAL_ALLOW_VENDORED_COLLECTION_FALLBACK") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _iter_collection_role_dirs(collection_roots: list[str]) -> list[str]:
     """Derive collection role directories for use as a robust role-resolution fallback.
 
@@ -252,12 +276,6 @@ def configure_ansible_search_paths(
         if module_collections.is_dir():
             _append_search_path(collections_path_parts, str(module_collections))
 
-    # Prefer the bundled runtime collection payload over cached Galaxy installs.
-    # That keeps source and installed runtime behavior aligned when the cache still
-    # contains older HybridOps collection content from previous releases.
-    if vendored_collections_dir.is_dir():
-        _append_search_path(collections_path_parts, str(vendored_collections_dir))
-
     runtime_collections = runtime_root / "state" / "ansible" / "galaxy_collections"
     if not runtime_collections.is_dir():
         runtime_collections = runtime_root / "state" / "ansible" / "collections"
@@ -277,6 +295,8 @@ def configure_ansible_search_paths(
             global_collections = global_root / "state" / "ansible" / "collections"
         if global_collections.is_dir():
             _append_search_path(collections_path_parts, str(global_collections))
+    if allow_vendored_collection_fallback(env) and vendored_collections_dir.is_dir():
+        _append_search_path(collections_path_parts, str(vendored_collections_dir))
     # Preserve operator overrides if present, otherwise include sane defaults.
     collections_path_tail = str(env.get("ANSIBLE_COLLECTIONS_PATH") or env.get("ANSIBLE_COLLECTIONS_PATHS") or "").strip()
     if not collections_path_tail:
@@ -302,6 +322,13 @@ def configure_ansible_search_paths(
         env["ANSIBLE_ROLES_PATH"] = ":".join(roles_path_parts)
 
     apply_collection_hotfixes(ev=ev, result=result, env=env)
+
+
+def ensure_hybridops_collections_available(env: dict[str, str]) -> str:
+    collections_path = str(env.get("ANSIBLE_COLLECTIONS_PATH") or env.get("ANSIBLE_COLLECTIONS_PATHS") or "").strip()
+    if _has_hybridops_collection(collections_path):
+        return ""
+    return "missing HybridOps Ansible collections; run: hyops setup ansible"
 
 
 def merge_vault_env(env: dict[str, str], runtime_root: Path) -> tuple[dict[str, str], str]:

@@ -149,9 +149,8 @@ jobs:
         shell: bash
         run: bash tools/ci/check-shell.sh
 
-  ansible-lint-advisory:
+  ansible-lint:
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -179,7 +178,7 @@ jobs:
             "ansible-lint==${ANSIBLE_LINT_VERSION}" \
             "PyYAML>=6.0,<7"
 
-      - name: Run advisory Ansible lint
+      - name: Run Ansible lint
         shell: bash
         run: bash tools/ci/lint-ansible.sh
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# purpose: Run HybridOps.Core advisory Ansible lint checks against shipped roles.
+# purpose: Run HybridOps.Core Ansible lint checks against core-owned playbooks and pack wrappers.
 # adr: ADR-0622
 # maintainer: HybridOps.Tech
 
@@ -19,11 +19,14 @@ trap 'rm -rf "${tmpdir}"' EXIT
 hyops_ci::prepare_ansible_dependencies "${tmpdir}"
 hyops_ci::export_ansible_runtime "${tmpdir}"
 
-mapfile -t role_roots < <(hyops_ci::all_ansible_role_roots)
+mapfile -t ansible_targets < <(hyops_ci::all_ansible_playbooks)
 config_file="${HYOPS_REPO_ROOT}/tools/ci/ansible-lint.yml"
 ansible-lint \
   -c "${config_file}" \
   --offline \
+  --exclude 'blueprints/' \
+  --exclude 'modules/' \
+  --exclude 'hyops/drivers/config/ansible/collections/ansible_collections/hybridops/' \
   --exclude '*/molecule/' \
   --exclude '*/tests/' \
-  "${role_roots[@]}"
+  "${ansible_targets[@]}"
