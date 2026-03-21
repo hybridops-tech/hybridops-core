@@ -30,6 +30,13 @@ dependencies:
       bgp_b_peer_ip: "edge02_inside_local_ip"
       bgp_b_gcp_ip: "edge02_inside_peer_ip"
 
+  - module_ref: "org/gcp/wan-hub-network"
+    required: false
+    imports:
+      subnet_core_cidr: "cloud_core_cidr"
+      subnet_workloads_cidr: "cloud_workloads_cidr"
+      subnet_workloads_pods_secondary_range_cidr: "cloud_workloads_pods_cidr"
+
 inputs:
   defaults:
     # Inventory. Prefer state-driven inventory from shared control host.
@@ -105,6 +112,13 @@ inputs:
 
     local_asn: 65010
     peer_asn: 64514
+
+    cloud_core_cidr: ""
+    cloud_workloads_cidr: ""
+    cloud_workloads_pods_cidr: ""
+    auto_include_cloud_core_cidr: false
+    auto_include_cloud_workloads_cidr: false
+    auto_include_cloud_workloads_pods_cidr: false
 
     advertise_prefixes: []
     import_allow_prefixes:

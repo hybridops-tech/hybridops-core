@@ -85,6 +85,15 @@ hyops apply --env <env> \
 
 - `platform/onprem/vyos-edge#vyos_edge_vm`
 - `org/hetzner/vyos-edge-foundation`
+- `org/gcp/wan-hub-network` for cloud subnet ranges imported from the site extension
+
+State driven cloud prefix note:
+
+- when `auto_include_cloud_*_in_import` inputs are enabled, the module dedupes the
+  effective `import_allow_prefixes` set from `org/gcp/wan-hub-network` outputs and any
+  explicit prefixes you still provide
+- this is the correct path for GKE burst lanes because the on prem side must learn the
+  pod secondary range, not only the node subnet
 
 ## Outputs
 

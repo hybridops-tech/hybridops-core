@@ -39,6 +39,7 @@ consumer_snat_destination_cidrs: []
 consumer_snat_translation_address: ""
 consumer_snat_outbound_interface: ""
 
-import_allow_prefixes:
-  - 10.70.0.0/20
-  - 10.70.16.0/20
+import_allow_prefixes: []
+auto_include_cloud_core_cidr_in_import: true
+auto_include_cloud_workloads_cidr_in_import: true
+auto_include_cloud_workloads_pods_cidr_in_import: true

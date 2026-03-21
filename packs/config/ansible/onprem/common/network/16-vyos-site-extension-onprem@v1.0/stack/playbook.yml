@@ -10,9 +10,48 @@
     vyos_site_extension_onprem_role_fqcn: "{{ vyos_site_extension_onprem_role_fqcn | default('hybridops.common.vyos_site_extension_onprem') }}"
 
   tasks:
+    - name: Build effective cloud import prefix list
+      ansible.builtin.set_fact:
+        _hyops_import_allow_prefixes_effective: >-
+          {{
+            (
+              (import_allow_prefixes | default([]))
+              + (
+                ((auto_include_cloud_core_cidr_in_import | default(false) | bool) and (cloud_core_cidr | default('', true) | string | trim | length > 0))
+                | ternary([cloud_core_cidr | default('', true) | string | trim], [])
+              )
+              + (
+                ((auto_include_cloud_workloads_cidr_in_import | default(false) | bool) and (cloud_workloads_cidr | default('', true) | string | trim | length > 0))
+                | ternary([cloud_workloads_cidr | default('', true) | string | trim], [])
+              )
+              + (
+                ((auto_include_cloud_workloads_pods_cidr_in_import | default(false) | bool) and (cloud_workloads_pods_cidr | default('', true) | string | trim | length > 0))
+                | ternary([cloud_workloads_pods_cidr | default('', true) | string | trim], [])
+              )
+            )
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | unique
+            | list
+          }}
+      changed_when: false
+
+    - name: Assert requested cloud state driven import prefixes are available
+      ansible.builtin.assert:
+        that:
+          - (not (auto_include_cloud_core_cidr_in_import | default(false) | bool)) or ((cloud_core_cidr | default('', true) | string | trim) in _hyops_import_allow_prefixes_effective)
+          - (not (auto_include_cloud_workloads_cidr_in_import | default(false) | bool)) or ((cloud_workloads_cidr | default('', true) | string | trim) in _hyops_import_allow_prefixes_effective)
+          - (not (auto_include_cloud_workloads_pods_cidr_in_import | default(false) | bool)) or ((cloud_workloads_pods_cidr | default('', true) | string | trim) in _hyops_import_allow_prefixes_effective)
+        fail_msg: >-
+          Requested state driven cloud import prefixes are not available. Reconcile
+          org/gcp/wan-hub-network state or disable the affected auto_include_cloud_* setting explicitly.
+
     - name: Run VyOS site-extension on-prem role
       ansible.builtin.include_role:
         name: "{{ vyos_site_extension_onprem_role_fqcn }}"
+      vars:
+        import_allow_prefixes: "{{ _hyops_import_allow_prefixes_effective }}"
 
   post_tasks:
     - name: Write HyOps outputs

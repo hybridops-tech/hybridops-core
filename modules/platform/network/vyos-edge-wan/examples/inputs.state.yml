@@ -19,9 +19,10 @@ local_asn: 65010
 peer_asn: 64514
 
 # Leave this empty for the baseline GCP<->Hetzner underlay.
-# Add spoke/on-prem prefixes only after those routes actually exist on the edge.
+# Add spoke or on prem prefixes only after those routes actually exist on the edge.
 advertise_prefixes: []
 
-import_allow_prefixes:
-  - 10.70.0.0/20
-  - 10.70.16.0/20
+import_allow_prefixes: []
+auto_include_cloud_core_cidr: true
+auto_include_cloud_workloads_cidr: true
+auto_include_cloud_workloads_pods_cidr: true

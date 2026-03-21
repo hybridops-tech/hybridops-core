@@ -207,6 +207,28 @@ def validate(inputs: dict[str, Any]) -> None:
 
     _require_asn(data.get("local_asn"), "inputs.local_asn")
     _require_asn(data.get("peer_asn"), "inputs.peer_asn")
+
+    for field in (
+        "inputs.cloud_core_cidr",
+        "inputs.cloud_workloads_cidr",
+        "inputs.cloud_workloads_pods_cidr",
+    ):
+        raw = data.get(field.removeprefix("inputs."))
+        if raw is None or str(raw).strip() == "":
+            continue
+        try:
+            ipaddress.ip_network(str(raw).strip(), strict=False)
+        except Exception as exc:
+            raise ValueError(f"{field} must be a valid CIDR when set") from exc
+
+    for field in (
+        "auto_include_cloud_core_cidr_in_advertise",
+        "auto_include_cloud_workloads_cidr_in_advertise",
+        "auto_include_cloud_workloads_pods_cidr_in_advertise",
+    ):
+        if field in data and not isinstance(data.get(field), bool):
+            raise ValueError(f"inputs.{field} must be a boolean when set")
+
     _require_cidr_list(data.get("advertise_prefixes"), "inputs.advertise_prefixes", allow_empty=True)
     _require_cidr_list(data.get("import_allow_prefixes"), "inputs.import_allow_prefixes", allow_empty=True)
 

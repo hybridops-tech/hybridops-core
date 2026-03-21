@@ -57,6 +57,15 @@ hyops apply --env <env> \
 
 - `org/hetzner/shared-control-host#edge_control_host`
 - `org/hetzner/vyos-edge-foundation`
+- `org/gcp/wan-hub-network` for cloud subnet ranges exported toward on prem
+
+State driven cloud prefix note:
+
+- when `auto_include_cloud_*_in_advertise` inputs are enabled, the module dedupes the
+  effective `advertise_prefixes` set from `org/gcp/wan-hub-network` outputs and any
+  explicit prefixes you still provide
+- enable the pod secondary range for GKE burst lanes so on prem systems can return
+  traffic directly to burst pods
 
 ## Outputs
 

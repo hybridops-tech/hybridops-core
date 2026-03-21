@@ -20,6 +20,13 @@ dependencies:
       edge02_private_ip: "edge02_ssh_host"
       ipsec_source_cidrs: "edge_ipsec_source_cidrs"
 
+  - module_ref: "org/gcp/wan-hub-network"
+    required: false
+    imports:
+      subnet_core_cidr: "cloud_core_cidr"
+      subnet_workloads_cidr: "cloud_workloads_cidr"
+      subnet_workloads_pods_secondary_range_cidr: "cloud_workloads_pods_cidr"
+
 inputs:
   defaults:
     inventory_groups: {}
@@ -89,6 +96,12 @@ inputs:
 
     local_asn: 65010
     peer_asn: 65010
+    cloud_core_cidr: ""
+    cloud_workloads_cidr: ""
+    cloud_workloads_pods_cidr: ""
+    auto_include_cloud_core_cidr_in_advertise: false
+    auto_include_cloud_workloads_cidr_in_advertise: false
+    auto_include_cloud_workloads_pods_cidr_in_advertise: false
     advertise_prefixes:
       - "10.70.0.0/20"
       - "10.70.16.0/20"

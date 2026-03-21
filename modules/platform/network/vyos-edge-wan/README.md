@@ -59,10 +59,19 @@ By default this module can consume:
 
 - `org/hetzner/vyos-edge-foundation` for edge public/private addresses
 - `org/gcp/wan-vpn-to-edge` for peer public addresses and BGP inside IPs
+- `org/gcp/wan-hub-network` for cloud subnet ranges such as the GKE pod secondary range
 
 The control host inventory should usually come from:
 
 - `org/hetzner/shared-control-host#edge_control_host`
+
+State driven cloud prefix note:
+
+- when `auto_include_cloud_*` inputs are enabled, the module dedupes the effective
+  `import_allow_prefixes` set from `org/gcp/wan-hub-network` outputs and any explicit
+  prefixes you still provide
+- this is the correct path for GKE burst lanes because pod egress to on prem systems
+  requires the pod secondary range to be routable back through the site extension
 
 Firewall dependency note:
 

@@ -9,9 +9,48 @@
     vyos_site_extension_edge_role_fqcn: "{{ vyos_site_extension_edge_role_fqcn | default('hybridops.common.vyos_site_extension_edge') }}"
 
   tasks:
+    - name: Build effective cloud advertise prefix list
+      ansible.builtin.set_fact:
+        _hyops_advertise_prefixes_effective: >-
+          {{
+            (
+              (advertise_prefixes | default([]))
+              + (
+                ((auto_include_cloud_core_cidr_in_advertise | default(false) | bool) and (cloud_core_cidr | default('', true) | string | trim | length > 0))
+                | ternary([cloud_core_cidr | default('', true) | string | trim], [])
+              )
+              + (
+                ((auto_include_cloud_workloads_cidr_in_advertise | default(false) | bool) and (cloud_workloads_cidr | default('', true) | string | trim | length > 0))
+                | ternary([cloud_workloads_cidr | default('', true) | string | trim], [])
+              )
+              + (
+                ((auto_include_cloud_workloads_pods_cidr_in_advertise | default(false) | bool) and (cloud_workloads_pods_cidr | default('', true) | string | trim | length > 0))
+                | ternary([cloud_workloads_pods_cidr | default('', true) | string | trim], [])
+              )
+            )
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | unique
+            | list
+          }}
+      changed_when: false
+
+    - name: Assert requested cloud state driven advertise prefixes are available
+      ansible.builtin.assert:
+        that:
+          - (not (auto_include_cloud_core_cidr_in_advertise | default(false) | bool)) or ((cloud_core_cidr | default('', true) | string | trim) in _hyops_advertise_prefixes_effective)
+          - (not (auto_include_cloud_workloads_cidr_in_advertise | default(false) | bool)) or ((cloud_workloads_cidr | default('', true) | string | trim) in _hyops_advertise_prefixes_effective)
+          - (not (auto_include_cloud_workloads_pods_cidr_in_advertise | default(false) | bool)) or ((cloud_workloads_pods_cidr | default('', true) | string | trim) in _hyops_advertise_prefixes_effective)
+        fail_msg: >-
+          Requested state driven cloud advertise prefixes are not available. Reconcile
+          org/gcp/wan-hub-network state or disable the affected auto_include_cloud_* setting explicitly.
+
     - name: Run VyOS site-extension edge role
       ansible.builtin.include_role:
         name: "{{ vyos_site_extension_edge_role_fqcn }}"
+      vars:
+        advertise_prefixes: "{{ _hyops_advertise_prefixes_effective }}"
 
   post_tasks:
     - name: Write HyOps outputs

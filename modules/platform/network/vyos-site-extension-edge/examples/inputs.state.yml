@@ -21,9 +21,10 @@ onprem_peer_id: onprem-site.example.net
 local_asn: 65010
 peer_asn: 65010
 
-advertise_prefixes:
-  - 10.70.0.0/20
-  - 10.70.16.0/20
+advertise_prefixes: []
+auto_include_cloud_core_cidr_in_advertise: true
+auto_include_cloud_workloads_cidr_in_advertise: true
+auto_include_cloud_workloads_pods_cidr_in_advertise: true
 
 import_allow_prefixes:
   - 10.10.0.0/24
