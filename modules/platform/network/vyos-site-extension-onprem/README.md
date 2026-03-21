@@ -48,10 +48,13 @@ SNAT path:
 - `consumer_snat_destination_cidrs`
 - `consumer_snat_translation_address`
 - `consumer_snat_outbound_interface`
+- `auto_include_cloud_*_in_consumer_snat_source` when the cloud prefixes already come from `org/gcp/wan-hub-network`
+- `auto_include_static_route_prefixes_in_consumer_snat_destination` when the protected downstream prefixes are the same internal routes you already advertise
+- `consumer_snat_translation_address_from_onprem_router_id` when the edge router address is the intended translation address
 
 This is the correct pattern for managed DR consumers such as the GCP reverse-SSH
-runner when the source subnet does not route cloud prefixes back through the
-on-prem VyOS edge. For Cloud SQL standby lanes, include any Cloud SQL private
+runner and for burst lanes that keep state on prem when the source subnet does
+not route cloud prefixes back through the on-prem VyOS edge. For Cloud SQL standby lanes, include any Cloud SQL private
 service access range that can appear as the effective source on the on-prem
 side, not only the runner subnet. Reserve the configured
 `consumer_snat_rule_base` to

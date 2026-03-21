@@ -166,11 +166,66 @@ def validate(inputs: dict[str, Any]) -> None:
         "auto_include_cloud_core_cidr_in_import",
         "auto_include_cloud_workloads_cidr_in_import",
         "auto_include_cloud_workloads_pods_cidr_in_import",
+        "consumer_snat_translation_address_from_onprem_router_id",
+        "auto_include_cloud_core_cidr_in_consumer_snat_source",
+        "auto_include_cloud_workloads_cidr_in_consumer_snat_source",
+        "auto_include_cloud_workloads_pods_cidr_in_consumer_snat_source",
+        "auto_include_static_route_prefixes_in_consumer_snat_destination",
     ):
         if field in data and not isinstance(data.get(field), bool):
             raise ValueError(f"inputs.{field} must be a boolean when set")
 
     _require_cidr_list(data.get("import_allow_prefixes"), "inputs.import_allow_prefixes", allow_empty=True)
+
+    if "consumer_snat_enabled" in data and not isinstance(data.get("consumer_snat_enabled"), bool):
+        raise ValueError("inputs.consumer_snat_enabled must be a boolean when set")
+    if data.get("consumer_snat_enabled"):
+        if isinstance(data.get("consumer_snat_rule_base"), bool) or not isinstance(data.get("consumer_snat_rule_base"), int):
+            raise ValueError("inputs.consumer_snat_rule_base must be an integer when consumer SNAT is enabled")
+        if isinstance(data.get("consumer_snat_rule_slots"), bool) or not isinstance(data.get("consumer_snat_rule_slots"), int):
+            raise ValueError("inputs.consumer_snat_rule_slots must be an integer when consumer SNAT is enabled")
+        if int(data.get("consumer_snat_rule_base")) <= 0:
+            raise ValueError("inputs.consumer_snat_rule_base must be greater than zero when consumer SNAT is enabled")
+        if int(data.get("consumer_snat_rule_slots")) <= 0:
+            raise ValueError("inputs.consumer_snat_rule_slots must be greater than zero when consumer SNAT is enabled")
+
+        effective_sources = _require_cidr_list(
+            data.get("consumer_snat_source_cidrs"), "inputs.consumer_snat_source_cidrs", allow_empty=True
+        )
+        effective_destinations = _require_cidr_list(
+            data.get("consumer_snat_destination_cidrs"), "inputs.consumer_snat_destination_cidrs", allow_empty=True
+        )
+
+        if data.get("auto_include_cloud_core_cidr_in_consumer_snat_source") and str(data.get("cloud_core_cidr") or "").strip():
+            effective_sources.append(str(data.get("cloud_core_cidr")).strip())
+        if data.get("auto_include_cloud_workloads_cidr_in_consumer_snat_source") and str(data.get("cloud_workloads_cidr") or "").strip():
+            effective_sources.append(str(data.get("cloud_workloads_cidr")).strip())
+        if data.get("auto_include_cloud_workloads_pods_cidr_in_consumer_snat_source") and str(data.get("cloud_workloads_pods_cidr") or "").strip():
+            effective_sources.append(str(data.get("cloud_workloads_pods_cidr")).strip())
+        if data.get("auto_include_static_route_prefixes_in_consumer_snat_destination"):
+            effective_destinations.extend(static_route_prefixes)
+
+        effective_sources = list(dict.fromkeys(effective_sources))
+        effective_destinations = list(dict.fromkeys(effective_destinations))
+
+        if not effective_sources:
+            raise ValueError("consumer SNAT is enabled but no effective source CIDRs are configured")
+        if not effective_destinations:
+            raise ValueError("consumer SNAT is enabled but no effective destination CIDRs are configured")
+
+        translation_address = str(data.get("consumer_snat_translation_address") or "").strip()
+        if translation_address:
+            _require_ipv4(translation_address, "inputs.consumer_snat_translation_address")
+        elif not data.get("consumer_snat_translation_address_from_onprem_router_id"):
+            raise ValueError(
+                "consumer SNAT is enabled but inputs.consumer_snat_translation_address is empty and "
+                "inputs.consumer_snat_translation_address_from_onprem_router_id is false"
+            )
+
+        _require_non_empty_str(data.get("consumer_snat_outbound_interface"), "inputs.consumer_snat_outbound_interface")
+
+        if len(effective_sources) * len(effective_destinations) > int(data.get("consumer_snat_rule_slots")):
+            raise ValueError("effective consumer SNAT rule count exceeds inputs.consumer_snat_rule_slots")
 
     _require_non_empty_str(data.get("ipsec_ike_group"), "inputs.ipsec_ike_group")
     _require_non_empty_str(data.get("ipsec_esp_group"), "inputs.ipsec_esp_group")

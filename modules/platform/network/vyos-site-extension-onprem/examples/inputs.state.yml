@@ -37,7 +37,12 @@ consumer_snat_rule_slots: 16
 consumer_snat_source_cidrs: []
 consumer_snat_destination_cidrs: []
 consumer_snat_translation_address: ""
+consumer_snat_translation_address_from_onprem_router_id: false
 consumer_snat_outbound_interface: ""
+auto_include_cloud_core_cidr_in_consumer_snat_source: false
+auto_include_cloud_workloads_cidr_in_consumer_snat_source: false
+auto_include_cloud_workloads_pods_cidr_in_consumer_snat_source: false
+auto_include_static_route_prefixes_in_consumer_snat_destination: false
 
 import_allow_prefixes: []
 auto_include_cloud_core_cidr_in_import: true
