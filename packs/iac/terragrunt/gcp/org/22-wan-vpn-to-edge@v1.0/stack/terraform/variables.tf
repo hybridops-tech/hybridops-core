@@ -62,6 +62,36 @@ variable "tunnel_b_inside_cidr" {
   type = string
 }
 
+variable "cloud_core_cidr" {
+  type    = string
+  default = ""
+}
+
+variable "cloud_workloads_cidr" {
+  type    = string
+  default = ""
+}
+
+variable "cloud_workloads_pods_cidr" {
+  type    = string
+  default = ""
+}
+
+variable "auto_include_cloud_core_cidr" {
+  type    = bool
+  default = false
+}
+
+variable "auto_include_cloud_workloads_cidr" {
+  type    = bool
+  default = false
+}
+
+variable "auto_include_cloud_workloads_pods_cidr" {
+  type    = bool
+  default = false
+}
+
 variable "advertised_prefixes" {
   type = list(string)
 }

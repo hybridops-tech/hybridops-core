@@ -12,6 +12,13 @@ locals {
 
   tunnel_b_peer_ip = cidrhost(var.tunnel_b_inside_cidr, 1)
   tunnel_b_gcp_ip  = cidrhost(var.tunnel_b_inside_cidr, 2)
+
+  advertised_prefixes_effective = distinct(compact(concat(
+    var.advertised_prefixes,
+    var.auto_include_cloud_core_cidr ? [trimspace(var.cloud_core_cidr)] : [],
+    var.auto_include_cloud_workloads_cidr ? [trimspace(var.cloud_workloads_cidr)] : [],
+    var.auto_include_cloud_workloads_pods_cidr ? [trimspace(var.cloud_workloads_pods_cidr)] : []
+  )))
 }
 
 resource "google_compute_ha_vpn_gateway" "hub" {
@@ -101,7 +108,7 @@ resource "google_compute_router_peer" "bgp_a" {
   advertised_route_priority = var.advertised_route_priority
 
   dynamic "advertised_ip_ranges" {
-    for_each = toset(var.advertised_prefixes)
+    for_each = toset(local.advertised_prefixes_effective)
     content {
       range = advertised_ip_ranges.value
     }
@@ -126,7 +133,7 @@ resource "google_compute_router_peer" "bgp_b" {
   advertised_route_priority = var.advertised_route_priority
 
   dynamic "advertised_ip_ranges" {
-    for_each = toset(var.advertised_prefixes)
+    for_each = toset(local.advertised_prefixes_effective)
     content {
       range = advertised_ip_ranges.value
     }

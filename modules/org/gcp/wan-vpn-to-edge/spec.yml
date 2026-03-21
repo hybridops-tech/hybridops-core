@@ -33,6 +33,13 @@ inputs:
     tunnel_a_inside_cidr: "169.254.10.0/30"
     tunnel_b_inside_cidr: "169.254.10.4/30"
 
+    cloud_core_cidr: ""
+    cloud_workloads_cidr: ""
+    cloud_workloads_pods_cidr: ""
+    auto_include_cloud_core_cidr: false
+    auto_include_cloud_workloads_cidr: false
+    auto_include_cloud_workloads_pods_cidr: false
+
     advertised_prefixes:
       - "10.70.0.0/20"
     advertised_route_priority: 100
@@ -61,6 +68,9 @@ dependencies:
       project_id: "project_id"
       region: "region"
       network_self_link: "network_self_link"
+      subnet_core_cidr: "cloud_core_cidr"
+      subnet_workloads_cidr: "cloud_workloads_cidr"
+      subnet_workloads_pods_secondary_range_cidr: "cloud_workloads_pods_cidr"
 
   - module_ref: "org/gcp/wan-cloud-router"
     required: false

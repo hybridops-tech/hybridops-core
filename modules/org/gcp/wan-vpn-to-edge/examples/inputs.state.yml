@@ -8,6 +8,10 @@ region: "europe-west2"
 ha_vpn_gateway_name: "hybridops-hub-havpn-europe-west2"
 external_vpn_gateway_name: "hybridops-edge-extgw"
 peer_asn: 65010
+advertised_prefixes: []
+auto_include_cloud_core_cidr: true
+auto_include_cloud_workloads_cidr: true
+auto_include_cloud_workloads_pods_cidr: true
 required_env:
   - "WAN_IPSEC_PSK"
 shared_secret_a_env: "WAN_IPSEC_PSK"

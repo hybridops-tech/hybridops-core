@@ -92,9 +92,26 @@ def validate(inputs: dict[str, Any]) -> None:
     if cidr_a.overlaps(cidr_b):
         raise ModuleValidationError("inputs.tunnel_a_inside_cidr and inputs.tunnel_b_inside_cidr must not overlap")
 
+    for key in ("cloud_core_cidr", "cloud_workloads_cidr", "cloud_workloads_pods_cidr"):
+        raw = opt_str(inputs.get(key), f"inputs.{key}")
+        if not raw:
+            continue
+        try:
+            ipaddress.ip_network(raw, strict=False)
+        except Exception as exc:
+            raise ModuleValidationError(f"inputs.{key} must be a valid CIDR when set") from exc
+
+    for key in (
+        "auto_include_cloud_core_cidr",
+        "auto_include_cloud_workloads_cidr",
+        "auto_include_cloud_workloads_pods_cidr",
+    ):
+        if key in inputs and not isinstance(inputs.get(key), bool):
+            raise ModuleValidationError(f"inputs.{key} must be a boolean when set")
+
     advertised = inputs.get("advertised_prefixes")
-    if not isinstance(advertised, list) or not advertised:
-        raise ModuleValidationError("inputs.advertised_prefixes must be a non-empty list")
+    if not isinstance(advertised, list):
+        raise ModuleValidationError("inputs.advertised_prefixes must be a list")
     for idx, item in enumerate(advertised, start=1):
         if not isinstance(item, str) or not item.strip():
             raise ModuleValidationError(f"inputs.advertised_prefixes[{idx}] must be a non-empty string")
@@ -102,6 +119,17 @@ def validate(inputs: dict[str, Any]) -> None:
             ipaddress.ip_network(item.strip(), strict=False)
         except Exception as exc:
             raise ModuleValidationError(f"inputs.advertised_prefixes[{idx}] must be a valid CIDR") from exc
+    if not advertised and not any(
+        bool(inputs.get(key))
+        for key in (
+            "auto_include_cloud_core_cidr",
+            "auto_include_cloud_workloads_cidr",
+            "auto_include_cloud_workloads_pods_cidr",
+        )
+    ):
+        raise ModuleValidationError(
+            "inputs.advertised_prefixes must be non-empty unless state driven cloud prefix inclusion is enabled"
+        )
 
     priority = inputs.get("advertised_route_priority")
     if isinstance(priority, bool) or not isinstance(priority, (int, float)):
