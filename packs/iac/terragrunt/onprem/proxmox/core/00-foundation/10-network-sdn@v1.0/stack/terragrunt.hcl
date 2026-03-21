@@ -6,7 +6,7 @@ include "root" {
 locals {
   inputs = include.root.inputs
   module_source_override = trimspace(get_env("HYOPS_PROXMOX_SDN_MODULE_SOURCE", ""))
-  module_source = local.module_source_override != "" ? local.module_source_override : "tfr://registry.terraform.io/hybridops-tech/sdn/proxmox?version=0.1.5"
+  module_source = local.module_source_override != "" ? local.module_source_override : "tfr://registry.terraform.io/hybridops-tech/sdn/proxmox?version=0.1.6"
 
   # HyOps writes validated + defaulted module inputs to hyops.inputs.json.
   # Keep pack locals as normalization only (no policy/default duplication).
