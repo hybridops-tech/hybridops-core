@@ -24,43 +24,55 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     common.add_argument(
         "--root",
         "--core-root",
-        default=None,
+        dest="root",
+        default=argparse.SUPPRESS,
         help="Core root containing tools/setup (default: HYOPS_CORE_ROOT or cwd discovery).",
     )
     common.add_argument(
         "--env",
-        default=None,
+        default=argparse.SUPPRESS,
         help="Target runtime environment for installers that write into runtime state (e.g. ansible).",
     )
     common.add_argument(
         "--runtime-root",
-        default=None,
+        default=argparse.SUPPRESS,
         help="Override runtime root for installers that write into runtime state (mutually exclusive with --env).",
     )
     common.add_argument(
         "--sudo",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Run setup script via sudo (recommended for system installers).",
     )
     common.add_argument(
         "--dry-run",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Print the resolved script path and exit.",
     )
 
     common.add_argument(
         "--force",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Force reinstall where supported (currently: ansible, all).",
     )
     common.add_argument(
         "--hybridops-source",
         choices=("release", "git"),
-        default=None,
+        default=argparse.SUPPRESS,
         help=(
             "How to source HybridOps collections for setup ansible/all. "
             "release installs the pinned published collection artifacts; git installs pinned "
             "collections from Git repositories into runtime state."
+        ),
+    )
+    common.add_argument(
+        "--hybridops-git-manifest",
+        default=argparse.SUPPRESS,
+        help=(
+            "Override the HybridOps Git collection manifest used with --hybridops-source git. "
+            "Useful for local iteration against a custom pinned manifest."
         ),
     )
 
@@ -184,18 +196,26 @@ def run(ns) -> int:
     canonical_action = "ansible" if action in ("config-mgmt", "config-management") else action
 
     runtime_root: Path | None = None
+    runtime_root_arg = getattr(ns, "runtime_root", None)
+    env_arg = getattr(ns, "env", None)
+    sudo = bool(getattr(ns, "sudo", False))
+    dry_run = bool(getattr(ns, "dry_run", False))
+    force = bool(getattr(ns, "force", False))
+    hybridops_source = getattr(ns, "hybridops_source", None)
+    hybridops_git_manifest = getattr(ns, "hybridops_git_manifest", None)
+
     if canonical_action in ("ansible", "all"):
-        if ns.runtime_root and ns.env:
+        if runtime_root_arg and env_arg:
             print("ERR: --runtime-root and --env are mutually exclusive")
             return OPERATOR_ERROR
 
         try:
-            runtime_root = resolve_runtime_paths(root=ns.runtime_root, env=ns.env).root
+            runtime_root = resolve_runtime_paths(root=runtime_root_arg, env=env_arg).root
         except ValueError as exc:
             print(f"ERR: {exc}")
             return OPERATOR_ERROR
 
-    if canonical_action == "ansible" and ns.sudo:
+    if canonical_action == "ansible" and sudo:
         print("ERR: hyops setup ansible must not be run with --sudo (it installs into user runtime state)")
         return OPERATOR_ERROR
 
@@ -204,7 +224,7 @@ def run(ns) -> int:
         print(f"ERR: unsupported setup action: {canonical_action}")
         return INTERNAL_ERROR
 
-    core_root = _find_core_root(ns.root)
+    core_root = _find_core_root(getattr(ns, "root", None))
     if not core_root:
         print("ERR: tools/setup not found. Set HYOPS_CORE_ROOT or pass: hyops setup --root <path> ...")
         return INTERNAL_ERROR
@@ -214,7 +234,7 @@ def run(ns) -> int:
         print(f"ERR: setup script not found: {script}")
         return INTERNAL_ERROR
 
-    if ns.dry_run:
+    if dry_run:
         print(str(script))
         if runtime_root is not None:
             print(f"runtime_root={runtime_root}")
@@ -223,17 +243,19 @@ def run(ns) -> int:
     env = os.environ.copy()
     if runtime_root is not None:
         env["HYOPS_RUNTIME_ROOT"] = str(runtime_root)
-        if (ns.env or "").strip():
-            env["HYOPS_ENV"] = str(ns.env).strip()
+        if (env_arg or "").strip():
+            env["HYOPS_ENV"] = str(env_arg).strip()
 
     argv: list[str] = ["bash", str(script)]
     if canonical_action == "ansible" and runtime_root is not None:
         argv += ["--root", str(runtime_root)]
-    if ns.force and canonical_action in ("ansible", "all"):
+    if force and canonical_action in ("ansible", "all"):
         argv += ["--force"]
-    if ns.hybridops_source and canonical_action in ("ansible", "all"):
-        argv += ["--hybridops-source", ns.hybridops_source]
-    if ns.sudo:
+    if hybridops_source and canonical_action in ("ansible", "all"):
+        argv += ["--hybridops-source", hybridops_source]
+    if hybridops_git_manifest and canonical_action in ("ansible", "all"):
+        argv += ["--hybridops-git-manifest", hybridops_git_manifest]
+    if sudo:
         argv = ["sudo", "-E"] + argv
     rc = subprocess.call(argv, env=env)
     return int(rc)
