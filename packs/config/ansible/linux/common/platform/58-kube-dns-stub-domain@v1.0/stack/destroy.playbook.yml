@@ -7,7 +7,7 @@
 
   vars:
     kubeconfig_path: "{{ kubeconfig_path | default('') }}"
-    namespace: "{{ namespace | default('kube-system') }}"
+    k8s_namespace: "{{ namespace | default('kube-system') }}"
     configmap_name: "{{ configmap_name | default('kube-dns') }}"
     stub_domain: "{{ stub_domain | default('') }}"
     kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
@@ -32,7 +32,7 @@
           - --kubeconfig
           - "{{ kubeconfig_path }}"
           - -n
-          - "{{ namespace }}"
+          - "{{ k8s_namespace }}"
           - get
           - configmap
           - "{{ configmap_name }}"
@@ -45,10 +45,12 @@
       ansible.builtin.set_fact:
         _hyops_kube_dns: "{{ _hyops_kube_dns_get.stdout | from_json }}"
         _hyops_stub_domain_name: "{{ stub_domain | regex_replace('\\.$', '') }}"
+        _hyops_kube_dns_data: "{{ ((_hyops_kube_dns_get.stdout | from_json).get('data')) or {} }}"
         _hyops_stub_domains_current: >-
           {{
-            ((((_hyops_kube_dns_get.stdout | from_json).data | default({})).stubDomains | default('') | string | length) > 0)
-            | ternary((((_hyops_kube_dns_get.stdout | from_json).data | default({})).stubDomains | from_json), {})
+            (_hyops_kube_dns_data.get('stubDomains', '') | from_json)
+            if ((_hyops_kube_dns_data.get('stubDomains', '') | string | length) > 0)
+            else {}
           }}
       changed_when: false
 
@@ -75,7 +77,7 @@
           - --kubeconfig
           - "{{ kubeconfig_path }}"
           - -n
-          - "{{ namespace }}"
+          - "{{ k8s_namespace }}"
           - patch
           - configmap
           - "{{ configmap_name }}"
@@ -92,7 +94,7 @@
         mode: "0600"
         content: |
           {{ {
-            'namespace': (namespace | string),
+            'namespace': (k8s_namespace | string),
             'configmap_name': (configmap_name | string),
             'stub_domain': (_hyops_stub_domain_name | string),
             'dns_server_ips': (_hyops_stub_domains_desired.get(_hyops_stub_domain_name, [])),
