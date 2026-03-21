@@ -1,0 +1,57 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/k8s/kube-dns-stub-domain"
+
+metadata:
+  title: "Kube DNS Stub Domain"
+  description: "Configures kube-dns stubDomains for a Kubernetes cluster so selected DNS zones are forwarded to an authoritative resolver."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    inventory_groups:
+      localhost:
+        - name: "localhost"
+          host: "127.0.0.1"
+    target_user: "root"
+    target_port: 22
+    become: false
+    connectivity_check: false
+
+    kubeconfig_path: ""
+    kubeconfig_state_ref: ""
+    kubeconfig_state_env: ""
+
+    namespace: "kube-system"
+    configmap_name: "kube-dns"
+    stub_domain: ""
+    dns_server_ips: []
+    powerdns_state_ref: ""
+    powerdns_state_env: ""
+    kubectl_bin: "kubectl"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/58-kube-dns-stub-domain@v1.0"
+
+dependencies:
+  - module_ref: "platform/gcp/gke-kubeconfig"
+    required: false
+    imports:
+      kubeconfig_path: "kubeconfig_path"
+
+outputs:
+  publish:
+    - namespace
+    - configmap_name
+    - stub_domain
+    - dns_server_ips
+    - cap.k8s.kube_dns_stub_domain
+
+probes: []
+constraints: []

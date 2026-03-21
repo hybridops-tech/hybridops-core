@@ -1,0 +1,4 @@
+kubeconfig_state_ref: "platform/gcp/gke-kubeconfig#gke_burst_kubeconfig"
+stub_domain: "hyops.internal"
+dns_server_ips:
+  - "10.10.0.12"

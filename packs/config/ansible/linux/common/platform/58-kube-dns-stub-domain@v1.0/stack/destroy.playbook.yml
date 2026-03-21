@@ -1,0 +1,100 @@
+---
+- name: platform/k8s/kube-dns-stub-domain (destroy)
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path | default('') }}"
+    namespace: "{{ namespace | default('kube-system') }}"
+    configmap_name: "{{ configmap_name | default('kube-dns') }}"
+    stub_domain: "{{ stub_domain | default('') }}"
+    kubectl_bin: "{{ kubectl_bin | default('kubectl') }}"
+
+  tasks:
+    - name: Check kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: _hyops_kubeconfig_stat
+
+    - name: Require kubeconfig to exist
+      ansible.builtin.assert:
+        that:
+          - _hyops_kubeconfig_stat.stat.exists
+          - _hyops_kubeconfig_stat.stat.isreg
+        fail_msg: "Resolved kubeconfig_path does not exist: {{ kubeconfig_path }}"
+
+    - name: Read current kube-dns ConfigMap
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ namespace }}"
+          - get
+          - configmap
+          - "{{ configmap_name }}"
+          - -o
+          - json
+      register: _hyops_kube_dns_get
+      changed_when: false
+
+    - name: Parse current kube-dns ConfigMap
+      ansible.builtin.set_fact:
+        _hyops_kube_dns: "{{ _hyops_kube_dns_get.stdout | from_json }}"
+        _hyops_stub_domain_name: "{{ stub_domain | regex_replace('\\.$', '') }}"
+        _hyops_stub_domains_current: >-
+          {{
+            ((((_hyops_kube_dns_get.stdout | from_json).data | default({})).stubDomains | default('') | string | length) > 0)
+            | ternary((((_hyops_kube_dns_get.stdout | from_json).data | default({})).stubDomains | from_json), {})
+          }}
+      changed_when: false
+
+    - name: Build desired stubDomains payload without target domain
+      ansible.builtin.set_fact:
+        _hyops_stub_domains_desired: >-
+          {{
+            dict(((_hyops_stub_domains_current | default({})) | dict2items)
+            | rejectattr('key', 'equalto', _hyops_stub_domain_name))
+          }}
+      changed_when: false
+
+    - name: Render kube-dns patch payload
+      ansible.builtin.set_fact:
+        _hyops_patch_payload: >-
+          {{ {'data': {'stubDomains': (_hyops_stub_domains_desired | to_json)}} | to_json }}
+      changed_when: false
+
+    - name: Remove stubDomain from kube-dns
+      when: (_hyops_stub_domains_current | to_json) != (_hyops_stub_domains_desired | to_json)
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig_path }}"
+          - -n
+          - "{{ namespace }}"
+          - patch
+          - configmap
+          - "{{ configmap_name }}"
+          - --type
+          - merge
+          - -p
+          - "{{ _hyops_patch_payload }}"
+      register: _hyops_kube_dns_patch
+      changed_when: true
+
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'namespace': (namespace | string),
+            'configmap_name': (configmap_name | string),
+            'stub_domain': (_hyops_stub_domain_name | string),
+            'dns_server_ips': (_hyops_stub_domains_desired.get(_hyops_stub_domain_name, [])),
+            'cap.k8s.kube_dns_stub_domain': 'removed'
+          } | to_json }}

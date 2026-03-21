@@ -1081,6 +1081,12 @@ def resolve_powerdns_contract_from_state(
     api_key_env = str(outputs.get("powerdns_api_key_env") or "").strip()
     control_host = str(outputs.get("powerdns_control_host") or outputs.get("powerdns_public_host") or "").strip()
     control_user = str(outputs.get("powerdns_control_user") or "").strip()
+    resolver_host = str(
+        outputs.get("powerdns_target_host")
+        or outputs.get("powerdns_private_host")
+        or outputs.get("powerdns_public_host")
+        or ""
+    ).strip()
 
     current_api_url = str(inputs.get("powerdns_api_url") or "").strip()
     if not current_api_url and api_url:
@@ -1099,6 +1105,10 @@ def resolve_powerdns_contract_from_state(
 
     if not str(inputs.get("powerdns_api_key_env") or "").strip() and api_key_env:
         inputs["powerdns_api_key_env"] = api_key_env
+
+    current_dns_server_ips = inputs.get("dns_server_ips")
+    if (not isinstance(current_dns_server_ips, list) or not current_dns_server_ips) and resolver_host:
+        inputs["dns_server_ips"] = [resolver_host]
 
     provider = str(inputs.get("provider") or "").strip().lower()
     has_inventory_groups = isinstance(inputs.get("inventory_groups"), dict) and bool(inputs.get("inventory_groups"))

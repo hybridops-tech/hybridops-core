@@ -30,7 +30,7 @@ from hyops.validators.org.hetzner import (
     wan_edge_foundation,
 )
 from hyops.validators.platform.azure import container_registry
-from hyops.validators.platform.k8s import longhorn_dr_volume, runtime_bundle_secret
+from hyops.validators.platform.k8s import kube_dns_stub_domain, longhorn_dr_volume, runtime_bundle_secret
 from hyops.validators.platform.network import (
     cloudflare_traffic_steering,
     decision_consumer,
@@ -115,6 +115,7 @@ def register_all() -> None:
     register("platform/onprem/argocd-bootstrap", argocd_bootstrap.validate)
     register("platform/k8s/argocd-bootstrap", argocd_bootstrap.validate)
     register("platform/k8s/runtime-bundle-secret", runtime_bundle_secret.validate)
+    register("platform/k8s/kube-dns-stub-domain", kube_dns_stub_domain.validate)
     register("platform/k8s/longhorn-dr-volume", longhorn_dr_volume.validate)
     register("platform/k8s/gcp-secret-store", gcp_secret_store.validate)
     register("platform/k8s/gsm-bootstrap", gsm_bootstrap.validate)

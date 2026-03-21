@@ -1,0 +1,3 @@
+kubeconfig_state_ref: "platform/gcp/gke-kubeconfig#gke_burst_kubeconfig"
+stub_domain: "hyops.internal"
+powerdns_state_ref: "platform/network/powerdns-authority#onprem_secondary"
