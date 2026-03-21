@@ -1,6 +1,6 @@
 collections:
   - name: hybridops.common
-    version: "0.1.8"
+    version: "0.1.5"
 
   - name: hybridops.helper
     version: "0.1.4"
