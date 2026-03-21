@@ -27,6 +27,7 @@ inputs:
     dns_domain: "hybridops.local"
     dns_lease: "24h"
     host_reconcile_nonce: ""
+    host_static_routes: []
     post_apply_sdn_readiness:
       enabled: true
       required: true

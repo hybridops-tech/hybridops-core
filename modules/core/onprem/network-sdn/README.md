@@ -14,6 +14,13 @@ Default operating model (recommended):
 
 This prevents downstream VM modules from proceeding when SDN partially converged or state drift hides a broken gateway path.
 
+When Proxmox is running in host-routed mode and a separate on-prem edge owns
+cloud or WAN reachability, use `host_static_routes` to teach the Proxmox host
+gateway where those upstream prefixes live. This is the supported pattern for
+site-extension designs where guests still use the Proxmox host as their default
+gateway. For greenfield sites, or when guest default gateways can be migrated
+cleanly, prefer the edge-routed model instead of extending host-routed mode.
+
 By default, `execution.hooks.export_infra.push_to_netbox=true` is enabled (non-strict).
 If NetBox authority is ready and `NETBOX_API_TOKEN` is available, apply exports/syncs the
 IPAM prefix dataset into NetBox. Before NetBox exists, the hook degrades to a warning and
@@ -50,6 +57,15 @@ post_apply_sdn_readiness:
 
 # Break-glass only (default is shared-only enforcement)
 # allow_non_shared_env: true
+
+# Optional host-routed upstream prefixes
+# host_static_routes:
+#   - destination_cidr: "10.72.0.0/20"
+#     next_hop: "10.10.0.20"
+#   - destination_cidr: "10.72.16.0/20"
+#     next_hop: "10.10.0.20"
+#   - destination_cidr: "10.74.0.0/18"
+#     next_hop: "10.10.0.20"
 ```
 
 ### Recovery (host-side SDN drift, same topology)
@@ -74,6 +90,9 @@ gateway/NAT/DHCP reconciliation scripts to re-run without mutating the SDN topol
 - `examples/inputs.typical.yml`: common LAN-style defaults.
 - `examples/inputs.enterprise.yml`: larger/segmented ranges.
 - `examples/inputs.shared.full.yml`: shared site foundation VLAN plan (ADR-0101) plus optional enterprise refinements (`vnetddev`, `vnetdstg`, `vnetdprd` on VLANs `21/31/41`).
+- `host_static_routes`: optional static routes installed on the Proxmox host
+  when `enable_host_l3=true`. Use this when the Proxmox host is the default
+  gateway for guests but a separate on-prem edge owns cloud or WAN prefixes.
 
 ## Outputs
 

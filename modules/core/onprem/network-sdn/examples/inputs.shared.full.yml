@@ -26,6 +26,16 @@ enable_dhcp: true
 dns_domain: "hybridops.local"
 dns_lease: "24h"
 
+# Optional host-routed upstream prefixes. Use this when Proxmox remains the
+# default gateway for guests and a separate on-prem edge owns cloud reachability.
+# host_static_routes:
+#   - destination_cidr: "10.72.0.0/20"
+#     next_hop: "10.10.0.20"
+#   - destination_cidr: "10.72.16.0/20"
+#     next_hop: "10.10.0.20"
+#   - destination_cidr: "10.74.0.0/18"
+#     next_hop: "10.10.0.20"
+
 vnets:
   vnetmgmt:
     vlan_id: 10

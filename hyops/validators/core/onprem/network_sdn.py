@@ -50,6 +50,42 @@ def validate(inputs: dict[str, Any]) -> None:
     _require_non_empty_str(inputs.get("dns_lease"), "inputs.dns_lease")
     if "host_reconcile_nonce" in inputs and not isinstance(inputs.get("host_reconcile_nonce"), str):
         raise ValueError("inputs.host_reconcile_nonce must be a string when set")
+    host_static_routes = inputs.get("host_static_routes") or []
+    if not isinstance(host_static_routes, list):
+        raise ValueError("inputs.host_static_routes must be a list when set")
+    if host_static_routes and inputs.get("enable_host_l3") is False:
+        raise ValueError("inputs.host_static_routes requires inputs.enable_host_l3=true")
+    for idx, route in enumerate(host_static_routes):
+        if not isinstance(route, dict):
+            raise ValueError(f"inputs.host_static_routes[{idx}] must be a mapping")
+        destination_cidr = _require_non_empty_str(
+            route.get("destination_cidr"),
+            f"inputs.host_static_routes[{idx}].destination_cidr",
+        )
+        next_hop = _require_non_empty_str(
+            route.get("next_hop"),
+            f"inputs.host_static_routes[{idx}].next_hop",
+        )
+        try:
+            destination = ipaddress.ip_network(destination_cidr, strict=True)
+        except Exception as exc:
+            raise ValueError(
+                f"inputs.host_static_routes[{idx}].destination_cidr is invalid: {exc}"
+            ) from exc
+        if not isinstance(destination, ipaddress.IPv4Network):
+            raise ValueError(
+                f"inputs.host_static_routes[{idx}].destination_cidr must be IPv4"
+            )
+        try:
+            next_hop_ip = ipaddress.ip_address(next_hop)
+        except Exception as exc:
+            raise ValueError(
+                f"inputs.host_static_routes[{idx}].next_hop is invalid: {exc}"
+            ) from exc
+        if not isinstance(next_hop_ip, ipaddress.IPv4Address):
+            raise ValueError(
+                f"inputs.host_static_routes[{idx}].next_hop must be IPv4"
+            )
 
     post_apply_sdn_readiness = inputs.get("post_apply_sdn_readiness")
     if post_apply_sdn_readiness is not None and not isinstance(post_apply_sdn_readiness, (bool, dict)):

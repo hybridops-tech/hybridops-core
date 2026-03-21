@@ -5,7 +5,8 @@ include "root" {
 
 locals {
   inputs = include.root.inputs
-  module_source = "tfr://registry.terraform.io/hybridops-tech/sdn/proxmox?version=0.1.5"
+  module_source_override = trimspace(get_env("HYOPS_PROXMOX_SDN_MODULE_SOURCE", ""))
+  module_source = local.module_source_override != "" ? local.module_source_override : "tfr://registry.terraform.io/hybridops-tech/sdn/proxmox?version=0.1.5"
 
   # HyOps writes validated + defaulted module inputs to hyops.inputs.json.
   # Keep pack locals as normalization only (no policy/default duplication).
@@ -16,6 +17,7 @@ locals {
   dns_domain = trimspace(tostring(local.inputs.dns_domain))
   dns_lease  = trimspace(tostring(local.inputs.dns_lease))
   host_reconcile_nonce = trimspace(tostring(try(local.inputs.host_reconcile_nonce, "")))
+  host_static_routes = try(local.inputs.host_static_routes, [])
   hyops_executable = trimspace(get_env("HYOPS_EXECUTABLE", "hyops"))
 
   vnets_input = try(local.inputs.vnets, {})
@@ -49,5 +51,6 @@ inputs = {
   dns_domain       = local.dns_domain
   dns_lease        = local.dns_lease
   host_reconcile_nonce = local.host_reconcile_nonce
+  host_static_routes   = local.host_static_routes
   vnets            = local.vnets
 }
