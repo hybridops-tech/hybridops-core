@@ -14,6 +14,7 @@ from hyops.validators.common import (
     check_no_placeholder,
     opt_str,
     require_non_empty_str,
+    require_port,
 )
 from hyops.validators.registry import ModuleValidationError
 
@@ -63,6 +64,20 @@ def _req_cidr_list(inputs: dict[str, Any], key: str) -> list[str]:
             raise ModuleValidationError(f"inputs.{key}[{idx}] must be a valid CIDR") from exc
         out.append(token)
     return out
+
+
+def _opt_port_list(inputs: dict[str, Any], key: str) -> list[int]:
+    value = inputs.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ModuleValidationError(f"inputs.{key} must be a list when set")
+    ports: list[int] = []
+    for idx, item in enumerate(value, start=1):
+        port = require_port(item, f"inputs.{key}[{idx}]")
+        if port not in ports:
+            ports.append(port)
+    return ports
 
 
 def _validate_ssh_keys(inputs: dict[str, Any]) -> None:
@@ -130,6 +145,7 @@ def validate(inputs: dict[str, Any]) -> None:
     _validate_ssh_keys(inputs)
     _req_str(inputs, "firewall_name")
     _req_cidr_list(inputs, "ssh_source_cidrs")
+    _opt_port_list(inputs, "firewall_extra_tcp_ports")
 
     private_ip = _req_str(inputs, "private_ip")
     try:

@@ -69,5 +69,7 @@
             'edge_obs_query_http_port': (edge_obs_query_http_port | default(10902) | int),
             'edge_obs_grafana_http_port': (edge_obs_grafana_http_port | default(3000) | int),
             'edge_obs_alertmanager_http_port': (edge_obs_alertmanager_http_port | default(9093) | int),
+            'edge_obs_public_grafana_host': (edge_obs_public_grafana_host | default('') | string),
+            'edge_obs_public_thanos_host': (edge_obs_public_thanos_host | default('') | string),
             'cap.obs.edge': 'ready'
           } | to_json }}

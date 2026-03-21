@@ -11,6 +11,7 @@ The module creates:
 
 - one `hcloud_server`
 - one SSH-only firewall on the public interface
+- optional extra public TCP firewall rules for controlled service exposure
 - cloud-init to create a stable `opsadmin` automation user
 - first-boot netplan normalization for the Hetzner private NIC using the routed
   cloud-network model (`private_ip/32` plus route to `private_network_cidr`
@@ -25,3 +26,8 @@ hyops validate --env dev --skip-preflight \
   --module org/hetzner/shared-control-host \
   --inputs "$HYOPS_CORE_ROOT/modules/org/hetzner/shared-control-host/examples/inputs.min.yml"
 ```
+
+When a shared control-plane service needs a public front door, use
+`firewall_extra_tcp_ports` to open only the required ports, for example `80`
+and `443` for a reverse proxy. Keep Grafana, Thanos, and similar service ports
+bound to loopback on the host.

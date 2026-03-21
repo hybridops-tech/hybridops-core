@@ -64,6 +64,16 @@ resource "hcloud_firewall" "control" {
     port       = "22"
     source_ips = var.ssh_source_cidrs
   }
+
+  dynamic "rule" {
+    for_each = toset(var.firewall_extra_tcp_ports)
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = tostring(rule.value)
+      source_ips = ["0.0.0.0/0"]
+    }
+  }
 }
 
 resource "hcloud_server" "control" {

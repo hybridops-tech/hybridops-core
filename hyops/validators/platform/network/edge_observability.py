@@ -154,6 +154,7 @@ def validate(inputs: dict[str, Any]) -> None:
         "edge_obs_enable_thanos_sidecar",
         "edge_obs_enable_decision_service_scrape",
         "edge_obs_enable_burst_dashboard",
+        "edge_obs_enable_public_proxy",
     ):
         if not isinstance(data.get(key), bool):
             raise ValueError(f"inputs.{key} must be a boolean")
@@ -166,6 +167,8 @@ def validate(inputs: dict[str, Any]) -> None:
         "edge_obs_prometheus_http_port",
         "edge_obs_blackbox_exporter_http_port",
         "edge_obs_decision_service_metrics_port",
+        "edge_obs_public_http_port",
+        "edge_obs_public_https_port",
     ):
         require_port(data.get(key), f"inputs.{key}")
 
@@ -175,6 +178,15 @@ def validate(inputs: dict[str, Any]) -> None:
     require_non_empty_str(data.get("edge_obs_burst_dashboard_title"), "inputs.edge_obs_burst_dashboard_title")
     require_non_empty_str(data.get("edge_obs_prometheus_retention_time"), "inputs.edge_obs_prometheus_retention_time")
     require_non_empty_str(data.get("edge_obs_prometheus_scrape_interval"), "inputs.edge_obs_prometheus_scrape_interval")
+    if data.get("edge_obs_public_proxy_image") is not None:
+        require_non_empty_str(data.get("edge_obs_public_proxy_image"), "inputs.edge_obs_public_proxy_image")
+    if data.get("edge_obs_public_contact_email") is not None:
+        contact = str(data.get("edge_obs_public_contact_email") or "").strip()
+        if contact and "@" not in contact:
+            raise ValueError("inputs.edge_obs_public_contact_email must look like an email address when set")
+
+    public_grafana_host = str(data.get("edge_obs_public_grafana_host") or "").strip()
+    public_thanos_host = str(data.get("edge_obs_public_thanos_host") or "").strip()
 
     if bool(data.get("edge_obs_enable_blackbox_exporter")) and not bool(data.get("edge_obs_enable_prometheus")):
         raise ValueError("inputs.edge_obs_enable_blackbox_exporter requires inputs.edge_obs_enable_prometheus=true")
@@ -184,6 +196,15 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.edge_obs_enable_decision_service_scrape requires inputs.edge_obs_enable_prometheus=true")
     if bool(data.get("edge_obs_enable_burst_dashboard")) and not bool(data.get("edge_obs_enable_grafana")):
         raise ValueError("inputs.edge_obs_enable_burst_dashboard requires inputs.edge_obs_enable_grafana=true")
+    if bool(data.get("edge_obs_enable_public_proxy")):
+        if not public_grafana_host and not public_thanos_host:
+            raise ValueError("inputs.edge_obs_enable_public_proxy requires inputs.edge_obs_public_grafana_host and/or inputs.edge_obs_public_thanos_host")
+        if public_grafana_host and not bool(data.get("edge_obs_enable_grafana")):
+            raise ValueError("inputs.edge_obs_public_grafana_host requires inputs.edge_obs_enable_grafana=true")
+        if public_thanos_host and not bool(data.get("edge_obs_enable_query")):
+            raise ValueError("inputs.edge_obs_public_thanos_host requires inputs.edge_obs_enable_query=true")
+    elif public_grafana_host or public_thanos_host:
+        raise ValueError("set inputs.edge_obs_enable_public_proxy=true before configuring public Grafana or Thanos hosts")
 
     hashring_required = bool(data.get("edge_obs_enable_receive"))
     _validate_hostport_list(data.get("edge_obs_hashring_endpoints"), "inputs.edge_obs_hashring_endpoints", required=hashring_required)

@@ -11,3 +11,6 @@ edge_obs_objstore_config_env: EDGE_OBS_OBJSTORE_CONFIG
 edge_obs_grafana_admin_password_env: EDGE_OBS_GRAFANA_ADMIN_PASSWORD
 edge_obs_hashring_endpoints:
   - edge01.internal:10907
+edge_obs_enable_public_proxy: true
+edge_obs_public_grafana_host: grafana.example.com
+edge_obs_public_thanos_host: thanos.example.com

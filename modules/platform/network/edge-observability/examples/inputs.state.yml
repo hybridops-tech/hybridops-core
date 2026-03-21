@@ -15,6 +15,9 @@ edge_obs_enable_ruler: false
 edge_obs_enable_prometheus: true
 edge_obs_enable_blackbox_exporter: true
 edge_obs_enable_thanos_sidecar: true
+edge_obs_enable_public_proxy: true
+edge_obs_public_grafana_host: grafana.example.com
+edge_obs_public_thanos_host: thanos.example.com
 edge_obs_prometheus_external_labels:
   hyops_env: demo
   edge_node: control-01

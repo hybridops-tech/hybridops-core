@@ -69,6 +69,11 @@ variable "ssh_source_cidrs" {
   default = ["0.0.0.0/0"]
 }
 
+variable "firewall_extra_tcp_ports" {
+  type    = list(number)
+  default = []
+}
+
 variable "labels" {
   type    = map(string)
   default = {}

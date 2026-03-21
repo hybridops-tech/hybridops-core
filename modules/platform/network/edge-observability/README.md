@@ -64,6 +64,35 @@ This is the intended capture path for the burst showcase because it lets the
 operator show the metric spike, the decision transition, and the traffic-state
 change without switching tools.
 
+## Public DNS-backed access
+
+The module can optionally publish Grafana and Thanos Query behind a small
+reverse proxy on the control host.
+
+This is the preferred demo and operator path because:
+
+- raw service ports stay loopback-only on the host
+- the reverse proxy owns `80` and `443`
+- Cloudflare or another public front door can point stable hostnames at the
+  control host without exposing container ports directly
+
+Relevant inputs:
+
+- `edge_obs_enable_public_proxy`
+- `edge_obs_public_grafana_host`
+- `edge_obs_public_thanos_host`
+- `edge_obs_public_http_port`
+- `edge_obs_public_https_port`
+
+When this is enabled, also open only the required public ports on
+`org/hetzner/shared-control-host`, typically:
+
+```yaml
+firewall_extra_tcp_ports:
+  - 80
+  - 443
+```
+
 ## Required secrets
 
 - Always:
@@ -108,6 +137,8 @@ hyops apply --env <env> \
 
 - Grafana and Alertmanager use non-root container users. The module reconciles
   bind-mounted host paths to the expected service ownership before startup.
+- When the public proxy path is enabled, Grafana and Thanos Query stay bound to
+  loopback and are exposed publicly only through the configured hostnames.
 - If the module reports `ok`, the enabled services are not only started through
   Docker Compose; they have also passed the built-in readiness checks.
 - When the burst dashboard path is enabled, the dashboard JSON and provisioning

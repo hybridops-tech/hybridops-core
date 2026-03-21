@@ -69,6 +69,7 @@ inputs:
     edge_obs_enable_prometheus: false
     edge_obs_enable_blackbox_exporter: false
     edge_obs_enable_thanos_sidecar: false
+    edge_obs_enable_public_proxy: false
 
     edge_obs_receive_remote_write_port: 10907
     edge_obs_query_http_port: 10902
@@ -76,6 +77,8 @@ inputs:
     edge_obs_alertmanager_http_port: 9093
     edge_obs_prometheus_http_port: 9090
     edge_obs_blackbox_exporter_http_port: 9115
+    edge_obs_public_http_port: 80
+    edge_obs_public_https_port: 443
 
     edge_obs_hashring_endpoints: []
     edge_obs_query_upstreams: []
@@ -89,6 +92,10 @@ inputs:
     edge_obs_ruler_rules: ""
     edge_obs_enable_burst_dashboard: false
     edge_obs_burst_dashboard_title: "HybridOps Burst Control"
+    edge_obs_public_proxy_image: "caddy:2.10.2"
+    edge_obs_public_contact_email: ""
+    edge_obs_public_grafana_host: ""
+    edge_obs_public_thanos_host: ""
     edge_obs_grafana_admin_user: "admin"
     edge_obs_grafana_datasource_url: "http://thanos-query:10902"
     edge_obs_alertmanager_config: |
@@ -115,6 +122,8 @@ outputs:
     - edge_obs_grafana_http_port
     - edge_obs_alertmanager_http_port
     - edge_obs_prometheus_http_port
+    - edge_obs_public_grafana_host
+    - edge_obs_public_thanos_host
     - cap.obs.edge
 
 probes: []

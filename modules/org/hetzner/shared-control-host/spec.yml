@@ -38,6 +38,7 @@ inputs:
     firewall_name: "fw-shared-control"
     ssh_source_cidrs:
       - "0.0.0.0/0"
+    firewall_extra_tcp_ports: []
 
     labels: {}
 
