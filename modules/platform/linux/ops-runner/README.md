@@ -14,7 +14,7 @@ When a blueprint composes a VM step plus `platform/linux/ops-runner`, treat the 
 not historical evidence. If the VM is rebuilt or rehomed, rerun the bootstrap step instead of relying on an older
 `status: ok` state record.
 
-Cloud runner blueprints currently standardize on Ubuntu LTS images for the execution host. The on-prem execution-runner path also pins Ubuntu LTS so the VyOS `vyos-vm-images` builder and the runner bootstrap toolchain stay aligned on one validated Linux baseline.
+Cloud runner blueprints standardize on Ubuntu LTS images for the execution host. The on-prem execution-runner path also pins Ubuntu LTS so the VyOS `vyos-vm-images` builder and the runner bootstrap toolchain stay aligned on one validated Linux baseline.
 
 ## Typical use
 
@@ -92,4 +92,4 @@ IAP solves inbound management access only. Private runners still need outbound H
 
 - This module needs a real access path to the runner host. If the runner is private-only, bootstrap from a controller that can reach it, or use an explicit provider access path such as IAP or a bastion.
 - `platform/linux/ops-runner` is the reusable bootstrap layer. The `networking/gcp-ops-runner@v1` blueprint composes VM creation plus runner bootstrap.
-- `runner_sshd_gateway_ports`: when `true`, HyOps manages `/etc/ssh/sshd_config.d/90-hybridops-runner.conf` with `GatewayPorts yes` and `AllowTcpForwarding yes`. Enable this for GCP DMS reverse-SSH source lanes.
+- `runner_sshd_gateway_ports`: when `true`, HybridOps manages `/etc/ssh/sshd_config.d/90-hybridops-runner.conf` with `GatewayPorts yes` and `AllowTcpForwarding yes`. Enable this for GCP DMS reverse-SSH source lanes.

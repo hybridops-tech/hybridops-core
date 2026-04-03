@@ -30,7 +30,7 @@ Configure pgBackRest backups (S3, GCS, or Azure Blob repo) for an existing Patro
 
 ## Execution plane
 
-Use `execution_plane` to declare where HyOps is expected to run from:
+Use `execution_plane` to declare where HybridOps is expected to run from:
 
 - `workstation-direct` (default): operator shell/laptop with direct reachability
 - `runner-local`: shared runner in or near the target environment
@@ -202,7 +202,7 @@ hyops destroy --env <env> \
   --inputs modules/platform/onprem/postgresql-ha-backup/examples/inputs.minio.yml
 ```
 
-Note: destroy currently disables the scheduled cron jobs, but does not attempt to remove archive configuration from a running Patroni cluster. Destroy only requires reachable `postgres_cluster` inventory; it no longer depends on backup backend credentials or an upstream ready state snapshot.
+Note: destroy disables the scheduled cron jobs, but does not attempt to remove archive configuration from a running Patroni cluster. Destroy only requires reachable `postgres_cluster` inventory; it no longer depends on backup backend credentials or an upstream ready state snapshot.
 
 ## Published outputs
 

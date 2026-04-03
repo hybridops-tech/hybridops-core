@@ -19,7 +19,7 @@ This module is infra-only:
 
 ## Usage
 
-Preferred when HyOps already manages the target GCP project in the same env:
+Preferred when HybridOps already manages the target GCP project in the same env:
 
 ```bash
 HYOPS_INPUT_project_state_ref=org/gcp/project-factory \
@@ -49,7 +49,7 @@ hyops apply --env <env> \
 
 For the fallback path, set `project_id` and `bucket_name` in the input file first.
 
-When `project_state_ref` is set, HyOps resolves `project_id` from upstream state and treats it as authoritative for the run. `hyops init gcp` still provides runtime credentials and Terragrunt defaults, but it is not the preferred source of project intent for reusable module composition.
+When `project_state_ref` is set, HybridOps resolves `project_id` from upstream state and treats it as authoritative for the run. `hyops init gcp` still provides runtime credentials and Terragrunt defaults, but it is not the preferred source of project intent for reusable module composition.
 
 Bucket naming guidance:
 
@@ -59,8 +59,8 @@ Bucket naming guidance:
 
 State-slot safety:
 
-- A bucket name is treated as immutable within a given HyOps state slot.
-- If a state slot already points to one bucket, HyOps will refuse to pivot that same slot to a different bucket name.
+- A bucket name is treated as immutable within a given HybridOps state slot.
+- If a state slot already points to one bucket, HybridOps will refuse to pivot that same slot to a different bucket name.
 - To create a second repo, use a new `--state-instance`.
 
 Generate workload credentials out-of-band:

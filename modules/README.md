@@ -40,13 +40,12 @@ validated before execution. For example:
 - `inputs.addressing.mode` must resolve to a supported mode such as `static` or `ipam`
 - `ipam` flows must declare a supported provider such as NetBox and pass preflight checks
 
-## Product direction
+## Framework extensions
 
-The module surface is stable and shipping today. Some framework features are
-still evolving behind that stable surface, including:
+The module surface is stable. The framework extends it over time, including:
 
 - richer constraints
 - broader probe-driven readiness publishing
 - expanded output publishing helpers
 
-Those improvements should extend the module contract, not replace it.
+These additions extend the module contract; they do not replace it.

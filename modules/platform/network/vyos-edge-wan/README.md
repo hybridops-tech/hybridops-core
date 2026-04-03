@@ -25,7 +25,7 @@ Convergence note:
 
 - Cloud VPN/BGP convergence on one edge can lag the other during day-2 reruns.
 - The default post-apply convergence window is intentionally longer than the initial
-  underlay bring-up so HyOps does not report a false failure while the slower leg
+  underlay bring-up so HybridOps does not report a false failure while the slower leg
   finishes re-establishing.
 
 ## Required Secrets
@@ -36,7 +36,7 @@ Convergence note:
   - preferred: `WAN_EDGE_SSH_PRIVATE_KEY` env (transient, module writes/removes temp key on control host), or
   - fallback: key file present on control host at `vyos_ssh_key_file`
 
-For shipped/reusable runs, keep both env keys in `required_env` so HyOps can
+For shipped/reusable runs, keep both env keys in `required_env` so HybridOps can
 reconstruct access from vault without relying on manual controller state. Only
 remove `WAN_EDGE_SSH_PRIVATE_KEY` from `required_env` if you deliberately manage
 `vyos_ssh_key_file` out of band on the control host.

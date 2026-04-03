@@ -16,9 +16,9 @@ See:
 
 Notes:
 
-- `billing_account_id` remains a valid HyOps-friendly alias for the upstream `billing_account` input.
-- HyOps accepts billing account values in either bare form (`01ED84-...`) or Google resource form (`billingAccounts/01ED84-...`) and normalizes them before Terraform runs.
-- If billing is omitted from module inputs, HyOps can default it from the env-scoped GCP init config (`GCP_BILLING_ACCOUNT_ID` in `<root>/config/gcp.conf`).
+- `billing_account_id` remains a valid HybridOps-friendly alias for the upstream `billing_account` input.
+- HybridOps accepts billing account values in either bare form (`01ED84-...`) or Google resource form (`billingAccounts/01ED84-...`) and normalizes them before Terraform runs.
+- If billing is omitted from module inputs, HybridOps can default it from the env-scoped GCP init config (`GCP_BILLING_ACCOUNT_ID` in `<root>/config/gcp.conf`).
 - This defaulting is intended for interactive bootstrap and recovery flows; explicit module inputs still take precedence.
 - `context_id` is a naming token for this module, not the env selector. `--env` selects the runtime lane; `context_id` is used for stable naming and labels.
 - `hyops module init --module org/gcp/project-factory` now prefills `project_id`, `region`, `billing_account_id`, and `context_id` from the current env GCP init context when available, so the generated overlay is ready for editing instead of carrying stale example values.

@@ -31,11 +31,11 @@ Default mode remains non-destructive:
 - `primary_targets`, `secondary_targets`
 - `desired`: `primary` or `secondary`
 - `endpoint_state_ref`: optional upstream service endpoint state reference
-- `endpoint_state_env`: optional alternate HyOps environment to resolve `endpoint_state_ref`
+- `endpoint_state_env`: optional alternate HybridOps environment to resolve `endpoint_state_ref`
 - `endpoint_fqdn_output_key`, `endpoint_target_output_key`: output keys used when resolving endpoint data from state
 - `provider_command`: shell command to execute when `provider=manual-command`.
 - `powerdns_state_ref`: preferred shared PowerDNS authority state reference
-- `powerdns_state_env`: optional alternate HyOps environment to resolve `powerdns_state_ref`
+- `powerdns_state_env`: optional alternate HybridOps environment to resolve `powerdns_state_ref`
 - `powerdns_api_url`, `powerdns_server_id`, `powerdns_zone_id`
 - `powerdns_api_key_env`: env var containing the PowerDNS API key
 - `ssh_private_key_env`: optional env var containing the SSH private key used to reach the PowerDNS control host when the run executes on a shared runner
@@ -46,7 +46,7 @@ When `provider=powerdns-api` and `dns_apply=true`, `required_env` must include t
 When `apply_mode=status`, the module performs a live readback of the current
 PowerDNS rrset and compares it against the desired targets and TTL. This mode:
 
-- currently supports only `provider=powerdns-api`
+- supports `provider=powerdns-api`
 - requires `required_env` to include the env var named by `powerdns_api_key_env`
 - publishes `dns.status=live-ok` only when the live rrset matches the desired
   record, TTL, and targets
@@ -57,7 +57,7 @@ This is the preferred verification step after DNS cutover or failback in DR
 blueprints. It prevents a historical successful cutover state from standing in
 for the current live PowerDNS record.
 
-When `endpoint_state_ref` is set, HyOps resolves:
+When `endpoint_state_ref` is set, HybridOps resolves:
 
 - `record_fqdn` from `outputs.<endpoint_fqdn_output_key>` when omitted
 - `primary_targets` / `secondary_targets` from `outputs.<endpoint_target_output_key>` when omitted

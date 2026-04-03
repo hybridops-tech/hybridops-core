@@ -13,4 +13,4 @@ hyops apply --env dev \
   --inputs modules/platform/linux/eve-ng-healthcheck/examples/inputs.min.yml
 ```
 
-The module publishes a concise HyOps status result while the detailed role output stays on the Ansible side.
+The module publishes a concise HybridOps status result while the detailed role output stays on the Ansible side.

@@ -11,7 +11,7 @@ runner-driven DR and burst execution.
 - Runs a local dispatcher service under `systemd`.
 - Watches the decision record directory written by decision service.
 - Writes normalized dispatch requests under `state/requests/`.
-- Defaults to `record-only`; it does not execute HyOps directly.
+- Defaults to `record-only`; it does not execute HybridOps directly.
 
 ## Runtime model
 

@@ -34,7 +34,7 @@ For burst control and edge decision loops, the module can run a local probe path
 - Blackbox Exporter probes primary and burst origins
 - Prometheus scrapes those probe metrics locally
 - Thanos Sidecar exposes Prometheus data to local Thanos Query
-- Prometheus needs unique external labels for the sidecar; the role derives stable labels from the HyOps env and host name unless you set `edge_obs_prometheus_external_labels` explicitly
+- Prometheus needs unique external labels for the sidecar; the role derives stable labels from the HybridOps env and host name unless you set `edge_obs_prometheus_external_labels` explicitly
 - decision-service can keep using `http://127.0.0.1:10902`
 
 This gives the control plane a fast local signal path even before a broader

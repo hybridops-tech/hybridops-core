@@ -6,7 +6,7 @@ This module is capability-style: it **does not provision a VM**.
 
 For new blueprints, prefer `platform/linux/eve-ng`. `platform/onprem/eve-ng` remains as the compatibility alias for older on-prem overlays and direct host inputs, including the same state-driven inventory contract used by the provider-neutral module.
 
-HyOps validates the target OS during preflight/apply (via SSH) and fails fast if it is not Ubuntu 22.04.
+HybridOps validates the target OS during preflight/apply (via SSH) and fails fast if it is not Ubuntu 22.04.
 Password seeding is part of the module contract: `load_vault_env` defaults to `true`, and preflight fails early if the required EVE passwords are not available from shell env or runtime vault.
 
 Supported targeting patterns:

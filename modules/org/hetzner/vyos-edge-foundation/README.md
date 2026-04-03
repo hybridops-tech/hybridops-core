@@ -15,7 +15,7 @@ Network ownership:
 
 Compatibility:
 
-- `core/hetzner/vyos-image-register` remains supported when the Hetzner custom image is managed outside HyOps.
+- `core/hetzner/vyos-image-register` remains supported when the Hetzner custom image is managed outside HybridOps.
 
 This module intentionally reuses the existing Hetzner VM/network Terraform substrate. It changes the routed-edge product path, not the shared-control host path.
 

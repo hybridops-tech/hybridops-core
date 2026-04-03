@@ -11,7 +11,7 @@ records for later real execution planes.
 - Runs a local executor service under `systemd`.
 - Watches execution records under `/opt/hybridops/decision-consumer/state/executions`.
 - Writes dry-run execution-attempt records under `/opt/hybridops/decision-executor/state/attempts`.
-- Defaults to `dry-run`; it does not invoke HyOps, runners, or CI systems.
+- Defaults to `dry-run`; it does not invoke HybridOps, runners, or CI systems.
 
 ## Runtime model
 

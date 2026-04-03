@@ -17,7 +17,7 @@ hyops apply --env dev \
 - `kubeconfig_path` (required for apply unless imported from state): path to kubeconfig on the controller host.
 - `kubeconfig_state_ref`: optional state ref when a cluster module already publishes the kubeconfig.
 - `install_argocd`: install/upgrade Argo CD manifests before creating root Application.
-  - HyOps applies the upstream install manifest using Kubernetes server-side apply
+  - HybridOps applies the upstream install manifest using Kubernetes server-side apply
     to avoid large CRD `metadata.annotations` limits on newer Argo CD manifests.
 - `argocd_install_force_conflicts`: force server-side apply conflicts during Argo CD
   install/upgrade (default `true`) so reruns can converge after partial client-side applies.
@@ -38,7 +38,7 @@ Default workloads repo URL:
 Use the public workloads repo for customer and baseline deployments.
 
 There is no hidden kubeconfig fallback in this module. For a clean run, provide
-`kubeconfig_path` directly or let HyOps import it from cluster state through
+`kubeconfig_path` directly or let HybridOps import it from cluster state through
 `kubeconfig_state_ref` or a module dependency.
 
 Override `workloads_repo_url` when you intentionally consume a private workloads
@@ -63,7 +63,7 @@ Because `load_vault_env` defaults to `true`, the common path is:
 2. persist it to GSM if needed
 3. let the module resolve it from vault-backed env during apply
 
-If an instance is moved back to `repo_access_mode = public`, HyOps removes the
+If an instance is moved back to `repo_access_mode = public`, HybridOps removes the
 managed Argo CD repository secret referenced by the current `repo_secret_name`
 when that secret was previously created by the same module instance. That keeps
 the instance from leaving a stale private-repo registration behind without
@@ -79,8 +79,8 @@ blindly deleting unrelated repository secrets.
 The shipped public examples use the published workloads repo and a public
 `clusters/<target>` path.
 
-The bundled DR example currently points at `clusters/burst` because the public
-workloads repo does not yet publish a dedicated `clusters/dr` target.
+The bundled DR example uses `clusters/burst` because the public
+workloads repo does not publish a dedicated `clusters/dr` target.
 
 If you consume a private or managed workloads repository, point `workloads_target_path`
 at the managed target defined by that repository.

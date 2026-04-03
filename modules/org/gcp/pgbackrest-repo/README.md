@@ -29,11 +29,11 @@ Legacy aliases are still published: `bucket_name`, `service_account_email`, `gcl
 Creating a service account key in Terraform would store the key material in state and logs.
 
 HybridOps expects operators to generate the key out-of-band (or use an enterprise identity flow),
-then store it into the HyOps runtime vault for DR/CI/bootstrap usage (example env key: `PG_BACKUP_GCS_SA_JSON`).
+then store it into the HybridOps runtime vault for DR/CI/bootstrap usage (example env key: `PG_BACKUP_GCS_SA_JSON`).
 
 ## Example
 
-Preferred when HyOps already manages the target GCP project in the same env:
+Preferred when HybridOps already manages the target GCP project in the same env:
 
 ```bash
 HYOPS_INPUT_project_state_ref=org/gcp/project-factory \
@@ -59,7 +59,7 @@ hyops apply --env dev \
 
 For the fallback path, set `project_id` and `bucket_name` in the input file first.
 
-When `project_state_ref` is set, HyOps resolves `project_id` from upstream state and treats it as authoritative for the run. `hyops init gcp` still provides runtime credentials and Terragrunt defaults, but it is not the preferred source of project intent for reusable module composition.
+When `project_state_ref` is set, HybridOps resolves `project_id` from upstream state and treats it as authoritative for the run. `hyops init gcp` still provides runtime credentials and Terragrunt defaults, but it is not the preferred source of project intent for reusable module composition.
 
 Bucket naming guidance:
 
@@ -69,8 +69,8 @@ Bucket naming guidance:
 
 State-slot safety:
 
-- A bucket name is treated as immutable within a given HyOps state slot.
-- If a state slot already points to one bucket, HyOps will refuse to pivot that same slot to a different bucket name.
+- A bucket name is treated as immutable within a given HybridOps state slot.
+- If a state slot already points to one bucket, HybridOps will refuse to pivot that same slot to a different bucket name.
 - To create a second repo, use a new `--state-instance`.
 
 2. Create a service account key (example using gcloud):

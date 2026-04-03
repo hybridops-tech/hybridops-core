@@ -20,7 +20,7 @@ hyops apply --env dev \
 
 - `target_host` (required): SSH target IP/DNS.
 - `db_state_ref` (recommended): upstream DB module state ref (preferred: `platform/postgresql-ha`).
-- `db_state_env` (optional): HyOps env name to resolve `db_state_ref` from.
+- `db_state_env` (optional): HybridOps env name to resolve `db_state_ref` from.
   Same-env resolution is the default and `shared` is the only normal cross-env authority.
   If you intentionally point at another non-`shared` env for a controlled migration/test, also set `allow_cross_env_state=true`.
 - `db_host`, `db_port`, `db_name`, `db_user` (fallback): external PostgreSQL connection when not using `db_state_ref`.

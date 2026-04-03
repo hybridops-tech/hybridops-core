@@ -8,7 +8,7 @@ cases include:
 
 - SSR or static-site runtime bundles built from a private source tree
 - generated app payloads that need to be mounted into a container at runtime
-- private app artifacts that should be delivered through the same HyOps
+- private app artifacts that should be delivered through the same HybridOps
   execution model as the rest of the platform
 
 What it does:
@@ -28,7 +28,7 @@ Important:
 - this keeps private build logic out of the public workloads repo
 - secrets needed by the workload itself should be managed separately through the
   normal secret-store path
-- HyOps applies the Secret with Kubernetes server-side apply so larger bundle
+- HybridOps applies the Secret with Kubernetes server-side apply so larger bundle
   payloads do not fail on `last-applied-configuration` annotation size limits
 
 Required inputs:

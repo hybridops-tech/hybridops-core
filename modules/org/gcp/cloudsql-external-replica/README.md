@@ -53,10 +53,10 @@ hyops apply --env dev \
 - `managed_target_state_ref`: upstream managed Cloud SQL target state. Default: `org/gcp/cloudsql-postgresql` for `apply_mode=assess`
 - `apply_mode`: `assess`, `establish`, or `status`
 - `replica_state_ref`: optional prior `org/gcp/cloudsql-external-replica#<instance>` state used to resolve status-mode inputs without repeating connection-profile names
-- `replica_state_env`: optional alternate HyOps environment for isolated drills or migrations
+- `replica_state_env`: optional alternate HybridOps environment for isolated drills or migrations
 - `allow_cross_env_state=true` when `replica_state_env` points to a non-`shared` env
 - `required_migration_job_states`: optional list of acceptable DMS job states for `apply_mode=status` checks (for example `["RUNNING"]`)
-- `replication_mode`: currently `logical` only
+- `replication_mode`: `logical` (only supported mode)
 - `endpoint_dns_name`: optional stable DNS name that clients should use after promotion/cutover
 - `gcloud_active_account`: optional expected active `gcloud` account for operator sanity
 
@@ -66,7 +66,7 @@ For `apply_mode=establish`, additional inputs are required:
 - `network_state_ref` or `private_network`
 
 For durable env overlays, prefer the state-driven form first.
-Leave the explicit project and network fields empty unless the lane is intentionally detached from upstream HyOps state.
+Leave the explicit project and network fields empty unless the lane is intentionally detached from upstream HybridOps state.
 - `source_connection_profile_name`
 - `destination_connection_profile_name`
 - `migration_job_name`
@@ -77,7 +77,7 @@ Leave the explicit project and network fields empty unless the lane is intention
 
 TLS contract for the source profile:
 
-- `source_ssl_type: NONE` means HyOps omits the DMS SSL flags entirely
+- `source_ssl_type: NONE` means HybridOps omits the DMS SSL flags entirely
 - `source_ssl_type: REQUIRED` or `SERVER_ONLY` requires `source_ca_certificate_env`
 - `source_ssl_type: SERVER_CLIENT` requires all of:
   - `source_ca_certificate_env`
@@ -89,14 +89,14 @@ For `apply_mode=establish` and `apply_mode=status`, a standalone
 `managed_target_state_ref` is not required because DMS owns the destination
 Cloud SQL lane.
 
-Connectivity modes currently supported:
+Supported connectivity modes:
 
 - `static-ip`
 - `peer-vpc`
 - `reverse-ssh`
 
 For `reverse-ssh`, prefer `reverse_ssh_state_ref=platform/gcp/platform-vm#<runner-instance>`
-so HyOps resolves the bastion VM name and IP from state. Use the explicit
+so HybridOps resolves the bastion VM name and IP from state. Use the explicit
 `reverse_ssh_vm`, `reverse_ssh_vm_ip`, and `reverse_ssh_vm_port` fields only
 when no upstream bastion state exists.
 
@@ -146,7 +146,7 @@ Project service requirement:
 
 `managed_replication_ready_for_cutover=true` means the DMS job is currently `RUNNING`.
 
-When `apply_mode=status` is rerun after the lane has changed state, HyOps now overwrites that status instance with `status=error` if the live DMS job no longer matches the required state. This prevents an older green status snapshot from surviving a failed live refresh.
+When `apply_mode=status` is rerun after the lane has changed state, HybridOps now overwrites that status instance with `status=error` if the live DMS job no longer matches the required state. This prevents an older green status snapshot from surviving a failed live refresh.
 
 Operator rule:
 

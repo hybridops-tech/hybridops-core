@@ -1,6 +1,6 @@
 # core/shared/vyos-image-build
 
-Build one canonical VyOS disk artifact contract for HyOps state. The production path is artifact-first (prebuilt qcow2/raw URL) on a runner resolved from upstream VM state, with local ISO/Packer builds kept as an explicit opt-in path.
+Build one canonical VyOS disk artifact contract for HybridOps state. The production path is artifact-first (prebuilt qcow2/raw URL) on a runner resolved from upstream VM state, with local ISO/Packer builds kept as an explicit opt-in path.
 
 Implementation note:
 
@@ -38,12 +38,12 @@ Inputs:
 - `source_iso_url`: source artifact URL (qcow2/raw preferred; ISO is opt-in)
 - `artifact_local_path`: local build output path, for example `/tmp/vyos-1.5.qcow2`
 - `repo_state_ref`: optional object-repo state used by publish helpers to discover the target bucket/container
-- `required_env`: optional env keys that HyOps must hydrate from the runtime vault or controller environment before build/publish
+- `required_env`: optional env keys that HybridOps must hydrate from the runtime vault or controller environment before build/publish
 - `build_command`: local command that creates `artifact_local_path`
-- `smoke_verify_command`: optional command that validates the built local artifact before publish (when omitted, HyOps derives the packaged default smoke helper from the active `build_command` path so runner-local builds do not resolve controller-only paths)
+- `smoke_verify_command`: optional command that validates the built local artifact before publish (when omitted, HybridOps derives the packaged default smoke helper from the active `build_command` path so runner-local builds do not resolve controller-only paths)
 - `smoke_verify_required`: whether smoke verification is a hard gate (default: `true`)
 - `publish_command`: optional local command that uploads the built artifact
-- `artifact_url`: final downloadable artifact URL; if omitted and `publish_command` is set, HyOps expects the command to print the URL on stdout
+- `artifact_url`: final downloadable artifact URL; if omitted and `publish_command` is set, HybridOps expects the command to print the URL on stdout
 - `allow_iso_build`: optional boolean (default `false`); set `true` only when intentionally using ISO/Packer build flow
 
 Packaged wrapper contract:
@@ -57,16 +57,16 @@ Packaged wrapper contract:
 Runner resolution note:
 
 - this module no longer defaults to a localhost inventory stub
-- when `inventory_state_ref` is set, HyOps resolves `inventory_groups` from upstream state before execution
+- when `inventory_state_ref` is set, HybridOps resolves `inventory_groups` from upstream state before execution
 - keep `inventory_groups` empty unless you are intentionally forcing a fully explicit local/controller execution path
 
 For GCS publishing without `gcloud`/`gsutil`:
 
 - the packaged publish helper supports direct upload to GCS with a service-account JSON
-- declare one of these env keys in `required_env` so HyOps hydrates it before the publish step:
+- declare one of these env keys in `required_env` so HybridOps hydrates it before the publish step:
   - `HYOPS_VYOS_GCS_SA_JSON`
   - `HYOPS_VYOS_GCS_SA_JSON_FILE`
-- the standard HyOps vault-backed path uses `HYOPS_VYOS_GCS_SA_JSON`
+- the standard HybridOps vault-backed path uses `HYOPS_VYOS_GCS_SA_JSON`
 - this keeps the builder path tarball-safe and avoids requiring Google CLI tools on the build runner
 
 For ISO sources (opt-in):
@@ -145,15 +145,15 @@ export HYOPS_VYOS_ISO_BUILD_COMMAND='my-vyos-builder \
 Behavior:
 
 - if `artifact_local_path` already exists and `rebuild_if_exists=false`, the build step is skipped
-- if `build_command` is set and the local artifact is missing, HyOps runs it
-- if `smoke_verify_command` is set, HyOps runs it before publish; by default this is a hard gate (`smoke_verify_required=true`)
-- if `publish_command` is set, HyOps runs it after the local artifact exists
-- if `repo_state_ref` is set, HyOps resolves bucket/container settings from upstream object-repo state before the publish step
-- if `artifact_sha256` is empty and the local artifact exists, HyOps computes it
+- if `build_command` is set and the local artifact is missing, HybridOps runs it
+- if `smoke_verify_command` is set, HybridOps runs it before publish; by default this is a hard gate (`smoke_verify_required=true`)
+- if `publish_command` is set, HybridOps runs it after the local artifact exists
+- if `repo_state_ref` is set, HybridOps resolves bucket/container settings from upstream object-repo state before the publish step
+- if `artifact_sha256` is empty and the local artifact exists, HybridOps computes it
 
 Fresh-user expectation:
 
-- yes, a new HyOps user can build and persist the image through this module path
+- yes, a new HybridOps user can build and persist the image through this module path
 - they still need two explicit prerequisites:
   - a target object repo, for example `org/gcp/object-repo#vyos_artifacts`
   - an upload credential outside Terraform state, for example a GCS service-account key stored as `HYOPS_VYOS_GCS_SA_JSON`

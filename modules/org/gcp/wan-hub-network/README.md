@@ -22,5 +22,5 @@ hyops apply --env <env> \
 Preferred reusable contract:
 
 - set `project_state_ref=org/gcp/project-factory`
-- let HyOps resolve `project_id` from upstream state
+- let HybridOps resolve `project_id` from upstream state
 - use `project_id` only as an explicit override for external or nonstandard projects

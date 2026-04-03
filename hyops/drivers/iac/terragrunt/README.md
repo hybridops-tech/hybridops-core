@@ -91,16 +91,16 @@ Dependency imports are merged after defaults and before operator overrides.
 
 ## Backend Binding Guard (State Slot Sanity)
 
-For Terragrunt-backed modules, HyOps now records backend binding metadata in module state:
+For Terragrunt-backed modules, HybridOps now records backend binding metadata in module state:
 
 - `execution.backend.mode` (`local` or `cloud`)
 - `execution.backend.terraform_cloud.host`
 - `execution.backend.terraform_cloud.org`
 - `execution.backend.terraform_cloud.workspace_name`
-- when a resolved `project_id` changes for a Terraform Cloud-backed GCP lane, HyOps keeps the current derived workspace name and allows a controlled rehome instead of preserving the legacy workspace alias
-- when an older GCP module state did not publish `project_id`, HyOps now infers the prior project from published self links and connection names so project-move drift is still detected early
+- when a resolved `project_id` changes for a Terraform Cloud-backed GCP lane, HybridOps keeps the current derived workspace name and allows a controlled rehome instead of preserving the legacy workspace alias
+- when an older GCP module state did not publish `project_id`, HybridOps now infers the prior project from published self links and connection names so project-move drift is still detected early
 
 On later runs for the same module state slot (same module + `state_instance`), the driver compares the newly derived binding to the prior state and fails fast on mismatch. This prevents accidental cross-namespace writes (for example, `--env dev` state slot drifting to a `shared` Terraform Cloud workspace because `WORKSPACE_PREFIX`, `context_id`, or `TFC_ORG` changed).
 
 Legacy module states without `execution.backend` are allowed once (warning only); the next successful run persists the binding.
-If a prior state slot already uses a Terraform Cloud workspace name from an older naming scheme, HyOps preserves that workspace name when the current derivation is only a compatibility-equivalent form. This covers both the shortened workspace formatter and the known `hybridops-*` to `platform-*` prefix migration, so existing state slots stay bound to the original workspace instead of drifting during naming-policy upgrades.
+If a prior state slot already uses a Terraform Cloud workspace name from an older naming scheme, HybridOps preserves that workspace name when the current derivation is only a compatibility-equivalent form. This covers both the shortened workspace formatter and the known `hybridops-*` to `platform-*` prefix migration, so existing state slots stay bound to the original workspace instead of drifting during naming-policy upgrades.

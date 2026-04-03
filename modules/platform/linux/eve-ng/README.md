@@ -11,7 +11,7 @@ Supported access modes:
 
 For new blueprints, prefer `platform/linux/eve-ng`. The older `platform/onprem/eve-ng` module remains for compatibility with existing inputs.
 
-HyOps now treats password seeding as part of the safe run contract:
+HybridOps now treats password seeding as part of the safe run contract:
 - `load_vault_env` defaults to `true`
 - validate/preflight fail early if `EVENG_ROOT_PASSWORD` and `EVENG_ADMIN_PASSWORD` are not seeded
 - on-prem private targets can use `ssh_proxy_jump_auto: true`, which defers bastion resolution to runtime preflight instead of timing out on direct SSH

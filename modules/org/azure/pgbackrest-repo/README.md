@@ -26,7 +26,7 @@ Azure aliases are also published: `resource_group_name`, `storage_account_name`,
 
 ## Security model
 
-Credentials are generated out-of-band and stored in the HyOps runtime vault.
+Credentials are generated out-of-band and stored in the HybridOps runtime vault.
 
 Recommended flow:
 

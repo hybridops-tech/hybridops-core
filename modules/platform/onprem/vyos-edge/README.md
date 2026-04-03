@@ -16,12 +16,12 @@ It does **not** replace day-2 route policy or tunnel automation yet. The first g
 Use one state slot consistently for this module in each environment. Do not mix:
 - non-instance (`latest`) runs, and
 - `--state-instance` runs
-for the same VM names, or HyOps will block the run to prevent duplicate Proxmox VMs/IP conflicts.
+for the same VM names, or HybridOps will block the run to prevent duplicate Proxmox VMs/IP conflicts.
 
 ## Current boundary
 
 - Use `core/onprem/vyos-template-seed` to seed-or-discover the Proxmox template into state.
-- `core/onprem/vyos-template-import` remains the manual compatibility path when the template is managed entirely outside HyOps.
+- `core/onprem/vyos-template-import` remains the manual compatibility path when the template is managed entirely outside HybridOps.
 - Use this module to create the VyOS VM(s).
 - Put routed-edge policy, BGP, and IPsec composition into a higher-level blueprint.
 
@@ -42,7 +42,7 @@ On the current Proxmox/VyOS template path, the primary NIC enumerates as `eth0` 
 - `ssh_keys_from_init: true` with `ssh_keys_init_target: proxmox` consumes the public key published by `hyops init proxmox`.
 - Set explicit `ssh_keys` or `ssh_public_key` only when you intentionally override that init-discovered key.
 - Placeholder values are rejected, and mixed sources of truth are rejected.
-- HyOps injects the effective key set into VM cloud-init user-data for the configured `ssh_username` (default `vyos`) so key-based access remains deterministic.
+- HybridOps injects the effective key set into VM cloud-init user-data for the configured `ssh_username` (default `vyos`) so key-based access remains deterministic.
 
 ## Outputs
 

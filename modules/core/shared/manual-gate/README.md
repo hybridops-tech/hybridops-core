@@ -6,7 +6,7 @@ This module is intentionally simple:
 
 - no infrastructure is created
 - no external system is mutated
-- HyOps records the declared gate decision in state
+- HybridOps records the declared gate decision in state
 
 Use it when a workflow must stop until an operator confirms that out-of-band safety work is complete, for example:
 
@@ -38,6 +38,6 @@ Example use cases:
 
 This module exists to keep workflows honest:
 
-- HyOps can orchestrate repeatable steps
+- HybridOps can orchestrate repeatable steps
 - but it must not pretend that provider-native promotion, fencing, or executive approval already happened
 

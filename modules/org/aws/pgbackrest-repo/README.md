@@ -26,7 +26,7 @@ Legacy aliases are still published: `bucket_name`, `aws_region`, `iam_user_name`
 
 ## Security model
 
-Access keys are generated out-of-band and stored in the HyOps runtime vault.
+Access keys are generated out-of-band and stored in the HybridOps runtime vault.
 
 Recommended flow:
 

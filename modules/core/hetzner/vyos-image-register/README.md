@@ -1,8 +1,8 @@
 # core/hetzner/vyos-image-register
 
-Register a pre-imported Hetzner custom image or snapshot reference into HyOps state for downstream VyOS edge modules.
+Register a pre-imported Hetzner custom image or snapshot reference into HybridOps state for downstream VyOS edge modules.
 
-Use this when you already have an official VyOS image available in Hetzner and want HyOps to consume it state-first instead of hardcoding the image name or snapshot reference in every edge blueprint.
+Use this when you already have an official VyOS image available in Hetzner and want HybridOps to consume it state-first instead of hardcoding the image name or snapshot reference in every edge blueprint.
 
 Typical usage:
 
@@ -17,7 +17,7 @@ Downstream modules consume:
 - `image_state_ref`
 - `image_key`
 
-and HyOps resolves:
+and HybridOps resolves:
 
 - `image`
 
@@ -26,4 +26,4 @@ without duplicating image references in every blueprint.
 Compatibility note:
 
 - Prefer [`core/hetzner/vyos-image-seed`](/home/user/hybridops-tech/hybridops-core/modules/core/hetzner/vyos-image-seed/README.md) for the default seed-or-skip path.
-- Use this register-only module when the Hetzner custom image is managed outside HyOps and you only want to publish its reference into state.
+- Use this register-only module when the Hetzner custom image is managed outside HybridOps and you only want to publish its reference into state.

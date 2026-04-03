@@ -1,6 +1,6 @@
 # examples/core/hello-world
 
-Minimal module used to validate the HyOps module execution path end-to-end.
+Minimal module used to validate the HybridOps module execution path end-to-end.
 
 ## Usage
 

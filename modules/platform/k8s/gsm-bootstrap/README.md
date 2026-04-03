@@ -52,4 +52,4 @@ The module is fully idempotent. It:
 ## References
 
 - [ADR-0504 – ESO with GCP Secret Manager for On-Prem Platform Workloads](https://docs.hybridops.tech/adr/ADR-0504-eso-gcp-secret-manager-on-prem/)
-- [Runbook – Deploy RKE2 + Workloads (HyOps Blueprint)](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-rke2-workloads/)
+- [Runbook – Deploy RKE2 + Workloads (HybridOps Blueprint)](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-rke2-workloads/)

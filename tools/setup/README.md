@@ -28,11 +28,11 @@ hyops setup all --sudo
 - The public install contract uses the pinned released `hybridops.common`,
   `hybridops.helper`, and `hybridops.app` collections from
   [tools/setup/requirements/ansible.galaxy.yml](./requirements/ansible.galaxy.yml).
-- Temporary internal fallback path:
+- Git-based install path (for iteration or a pinned Git-based flow):
   - `hyops setup ansible --hybridops-source git`
   - `hyops setup ansible --hybridops-source git --hybridops-git-manifest /path/to/manifest.json`
-  - this builds/install pinned `hybridops.common`, `hybridops.helper`, and `hybridops.app` from Git into runtime state
-  - use this for internal iteration, validation, or a pinned Git-based install flow; the primary public install contract remains the released collection set
+  - builds and installs pinned `hybridops.common`, `hybridops.helper`, and `hybridops.app` from Git into runtime state
+  - the primary public install contract remains the released collection set
 - For local source-tree iteration, point `hyops setup` at the checkout you want to use:
   - `hyops setup ansible --root /path/to/hybridops-core --hybridops-source git`
 - Drivers and modules do not install dependencies automatically; they fail fast and instruct which `hyops setup` command to run.

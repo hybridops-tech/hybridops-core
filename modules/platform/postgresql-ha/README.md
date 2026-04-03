@@ -31,7 +31,7 @@ This module supports day-2 config reconcile via Autobase:
 - `inputs.apply_mode=auto` (default): uses `maintenance` when prior module state is `ok`, otherwise `bootstrap`
 
 `inputs.apply_mode=maintenance` assumes at least one Patroni member is already
-running. If every Patroni service on the target inventory is stopped, HyOps now
+running. If every Patroni service on the target inventory is stopped, HybridOps now
 fails fast instead of drifting into a late pglogical or publish-stage error.
 Bring the cluster back first, or rerun with `restore`/`bootstrap` if that is the
 real intended lifecycle.
@@ -64,7 +64,7 @@ This mode is intentionally guarded:
   - `inputs.restore_target_timeline`
   - and optionally `inputs.restore_target_time` for PITR
 - Instead of inspecting pgBackRest manually, you can point restore at a backup-run
-  module state and let HyOps resolve the backup label:
+  module state and let HybridOps resolve the backup label:
   - `inputs.backup_state_ref`
   - `inputs.backup_state_env` (optional)
   - `inputs.allow_cross_env_state=true` when `backup_state_env` points to a non-`shared` env for a controlled drill or migration
@@ -157,7 +157,7 @@ Prefer state-driven inventory:
 
 ## Execution plane
 
-Use `execution_plane` to declare where HyOps is expected to run from:
+Use `execution_plane` to declare where HybridOps is expected to run from:
 
 - `workstation-direct` (default): operator shell/laptop with direct reachability
 - `runner-local`: shared runner in or near the target environment
@@ -173,7 +173,7 @@ Cloud DR blueprints should prefer `execution_plane: runner-local` so preflight a
 - `netdata_install`: optional node-local Netdata install; defaults to `false` so DR/bootstrap is not blocked on monitoring package installs.
 - `pending_restart`: explicit approval for controlled Patroni restart during maintenance when parameters require it.
 - `pglogical_enable`: day-2 managed Cloud SQL source posture. Use only with `apply_mode=maintenance`.
-- `pglogical_databases`: optional list of databases that must have the `pglogical` extension. When omitted, HyOps uses the normalized application contract (for example `netbox`).
+- `pglogical_databases`: optional list of databases that must have the `pglogical` extension. When omitted, HybridOps uses the normalized application contract (for example `netbox`).
 - `patroni_cluster_name`, `postgresql_version`, `postgresql_port`, `dcs_type`, `dcs_exists`.
 
 ## Managed Cloud SQL source posture

@@ -51,7 +51,7 @@ For Shared VPC:
 
 ## Usage
 
-Preferred when HyOps already manages the GCP project and network in the same env:
+Preferred when HybridOps already manages the GCP project and network in the same env:
 
 ```bash
 HYOPS_INPUT_project_state_ref=org/gcp/project-factory \

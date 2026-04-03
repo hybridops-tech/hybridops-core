@@ -1,11 +1,11 @@
 # core/onprem/vyos-template-import
 
-Registers an already imported official VyOS Proxmox template into HyOps state.
+Registers an already imported official VyOS Proxmox template into HybridOps state.
 
 This is the honest first step for the VyOS edge path:
 - import the official VyOS cloud image into Proxmox once
 - convert it to a reusable template
-- publish that template into HyOps state
+- publish that template into HybridOps state
 - let downstream modules consume it by `template_state_ref`
 
 This module does **not** automate the Proxmox image import yet. It exists so the VyOS edge path can be state-first now without pretending the full template-import automation is already finished.

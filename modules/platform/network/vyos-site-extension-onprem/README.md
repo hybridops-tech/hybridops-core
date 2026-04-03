@@ -40,7 +40,7 @@ initiator leaves through the intended WAN path instead of a management/default
 route.
 
 If the downstream on-prem database or application subnet returns traffic through
-an upstream gateway that is outside HyOps control, enable the optional consumer
+an upstream gateway that is outside HybridOps control, enable the optional consumer
 SNAT path:
 
 - `consumer_snat_enabled`
