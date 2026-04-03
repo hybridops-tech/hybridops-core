@@ -1,6 +1,6 @@
 """
 purpose: Validate inputs for platform/k8s/longhorn-dr-volume module.
-maintainer: HybridOps.Studio
+maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
