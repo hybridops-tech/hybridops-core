@@ -8,7 +8,7 @@
 
 ---
 
-| 68 modules | 24 blueprints | 60 decision records | 6 deployment surfaces |
+| 70 modules | 24 blueprints | 60 decision records | 6 deployment surfaces |
 |:---:|:---:|:---:|:---:|
 
 ---
@@ -89,7 +89,7 @@ Every `hyops` command writes a non-secret structured run record:
 ```
 hybridops-core/
 ├── hyops/       # CLI and runtime (drivers, runtime services)
-├── modules/     # 68 module specs (spec.yml, probes, examples)
+├── modules/     # 70 module specs (spec.yml, probes, examples)
 ├── blueprints/  # 24 blueprints for multi-step deployments
 ├── packs/       # versioned execution assets
 ├── tools/       # setup and helper scripts
