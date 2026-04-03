@@ -76,7 +76,8 @@ steps:
       seed_foundation_netbox_wait_s: 120
 
   - id: control_plane_vm
-    module_ref: "platform/onprem/control-node"
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "control_plane_vm"
     action: "deploy"
     phase: "authoritative"
     with_deps: true
@@ -88,6 +89,27 @@ steps:
       requires_authority: "netbox"
       requires_module_state_ok:
         - "platform/onprem/netbox"
+    inputs:
+      require_ipam: true
+      template_state_ref: "core/onprem/template-image"
+      template_key: "ubuntu-24.04"
+      ssh_username: "opsadmin"
+      vm_role: "control-plane"
+      tags:
+        - "platform"
+        - "onprem"
+        - "control-plane"
+        - "critical"
+      addressing:
+        mode: "ipam"
+        ipam:
+          provider: "netbox"
+          network_state_ref: "core/onprem/network-sdn"
+      vms:
+        ctrl-01:
+          role: "control-plane"
+          interfaces:
+            - bridge: "vnetmgmt"
 
   - id: postgres_core_vm
     module_ref: "platform/onprem/postgresql-core"

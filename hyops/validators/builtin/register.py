@@ -52,7 +52,6 @@ from hyops.validators.platform.linux import (
 )
 from hyops.validators.platform.onprem import (
     argocd_bootstrap,
-    control_node,
     eve_ng,
     netbox,
     platform_vm,
@@ -119,7 +118,6 @@ def register_all() -> None:
     register("platform/k8s/longhorn-dr-volume", longhorn_dr_volume.validate)
     register("platform/k8s/gcp-secret-store", gcp_secret_store.validate)
     register("platform/k8s/gsm-bootstrap", gsm_bootstrap.validate)
-    register("platform/onprem/control-node", control_node.validate)
     register("platform/onprem/eve-ng", eve_ng.validate)
     register("platform/onprem/netbox", netbox.validate)
     register("platform/onprem/platform-vm", platform_vm.validate)

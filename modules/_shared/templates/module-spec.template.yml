@@ -22,15 +22,12 @@ inputs:
   # Optional preset catalog for controlled input bundles.
   # Recommended usage: capability modules own the presets; operators usually set only preset_ref.
   # defaults:
-  #   preset_ref: "control-node"
+  #   preset_ref: "small-vm"
   # presets:
-  #   control-node:
-  #     vm_name: "ctrl-01"
-  #     vm_id: 102
-  #     vm_ipv4_cidr: "10.10.0.11/24"
-  #   netbox:
-  #     vm_name: "netbox"
-  #     vm_id: 302
+  #   small-vm:
+  #     cpu_cores: 2
+  #     memory_mb: 4096
+  #     disk_size_gb: 32
   # Optional for modules that support host addressing policy:
   # defaults:
   #   addressing:
