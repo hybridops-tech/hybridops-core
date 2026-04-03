@@ -85,7 +85,7 @@ Safe local template pattern:
 Copy the example to `allowed.csv` only when the current env really needs a
 different GSM naming contract from the shipped default.
 
-The shipped default is intentionally narrow. Private Academy, Moodle, and
+The shipped default is intentionally narrow. Private training, Moodle, and
 external identity-provider rows belong in the env-local override, not in the
 shipped core map.
 
@@ -120,13 +120,13 @@ Example:
 ```bash
 hyops secrets set --env dev \
   --persist gsm \
-  --persist-scope academy \
+  --persist-scope labs \
   --persist-register-gsm-map \
   LEARN_SESSION_SECRET=... \
   ENTITLEMENTS_API_TOKEN=...
 ```
 
-Before HyOps writes any env-local GSM rows, it first validates that the target
+Before HybridOps writes any env-local GSM rows, it first validates that the target
 GCP project can be resolved and that Secret Manager access is actually
 available. If project access fails, the command exits without mutating the
 env-local GSM map.
@@ -149,9 +149,9 @@ env-local convention:
 ```bash
 hyops secrets ensure --env dev \
   --persist gsm \
-  --persist-scope academy \
+  --persist-scope labs \
   --persist-register-gsm-map \
-  --persist-register-gsm-template '{env}-academy-{env_key_slug}' \
+  --persist-register-gsm-template '{env}-labs-{env_key_slug}' \
   LEARN_SESSION_SECRET ENTITLEMENTS_API_TOKEN
 ```
 

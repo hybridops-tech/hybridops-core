@@ -1,6 +1,6 @@
 kubeconfig_path: modules/platform/k8s/longhorn-dr-volume/tests/cluster.kubeconfig
 longhorn_namespace: longhorn-system
-backup_name: academy-moodle-hourly
-restore_volume_name: academy-moodle-restore
+backup_name: moodle-hourly
+restore_volume_name: moodle-restore
 restore_number_of_replicas: 1
 wait_restore_complete: false

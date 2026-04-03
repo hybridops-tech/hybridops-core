@@ -73,7 +73,7 @@ hybridops-core/
 - **Security reports:** [security@hybridops.tech](mailto:security@hybridops.tech) — see [SECURITY.md](.github/SECURITY.md)
 - **Issues:** use the repository issue tracker for bugs and feature requests
 
-This repository is the **community edition**. SME and Enterprise tiers — including full documentation access, Academy training, and guided rollout — are available at [hybridops.tech](https://hybridops.tech).
+This repository is the **community edition**. SME and Enterprise tiers — including full documentation access, operator training, and guided rollout — are available at [hybridops.tech](https://hybridops.tech).
 
 ## License
 

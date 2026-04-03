@@ -5,4 +5,4 @@ ssh_private_key_file: "~/.ssh/id_ed25519"
 eveng_labs_source: "local"
 eveng_labs_local_path: "./labs"
 eveng_lab_folders:
-  - "academy/fabric"
+  - "labs/fabric"
