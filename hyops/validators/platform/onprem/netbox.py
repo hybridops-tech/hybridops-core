@@ -1,7 +1,6 @@
 """hyops.validators.platform.onprem.netbox
 
 purpose: Validate inputs for platform/onprem/netbox module.
-Architecture Decision: ADR-N/A (onprem netbox validator)
 maintainer: HybridOps.Tech
 """
 
@@ -113,7 +112,7 @@ def validate(inputs: dict[str, Any]) -> None:
     superuser_password_env = require_non_empty_str(data.get("superuser_password_env"), "inputs.superuser_password_env")
     api_token_env = require_non_empty_str(data.get("api_token_env"), "inputs.api_token_env")
     if api_token_env != "NETBOX_API_TOKEN":
-        raise ValueError("inputs.api_token_env must be NETBOX_API_TOKEN (standard HyOps NetBox integration contract)")
+        raise ValueError("inputs.api_token_env must be NETBOX_API_TOKEN (standard HybridOps NetBox integration contract)")
 
     missing_required_env = [
         k

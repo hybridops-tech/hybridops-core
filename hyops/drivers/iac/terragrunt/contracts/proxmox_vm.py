@@ -1,6 +1,5 @@
 """
 purpose: Module contract scaffold for on-prem Proxmox VM capability modules.
-Architecture Decision: ADR-N/A (terragrunt proxmox vm contract)
 maintainer: HybridOps.Tech
 """
 
@@ -1279,7 +1278,7 @@ class ProxmoxVmContract(TerragruntModuleContract):
                     "Use one slot consistently (latest or a single state_instance), or destroy the stale slot first.",
                 )
 
-        # Fail fast when a VM consumer targets HyOps SDN bridges (vnet*) but the shared SDN
+        # Fail fast when a VM consumer targets HybridOps SDN bridges (vnet*) but the shared SDN
         # authority is missing/not ready. This applies to both IPAM and static-addressed runs.
         requested_bridges = _collect_requested_bridges(out)
         managed_sdn_bridges = sorted({b for b in requested_bridges if b.lower().startswith("vnet")})
@@ -1325,7 +1324,7 @@ class ProxmoxVmContract(TerragruntModuleContract):
                 return (
                     out,
                     warnings,
-                    "requested HyOps SDN bridge(s) are not present in network_sdn state outputs: "
+                    "requested HybridOps SDN bridge(s) are not present in network_sdn state outputs: "
                     f"[{', '.join(missing_bridges)}]. Known vnets: [{known}]",
                 )
             expected_gateways, gateway_err = _resolve_sdn_expected_gateways(
@@ -1364,7 +1363,7 @@ class ProxmoxVmContract(TerragruntModuleContract):
                         return (
                             out,
                             warnings,
-                            "host-side Proxmox SDN gateway drift detected for requested HyOps bridge(s): "
+                            "host-side Proxmox SDN gateway drift detected for requested HybridOps bridge(s): "
                             + "; ".join(drift)
                             + ". Re-run core/onprem/network-sdn with the same topology inputs and a fresh "
                             + "host_reconcile_nonce, for example: "
@@ -1588,7 +1587,7 @@ class ProxmoxVmContract(TerragruntModuleContract):
                                     out,
                                     warnings,
                                     f"ipam requires inputs.vms[{vm_name}].interfaces (or module-level inputs.interfaces) "
-                                    "so HyOps can map bridge->subnet for allocation",
+                                    "so HybridOps can map bridge->subnet for allocation",
                                 )
                             # module-level interfaces are templates; copy per-VM before allocation.
                             ifaces = copy.deepcopy(module_ifaces_list)
@@ -1607,7 +1606,7 @@ class ProxmoxVmContract(TerragruntModuleContract):
                             out,
                             warnings,
                             "ipam requires inputs.interfaces (single-VM) or inputs.vms.<name>.interfaces (pool) "
-                            "so HyOps can map bridge->subnet for allocation",
+                            "so HybridOps can map bridge->subnet for allocation",
                         )
                     err = apply_ipam_to_interfaces(str(out.get("vm_name") or "vm"), ifaces)
                     if err:

@@ -1,7 +1,6 @@
 """Role smoke test commands.
 
-purpose: Run collection role smoke playbooks through a first-class HyOps workflow.
-Architecture Decision: ADR-N/A (role smoke testing command)
+purpose: Run collection role smoke playbooks through a first-class HybridOps workflow.
 maintainer: HybridOps.Tech
 """
 
@@ -112,7 +111,7 @@ def add_test_subparser(sp: argparse._SubParsersAction) -> None:
     q.add_argument(
         "--inventory-state-ref",
         default=None,
-        help="Resolve inventory from HyOps state (for example: platform/onprem/platform-vm#rke2_vms).",
+        help="Resolve inventory from HybridOps state (for example: platform/onprem/platform-vm#rke2_vms).",
     )
     q.add_argument(
         "--inventory-vm-group",

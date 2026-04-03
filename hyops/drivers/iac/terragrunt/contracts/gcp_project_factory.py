@@ -1,6 +1,5 @@
 """
 purpose: Module contract for org/gcp/project-factory Terragrunt behavior.
-Architecture Decision: ADR-N/A (terragrunt contracts)
 maintainer: HybridOps.Tech
 """
 
@@ -34,7 +33,7 @@ class GcpProjectFactoryContract(TerragruntModuleContract):
         next_inputs = dict(inputs)
         warnings: list[str] = []
 
-        # HyOps-friendly alias: billing_account_id -> billing_account
+        # HybridOps-friendly alias: billing_account_id -> billing_account
         billing_account = normalize_billing_account_id(str(next_inputs.get("billing_account") or "").strip())
         billing_account_id = normalize_billing_account_id(str(next_inputs.get("billing_account_id") or "").strip())
         if not billing_account and not billing_account_id:
@@ -76,7 +75,7 @@ class GcpProjectFactoryContract(TerragruntModuleContract):
                 "For enterprise governance, set one of: inputs.org_id or inputs.folder_id."
             )
 
-        # Keep HyOps naming fields in the runtime inputs file (used by root.hcl to
+        # Keep HybridOps naming fields in the runtime inputs file (used by root.hcl to
         # compute a stable workspace name), but do not require them here.
         _ = str(next_inputs.get("name_prefix") or "").strip()
         _ = str(next_inputs.get("context_id") or "").strip()

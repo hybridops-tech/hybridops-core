@@ -1,7 +1,6 @@
 """Runtime state contract resolution helpers.
 
 purpose: Resolve target/inventory/database/repository contracts from upstream module state.
-Architecture Decision: ADR-N/A (module resolution)
 maintainer: HybridOps
 """
 
@@ -613,7 +612,7 @@ def resolve_inventory_groups_from_state(
         inventory_base_ref, _inventory_instance = split_module_state_ref(inventory_state_ref)
         if inventory_base_ref in _PGHA_STATE_REFS:
             raise ValueError(
-                "inventory_state_ref=platform/postgresql-ha does not yet publish outputs.inventory_groups. "
+                "inventory_state_ref=platform/postgresql-ha does not publish outputs.inventory_groups in this state snapshot. "
                 "Re-apply upstream module 'platform/postgresql-ha' once to refresh its state contract, "
                 "or provide explicit inputs.inventory_groups."
             )

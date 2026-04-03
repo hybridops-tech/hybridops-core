@@ -1,6 +1,5 @@
 """
 purpose: Initialise Hetzner target runtime inputs (HCLOUD token) and readiness.
-Architecture Decision: ADR-N/A
 maintainer: HybridOps.Tech
 """
 
@@ -40,7 +39,7 @@ _TEMPLATE = """# Hetzner init configuration (non-secret)
 #   - Recommended: store HCLOUD_TOKEN in runtime vault:
 #       hyops secrets set --env <env> --from-env HCLOUD_TOKEN
 #   - Or run `hyops init hetzner` interactively; when a vault password source
-#     exists, HyOps will best-effort persist HCLOUD_TOKEN into the runtime vault.
+#     exists, HybridOps will best-effort persist HCLOUD_TOKEN into the runtime vault.
 #
 HCLOUD_API=https://api.hetzner.cloud
 HCLOUD_TFVARS_OUT=

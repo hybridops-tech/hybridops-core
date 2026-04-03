@@ -11,7 +11,7 @@ from hyops.runtime.evidence import EvidenceWriter
 def _iter_ansible_collection_dirs(env: dict[str, str]) -> list[Path]:
     """Return ansible_collections search roots from ANSIBLE_COLLECTIONS_PATH.
 
-    We intentionally operate on the resolved directory list instead of invoking
+    Operates on the resolved directory list instead of invoking
     `ansible-galaxy` so the driver can apply best-effort hotfixes in offline
     environments.
     """
@@ -50,7 +50,7 @@ def _patch_text_remove_patroni_flush_handlers(text: str) -> tuple[str, bool]:
     - PermissionError writing /var/log/patroni/patroni.log
     - Partial DCS initialization and a stuck bootstrap (pg_isready retries)
 
-    HyOps applies this as a best-effort hotfix to improve initial bootstrap UX.
+    HybridOps applies this as a best-effort hotfix to improve initial bootstrap UX.
     """
 
     if "hyops-hotfix:autobase:patroni:remove-flush-handlers" in text:

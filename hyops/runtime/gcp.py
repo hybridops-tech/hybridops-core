@@ -132,7 +132,7 @@ def diagnose_billing_association_permission(
                 (
                     f"ADC lacks {permission} on billingAccounts/{bare_id}. "
                     "Verification of the active gcloud identity was rate-limited by Cloud Billing API quota, "
-                    "so HyOps will still recommend refreshing ADC once before failing hard."
+                    "so HybridOps will still recommend refreshing ADC once before failing hard."
                 ),
                 True,
             )

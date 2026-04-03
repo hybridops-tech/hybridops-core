@@ -1,8 +1,7 @@
 """Backend/workspace binding helpers for Terragrunt driver.
 
 purpose: Persist and validate backend binding to prevent accidental cross-namespace
-Terraform Cloud workspace drift for the same HyOps module state slot.
-Architecture Decision: ADR-N/A (backend binding guard)
+Terraform Cloud workspace drift for the same HybridOps module state slot.
 maintainer: HybridOps.Tech
 """
 
@@ -105,7 +104,7 @@ def allow_backend_binding_rehome(
     """Allow a narrow class of safe backend-binding moves.
 
     When a prior module state publishes project_id and the current resolved
-    inputs target a different project_id, HyOps prefers a fresh Terraform Cloud
+    inputs target a different project_id, HybridOps prefers a fresh Terraform Cloud
     workspace over reusing the old state slot. This protects recovery flows
     where the env root project changes and the old workspace still points at the
     former project.
@@ -220,7 +219,7 @@ def check_backend_binding_drift(
         "Terraform Cloud workspace binding mismatch for module state slot "
         f"{slot}: {mismatch_lines}. "
         "This usually means the derived workspace namespace changed (for example: --env/context_id, "
-        "WORKSPACE_PREFIX/name_prefix, or TFC_ORG). HyOps blocks this to prevent writing a module state slot "
+        "WORKSPACE_PREFIX/name_prefix, or TFC_ORG). HybridOps blocks this to prevent writing a module state slot "
         "to a different Terraform Cloud workspace. "
         "Fix the naming inputs to match the prior run, or set HYOPS_ALLOW_BACKEND_BINDING_DRIFT=1 only for an intentional migration "
         "and then import/reconcile resources before continuing."

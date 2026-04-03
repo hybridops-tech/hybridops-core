@@ -154,7 +154,7 @@ def validate(inputs: dict[str, Any]) -> None:
     ):
         raise ModuleValidationError(
             "inputs.seed_wrapper_public_base_url is required when inputs.image_source_url points to a qcow2 artifact "
-            "and HyOps is expected to auto-wrap it for Hetzner. Set a publicly reachable base URL for the execution host, "
+            "and HybridOps is expected to auto-wrap it for Hetzner. Set a publicly reachable base URL for the execution host, "
             "or provide inputs.seed_command explicitly."
         )
 

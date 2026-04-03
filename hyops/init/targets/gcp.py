@@ -1,6 +1,5 @@
 """
 purpose: Initialise GCP target runtime inputs using ADC + service account impersonation.
-Architecture Decision: ADR-N/A
 maintainer: HybridOps.Tech
 """
 
@@ -47,7 +46,7 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
             "Notes:\n"
             "  - Shared flags live on `hyops init` (e.g. --root, --out-dir, --config, --dry-run).\n"
             "  - Required steady-state config keys: GCP_PROJECT_ID, GCP_REGION.\n"
-            "  - With --with-cli-login, HyOps can derive them from gcloud defaults or prompt interactively.\n"
+            "  - With --with-cli-login, HybridOps can derive them from gcloud defaults or prompt interactively.\n"
             "  - Optional: GCP_BILLING_ACCOUNT_ID (used by org/gcp/project-factory when creating new projects).\n"
             "  - Optional: GCP_TERRAFORM_SA_EMAIL (recommended for steady-state; can be derived from project-factory state).\n"
         ),
@@ -1194,7 +1193,7 @@ def _write_config_template(path: Path) -> None:
         "# Optional: billing account id for org/gcp/project-factory when creating new projects.\n"
         "GCP_BILLING_ACCOUNT_ID=\n"
         "# Optional (recommended): Terraform runtime SA email (impersonation target).\n"
-        "# If omitted, HyOps can derive it from org/gcp/project-factory state after apply.\n"
+        "# If omitted, HybridOps can derive it from org/gcp/project-factory state after apply.\n"
         "GCP_TERRAFORM_SA_EMAIL=\n"
         "GCP_ADC_QUOTA_PROJECT_ID=\n"
         "# Optional non-secret public key persisted into gcp.ready.json for GCE runner/VM bootstrap.\n"

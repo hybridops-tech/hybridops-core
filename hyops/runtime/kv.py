@@ -1,7 +1,6 @@
 """Simple KEY=VALUE config parsing.
 
-purpose: Shared parser for HyOps init/runtime config files.
-Architecture Decision: ADR-N/A
+purpose: Shared parser for HybridOps init/runtime config files.
 maintainer: HybridOps.Tech
 """
 
