@@ -1,16 +1,17 @@
 """
 purpose: Packer image driver for HybridOps.Core.
-Architecture Decision: ADR-N/A (images packer driver)
 maintainer: HybridOps.Tech
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from hyops.runtime.credentials import (
     apply_runtime_credential_env,
@@ -21,7 +22,7 @@ from hyops.runtime.credentials import (
 from hyops.runtime.evidence import EvidenceWriter
 from hyops.runtime.packs import resolve_pack_stack
 from hyops.runtime.provider_bootstrap import gcp_bootstrap_guard_message
-from hyops.runtime.proc import run_capture_stream
+from hyops.runtime.proc import run as _run_proc, run_capture_stream
 from hyops.runtime.coerce import as_bool, as_non_negative_int, as_positive_int
 from .proxmox_api import (
     proxmox_agent_get_osinfo as _proxmox_agent_get_osinfo,
@@ -82,6 +83,86 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
+
+
+def _local_ipv4_addresses() -> set[str]:
+    r = _run_proc(["ip", "-4", "-o", "addr", "show", "scope", "global"], timeout_s=5)
+    if r.rc != 0:
+        return set()
+    ips: set[str] = set()
+    for raw in (r.stdout or "").splitlines():
+        m = re.search(r"\binet\s+([0-9.]+)/\d+\b", raw)
+        if m:
+            ips.add(m.group(1))
+    return ips
+
+
+def _http_bind_address_is_valid(value: str) -> bool:
+    addr = str(value or "").strip()
+    if not addr:
+        return False
+    if addr == "0.0.0.0":
+        return True
+    return addr in _local_ipv4_addresses()
+
+
+def _parse_proxmox_host(proxmox_url: str) -> str:
+    text = str(proxmox_url or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = urlparse(text)
+    except Exception:
+        return ""
+    return str(parsed.hostname or "").strip()
+
+
+def _detect_workstation_ip(target_host: str) -> str:
+    host = str(target_host or "").strip()
+    if host:
+        r = _run_proc(["ip", "route", "get", host], timeout_s=5)
+        if r.rc == 0:
+            m = re.search(r"\bsrc\s+([0-9.]+)\b", r.stdout or "")
+            if m:
+                return m.group(1)
+
+    r = _run_proc(["hostname", "-I"], timeout_s=5)
+    if r.rc == 0:
+        parts = (r.stdout or "").strip().split()
+        if parts:
+            return parts[0]
+    return ""
+
+
+def _normalize_proxmox_http_bind_address(
+    proxmox_tfvars: dict[str, Any],
+) -> tuple[dict[str, Any], str, str]:
+    out = dict(proxmox_tfvars)
+    configured = str(out.get("http_bind_address") or "").strip()
+    if _http_bind_address_is_valid(configured):
+        return out, "", ""
+
+    proxmox_host = _parse_proxmox_host(str(out.get("proxmox_url") or ""))
+    detected = _detect_workstation_ip(proxmox_host)
+    if not detected:
+        if configured:
+            return (
+                out,
+                "",
+                f"proxmox credentials http_bind_address={configured} is not present on this workstation "
+                "and no replacement workstation IP could be detected",
+            )
+        return out, "", "proxmox credentials missing http_bind_address and no workstation IP could be detected"
+
+    out["http_bind_address"] = detected
+    if configured:
+        return (
+            out,
+            f"proxmox credentials http_bind_address={configured} is not present on this workstation; "
+            f"using detected {detected} for this run",
+            "",
+        )
+    return out, f"proxmox credentials missing http_bind_address; using detected {detected} for this run", ""
 
 
 def _resolve_post_build_smoke_config(inputs: dict[str, Any], template_key: str) -> dict[str, Any]:
@@ -372,6 +453,22 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         or ""
     ).strip()
     proxmox_tfvars = parse_tfvars(Path(proxmox_path_raw).expanduser()) if proxmox_path_raw else {}
+    bind_warning = ""
+    if proxmox_tfvars:
+        proxmox_tfvars, bind_warning, bind_error = _normalize_proxmox_http_bind_address(proxmox_tfvars)
+        if bind_error:
+            env_name = str(runtime.get("env") or "").strip()
+            env_arg = f" --env {env_name}" if env_name else ""
+            return _fail(
+                ev,
+                result,
+                f"{bind_error}; refresh runtime credentials with: hyops init proxmox{env_arg} --no-remote",
+            )
+        if bind_warning:
+            env_name = str(runtime.get("env") or "").strip()
+            env_arg = f" --env {env_name}" if env_name else ""
+            bind_warning = f"{bind_warning}. Refresh runtime credentials with: hyops init proxmox{env_arg} --no-remote"
+            result["warnings"] = list(result.get("warnings") or []) + [bind_warning]
 
     required_tfvars = _resolve_credential_contract(profile, "proxmox")
     if required_tfvars:
