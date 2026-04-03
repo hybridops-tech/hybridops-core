@@ -1,7 +1,6 @@
 """Vault helpers (ansible-vault-backed env file).
 
 purpose: Read and update an ansible-vault encrypted env file in a controlled manner.
-Architecture Decision: ADR-N/A (vault helpers)
 maintainer: HybridOps.Tech
 """
 
@@ -282,7 +281,6 @@ def _render_env(env: Mapping[str, str]) -> str:
 
     lines = [
         "# purpose: HybridOps.Core bootstrap vault env (ansible-vault encrypted)",
-        "# Architecture Decision: ADR-N/A (bootstrap vault env)",
         "# maintainer: HybridOps.Tech",
         "",
     ]

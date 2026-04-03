@@ -1,6 +1,5 @@
 """
 purpose: Init Terraform Cloud token and render Terraform CLI credentials.
-Architecture Decision: ADR-N/A
 maintainer: HybridOps.Tech
 """
 

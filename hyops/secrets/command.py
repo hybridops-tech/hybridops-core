@@ -1,7 +1,6 @@
 """Secrets command.
 
 purpose: Provide core-native secret sync commands for operator workflows.
-Architecture Decision: ADR-N/A (secrets command)
 maintainer: HybridOps.Tech
 """
 

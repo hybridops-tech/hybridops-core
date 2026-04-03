@@ -1,7 +1,6 @@
 """Readiness markers.
 
 purpose: Read/write target readiness markers under the runtime meta directory.
-Architecture Decision: ADR-N/A (readiness markers)
 maintainer: HybridOps.Tech
 """
 

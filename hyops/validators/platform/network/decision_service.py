@@ -1,7 +1,6 @@
 """hyops.validators.platform.network.decision_service
 
 purpose: Validate inputs for platform/network/decision-service module.
-Architecture Decision: ADR-N/A (decision service validator)
 maintainer: HybridOps
 """
 

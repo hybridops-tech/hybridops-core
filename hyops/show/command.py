@@ -1,6 +1,5 @@
 """
 purpose: Read-only state-backed operator views for init, module, and env.
-Architecture Decision: ADR-N/A (show command)
 maintainer: HybridOps.Tech
 """
 

@@ -1,7 +1,6 @@
 """hyops.validators.platform.network.edge_observability
 
 purpose: Validate inputs for platform/network/edge-observability module.
-Architecture Decision: ADR-N/A (edge observability validator)
 maintainer: HybridOps.Tech
 """
 

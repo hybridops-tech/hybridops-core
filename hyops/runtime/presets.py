@@ -1,7 +1,6 @@
 """Preset overlay helpers for module inputs.
 
 purpose: Resolve optional preset-based input overlays before driver execution.
-Architecture Decision: ADR-N/A (preset overlays)
 maintainer: HybridOps.Tech
 """
 

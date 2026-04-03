@@ -1,7 +1,6 @@
 """hyops.validators.platform.network.decision_dispatcher
 
 purpose: Validate inputs for platform/network/decision-dispatcher module.
-Architecture Decision: ADR-N/A (decision dispatcher validator)
 maintainer: HybridOps
 """
 

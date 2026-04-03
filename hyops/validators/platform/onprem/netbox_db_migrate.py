@@ -1,7 +1,6 @@
 """hyops.validators.platform.onprem.netbox_db_migrate
 
 purpose: Validate inputs for platform/onprem/netbox-db-migrate module.
-Architecture Decision: ADR-N/A (netbox db migration validator)
 maintainer: HybridOps.Tech
 """
 

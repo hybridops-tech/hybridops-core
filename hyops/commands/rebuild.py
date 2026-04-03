@@ -1,6 +1,5 @@
 """
 purpose: Rebuild module resources by running preflight, destroy, then apply.
-Architecture Decision: ADR-N/A (rebuild orchestration)
 maintainer: HybridOps.Tech
 """
 

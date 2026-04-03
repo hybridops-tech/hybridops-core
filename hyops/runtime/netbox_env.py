@@ -1,7 +1,6 @@
 """NetBox env hydration helpers.
 
 purpose: Provide shared NETBOX_* env hydration from runtime state/vault.
-Architecture Decision: ADR-N/A (netbox env hydration)
 maintainer: HybridOps.Tech
 """
 

@@ -1,7 +1,6 @@
 """Subprocess runner.
 
 purpose: Run external tools with capture, timeouts, and consistent result envelopes.
-Architecture Decision: ADR-N/A (proc runner)
 maintainer: HybridOps.Tech
 """
 

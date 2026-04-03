@@ -1,6 +1,5 @@
 """
 purpose: Implement `hyops init proxmox` and produce readiness + credentials.
-Architecture Decision: ADR-N/A (init proxmox)
 maintainer: HybridOps.Tech
 """
 
@@ -42,7 +41,6 @@ from hyops.runtime.vault import VaultAuth, has_password_source, merge_set, read_
 
 
 _TEMPLATE = """# purpose: Proxmox init configuration for HybridOps.Core
-# Architecture Decision: ADR-N/A (init proxmox template)
 # maintainer: HybridOps.Tech
 
 [proxmox]
@@ -564,7 +562,6 @@ def _write_tfvars(
     lines = [
         "# <sensitive> Do not commit.",
         "# purpose: Proxmox runtime inputs for infrastructure and image drivers.",
-        "# Architecture Decision: ADR-N/A (credentials output)",
         "# maintainer: HybridOps.Tech",
         "# </sensitive>",
         "",

@@ -1,6 +1,5 @@
 """
 purpose: Validate config/ansible execution schema before driver invocation.
-Architecture Decision: ADR-N/A (config ansible execution schema)
 maintainer: HybridOps.Tech
 """
 

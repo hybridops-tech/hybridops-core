@@ -1,7 +1,6 @@
 """Config helpers.
 
 purpose: Provide consistent template write behaviour and basic validations.
-Architecture Decision: ADR-N/A (config helpers)
 maintainer: HybridOps
 """
 

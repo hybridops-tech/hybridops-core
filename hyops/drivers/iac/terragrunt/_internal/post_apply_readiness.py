@@ -1,6 +1,5 @@
 """
 purpose: Post-apply readiness checks for terragrunt-managed modules.
-Architecture Decision: ADR-N/A (terragrunt post-apply readiness)
 maintainer: HybridOps.Tech
 """
 

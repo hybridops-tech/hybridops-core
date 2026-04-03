@@ -1,7 +1,6 @@
 """Inventory commands.
 
 purpose: Expose inventory helper operations through hyops CLI.
-Architecture Decision: ADR-N/A (inventory command)
 maintainer: HybridOps.Tech
 """
 

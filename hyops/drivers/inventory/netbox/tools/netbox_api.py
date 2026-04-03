@@ -573,7 +573,7 @@ def ensure_cluster(client: NetBoxClient, name: str) -> Dict[str, Any]:
         raise NetBoxConfigError(
             "NetBox cluster not found: "
             f"{name}. Create it in NetBox, set NETBOX_CLUSTER_TYPE_ID, or leave "
-            "NETBOX_CLUSTER_AUTO_CREATE enabled (default) for HyOps auto-create."
+            "NETBOX_CLUSTER_AUTO_CREATE enabled (default) for HybridOps auto-create."
         )
 
     payload: Dict[str, Any] = {"name": name, "type": int(type_id)}
@@ -772,7 +772,7 @@ def reserve_ip(
 ) -> Dict[str, Any]:
     """Reserve an IP address in NetBox.
 
-    This is intended for "allocate then provision" workflows where HyOps wants NetBox
+    This is intended for "allocate then provision" workflows where HybridOps wants NetBox
     to be the concurrency guard before assigning a static IP on the network.
     """
     if client.dry_run:

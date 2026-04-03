@@ -1,7 +1,6 @@
 """Preflight checks.
 
 purpose: Provide small, composable checks for tool presence and runtime readiness.
-Architecture Decision: ADR-N/A (preflight checks)
 maintainer: HybridOps.Tech
 """
 

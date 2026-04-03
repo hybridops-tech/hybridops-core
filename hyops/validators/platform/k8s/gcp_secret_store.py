@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/k8s/gcp-secret-store module.
-Architecture Decision: ADR-N/A (gcp-secret-store validator)
 maintainer: HybridOps
 """
 

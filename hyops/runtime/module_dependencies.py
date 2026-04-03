@@ -1,7 +1,6 @@
 """Module dependency and execution metadata helpers.
 
 purpose: Resolve dependency imports, required credentials, outputs, and execution hooks.
-Architecture Decision: ADR-N/A (module resolution)
 maintainer: HybridOps.Tech
 """
 

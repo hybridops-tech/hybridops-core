@@ -45,7 +45,7 @@ def resolve_blueprint_file(ref: str, file_path: str, blueprints_root: Path) -> P
 
     raise FileNotFoundError(
         f"blueprint file not found under: {base}. "
-        "If the ref is valid in your source checkout, refresh the installed HyOps payload "
+        "If the ref is valid in your source checkout, refresh the installed HybridOps payload "
         "(for example rerun install.sh) or use the repo-local CLI until the install is updated."
     )
 

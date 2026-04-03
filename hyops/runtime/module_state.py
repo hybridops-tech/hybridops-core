@@ -1,6 +1,5 @@
 """
 purpose: Persist and read module state snapshots for dependency wiring.
-Architecture Decision: ADR-N/A (module state)
 maintainer: HybridOps.Tech
 """
 

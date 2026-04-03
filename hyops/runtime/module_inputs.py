@@ -1,7 +1,6 @@
 """Module input helpers.
 
 purpose: Shared low-level input parsing and env override helpers for module resolution.
-Architecture Decision: ADR-N/A (module resolution)
 maintainer: HybridOps.Tech
 """
 

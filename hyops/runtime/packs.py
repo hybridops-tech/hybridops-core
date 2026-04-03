@@ -1,6 +1,5 @@
 """
 purpose: Resolve a pack stack directory from driver_ref + pack_id.
-Architecture Decision: ADR-N/A (pack resolution)
 maintainer: HybridOps.Tech
 """
 

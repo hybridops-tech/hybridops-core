@@ -1,7 +1,6 @@
 """Preflight command.
 
 purpose: Validate prerequisites and readiness markers before running init or modules.
-Architecture Decision: ADR-N/A (preflight)
 maintainer: HybridOps.Tech
 """
 

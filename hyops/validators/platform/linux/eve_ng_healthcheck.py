@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/linux/eve-ng-healthcheck module.
-Architecture Decision: ADR-N/A (linux eve-ng healthcheck validator)
 maintainer: HybridOps.Tech
 """
 

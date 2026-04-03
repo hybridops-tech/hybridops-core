@@ -2,7 +2,6 @@
 """Generate Terragrunt stack aliases.
 
 purpose: Replace legacy shell helper with a core-native stack alias generator.
-Architecture Decision: ADR-N/A (terragrunt stacks aliases)
 maintainer: HybridOps.Tech
 """
 

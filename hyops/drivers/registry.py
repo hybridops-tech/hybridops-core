@@ -1,6 +1,5 @@
 """
 purpose: Driver registry and loading for HybridOps.Core.
-Architecture Decision: ADR-N/A (driver registry)
 maintainer: HybridOps.Tech
 """
 

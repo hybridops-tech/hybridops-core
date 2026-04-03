@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/gcp/gke-kubeconfig module.
-Architecture Decision: ADR-N/A (gke-kubeconfig validator)
 maintainer: HybridOps
 """
 

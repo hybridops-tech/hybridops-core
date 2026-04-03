@@ -1,6 +1,5 @@
 """
 purpose: Packer image driver package.
-Architecture Decision: ADR-N/A (images packer driver)
 maintainer: HybridOps.Tech
 """
 

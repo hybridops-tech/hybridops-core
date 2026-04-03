@@ -1,6 +1,5 @@
 """
 purpose: Provider-aware naming helpers for env-scoped resources.
-Architecture Decision: ADR-N/A (naming policy)
 maintainer: HybridOps.Tech
 """
 

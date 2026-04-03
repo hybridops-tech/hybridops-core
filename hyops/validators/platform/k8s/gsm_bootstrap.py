@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/k8s/gsm-bootstrap module.
-Architecture Decision: ADR-N/A (gsm-bootstrap validator)
 maintainer: HybridOps
 """
 

@@ -1,7 +1,6 @@
 """Exit codes.
 
 purpose: Provide stable, documented exit codes for operator commands.
-Architecture Decision: ADR-N/A (exit codes)
 maintainer: HybridOps.Tech
 """
 

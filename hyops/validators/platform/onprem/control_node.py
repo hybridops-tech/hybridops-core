@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/onprem/control-node module.
-Architecture Decision: ADR-N/A (onprem control-node validator)
 maintainer: HybridOps.Tech
 """
 

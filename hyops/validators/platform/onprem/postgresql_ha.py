@@ -1,7 +1,6 @@
 """hyops.validators.platform.onprem.postgresql_ha
 
 purpose: Validate inputs for the PostgreSQL HA module.
-Architecture Decision: ADR-N/A (onprem postgresql-ha validator)
 maintainer: HybridOps.Tech
 """
 

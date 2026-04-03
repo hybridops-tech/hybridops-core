@@ -1,7 +1,6 @@
 """hyops.validators.platform.onprem.postgresql_core
 
 purpose: Validate inputs for platform/onprem/postgresql-core module.
-Architecture Decision: ADR-N/A (onprem postgresql-core validator)
 maintainer: HybridOps.Tech
 """
 

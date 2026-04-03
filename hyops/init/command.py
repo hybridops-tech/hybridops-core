@@ -1,7 +1,6 @@
 """Init command router.
 
 purpose: Implement `hyops init ...` command family and target dispatch.
-Architecture Decision: ADR-N/A (init command)
 maintainer: HybridOps.Tech
 """
 

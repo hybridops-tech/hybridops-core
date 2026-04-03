@@ -1,7 +1,6 @@
 """Source root helpers.
 
 purpose: Resolve module/blueprint/input paths from cwd or installed HYOPS_CORE_ROOT.
-Architecture Decision: ADR-N/A (path discovery)
 maintainer: HybridOps.Tech
 """
 

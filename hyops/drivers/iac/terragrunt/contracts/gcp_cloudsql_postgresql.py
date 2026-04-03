@@ -1,6 +1,5 @@
 """
 purpose: Module contract for org/gcp/cloudsql-postgresql Terragrunt behavior.
-Architecture Decision: ADR-N/A (terragrunt contracts)
 maintainer: HybridOps.Tech
 """
 

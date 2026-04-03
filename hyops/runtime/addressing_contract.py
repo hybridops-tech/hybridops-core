@@ -1,7 +1,6 @@
 """Addressing contract validation for module inputs.
 
 purpose: Enforce a stable addressing input contract before driver execution.
-Architecture Decision: ADR-N/A (addressing contract)
 maintainer: HybridOps.Tech
 """
 

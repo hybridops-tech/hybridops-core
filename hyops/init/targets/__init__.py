@@ -1,6 +1,5 @@
 """
 purpose: Init targets package export surface.
-Architecture Decision: ADR-N/A
 maintainer: HybridOps.Tech
 """
 

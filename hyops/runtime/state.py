@@ -1,7 +1,6 @@
 """State persistence.
 
 purpose: Read/write small JSON state files atomically (latest.json, readiness markers).
-Architecture Decision: ADR-N/A (state)
 maintainer: HybridOps.Tech
 """
 

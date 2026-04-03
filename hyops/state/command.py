@@ -1,6 +1,5 @@
 """
 purpose: State operations (unlock) routed through module drivers.
-Architecture Decision: ADR-N/A (state command)
 maintainer: HybridOps.Tech
 """
 

@@ -1,6 +1,5 @@
 """
 purpose: Initialise HashiCorp Vault runtime inputs and readiness for external secret sync.
-Architecture Decision: ADR-N/A
 maintainer: HybridOps.Tech
 """
 

@@ -1,7 +1,6 @@
 """hyops.validators.platform.onprem.postgresql_dr_source
 
 purpose: Validate inputs for platform/onprem/postgresql-dr-source module.
-Architecture Decision: ADR-N/A (postgresql dr source validator)
 maintainer: HybridOps.Tech
 """
 

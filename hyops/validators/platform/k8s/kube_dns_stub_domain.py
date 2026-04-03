@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/k8s/kube-dns-stub-domain module.
-Architecture Decision: ADR-N/A (kube-dns stub domain validator)
 maintainer: HybridOps.Tech
 """
 

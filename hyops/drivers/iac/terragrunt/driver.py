@@ -1,6 +1,5 @@
 """
 purpose: Terragrunt driver (iac) for HybridOps.Core.
-Architecture Decision: ADR-N/A (terragrunt driver)
 maintainer: HybridOps.Tech
 """
 

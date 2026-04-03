@@ -1,7 +1,6 @@
 """Init status.
 
 purpose: Show readiness markers under `~/.hybridops/meta`.
-Architecture Decision: ADR-N/A (init status)
 maintainer: HybridOps.Tech
 """
 

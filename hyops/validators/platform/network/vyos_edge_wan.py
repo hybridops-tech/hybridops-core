@@ -1,7 +1,6 @@
 """hyops.validators.platform.network.vyos_edge_wan
 
 purpose: Validate inputs for platform/network/vyos-edge-wan module.
-Architecture Decision: ADR-N/A (vyos edge wan validator)
 maintainer: HybridOps.Tech
 """
 

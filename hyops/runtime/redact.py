@@ -1,7 +1,6 @@
 """Redaction utilities.
 
 purpose: Prevent secret leakage in logs and evidence outputs.
-Architecture Decision: ADR-N/A (redaction)
 maintainer: HybridOps.Tech
 """
 

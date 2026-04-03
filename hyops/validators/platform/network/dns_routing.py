@@ -1,7 +1,6 @@
 """hyops.validators.platform.network.dns_routing
 
 purpose: Validate inputs for platform/network/dns-routing module.
-Architecture Decision: ADR-N/A (dns-routing validator)
 maintainer: HybridOps.Tech
 """
 

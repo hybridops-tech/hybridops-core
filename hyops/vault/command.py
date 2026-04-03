@@ -1,6 +1,5 @@
 # hyops/vault/command.py
 # purpose: Vault helper command family (password provider + bootstrap/status/reset).
-# Architecture Decision: ADR-N/A
 # maintainer: HybridOps.Tech
 
 from __future__ import annotations

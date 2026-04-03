@@ -1,7 +1,6 @@
 """hyops.runtime.terraform_cloud
 
 purpose: Shared Terraform Cloud helpers (config discovery + token discovery).
-Architecture Decision: ADR-N/A (Terraform Cloud runtime integration)
 maintainer: HybridOps.Tech
 """
 

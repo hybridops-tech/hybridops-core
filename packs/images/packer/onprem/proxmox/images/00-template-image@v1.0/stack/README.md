@@ -6,7 +6,7 @@ Templates are selected by `inputs.template_key` from `packer.build.yml`.
 
 Shared `.pkr.hcl` files live in `shared/` and are synced into the selected template directory at runtime by `hyops` (then cleaned up best-effort).
 
-Current migrated keys:
+Supported keys:
 - `ubuntu-22.04`
 - `ubuntu-24.04`
 - `rocky-9`

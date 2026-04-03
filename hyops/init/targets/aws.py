@@ -1,6 +1,5 @@
 """
 purpose: Initialise AWS target runtime inputs (region/profile/credentials tfvars) and readiness.
-Architecture Decision: ADR-N/A
 maintainer: HybridOps.Tech
 """
 

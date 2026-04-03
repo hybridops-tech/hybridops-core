@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/onprem/platform-vm module.
-Architecture Decision: ADR-N/A (onprem platform-vm validator)
 maintainer: HybridOps.Tech
 """
 

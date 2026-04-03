@@ -1,6 +1,5 @@
 """
 purpose: Ansible configuration driver package.
-Architecture Decision: ADR-N/A (config ansible driver)
 maintainer: HybridOps.Tech
 """
 

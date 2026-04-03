@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/gcp/gke-cluster module.
-Architecture Decision: ADR-N/A (gke-cluster validator)
 maintainer: HybridOps
 """
 

@@ -1,7 +1,6 @@
 """Runtime credential discovery and env export helpers.
 
 purpose: Translate runtime credentials files into stable driver env exports.
-Architecture Decision: ADR-N/A (runtime credentials)
 maintainer: HybridOps.Tech
 """
 

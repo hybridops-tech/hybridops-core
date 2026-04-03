@@ -1,6 +1,5 @@
 """
 purpose: Terragrunt module contract registry.
-Architecture Decision: ADR-N/A (terragrunt contracts)
 maintainer: HybridOps.Tech
 """
 

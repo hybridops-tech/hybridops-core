@@ -1,7 +1,6 @@
 """hyops.validators.platform.onprem.argocd_bootstrap
 
 purpose: Validate inputs for platform/onprem/argocd-bootstrap module.
-Architecture Decision: ADR-N/A (onprem argocd-bootstrap validator)
 maintainer: HybridOps.Tech
 """
 

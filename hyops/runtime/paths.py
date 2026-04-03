@@ -2,7 +2,6 @@
 Canonical runtime paths.
 
 purpose: Provide deterministic paths for runtime layout with overrides.
-Architecture Decision: ADR-N/A (runtime paths)
 maintainer: HybridOps.Tech
 """
 

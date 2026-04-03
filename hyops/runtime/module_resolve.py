@@ -1,6 +1,5 @@
 """
 purpose: Resolve module spec and operator-provided inputs into a single request payload.
-Architecture Decision: ADR-N/A (module resolution)
 maintainer: HybridOps.Tech
 """
 

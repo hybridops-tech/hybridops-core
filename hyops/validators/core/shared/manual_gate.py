@@ -1,7 +1,6 @@
 """hyops.validators.core.shared.manual_gate
 
 purpose: Validate inputs for core/shared/manual-gate.
-Architecture Decision: ADR-N/A (shared manual control gate)
 maintainer: HybridOps.Tech
 """
 

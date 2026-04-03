@@ -1,7 +1,6 @@
 """Runtime directory layout.
 
 purpose: Create and validate `~/.hybridops` layout with secure permissions.
-Architecture Decision: ADR-N/A (runtime layout)
 maintainer: HybridOps.Tech
 """
 

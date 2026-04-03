@@ -1,6 +1,5 @@
 """
 purpose: Create deterministic evidence directories and write structured artifacts.
-Architecture Decision: ADR-N/A (evidence services)
 maintainer: HybridOps.Tech
 """
 

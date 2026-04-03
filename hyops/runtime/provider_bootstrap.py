@@ -1,7 +1,6 @@
 """Provider bootstrap guard helpers.
 
 purpose: Guard driver execution when an init target is intentionally in bootstrap-only mode.
-Architecture Decision: ADR-N/A (provider bootstrap guards)
 maintainer: HybridOps
 """
 

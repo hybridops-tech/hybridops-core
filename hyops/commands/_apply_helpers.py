@@ -441,7 +441,7 @@ def assert_safe_gcp_object_repo_slot(
     raise ValueError(
         f"refusing bucket rename for existing state slot {slot_ref}: "
         f"current bucket={existing_bucket!r}, requested bucket={desired_bucket!r}. "
-        "GCS buckets are immutable at this slot in HyOps because rename requires replacement "
+        "GCS buckets are immutable at this slot in HybridOps because rename requires replacement "
         "and the existing repository may contain data. Reuse the current bucket name, destroy "
         "the slot after draining data, or use a new --state-instance for a separate repository."
     )

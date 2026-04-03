@@ -1,7 +1,6 @@
 """hyops.drivers.config.ansible.driver
 
 purpose: Ansible configuration driver for HybridOps.Core.
-Architecture Decision: ADR-N/A (config ansible driver)
 maintainer: HybridOps.Tech
 """
 

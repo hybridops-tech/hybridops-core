@@ -1,6 +1,5 @@
 """
 purpose: Validate Terragrunt driver execution schema before driver invocation.
-Architecture Decision: ADR-N/A (terragrunt execution schema)
 maintainer: HybridOps.Tech
 """
 

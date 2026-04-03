@@ -1,6 +1,5 @@
 """
 purpose: Shared input validation helpers for on-prem Proxmox VM modules.
-Architecture Decision: ADR-N/A (onprem proxmox vm validators)
 maintainer: HybridOps.Tech
 """
 

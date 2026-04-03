@@ -1,7 +1,6 @@
 """Init target: azure.
 
 purpose: Initialise Azure runtime credentials, evidence, and readiness.
-Architecture Decision: ADR-N/A (init azure)
 maintainer: HybridOps.Tech
 """
 
@@ -54,7 +53,7 @@ def _template_for_env(env_name: str) -> str:
     return (
         "# Azure init configuration (non-secret)\n"
         "AZ_LOCATION=uksouth\n"
-        "# IMPORTANT: use a unique AZ_SP_NAME per HyOps env.\n"
+        "# IMPORTANT: use a unique AZ_SP_NAME per HybridOps env.\n"
         "# Rotating the client secret for one env will break other envs that share the same SP.\n"
         f"AZ_SP_NAME={sp}\n"
         "AZ_SUBSCRIPTION_ID=\n"

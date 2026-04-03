@@ -2,7 +2,6 @@
 """Validate Proxmox SDN vnets contract.
 
 purpose: Fail fast on invalid custom SDN topology before Terragrunt driver actions.
-Architecture Decision: ADR-N/A (proxmox sdn contract)
 maintainer: HybridOps.Tech
 """
 

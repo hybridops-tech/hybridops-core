@@ -1,7 +1,6 @@
 """Terraform Cloud commands.
 
 purpose: Expose Terraform Cloud helper operations through hyops CLI.
-Architecture Decision: ADR-N/A (tfc command)
 maintainer: HybridOps.Tech
 """
 

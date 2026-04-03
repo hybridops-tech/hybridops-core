@@ -1,7 +1,6 @@
 """hyops.validators.platform.onprem.rke2_cluster
 
 purpose: Validate inputs for platform/onprem/rke2-cluster module.
-Architecture Decision: ADR-N/A (onprem rke2-cluster validator)
 maintainer: HybridOps.Tech
 """
 

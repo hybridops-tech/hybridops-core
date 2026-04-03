@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/linux/eve-ng-labs module.
-Architecture Decision: ADR-N/A (linux eve-ng labs validator)
 maintainer: HybridOps.Tech
 """
 

@@ -1,6 +1,5 @@
 """
 purpose: Route `hyops` commands to implementation modules.
-Architecture Decision: ADR-N/A (cli router)
 maintainer: HybridOps.Tech
 """
 

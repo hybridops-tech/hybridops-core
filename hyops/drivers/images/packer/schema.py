@@ -1,6 +1,5 @@
 """
 purpose: Validate Packer driver execution schema before driver invocation.
-Architecture Decision: ADR-N/A (packer execution schema)
 maintainer: HybridOps.Tech
 """
 

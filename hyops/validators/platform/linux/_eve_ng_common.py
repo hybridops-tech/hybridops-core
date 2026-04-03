@@ -1,6 +1,5 @@
 """
 purpose: Shared validation helpers for EVE-NG Linux modules.
-Architecture Decision: ADR-N/A (linux eve-ng module contract)
 maintainer: HybridOps.Tech
 """
 

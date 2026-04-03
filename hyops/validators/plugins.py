@@ -6,6 +6,5 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
-# v1: no-op placeholder
 def register_plugins() -> None:
     return

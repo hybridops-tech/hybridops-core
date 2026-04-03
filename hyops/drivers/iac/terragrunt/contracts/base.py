@@ -1,6 +1,5 @@
 """
 purpose: Terragrunt module contract interface for module-specific behavior.
-Architecture Decision: ADR-N/A (terragrunt contracts)
 maintainer: HybridOps.Tech
 """
 

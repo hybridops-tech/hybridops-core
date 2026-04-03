@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/k8s/longhorn-dr-volume module.
-Architecture Decision: ADR-N/A (longhorn-dr-volume validator)
 maintainer: HybridOps.Studio
 """
 

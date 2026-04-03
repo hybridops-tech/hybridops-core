@@ -2,7 +2,6 @@
 """Configure Terraform Cloud workspace execution mode (non-fatal by default).
 
 purpose: Replace legacy shell helper with a core-native tool for workspace policy setup.
-Architecture Decision: ADR-N/A (workspace policy tooling)
 maintainer: HybridOps.Tech
 """
 

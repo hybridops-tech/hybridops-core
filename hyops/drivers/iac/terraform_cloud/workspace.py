@@ -1,7 +1,6 @@
 """Terraform Cloud workspace policy helpers.
 
 purpose: Read Terraform Cloud credentials and enforce workspace execution policy via API.
-Architecture Decision: ADR-N/A (workspace policy)
 maintainer: HybridOps.Tech
 """
 

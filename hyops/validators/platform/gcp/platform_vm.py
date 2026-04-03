@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/gcp/platform-vm module.
-Architecture Decision: ADR-N/A (gcp platform-vm validator)
 maintainer: HybridOps.Tech
 """
 

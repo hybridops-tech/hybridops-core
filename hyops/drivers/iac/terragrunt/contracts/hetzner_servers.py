@@ -1,6 +1,5 @@
 """
 purpose: Live-state skip guards for Hetzner Terragrunt modules.
-Architecture Decision: ADR-N/A (terragrunt contracts)
 maintainer: HybridOps.Tech
 """
 

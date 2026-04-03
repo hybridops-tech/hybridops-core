@@ -1,7 +1,6 @@
 """Common validator primitives.
 
 purpose: Shared low-level validation helpers used by module validators.
-Architecture Decision: ADR-N/A (validator helper consolidation)
 maintainer: HybridOps.Tech
 """
 

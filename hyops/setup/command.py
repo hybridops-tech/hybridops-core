@@ -1,7 +1,6 @@
 """Setup command.
 
 purpose: Run explicit prerequisite installers (system and runtime deps).
-Architecture Decision: ADR-N/A (setup)
 maintainer: HybridOps.Tech
 """
 

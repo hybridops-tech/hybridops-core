@@ -1,7 +1,6 @@
 """Terragrunt helper commands.
 
 purpose: Expose Terragrunt helper tooling through hyops CLI.
-Architecture Decision: ADR-N/A (terragrunt helper commands)
 maintainer: HybridOps.Tech
 """
 

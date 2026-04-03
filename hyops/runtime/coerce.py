@@ -1,7 +1,6 @@
 """hyops.runtime.coerce
 
 purpose: Small, consistent coercion helpers used across drivers/commands.
-Architecture Decision: ADR-N/A
 maintainer: HybridOps.Tech
 """
 

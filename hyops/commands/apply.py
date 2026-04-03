@@ -1,6 +1,5 @@
 """
 purpose: Run module execution lifecycle commands (apply/deploy/plan/validate/destroy/import).
-Architecture Decision: ADR-N/A (module commands)
 maintainer: HybridOps.Tech
 """
 

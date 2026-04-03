@@ -1,7 +1,6 @@
 """Stacks command.
 
 purpose: Expose stack alias management as a stable hyops CLI surface.
-Architecture Decision: ADR-N/A (stacks aliases command)
 maintainer: HybridOps.Tech
 """
 

@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/linux/ops-runner module.
-Architecture Decision: ADR-N/A (ops-runner validator)
 maintainer: HybridOps.Tech
 """
 

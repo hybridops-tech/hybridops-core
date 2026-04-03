@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for core/onprem/template-image module.
-Architecture Decision: ADR-N/A (onprem template-image validator)
 maintainer: HybridOps.Tech
 """
 

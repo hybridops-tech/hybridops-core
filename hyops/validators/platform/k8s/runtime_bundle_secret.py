@@ -1,6 +1,5 @@
 """
 purpose: Validate inputs for platform/k8s/runtime-bundle-secret module.
-Architecture Decision: ADR-N/A (runtime-bundle-secret validator)
 maintainer: HybridOps
 """
 
