@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -24,7 +25,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Ensure Terraform Cloud workspace execution mode.",
     )
     p.add_argument("workspace_name", help="Terraform Cloud workspace name.")
-    p.add_argument("org", nargs="?", default="hybridops-studio", help="Terraform Cloud organization.")
+    p.add_argument("org", nargs="?", default="", help="Terraform Cloud organization.")
     p.add_argument(
         "execution_mode",
         nargs="?",
@@ -79,9 +80,11 @@ def main(argv: list[str] | None = None) -> int:
 
     description = str(args.description or "").strip() or default_workspace_description(args.execution_mode)
 
+    org = str(args.org or "").strip() or str(os.environ.get("TFC_ORG") or "").strip()
+
     result = ensure_workspace_execution_mode(
         host=str(args.host or "app.terraform.io").strip() or "app.terraform.io",
-        org=str(args.org or "").strip(),
+        org=org,
         workspace_name=str(args.workspace_name or "").strip(),
         execution_mode=str(args.execution_mode or "").strip(),
         credentials_file=Path(str(args.credentials_file or "")).expanduser().resolve(),
