@@ -6,7 +6,7 @@ collections:
     version: "0.1.4"
 
   - name: hybridops.app
-    version: "0.1.4"
+    version: "0.1.5"
 
   - name: ansible.posix
     version: "1.6.2"
