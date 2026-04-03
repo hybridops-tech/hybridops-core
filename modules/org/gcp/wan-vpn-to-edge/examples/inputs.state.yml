@@ -1,5 +1,5 @@
 # Preferred state-driven path for durable env overlays.
-# HyOps resolves these from upstream state during preflight/validate/apply:
+# HybridOps resolves these from upstream state during preflight/validate/apply:
 # - project_id and network_self_link from org/gcp/wan-hub-network
 # - router_name from org/gcp/wan-cloud-router
 # - peer_ip_a and peer_ip_b from org/hetzner/vyos-edge-foundation when present

@@ -5,7 +5,7 @@ artifact_key: "vyos-1.5"
 # Required when the shared artifact contract resolves to a private GCS-backed qcow2.
 required_env:
   - "HYOPS_VYOS_GCS_SA_JSON"
-# Leave these empty when consuming a shared artifact contract so HyOps can
+# Leave these empty when consuming a shared artifact contract so HybridOps can
 # version the Hetzner snapshot identity from the upstream artifact state.
 image_version: ""
 image_description: ""

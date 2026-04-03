@@ -1,5 +1,5 @@
 #
-# Preferred when HyOps already manages the GCP project in this env:
+# Preferred when HybridOps already manages the GCP project in this env:
 # project_state_ref: "org/gcp/project-factory"
 #
 # For an external/pre-existing project, leave project_state_ref empty

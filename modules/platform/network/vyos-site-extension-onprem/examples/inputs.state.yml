@@ -29,8 +29,8 @@ static_route_prefixes:
 internal_route_next_hop: 10.10.0.1
 
 # Optional: source-NAT selected cloud-side consumers when the downstream
-# subnet returns through an upstream gateway that is outside HyOps control.
-# Reserve the configured rule range for HyOps-managed site-extension SNAT.
+# subnet returns through an upstream gateway that is outside HybridOps control.
+# Reserve the configured rule range for HybridOps-managed site-extension SNAT.
 consumer_snat_enabled: false
 consumer_snat_rule_base: 4300
 consumer_snat_rule_slots: 16

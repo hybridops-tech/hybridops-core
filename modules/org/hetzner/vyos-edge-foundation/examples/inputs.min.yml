@@ -7,7 +7,7 @@ edge01_name: "edge-a"
 edge02_name: "edge-b"
 ssh_key_name: "hyops-vyos-edge"
 # Optional when ssh_key_name already exists in Hetzner.
-# Required only when HyOps must create the SSH key.
+# Required only when HybridOps must create the SSH key.
 ssh_public_key: ""
 firewall_name: "fw-hyops-vyos-edge"
 floating_ip_name: "fip-hyops-vyos-edge"

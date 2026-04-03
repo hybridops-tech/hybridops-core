@@ -42,7 +42,7 @@ remote-write topology is deployed.
 
 ## Burst dashboard path
 
-For burst-control demos and operator review, the module can also provision a
+For burst-control validation and operator review, the module can also provision a
 Grafana dashboard sourced from the local Thanos Query path.
 
 Relevant inputs:
@@ -60,7 +60,7 @@ When enabled:
 - Grafana provisions a dashboard showing burst pressure, degraded state, probe
   health, latency, and current decision mode
 
-This is the intended capture path for the burst showcase because it lets the
+This is the recommended capture path for burst validation because it lets the
 operator show the metric spike, the decision transition, and the traffic-state
 change without switching tools.
 
@@ -69,7 +69,7 @@ change without switching tools.
 The module can optionally publish Grafana and Thanos Query behind a small
 reverse proxy on the control host.
 
-This is the preferred demo and operator path because:
+This is the preferred operator and review path because:
 
 - raw service ports stay loopback-only on the host
 - the reverse proxy owns `80` and `443`
