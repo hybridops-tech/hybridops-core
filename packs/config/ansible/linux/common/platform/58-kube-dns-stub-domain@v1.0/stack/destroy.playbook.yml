@@ -1,5 +1,5 @@
 ---
-- name: platform/k8s/kube-dns-stub-domain (destroy)
+- name: Platform/k8s/kube-dns-stub-domain (destroy)
   hosts: localhost
   connection: local
   become: false
