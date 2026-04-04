@@ -46,11 +46,6 @@ They package repeatable outcomes, not implementation details.
 - Deploy with explicit runtime root:
   - `hyops blueprint deploy --ref onprem/authoritative-foundation@v1 --blueprints-root blueprints --execute --root /tmp/hyops-runtime`
 
-## Product Packaging Guidance
-- Community: bootstrap and one authoritative expansion blueprint.
-- Pro: curated multi-module chains (WAN/DR/bursting, hardened profiles, probe packs).
-- Consulting: enterprise topology integration and migration blueprints.
-
 ## Shipped Blueprint Boundary
 
 Shipped blueprints must stay neutral and reusable.

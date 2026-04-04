@@ -8,7 +8,7 @@
 
 ---
 
-| 70 modules | 24 blueprints | 60 decision records | 6 deployment surfaces |
+| 70 modules | 24 blueprints | 52 decision records | 6 deployment surfaces |
 |:---:|:---:|:---:|:---:|
 
 ---
@@ -34,7 +34,7 @@ The platform is validated end to end — not just tested in isolation. Every sce
 | **Secret delivery pipeline** | GCP Secret Manager → ESO → Kubernetes Secret on RKE2 and GKE |
 | **Governed network emulation** | EVE-NG as a managed lab platform on GCP (nested virtualisation) or Proxmox |
 
-Walkthroughs, architecture diagrams, and platform-state captures for each scenario: **[docs.hybridops.tech/showcases](https://docs.hybridops.tech/reference-scenarios)** (Reference Scenarios)
+Walkthroughs, architecture diagrams, and platform-state captures for each scenario: **[docs.hybridops.tech/reference-scenarios](https://docs.hybridops.tech/reference-scenarios)**.
 
 ## Quick start
 
@@ -60,7 +60,7 @@ hyops apply --env dev --module org/gcp/project-factory
 Run a full blueprint (ordered multi-step deployment):
 
 ```bash
-hyops blueprint run --env dev --blueprint onprem/rke2@v1
+hyops blueprint deploy --env dev --ref onprem/rke2@v1 --execute
 ```
 
 The runtime root defaults to `~/.hybridops`. Override with `--root <path>` or `$HYOPS_RUNTIME_ROOT`.
@@ -108,12 +108,6 @@ hybridops-core/
 - **Public site:** [hybridops.tech](https://hybridops.tech)
 - **Security reports:** [security@hybridops.tech](mailto:security@hybridops.tech) — see [SECURITY.md](.github/SECURITY.md)
 - **Bugs and feature requests:** use the issue tracker
-
-## Editions
-
-This repository is the **community edition** (MIT-0).
-
-SME and Enterprise tiers — including full documentation access, operator training, and guided rollout — are available at [hybridops.tech](https://hybridops.tech).
 
 ## License
 
