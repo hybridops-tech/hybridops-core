@@ -34,7 +34,7 @@ The platform is validated end to end — not just tested in isolation. Every sce
 | **Secret delivery pipeline** | GCP Secret Manager → ESO → Kubernetes Secret on RKE2 and GKE |
 | **Governed network emulation** | EVE-NG as a managed lab platform on GCP (nested virtualisation) or Proxmox |
 
-Walkthroughs, architecture diagrams, and platform-state captures for each scenario: **[docs.hybridops.tech/showcases](https://docs.hybridops.tech/showcases)** (Reference Scenarios)
+Walkthroughs, architecture diagrams, and platform-state captures for each scenario: **[docs.hybridops.tech/showcases](https://docs.hybridops.tech/reference-scenarios)** (Reference Scenarios)
 
 ## Quick start
 
