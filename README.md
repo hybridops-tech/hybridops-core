@@ -84,19 +84,6 @@ Every `hyops` command writes a non-secret structured run record:
 ~/.hybridops/logs/init/<target>/<run_id>/
 ```
 
-## Repository layout
-
-```
-hybridops-core/
-├── hyops/       # CLI and runtime (drivers, runtime services)
-├── modules/     # 70 module specs (spec.yml, probes, examples)
-├── blueprints/  # 24 blueprints for multi-step deployments
-├── packs/       # versioned execution assets
-├── tools/       # setup and helper scripts
-├── install.sh
-└── pyproject.toml
-```
-
 ## Requirements
 
 - Python ≥ 3.11
