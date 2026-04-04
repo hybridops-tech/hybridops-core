@@ -8,6 +8,8 @@ metadata:
   title: "PostgreSQL Managed DR Standby in GCP (Cloud SQL)"
   description: "Assess the on-prem source contract and establish the managed Cloud SQL external replication lane without cutting application traffic."
   outcome: "A managed standby lane exists in GCP and publishes the same client-facing endpoint contract used by the self-managed PostgreSQL HA lane."
+  notes:
+    - "Shipped source is a scaffold. Copy it into runtime config with `hyops blueprint init` and replace every `CHANGE_ME_*` value before deploy."
 
 policy:
   fail_fast: true
@@ -52,7 +54,7 @@ steps:
       network_state_ref: ""
       private_network: ""
       network_project_id: ""
-      region: "europe-west2"
+      region: "CHANGE_ME_GCP_REGION"
 
       source_connection_profile_name: ""
       destination_connection_profile_name: ""

@@ -8,6 +8,8 @@ metadata:
   title: "PostgreSQL HA Backup to GCP (GCS Object Repo)"
   description: "Provision a GCS object repository and configure pgBackRest backups for an existing on-prem PostgreSQL HA cluster by consuming module state contracts rather than duplicating bucket or host IP details."
   outcome: "The on-prem PostgreSQL HA cluster is wired to a GCS-backed pgBackRest repository and publishes backup readiness outputs."
+  notes:
+    - "Shipped source is a scaffold. Copy it into runtime config with `hyops blueprint init` and replace every `CHANGE_ME_*` value before deploy."
 
 policy:
   fail_fast: true
@@ -31,7 +33,7 @@ steps:
       # Recommended: hyops-<env>-pgbackrest-<suffix>
       # Example: hyops-dev-pgbackrest-a1
       bucket_name: ""
-      location: "EU"
+      location: "CHANGE_ME_GCS_BUCKET_LOCATION"
       storage_class: "STANDARD"
       uniform_bucket_level_access: true
       versioning_enabled: true

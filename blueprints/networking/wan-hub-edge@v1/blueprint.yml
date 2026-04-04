@@ -11,6 +11,7 @@ metadata:
   notes:
     - "VyOS day-2 tunnel/BGP policy is handled outside the legacy Linux platform/network/wan-edge module."
     - "This blueprint excludes the legacy Linux edge role path to keep VyOS deployments deterministic."
+    - "Shipped source is a scaffold. Copy it into runtime config with hyops blueprint init and replace environment values before deploy."
 
 policy:
   fail_fast: true
@@ -78,21 +79,21 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      network_zone: "eu-central"
+      network_zone: "CHANGE_ME_HETZNER_NETWORK_ZONE"
       image_state_ref: "core/hetzner/vyos-image-seed"
       image_key: "vyos-1.5"
       edge01_name: "edge-a"
       edge02_name: "edge-b"
-      ssh_key_name: "hyops-wan-edge"
+      ssh_key_name: "CHANGE_ME_HETZNER_SSH_KEY_NAME"
       # Optional when ssh_key_name already exists in Hetzner.
       # Required only when HyOps must create the SSH key.
       ssh_public_key: ""
-      firewall_name: "fw-hyops-edge"
-      floating_ip_name: "fip-hyops-edge"
-      private_network_name: "net-hyops-edge"
-      private_network_cidr: "10.80.0.0/24"
-      edge01_private_ip: "10.80.0.11"
-      edge02_private_ip: "10.80.0.12"
+      firewall_name: "CHANGE_ME_EDGE_FIREWALL_NAME"
+      floating_ip_name: "CHANGE_ME_EDGE_FLOATING_IP_NAME"
+      private_network_name: "CHANGE_ME_HETZNER_PRIVATE_NETWORK_NAME"
+      private_network_cidr: "CHANGE_ME_HETZNER_PRIVATE_NETWORK_CIDR"
+      edge01_private_ip: "CHANGE_ME_EDGE01_PRIVATE_IP"
+      edge02_private_ip: "CHANGE_ME_EDGE02_PRIVATE_IP"
       assign_floating_to: "edge01"
 
   - id: gcp_wan_hub_network
@@ -105,15 +106,15 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      name_prefix: "platform"
-      context_id: "dev"
-      project_id: "change-me-gcp-project"
-      region: "europe-west2"
+      name_prefix: ""
+      context_id: "CHANGE_ME_CONTEXT_ID"
+      project_id: "CHANGE_ME_GCP_PROJECT_ID"
+      region: "CHANGE_ME_GCP_REGION"
       network_name: "hub"
       subnet_core_name: "hub-core"
-      subnet_core_cidr: "10.70.0.0/20"
+      subnet_core_cidr: "CHANGE_ME_GCP_CORE_SUBNET_CIDR"
       subnet_workloads_name: "hub-workloads"
-      subnet_workloads_cidr: "10.70.16.0/20"
+      subnet_workloads_cidr: "CHANGE_ME_GCP_WORKLOADS_SUBNET_CIDR"
 
   - id: gcp_wan_cloud_router
     module_ref: "org/gcp/wan-cloud-router"
@@ -127,9 +128,9 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      name_prefix: "platform"
-      context_id: "dev"
-      router_name: "hub-router-europe-west2"
+      name_prefix: ""
+      context_id: "CHANGE_ME_CONTEXT_ID"
+      router_name: "CHANGE_ME_GCP_ROUTER_NAME"
       bgp_asn: 64514
 
   - id: gcp_wan_vpn_to_edge
@@ -146,15 +147,15 @@ steps:
     contracts:
       addressing_mode: "static"
     inputs:
-      name_prefix: "platform"
-      context_id: "dev"
-      ha_vpn_gateway_name: "hub-havpn-europe-west2"
-      external_vpn_gateway_name: "edge-extgw"
+      name_prefix: ""
+      context_id: "CHANGE_ME_CONTEXT_ID"
+      ha_vpn_gateway_name: "CHANGE_ME_GCP_HA_VPN_GATEWAY_NAME"
+      external_vpn_gateway_name: "CHANGE_ME_GCP_EXTERNAL_VPN_GATEWAY_NAME"
       peer_asn: 65010
       tunnel_a_inside_cidr: "169.254.10.0/30"
       tunnel_b_inside_cidr: "169.254.10.4/30"
       advertised_prefixes:
-        - "10.70.0.0/20"
+        - "CHANGE_ME_GCP_ADVERTISED_PREFIX"
       advertised_route_priority: 100
       required_env:
         - "WAN_IPSEC_PSK"

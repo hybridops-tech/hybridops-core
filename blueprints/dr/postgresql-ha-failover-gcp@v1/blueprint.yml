@@ -8,6 +8,8 @@ metadata:
   title: "PostgreSQL HA DR Failover to GCP (pgBackRest restore)"
   description: "Provision GCP VMs, then restore a Patroni + etcd PostgreSQL cluster from pgBackRest (S3/GCS) backups. This blueprint does not modify the on-prem primary cluster; it assumes DR conditions and requires explicit restore confirmation."
   outcome: "A new PostgreSQL primary is restored in GCP and publishes standard DB connection outputs."
+  notes:
+    - "Shipped source is a scaffold. Copy it into runtime config with `hyops blueprint init` and replace every `CHANGE_ME_*` value before deploy."
 
 policy:
   fail_fast: true
@@ -49,10 +51,10 @@ steps:
       addressing_mode: "static"
     inputs:
       name_prefix: "platform"
-      context_id: "dev"
+      context_id: "CHANGE_ME_CONTEXT_ID"
       network_state_ref: "org/gcp/wan-hub-network"
       subnetwork_output_key: "subnet_workloads_name"
-      zone: "europe-west2-a"
+      zone: "CHANGE_ME_GCP_ZONE"
       assign_public_ip: false
       ssh_username: "opsadmin"
       ssh_keys_from_init: true

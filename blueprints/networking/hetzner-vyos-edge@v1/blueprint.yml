@@ -8,6 +8,8 @@ metadata:
   title: "Provision Hetzner VyOS Edge"
   description: "Seed or discover a Hetzner VyOS image and provision the routed Hetzner edge pair as the default WAN edge path."
   outcome: "A VyOS-based Hetzner routed edge pair is available for future IPsec/BGP integration."
+  notes:
+    - "Shipped source is a scaffold. Copy it into runtime config with `hyops blueprint init` and replace every `CHANGE_ME_*` value before deploy."
 
 policy:
   fail_fast: true
@@ -86,9 +88,9 @@ steps:
     inputs:
       name_prefix: ""
       context_id: ""
-      network_zone: "eu-central"
-      private_network_name: "net-hyops-vyos-edge"
-      private_network_cidr: "10.80.0.0/24"
+      network_zone: "CHANGE_ME_HETZNER_NETWORK_ZONE"
+      private_network_name: "CHANGE_ME_HETZNER_PRIVATE_NETWORK_NAME"
+      private_network_cidr: "CHANGE_ME_HETZNER_PRIVATE_NETWORK_CIDR"
 
   - id: hetzner_vyos_edge
     module_ref: "org/hetzner/vyos-edge-foundation"
@@ -108,22 +110,22 @@ steps:
       foundation_state_ref: "org/hetzner/shared-private-network#shared_network"
       image_state_ref: "core/hetzner/vyos-image-seed"
       image_key: "vyos-1.5"
-      network_zone: "eu-central"
+      network_zone: "CHANGE_ME_HETZNER_NETWORK_ZONE"
       # Keep location and server type aligned with known-available defaults.
-      location: "ash"
-      home_location: "ash"
+      location: "CHANGE_ME_HETZNER_LOCATION"
+      home_location: "CHANGE_ME_HETZNER_HOME_LOCATION"
       # Use a disk size that fits the seeded VyOS image.
-      server_type: "cpx21"
+      server_type: "CHANGE_ME_HETZNER_SERVER_TYPE"
       edge01_name: "edge-a"
       edge02_name: "edge-b"
-      ssh_key_name: "hyops-vyos-edge-r3"
+      ssh_key_name: "CHANGE_ME_HETZNER_SSH_KEY_NAME"
       # Optional when ssh_key_name already exists in Hetzner.
       # Required only when HyOps must create the SSH key.
       ssh_public_key: ""
-      firewall_name: "fw-hyops-vyos-edge"
-      floating_ip_name: "fip-hyops-vyos-edge"
-      private_network_name: "net-hyops-vyos-edge"
-      private_network_cidr: "10.80.0.0/24"
-      edge01_private_ip: "10.80.0.11"
-      edge02_private_ip: "10.80.0.12"
+      firewall_name: "CHANGE_ME_EDGE_FIREWALL_NAME"
+      floating_ip_name: "CHANGE_ME_EDGE_FLOATING_IP_NAME"
+      private_network_name: "CHANGE_ME_HETZNER_PRIVATE_NETWORK_NAME"
+      private_network_cidr: "CHANGE_ME_HETZNER_PRIVATE_NETWORK_CIDR"
+      edge01_private_ip: "CHANGE_ME_EDGE01_PRIVATE_IP"
+      edge02_private_ip: "CHANGE_ME_EDGE02_PRIVATE_IP"
       assign_floating_to: "edge01"

@@ -12,6 +12,8 @@ metadata:
       module.
     - This blueprint intentionally excludes that legacy module to avoid applying strongSwan/FRR
       logic to VyOS appliances.
+    - Shipped source is a scaffold. Copy it into runtime config with `hyops blueprint init`
+      and replace every `CHANGE_ME_*` value before deploy.
 policy:
   fail_fast: true
   evidence_required: true
@@ -36,8 +38,8 @@ steps:
       connectivity_check: true
       artifact_key: vyos-1.5
       artifact_format: qcow2
-      artifact_version: 2026.03.03-0027-rolling-r3
-      source_iso_url: https://github.com/vyos/vyos-nightly-build/releases/download/2026.03.03-0027-rolling/vyos-2026.03.03-0027-rolling-generic-amd64.iso
+      artifact_version: CHANGE_ME_VYOS_ARTIFACT_VERSION
+      source_iso_url: CHANGE_ME_VYOS_SOURCE_ISO_URL
       artifact_url: ''
       artifact_local_path: /tmp/hyops-vyos-build/vyos-1.5.qcow2
       repo_state_ref: org/gcp/object-repo#vyos_artifacts
@@ -80,11 +82,11 @@ steps:
     contracts:
       addressing_mode: static
     inputs:
-      name_prefix: platform
-      context_id: dev
-      network_zone: eu-central
-      private_network_name: net-hyops-edge
-      private_network_cidr: 10.80.0.0/24
+      name_prefix: ''
+      context_id: ''
+      network_zone: CHANGE_ME_HETZNER_NETWORK_ZONE
+      private_network_name: CHANGE_ME_HETZNER_PRIVATE_NETWORK_NAME
+      private_network_cidr: CHANGE_ME_HETZNER_PRIVATE_NETWORK_CIDR
   - id: hetzner_edge_foundation
     module_ref: org/hetzner/vyos-edge-foundation
     action: deploy
@@ -103,17 +105,17 @@ steps:
       foundation_state_ref: org/hetzner/shared-private-network#shared_network
       image_state_ref: core/hetzner/vyos-image-seed
       image_key: vyos-1.5
-      network_zone: eu-central
+      network_zone: CHANGE_ME_HETZNER_NETWORK_ZONE
       edge01_name: edge-a
       edge02_name: edge-b
-      ssh_key_name: hyops-vyos-edge-r3
+      ssh_key_name: CHANGE_ME_HETZNER_SSH_KEY_NAME
       ssh_public_key: ''
-      firewall_name: fw-hyops-vyos-edge
-      floating_ip_name: fip-hyops-vyos-edge
-      private_network_name: net-hyops-edge
-      private_network_cidr: 10.80.0.0/24
-      edge01_private_ip: 10.80.0.11
-      edge02_private_ip: 10.80.0.12
+      firewall_name: CHANGE_ME_EDGE_FIREWALL_NAME
+      floating_ip_name: CHANGE_ME_EDGE_FLOATING_IP_NAME
+      private_network_name: CHANGE_ME_HETZNER_PRIVATE_NETWORK_NAME
+      private_network_cidr: CHANGE_ME_HETZNER_PRIVATE_NETWORK_CIDR
+      edge01_private_ip: CHANGE_ME_EDGE01_PRIVATE_IP
+      edge02_private_ip: CHANGE_ME_EDGE02_PRIVATE_IP
       assign_floating_to: edge01
   - id: gcp_wan_hub_network
     module_ref: org/gcp/wan-hub-network
@@ -125,21 +127,21 @@ steps:
     contracts:
       addressing_mode: static
     inputs:
-      name_prefix: platform
-      context_id: dev
+      name_prefix: ''
+      context_id: CHANGE_ME_CONTEXT_ID
       project_state_ref: org/gcp/project-factory
-      region: europe-west2
+      region: CHANGE_ME_GCP_REGION
       network_name: hub
       routing_mode: GLOBAL
       subnet_core_name: core
-      subnet_core_cidr: 10.72.0.0/20
+      subnet_core_cidr: CHANGE_ME_GCP_CORE_SUBNET_CIDR
       subnet_workloads_name: workloads
-      subnet_workloads_cidr: 10.72.16.0/20
+      subnet_workloads_cidr: CHANGE_ME_GCP_WORKLOADS_SUBNET_CIDR
       enable_workloads_gke_secondary_ranges: true
       subnet_workloads_pods_secondary_range_name: gke-pods
-      subnet_workloads_pods_secondary_range_cidr: 10.74.0.0/18
+      subnet_workloads_pods_secondary_range_cidr: CHANGE_ME_GCP_PODS_SECONDARY_CIDR
       subnet_workloads_services_secondary_range_name: gke-services
-      subnet_workloads_services_secondary_range_cidr: 10.74.64.0/22
+      subnet_workloads_services_secondary_range_cidr: CHANGE_ME_GCP_SERVICES_SECONDARY_CIDR
       enable_iap_ssh: true
       internal_allow_cidrs:
         - 10.0.0.0/8
@@ -157,9 +159,9 @@ steps:
     contracts:
       addressing_mode: static
     inputs:
-      name_prefix: platform
-      context_id: dev
-      router_name: hub-router-europe-west2
+      name_prefix: ''
+      context_id: CHANGE_ME_CONTEXT_ID
+      router_name: CHANGE_ME_GCP_ROUTER_NAME
       bgp_asn: 64514
   - id: gcp_wan_vpn_to_edge
     module_ref: org/gcp/wan-vpn-to-edge
@@ -174,15 +176,15 @@ steps:
     contracts:
       addressing_mode: static
     inputs:
-      name_prefix: platform
-      context_id: dev
-      ha_vpn_gateway_name: hub-havpn-europe-west2
-      external_vpn_gateway_name: edge-extgw
+      name_prefix: ''
+      context_id: CHANGE_ME_CONTEXT_ID
+      ha_vpn_gateway_name: CHANGE_ME_GCP_HA_VPN_GATEWAY_NAME
+      external_vpn_gateway_name: CHANGE_ME_GCP_EXTERNAL_VPN_GATEWAY_NAME
       peer_asn: 65010
       tunnel_a_inside_cidr: 169.254.10.0/30
       tunnel_b_inside_cidr: 169.254.10.4/30
       advertised_prefixes:
-        - 10.70.0.0/20
+        - CHANGE_ME_GCP_ADVERTISED_PREFIX
       advertised_route_priority: 100
       required_env:
         - WAN_IPSEC_PSK
@@ -202,19 +204,19 @@ steps:
       addressing_mode: static
     inputs:
       foundation_state_ref: org/hetzner/shared-private-network#shared_network
-      name_prefix: platform
-      context_id: dev
-      location: ash
-      server_type: cpx21
+      name_prefix: ''
+      context_id: ''
+      location: CHANGE_ME_HETZNER_LOCATION
+      server_type: CHANGE_ME_HETZNER_SERVER_TYPE
       image: ubuntu-24.04
       host_name: control-01
-      private_ip: 10.80.0.20
+      private_ip: CHANGE_ME_CONTROL_PRIVATE_IP
       ssh_username: opsadmin
       ssh_keys_from_init: true
       public_ipv6_enabled: false
-    firewall_name: fw-shared-control
+    firewall_name: CHANGE_ME_CONTROL_FIREWALL_NAME
     ssh_source_cidrs:
-      - 0.0.0.0/0
+      - CHANGE_ME_OPERATOR_CIDR
     firewall_extra_tcp_ports:
       - 80
       - 443
@@ -286,9 +288,9 @@ steps:
       edge_obs_enable_thanos_sidecar: true
       edge_obs_probe_targets:
         - name: primary
-          url: https://hybridops-tech-site.pages.dev/showcase/burst/
+          url: CHANGE_ME_PRIMARY_PROBE_URL
         - name: burst
-          url: http://34.149.69.218.nip.io/showcase/burst/
+          url: CHANGE_ME_BURST_PROBE_URL
   - id: dns_routing_intent
     module_ref: platform/network/dns-routing
     action: deploy
@@ -337,8 +339,8 @@ steps:
       required_env:
         - CLOUDFLARE_API_TOKEN
       load_vault_env: true
-      thanos_query_url: http://127.0.0.1:10902
-      decision_runtime_root: /opt/hybridops/decision-service/runtime/dev
+      thanos_query_url: CHANGE_ME_THANOS_QUERY_URL
+      decision_runtime_root: CHANGE_ME_DECISION_RUNTIME_ROOT
       decision_action_env_names:
         - CLOUDFLARE_API_TOKEN
       policy:
@@ -374,43 +376,37 @@ steps:
           steering_state: present
           apply_mode: bootstrap
           cloudflare_api_token_env: CLOUDFLARE_API_TOKEN
-          zone_name: hybridops.tech
-          hostname: burst.hybridops.tech
-          route_pattern: burst.hybridops.tech/*
-          worker_name: hyops-burst-web-proxy
-          compatibility_date: "2026-03-19"
+          zone_name: CHANGE_ME_CLOUDFLARE_ZONE_NAME
+          hostname: CHANGE_ME_STEERING_HOSTNAME
+          route_pattern: CHANGE_ME_STEERING_ROUTE_PATTERN
+          worker_name: CHANGE_ME_CLOUDFLARE_WORKER_NAME
+          compatibility_date: CHANGE_ME_CLOUDFLARE_COMPATIBILITY_DATE
           ensure_dns_record: true
           dns_record_type: CNAME
-          dns_record_name: burst.hybridops.tech
-          dns_record_target: hyops-burst-web-proxy.omoyemi4reel.workers.dev
+          dns_record_name: CHANGE_ME_DNS_RECORD_NAME
+          dns_record_target: CHANGE_ME_DNS_RECORD_TARGET
           dns_record_proxied: true
-          primary_origin_url: https://hybridops-tech-site.pages.dev
-          burst_origin_url: http://34.149.69.218.nip.io
+          primary_origin_url: CHANGE_ME_PRIMARY_ORIGIN_URL
+          burst_origin_url: CHANGE_ME_BURST_ORIGIN_URL
           desired: primary
           balanced_burst_weight_pct: 50
           cookie_name: __hyops_burst_lane
           cookie_ttl_s: 900
-          root_redirect_path: /showcase/burst/
+          root_redirect_path: CHANGE_ME_ROOT_REDIRECT_PATH
           forward_prefixes:
-            - /showcase/burst
-            - /privacy
-            - /terms
-            - /favicon.svg
-            - /hybridops-logo.svg
-            - /hybridops-wordmark.svg
-            - /_astro
+            - CHANGE_ME_FORWARD_PREFIX
           status_timeout_s: 10
           status_retries: 12
           status_retry_delay_s: 5
         module_state_guards:
           cutover:
-            - state_ref: platform/network/cloudflare-traffic-steering#showcase_burst_balancer_status
+            - state_ref: CHANGE_ME_CLOUDFLARE_STEERING_STATE_REF
               require_status: ok
               outputs_non_empty:
                 - traffic.hostname
                 - traffic.status_url
           failback:
-            - state_ref: platform/network/cloudflare-traffic-steering#showcase_burst_balancer_status
+            - state_ref: CHANGE_ME_CLOUDFLARE_STEERING_STATE_REF
               require_status: ok
               outputs_non_empty:
                 - traffic.hostname
@@ -443,13 +439,13 @@ steps:
         cutover:
           target_kind: blueprint
           target_ref: dr/postgresql-ha-failover-gcp@v1
-          target_env: dev
+          target_env: CHANGE_ME_TARGET_ENV
           execution_plane: runner-local
           requires_approval: true
         failback:
           target_kind: blueprint
           target_ref: dr/postgresql-ha-failback-onprem@v1
-          target_env: dev
+          target_env: CHANGE_ME_TARGET_ENV
           execution_plane: runner-local
           requires_approval: true
   - id: decision_consumer
