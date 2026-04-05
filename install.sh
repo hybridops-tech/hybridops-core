@@ -10,7 +10,7 @@ chmod 0755 "$0" 2>/dev/null || true
 usage() {
   cat <<'USAGE'
 Usage:
-  bash ./install.sh [--prefix <dir>] [--bin-dir <dir>] [--force] [--no-wrapper] [--no-system-link] [--setup-all|--no-setup-all]
+  ./install.sh [--prefix <dir>] [--bin-dir <dir>] [--force] [--no-wrapper] [--no-system-link] [--setup-all|--no-setup-all]
 
 Defaults:
   --prefix           ~/.hybridops/core
