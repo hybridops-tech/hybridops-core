@@ -17,7 +17,13 @@
 
 HybridOps Core is the automation runtime behind a hybrid infrastructure platform that runs across **Proxmox, Hetzner, GCP, AWS, Azure, and local** environments.
 
-Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) resolves the contract, selects a driver (Terragrunt, Ansible, Packer), executes it, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments.
+It acts as a contract-driven execution layer above tools such as **Terraform, Terragrunt, Ansible, and Packer**. It adds:
+
+- **controlled execution** — how modules and blueprints are resolved and run
+- **governance and preflight validation** — checks before an operation proceeds
+- **structured run records** — a non-secret record for every operation
+
+Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) resolves the contract, selects a driver, executes it, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments.
 
 The platform is validated end to end — not just tested in isolation. Every scenario below has a recorded walkthrough.
 
