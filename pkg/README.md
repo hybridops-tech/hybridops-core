@@ -44,26 +44,26 @@ target path. Public Core should consume that through generic inputs such as:
 Build a bundle from the current source tree:
 
 ```bash
-bash pkg/build_release.sh
+./pkg/build_release.sh
 ```
 
 Optionally set an explicit label:
 
 ```bash
-HYOPS_RELEASE_LABEL=0.1.0 bash pkg/build_release.sh
+HYOPS_RELEASE_LABEL=0.1.0 ./pkg/build_release.sh
 ```
 
 Verify a bundle through an isolated install:
 
 ```bash
-bash pkg/verify_release.sh dist/releases/hybridops-core-<label>.tar.gz
+./pkg/verify_release.sh dist/releases/hybridops-core-<label>.tar.gz
 ```
 
 If the local filesystem is tight, point the verifier at a larger temporary
 filesystem:
 
 ```bash
-TMPDIR=/dev/shm bash pkg/verify_release.sh dist/releases/hybridops-core-<label>.tar.gz
+TMPDIR=/dev/shm ./pkg/verify_release.sh dist/releases/hybridops-core-<label>.tar.gz
 ```
 
 ## Verification contract
