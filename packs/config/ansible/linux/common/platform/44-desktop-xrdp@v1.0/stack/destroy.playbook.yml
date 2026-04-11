@@ -1,5 +1,5 @@
 ---
-- name: platform/linux/desktop-xrdp (destroy)
+- name: Platform/linux/desktop-xrdp (destroy)
   hosts: targets
   become: true
   gather_facts: false
@@ -10,7 +10,7 @@
         name: xrdp
         enabled: false
         state: stopped
-      ignore_errors: true
+      failed_when: false
 
     - name: Remove XRDP and desktop packages
       ansible.builtin.apt:

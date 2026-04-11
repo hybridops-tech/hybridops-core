@@ -21,13 +21,13 @@ variable "network" {
 variable "rules" {
   type = list(
     object({
-      name_suffix   = string
-      description   = optional(string, "")
-      direction     = optional(string, "INGRESS")
-      priority      = optional(number, 1000)
-      source_ranges = optional(list(string), [])
+      name_suffix        = string
+      description        = optional(string, "")
+      direction          = optional(string, "INGRESS")
+      priority           = optional(number, 1000)
+      source_ranges      = optional(list(string), [])
       destination_ranges = optional(list(string), [])
-      target_tags   = optional(list(string), [])
+      target_tags        = optional(list(string), [])
       allow = list(
         object({
           protocol = string
