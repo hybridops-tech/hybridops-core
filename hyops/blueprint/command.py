@@ -311,6 +311,31 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     )
     t.set_defaults(_handler=run_deploy)
 
+    d = ssp.add_parser(
+        "destroy",
+        help="Destroy blueprint resources in reverse deployment order.",
+    )
+    add_common_args(d)
+    d.add_argument(
+        "--execute",
+        action="store_true",
+        help="Execute ordered blueprint step destruction.",
+    )
+    d.add_argument("--root", default=None, help="Override runtime root for step execution.")
+    d.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
+    d.add_argument(
+        "--module-root",
+        default="modules",
+        help="Module root directory for step execution (default: modules from cwd or HYOPS_CORE_ROOT).",
+    )
+    d.add_argument("--out-dir", default=None, help="Override evidence root for executed module steps.")
+    d.add_argument(
+        "--yes",
+        action="store_true",
+        help="Proceed without interactive confirmation.",
+    )
+    d.set_defaults(_handler=run_destroy)
+
 
 def run_validate(ns) -> int:
     try:
@@ -344,6 +369,7 @@ def run_init(ns) -> int:
                 "(use --force to overwrite)"
             )
         shutil.copy2(Path(payload["path"]), dest_path)
+        dest_path.chmod(0o600)
         out = {
             "blueprint_ref": payload["blueprint_ref"],
             "status": "initialized",
@@ -729,10 +755,207 @@ def run_deploy(ns) -> int:
     return 0 if not required_failures else OPERATOR_ERROR
 
 
+def run_destroy(ns) -> int:
+    try:
+        payload = _resolve_and_validate(ns)
+    except Exception as exc:
+        print(f"ERR: blueprint destroy failed: {exc}")
+        return OPERATOR_ERROR
+
+    # Step execution order is the reverse of deployment order.
+    destroy_order = list(reversed(payload["order"]))
+
+    if not bool(getattr(ns, "execute", False)):
+        if bool(getattr(ns, "json", False)):
+            print(
+                json.dumps(
+                    {
+                        "blueprint_ref": payload["blueprint_ref"],
+                        "mode": payload["mode"],
+                        "status": "skeleton",
+                        "message": "Use --execute to run ordered step destruction.",
+                        "order": destroy_order,
+                        "path": payload["path"],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"blueprint={payload['blueprint_ref']} status=skeleton")
+            print("execution disabled; destroy order:")
+            for step_id in destroy_order:
+                step = next(s for s in payload["steps"] if s["id"] == step_id)
+                print(f"  - {step_id}: destroy {step['module_ref']}")
+        return 0
+
+    json_mode = bool(getattr(ns, "json", False))
+    try:
+        require_runtime_selection(
+            getattr(ns, "root", None),
+            getattr(ns, "env", None),
+            command_label="hyops blueprint destroy",
+        )
+        paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+        ensure_layout(paths)
+        _enforce_runtime_blueprint_file_scope(
+            ns,
+            paths,
+            command_label="hyops blueprint destroy",
+        )
+    except Exception as exc:
+        print(f"ERR: blueprint destroy failed: {exc}")
+        return OPERATOR_ERROR
+
+    by_id = {step["id"]: step for step in payload["steps"]}
+
+    if not bool(getattr(ns, "yes", False)) and not json_mode:
+        env_name = (
+            str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip()
+            or "default"
+        )
+        print(f"WARN: blueprint destroy will tear down resources in env={env_name}.")
+        print("steps (reverse order):")
+        for step_id in destroy_order:
+            step = by_id[step_id]
+            state_ref = step_state_ref(step)
+            status = module_state_status(paths.state_dir, state_ref) or "missing"
+            print(
+                f"  - {step_id}: destroy {step['module_ref']} "
+                f"(state={status} ref={state_ref})"
+            )
+
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            try:
+                answer = input("Proceed with blueprint destroy? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return CANCELLED
+            if answer not in {"y", "yes"}:
+                print("ERR: blueprint destroy cancelled by operator")
+                return OPERATOR_ERROR
+        else:
+            print(
+                "WARN: non-interactive session detected; proceeding without prompt "
+                "(use --yes to silence)."
+            )
+
+    fail_fast = bool(payload["policy"].get("fail_fast", True))
+    step_results: list[dict[str, Any]] = []
+    required_failures: list[str] = []
+    optional_failures: list[str] = []
+    cancelled = False
+
+    for step_id in destroy_order:
+        step = by_id[step_id]
+        # Override action to destroy regardless of what the blueprint step declares.
+        destroy_step = dict(step)
+        destroy_step["action"] = "destroy"
+
+        base = {
+            "id": step_id,
+            "module_ref": step["module_ref"],
+            "action": "destroy",
+            "phase": step["phase"],
+            "optional": bool(step.get("optional", False)),
+        }
+
+        # Materialize inputs file so operators have a rerun path even on skip.
+        try:
+            inputs_file = resolved_step_inputs_file(step, payload, paths)
+        except Exception as exc:
+            inputs_file = None
+            print(f"step={step_id} WARN: failed to materialize inputs file: {exc}")
+        else:
+            if inputs_file:
+                base["inputs_file"] = str(inputs_file)
+
+        # Skip steps with no recorded state — nothing to destroy.
+        state_ref = step_state_ref(step)
+        if not module_state_status(paths.state_dir, state_ref):
+            result = dict(base)
+            result.update({"status": "skipped", "reason": "no-state", "rc": 0})
+            step_results.append(result)
+            print(f"step={step_id} status=skipped reason=no-state")
+            continue
+
+        print(f"step={step_id} status=running action=destroy module={step['module_ref']}")
+        try:
+            rc = run_step_module_command(destroy_step, payload, ns, paths)
+        except KeyboardInterrupt:
+            rc = CANCELLED
+            err = "cancelled by user"
+        except Exception as exc:
+            rc = OPERATOR_ERROR
+            err = str(exc)
+        else:
+            err = ""
+
+        if rc == 0:
+            result = dict(base)
+            result.update({"status": "ok", "rc": 0})
+            step_results.append(result)
+            print(f"step={step_id} status=ok")
+            continue
+
+        result = dict(base)
+        result.update({"status": "failed", "rc": int(rc), "reason": err or "step command failed"})
+        if int(rc) == CANCELLED:
+            result["status"] = "cancelled"
+            step_results.append(result)
+            cancelled = True
+            print(f"step={step_id} status=cancelled rc={rc}")
+            break
+        if step["optional"]:
+            result["status"] = "failed-optional"
+            optional_failures.append(step_id)
+            step_results.append(result)
+            print(f"step={step_id} status=failed-optional rc={rc}")
+            continue
+
+        required_failures.append(step_id)
+        step_results.append(result)
+        print(f"step={step_id} status=failed rc={rc}")
+        if fail_fast:
+            break
+
+    final_status = "ok" if not required_failures else "failed"
+    if cancelled:
+        final_status = "cancelled"
+    output = {
+        "blueprint_ref": payload["blueprint_ref"],
+        "mode": payload["mode"],
+        "status": final_status,
+        "fail_fast": fail_fast,
+        "order": destroy_order,
+        "path": payload["path"],
+        "required_failures": required_failures,
+        "optional_failures": optional_failures,
+        "steps": step_results,
+    }
+
+    if json_mode:
+        print(json.dumps(output, indent=2, sort_keys=True))
+    else:
+        print(
+            f"blueprint={payload['blueprint_ref']} mode={payload['mode']} "
+            f"status={final_status} steps={len(step_results)}"
+        )
+        if required_failures:
+            print(f"required_failures: {', '.join(required_failures)}")
+        if optional_failures:
+            print(f"optional_failures: {', '.join(optional_failures)}")
+
+    if cancelled:
+        return CANCELLED
+    return 0 if not required_failures else OPERATOR_ERROR
+
+
 __all__ = [
     "add_blueprint_subparser",
     "run_validate",
     "run_preflight",
     "run_plan",
     "run_deploy",
+    "run_destroy",
 ]
