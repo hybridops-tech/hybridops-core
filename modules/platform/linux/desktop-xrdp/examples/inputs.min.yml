@@ -1,0 +1,13 @@
+# MIN: Install XFCE + XRDP on a GCP VM reached over a public IP.
+
+inventory_state_ref: "platform/gcp/platform-vm#gcp_linux_desktop_vm"
+inventory_vm_groups:
+  targets:
+    - "linux-desktop-01"
+
+target_user: opsadmin
+target_port: 22
+ssh_private_key_file: "~/.ssh/id_ed25519"
+ssh_access_mode: direct
+
+xrdp_user_password_env: "XRDP_USER_PASSWORD"

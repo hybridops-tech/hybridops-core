@@ -35,6 +35,7 @@ inputs:
     enable_nested_virtualization: false
 
     # SSH access
+    allow_no_ssh_keys: false  # set true for VMs accessed via RDP or other non-SSH methods
     ssh_username: "opsadmin"
     ssh_keys_from_init: true
     ssh_keys_init_target: "gcp"

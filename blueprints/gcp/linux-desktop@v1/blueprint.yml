@@ -1,0 +1,115 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "gcp/linux-desktop@v1"
+mode: "hybrid"
+
+metadata:
+  title: "GCP Linux Desktop (XFCE + XRDP)"
+  description: "Provision an Ubuntu 22.04 GCP VM with a public IP, open RDP and SSH, and configure XFCE4 + XRDP for remote desktop access."
+  outcome: "An Ubuntu VM is running in GCP with XFCE4 and XRDP installed. Connect via any RDP client on port 3389."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: gcp_linux_desktop_firewall
+    module_ref: "platform/gcp/vm-firewall-rules"
+    state_instance: "gcp_linux_desktop_firewall"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "desktop"
+      network: "default"
+      rules:
+        - name_suffix: "allow-rdp"
+          description: "RDP access for Linux desktop VM"
+          direction: "INGRESS"
+          priority: 1000
+          source_ranges:
+            - "CHANGE_ME_YOUR_IP/32"          # your operator public IP in CIDR notation, e.g. 203.0.113.10/32
+          target_tags:
+            - "allow-rdp"
+          allow:
+            - protocol: "tcp"
+              ports: ["3389"]
+        - name_suffix: "allow-ssh"
+          description: "SSH access for Ansible provisioning"
+          direction: "INGRESS"
+          priority: 1000
+          source_ranges:
+            - "CHANGE_ME_YOUR_IP/32"          # same range as RDP rule above
+          target_tags:
+            - "allow-ssh"
+          allow:
+            - protocol: "tcp"
+              ports: ["22"]
+
+  - id: gcp_linux_desktop_vm
+    module_ref: "platform/gcp/platform-vm"
+    state_instance: "gcp_linux_desktop_vm"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - gcp_linux_desktop_firewall
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "desktop"
+      zone: "CHANGE_ME_GCP_ZONE"             # e.g. europe-west2-b
+      network: "default"
+      machine_type: "e2-standard-2"
+      boot_disk_size_gb: 40
+      boot_disk_type: "pd-balanced"
+      source_image_project: "ubuntu-os-cloud"
+      source_image_family: "ubuntu-2204-lts"
+      assign_public_ip: true
+      enable_nested_virtualization: false
+      ssh_username: "opsadmin"
+      ssh_keys_from_init: true
+      tags:
+        - "platform"
+        - "gcp"
+        - "linux"
+        - "allow-rdp"
+        - "allow-ssh"
+      labels:
+        role: "linux-desktop"
+      vms:
+        linux-desktop-01:
+          role: "desktop"
+
+  - id: gcp_linux_desktop_config
+    module_ref: "platform/linux/desktop-xrdp"
+    state_instance: "gcp_linux_desktop_config"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_linux_desktop_vm
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_linux_desktop_vm"
+      inventory_vm_groups:
+        targets:
+          - "linux-desktop-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "direct"
+      connectivity_wait_s: 90
+      xrdp_user_password_env: "XRDP_USER_PASSWORD"

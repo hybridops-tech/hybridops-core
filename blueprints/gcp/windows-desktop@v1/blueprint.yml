@@ -1,0 +1,80 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "gcp/windows-desktop@v1"
+mode: "hybrid"
+
+metadata:
+  title: "GCP Windows Desktop"
+  description: "Provision a Windows Server GCP VM with a public IP and RDP access scoped to allowed source ranges."
+  outcome: "A Windows Server VM is running in GCP with a public IP. RDP is open only to the specified source ranges via a dedicated firewall rule."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+steps:
+  - id: gcp_windows_vm
+    module_ref: "platform/gcp/platform-vm"
+    state_instance: "gcp_windows_vm"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "desktop"
+      zone: "CHANGE_ME_GCP_ZONE"           # e.g. europe-west2-b
+      network: "default"
+      machine_type: "e2-standard-2"
+      boot_disk_size_gb: 80
+      boot_disk_type: "pd-balanced"
+      source_image_project: "windows-cloud"
+      source_image_family: "windows-2022"
+      assign_public_ip: true
+      enable_nested_virtualization: false
+      allow_no_ssh_keys: true               # RDP is the access method; SSH keys not required
+      ssh_keys_from_init: false
+      tags:
+        - "platform"
+        - "gcp"
+        - "windows"
+        - "allow-rdp"
+      labels:
+        role: "windows-desktop"
+      vms:
+        win-rdp-01:
+          role: "desktop"
+
+  - id: gcp_windows_firewall
+    module_ref: "platform/gcp/vm-firewall-rules"
+    state_instance: "gcp_windows_firewall"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - gcp_windows_vm
+    with_deps: false
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "desktop"
+      network: "default"
+      rules:
+        - name_suffix: "allow-rdp"
+          description: "RDP access for Windows desktop VM"
+          direction: "INGRESS"
+          priority: 1000
+          source_ranges:
+            - "CHANGE_ME_YOUR_IP/32"        # restrict to your public IP
+          target_tags:
+            - "allow-rdp"
+          allow:
+            - protocol: "tcp"
+              ports: ["3389"]

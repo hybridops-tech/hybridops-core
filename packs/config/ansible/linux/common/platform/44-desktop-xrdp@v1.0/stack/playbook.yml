@@ -1,0 +1,86 @@
+---
+- name: platform/linux/desktop-xrdp (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    _xrdp_user: "{{ xrdp_user | default('') | string | trim or target_user | default('opsadmin') }}"
+    _xrdp_user_password: "{{ lookup('env', xrdp_user_password_env | default('XRDP_USER_PASSWORD')) }}"
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install XFCE4, XRDP, and browser
+      ansible.builtin.apt:
+        name:
+          - xfce4
+          - xfce4-goodies
+          - xrdp
+          - firefox
+        state: present
+
+    - name: Configure XRDP to use XFCE4 session
+      ansible.builtin.copy:
+        dest: "/home/{{ _xrdp_user }}/.xsession"
+        content: "startxfce4\n"
+        owner: "{{ _xrdp_user }}"
+        group: "{{ _xrdp_user }}"
+        mode: "0644"
+
+    - name: Set RDP user password
+      ansible.builtin.shell:
+        # chpasswd reads username:password from stdin. The password must not
+        # contain a colon — use a different character if needed.
+        cmd: chpasswd
+        stdin: "{{ _xrdp_user }}:{{ _xrdp_user_password }}"
+      no_log: true
+      changed_when: true
+
+    - name: Suppress polkit colour-manager prompt for RDP sessions
+      ansible.builtin.copy:
+        dest: /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Allow colord for all users]
+          Identity=unix-user:*
+          Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
+          ResultAny=no
+          ResultInactive=no
+          ResultActive=yes
+
+    - name: Add XRDP user to ssl-cert group
+      ansible.builtin.user:
+        name: xrdp
+        groups: ssl-cert
+        append: true
+
+    - name: Enable and start XRDP
+      ansible.builtin.systemd:
+        name: xrdp
+        enabled: true
+        state: restarted
+        daemon_reload: true
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'rdp_host': (
+              hostvars[inventory_hostname].hyops_resolved_host
+              | default(hostvars[inventory_hostname].hyops_private_host
+              | default(hostvars[inventory_hostname].ansible_host | default('')))
+            ),
+            'rdp_port': 3389,
+            'rdp_user': _xrdp_user
+          } | to_json }}

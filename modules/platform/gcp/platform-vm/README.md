@@ -28,9 +28,13 @@ It can also enable nested virtualization for workloads that need KVM in the gues
 SSH key source of truth is intentionally strict:
 
 - use explicit `ssh_keys`, or
-- use `ssh_keys_from_init: true`
+- use `ssh_keys_from_init: true`, or
+- set `allow_no_ssh_keys: true` when SSH is not the access method (for example, VMs accessed via RDP)
 
-Do not set both in the same input file. HybridOps now fails fast if both are present.
+Do not set both `ssh_keys` and `ssh_keys_from_init` in the same input file. HybridOps fails fast if both are present.
+
+`allow_no_ssh_keys: true` disables the SSH key requirement entirely. Use this when the VM is provisioned for
+a non-SSH access method and injecting SSH keys into the guest metadata serves no purpose.
 
 Fresh cloud VMs can also be gated before downstream steps consume them:
 

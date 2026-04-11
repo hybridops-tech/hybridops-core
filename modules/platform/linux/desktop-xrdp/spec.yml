@@ -1,0 +1,65 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/desktop-xrdp"
+
+metadata:
+  title: "Linux Desktop (XFCE + XRDP)"
+  description: "Install XFCE4 and XRDP on an Ubuntu 22.04 host to enable RDP access. Sets the login password for the target user from the bootstrap vault."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # Target host resolution (one of: explicit host, state ref, or inventory ref)
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    # RDP user password is read from this env var at runtime.
+    # Set XRDP_USER_PASSWORD in the bootstrap vault before running.
+    xrdp_user_password_env: "XRDP_USER_PASSWORD"
+    required_env:
+      - "XRDP_USER_PASSWORD"
+    required_env_destroy: []
+    load_vault_env: true
+
+    # XFCE session user — defaults to target_user
+    xrdp_user: ""
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/44-desktop-xrdp@v1.0"
+
+outputs:
+  publish:
+    - rdp_host
+    - rdp_port
+    - rdp_user
+
+probes: []
+constraints: []

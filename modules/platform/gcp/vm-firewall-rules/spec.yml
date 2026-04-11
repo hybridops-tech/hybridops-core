@@ -1,0 +1,48 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/gcp/vm-firewall-rules"
+
+metadata:
+  title: "GCP VM Firewall Rules"
+  description: >
+    Creates named ingress firewall rules for GCP compute instances.
+    Intended for use alongside platform/gcp/platform-vm to add port-level
+    access without modifying shared network infrastructure.
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    project_id: "" # optional override; defaults to env credentials tfvars project_id
+    network: "default"
+
+    # List of firewall rules to create.
+    # Each rule:
+    #   name_suffix:   string  — appended to the name prefix to form the GCP rule name
+    #   description:   string  — optional
+    #   direction:     INGRESS | EGRESS  (default: INGRESS)
+    #   priority:      number  (default: 1000)
+    #   source_ranges: list[string]  — CIDR ranges (INGRESS only)
+    #   target_tags:   list[string]  — GCP network tags the rule applies to
+    #   allow:
+    #     - protocol: tcp | udp | icmp | all
+    #       ports:    list[string]  — e.g. ["3389"], ["80", "443"]
+    rules: []
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/platform/10-platform/10-vm-firewall-rules@v1.0"
+
+outputs:
+  publish:
+    - rule_names
+    - rule_ids
+
+probes: []
+constraints: []

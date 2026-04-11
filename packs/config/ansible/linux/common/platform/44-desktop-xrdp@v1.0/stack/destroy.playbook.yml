@@ -1,0 +1,37 @@
+---
+- name: platform/linux/desktop-xrdp (destroy)
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Stop and disable XRDP
+      ansible.builtin.systemd:
+        name: xrdp
+        enabled: false
+        state: stopped
+      ignore_errors: true
+
+    - name: Remove XRDP and desktop packages
+      ansible.builtin.apt:
+        name:
+          - xrdp
+          - xfce4
+          - xfce4-goodies
+        state: absent
+        purge: true
+        autoremove: true
+
+    - name: Remove XFCE session file
+      ansible.builtin.file:
+        path: "/home/{{ target_user | default('opsadmin') }}/.xsession"
+        state: absent
+
+  post_tasks:
+    - name: Write HyOps outputs (cleared)
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: "{}"
