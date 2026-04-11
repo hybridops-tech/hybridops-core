@@ -8,7 +8,7 @@
 
 ---
 
-| 70 modules | 24 blueprints | 52 decision records | 6 deployment surfaces |
+| 72 modules | 26 blueprints | 52 decision records | 6 deployment surfaces |
 |:---:|:---:|:---:|:---:|
 
 ---
