@@ -21,11 +21,16 @@ from hyops.runtime.proc import run as run_proc
 def _ansible_vault_env() -> dict[str, str]:
     env = os.environ.copy()
     # In restricted environments (CI/sandbox), ~/.ansible/tmp may not be writable.
+    # Force-set rather than setdefault so a bad ANSIBLE_LOCAL_TEMP in the caller's
+    # shell environment does not leak through and trigger "Unhandled exception when
+    # retrieving DEFAULT_LOCAL_TMP" inside ansible-vault.
     tmp_root = (env.get("TMPDIR") or "/tmp").strip() or "/tmp"
-    env.setdefault("TMPDIR", tmp_root)
-    env.setdefault("ANSIBLE_LOCAL_TEMP", str(Path(tmp_root) / "hyops-ansible-local"))
+    env["TMPDIR"] = tmp_root
+    # Use a UID-scoped path so root-created directories don't block non-root runs.
+    local_tmp = str(Path(tmp_root) / f"hyops-ansible-{os.getuid()}")
+    env["ANSIBLE_LOCAL_TEMP"] = local_tmp
     try:
-        Path(env["ANSIBLE_LOCAL_TEMP"]).expanduser().mkdir(parents=True, exist_ok=True)
+        Path(local_tmp).mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
     return env

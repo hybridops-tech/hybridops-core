@@ -211,6 +211,15 @@ def add_secrets_subparser(sp: argparse._SubParsersAction) -> None:
     )
     v.set_defaults(_handler=run_show)
 
+    k = ssp.add_parser("keys", help="List key names stored in the runtime vault (no values shown).")
+    k.add_argument("--root", default=None, help="Override runtime root (default: ~/.hybridops).")
+    k.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
+    k.add_argument("--vault-file", default=None, help="Override vault file path (default: runtime vault path).")
+    k.add_argument("--vault-password-file", default=None, help="Vault password file.")
+    k.add_argument("--vault-password-command", default=None, help="Command to output vault password.")
+    k.add_argument("--json", action="store_true", help="Print key names as a JSON array.")
+    k.set_defaults(_handler=run_keys)
+
     x = ssp.add_parser("exec", help="Run a command with runtime vault env exported.")
     x.add_argument("--root", default=None, help="Override runtime root (default: ~/.hybridops).")
     x.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
@@ -1871,6 +1880,43 @@ def run_ensure(ns) -> int:
         print(f"skipped {len(skipped)} keys (already present)")
     print("keys: " + ", ".join(sorted(list(updates.keys()))))
     print("note: values were generated and stored encrypted; they were not printed to stdout.")
+    return OK
+
+
+def run_keys(ns) -> int:
+    paths, err = _resolve_paths(ns)
+    if err:
+        print(f"ERR: {err}")
+        return CONFIG_INVALID
+    vault_path = (
+        Path(ns.vault_file).expanduser().resolve()
+        if getattr(ns, "vault_file", None)
+        else (paths.vault_dir / "bootstrap.vault.env")
+    )
+    if not vault_path.exists():
+        print(f"ERR: vault file not found: {vault_path}")
+        return CONFIG_INVALID
+
+    if not shutil.which("ansible-vault"):
+        print("ERR: missing command: ansible-vault")
+        return DEPENDENCY_MISSING
+
+    auth = VaultAuth(
+        password_file=getattr(ns, "vault_password_file", None),
+        password_command=getattr(ns, "vault_password_command", None),
+    )
+    try:
+        env_map = read_env(vault_path, auth)
+    except Exception as e:
+        print(f"ERR: failed to read vault file {vault_path}: {e}")
+        return SECRETS_FAILED
+
+    key_list = sorted(env_map.keys())
+    if bool(getattr(ns, "json", False)):
+        print(json.dumps(key_list))
+    else:
+        for key in key_list:
+            print(key)
     return OK
 
 

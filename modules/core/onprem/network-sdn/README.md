@@ -1,11 +1,18 @@
-# core/onprem/network-sdn
+# Proxmox SDN Shared Foundation Module
 
-Configure Proxmox SDN foundation (zone, VNet, subnet, DHCP range) via Terragrunt.
+Shared-authority `hyops` module for managing the Proxmox SDN foundation for a site or cluster: zone, VNets, subnets, host gateway state, optional DHCP, and downstream readiness checks.
+
+Use this module when you want Proxmox SDN to behave like a shared platform baseline rather than per-environment config that drifts between `dev`, `staging`, and `prod`.
 
 Default operating model (recommended):
 - Deploy this module in `--env shared` as the single SDN authority for the Proxmox cluster/site.
 - Other envs (`dev`, `staging`, `prod`) consume the shared SDN/NetBox authority and should not re-deploy SDN.
 - Non-shared SDN deploys are blocked by default; override intentionally with `allow_non_shared_env: true`.
+
+What this gives you:
+- one shared owner for SDN topology
+- fail-fast validation after apply, not just "Terraform finished"
+- optional NetBox/IPAM export from the same authority
 
 `hyops apply` runs a live post-apply SDN readiness validation by default (fail-fast). It verifies:
 - the expected Proxmox SDN zone exists

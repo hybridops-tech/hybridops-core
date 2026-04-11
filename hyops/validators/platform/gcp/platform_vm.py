@@ -147,6 +147,10 @@ def validate(inputs: dict[str, Any]) -> None:
         _require_bool(data.get("enable_nested_virtualization"), "inputs.enable_nested_virtualization")
 
     _require_non_empty_str(data.get("ssh_username"), "inputs.ssh_username")
+    allow_no_ssh_keys = data.get("allow_no_ssh_keys")
+    if allow_no_ssh_keys is not None and not isinstance(allow_no_ssh_keys, bool):
+        raise ValueError("inputs.allow_no_ssh_keys must be a boolean")
+    allow_no_ssh_keys = bool(allow_no_ssh_keys)
     ssh_keys_from_init = bool(data.get("ssh_keys_from_init") is True)
     if data.get("ssh_keys_from_init") is not None and not isinstance(data.get("ssh_keys_from_init"), bool):
         raise ValueError("inputs.ssh_keys_from_init must be a boolean")
@@ -160,8 +164,11 @@ def validate(inputs: dict[str, Any]) -> None:
             "Choose one source of truth: set ssh_keys_from_init=false to use explicit keys, "
             "or remove ssh_keys to consume the init-discovered key."
         )
-    if not ssh_keys and not ssh_keys_from_init:
-        raise ValueError("inputs.ssh_keys must contain at least one public key unless inputs.ssh_keys_from_init=true")
+    if not ssh_keys and not ssh_keys_from_init and not allow_no_ssh_keys:
+        raise ValueError(
+            "inputs.ssh_keys must contain at least one public key unless inputs.ssh_keys_from_init=true "
+            "or inputs.allow_no_ssh_keys=true (use allow_no_ssh_keys for VMs accessed via RDP or other non-SSH methods)"
+        )
     for idx, key in enumerate(ssh_keys, start=1):
         _reject_placeholder(key, f"inputs.ssh_keys[{idx}]")
 

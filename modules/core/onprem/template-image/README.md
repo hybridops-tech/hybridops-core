@@ -1,11 +1,23 @@
-# core/onprem/template-image
+# Proxmox Template Image Build Module
 
-Builds a Proxmox template image with Packer and writes template IDs into module state for VM modules to consume.
+`hyops` module for building reproducible Proxmox VM templates with Packer and publishing the resulting template contract into state for downstream VM modules to consume.
 
-`hyops apply` also runs an automatic post-build smoke validation by default (clone -> boot -> guest-agent IP -> cleanup) using the same Proxmox API credentials. This is warning-only by default and can be made required via `inputs.post_build_smoke.required: true`.
+Use this when you want Proxmox templates to be rebuildable and verifiable rather than hand-maintained golden images that drift over time.
 
-## Usage
-`hyops deploy --env dev --module core/onprem/template-image --inputs modules/core/onprem/template-image/examples/inputs.typical.yml`
+What this gives you:
+- Packer-driven template builds for Linux and Windows families
+- published `template_vm_id` / `template_name` outputs for downstream consumers
+- automatic post-build smoke validation by cloning the template, booting it, waiting for guest-agent IP, then cleaning up
+
+`hyops deploy` runs the same post-build smoke validation by default using the Proxmox API credentials already configured for the module. Smoke is warning-only by default and can be made required via `inputs.post_build_smoke.required: true`.
+
+## Quick start
+
+```bash
+hyops deploy --env dev \
+  --module core/onprem/template-image \
+  --inputs modules/core/onprem/template-image/examples/inputs.typical.yml
+```
 
 To rebuild a template if it already exists, set `rebuild_if_exists: true` in your inputs overlay.
 
@@ -37,6 +49,11 @@ Supported `template_key` values:
 - `windows-server-2022`
 - `windows-server-2025`
 - `windows-11-enterprise`
+
+Common use:
+- build a base Ubuntu or Rocky template once
+- publish the template contract into state
+- let downstream VM modules consume it by `template_state_ref` instead of hardcoding VMIDs
 
 ## Outputs
 - `template_key`

@@ -543,6 +543,28 @@ def run(ns) -> int:
             project_access = _diagnose_gcp_project_access(project_id, evidence_dir)
             project_access_validated = bool(project_access[0])
 
+        if (
+            not project_access_validated
+            and bool(billing_account_id)
+            and not non_interactive
+            and bool(getattr(ns, "with_cli_login", False))
+            and _require_tty()
+        ):
+            try:
+                answer = input(
+                    f"project '{project_id}' does not exist. "
+                    f"Create it now under billing account {billing_account_id}? [y/N]: "
+                )
+            except (EOFError, KeyboardInterrupt):
+                print()
+                answer = ""
+            if str(answer or "").strip().lower() in ("y", "yes"):
+                if _create_gcp_project(project_id, billing_account_id, evidence_dir):
+                    project_id_source = "prompt"
+                    _upsert_kv_file(config_path, {"GCP_PROJECT_ID": project_id})
+                    project_access = _diagnose_gcp_project_access(project_id, evidence_dir)
+                    project_access_validated = bool(project_access[0])
+
         bootstrap_project_allowed = (
             str(project_id_source or "").strip().lower() in {"flag", "prompt"}
             and bool(billing_account_id)
@@ -794,6 +816,53 @@ def run(ns) -> int:
         )
 
     return OK
+
+
+def _create_gcp_project(
+    project_id: str,
+    billing_account_id: str,
+    evidence_dir: Path,
+) -> bool:
+    """Create a GCP project, link billing, and enable minimum APIs for Terraform.
+
+    Intended for personal/standalone accounts where org/gcp/project-factory is
+    not applicable. Returns True if the project was created successfully.
+    """
+    print(f"creating GCP project: {project_id}")
+    if not _cmd_ok(
+        ["gcloud", "projects", "create", project_id, "--quiet"],
+        evidence_dir,
+        "gcp_project_create",
+    ):
+        print(f"ERR: failed to create GCP project '{project_id}'; see run record")
+        return False
+    print(f"project created: {project_id}")
+
+    ba_id = billing_account_id.removeprefix("billingAccounts/")
+    print(f"linking billing account: {ba_id}")
+    if not _cmd_ok(
+        ["gcloud", "billing", "projects", "link", project_id,
+         f"--billing-account={ba_id}", "--quiet"],
+        evidence_dir,
+        "gcp_billing_link",
+    ):
+        print(f"WARN: failed to link billing account to '{project_id}'; Terraform may fail without billing enabled")
+
+    apis = [
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "iam.googleapis.com",
+        "serviceusage.googleapis.com",
+    ]
+    print(f"enabling APIs: {', '.join(apis)}")
+    if not _cmd_ok(
+        ["gcloud", "services", "enable"] + apis + [f"--project={project_id}", "--quiet"],
+        evidence_dir,
+        "gcp_enable_apis",
+    ):
+        print("WARN: some APIs failed to enable; you may need to enable them manually in the GCP console")
+
+    return True
 
 
 def _provision_eso_sa(
