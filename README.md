@@ -20,10 +20,10 @@ HybridOps Core is the automation runtime behind a hybrid infrastructure platform
 It acts as a contract-driven execution layer above tools such as **Terraform, Terragrunt, Ansible, and Packer**. It adds:
 
 - **controlled execution** — how modules and blueprints are resolved and run
-- **governance and preflight validation** — checks before an operation proceeds
+- **governance and preflight validation** — checks before an operation proceeds, including blueprint-level preflight before deploy execution
 - **structured run records** — a non-secret record for every operation
 
-Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) resolves the contract, selects a driver, executes it, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments.
+Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) resolves the contract, selects a driver, executes it, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments, evaluate required preflight checks before execution, and surface explicit confirmation when rerun or destructive risk is detected.
 
 The platform is validated end to end — not just tested in isolation. Every scenario below has a recorded walkthrough.
 
@@ -81,7 +81,7 @@ spec.yml  →  hyops apply  →  driver (Terragrunt / Ansible / Packer)  →  ru
 - **Drivers** execute against a resolved module contract and write structured run records to `<root>/logs/`.
 - **Profiles** are versioned driver policies — control behaviour without touching module specs.
 - **Packs** are the versioned execution assets (Terraform stacks, Ansible playbooks, Packer templates).
-- **Blueprints** sequence modules into repeatable multi-step deployments with explicit ordering.
+- **Blueprints** sequence modules into repeatable multi-step deployments with explicit ordering, required preflight evaluation before deploy execution, and confirmation prompts when rerun or destructive risk is detected.
 
 Every `hyops` command writes a non-secret structured run record:
 
