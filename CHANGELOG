@@ -1,6 +1,10 @@
 # Changelog
 
 - Unreleased
+  - linked README scenario entries directly to their reference scenario pages
+  - added README coverage for every shipped blueprint directory
+  - refreshed the blueprint catalogue so all 26 shipped blueprints are visible from the index
+  - clarified the README metrics as 52 public decision records and 8 supported surfaces
 
 - v0.1.2 - 2026-03-20
   - cleared the remaining release warnings by making maintained destroy playbooks ansible-lint clean

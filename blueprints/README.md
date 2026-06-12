@@ -21,18 +21,54 @@ They package repeatable outcomes, not implementation details.
 - Use this in environments where strict API liveness should block execution early.
 
 ## Reference Blueprints
-- `onprem/bootstrap-netbox@v1`: SDN + NetBox VM bootstrap chain.
-- `onprem/netbox-ha-cutover@v1`: re-point NetBox from bootstrap PostgreSQL core to PostgreSQL HA.
-- `onprem/authoritative-foundation@v1`: SDN + NetBox + IPAM-gated platform VMs.
-- `onprem/eve-ng@v1`: EVE-NG foundation chain with optional post-config intent.
-- `gcp/eve-ng@v1`: nested-virtualization-capable GCP EVE-NG host plus provider-neutral EVE-NG configuration.
-- `networking/wan-hub-edge@v1`: Hetzner edge + GCP hub WAN baseline (network/router/HA VPN BGP).
-- `networking/gcp-ops-runner@v1`: private GCP runner VM in the hub core subnet for runner-local DR/burst execution.
-- `networking/onprem-ops-runner@v1`: on-prem runner VM on the management network for runner-local failback and platform execution.
-- `dr/postgresql-cloudsql-standby-gcp@v1`: establish a managed Cloud SQL standby lane without traffic cutover.
-- `dr/postgresql-cloudsql-promote-gcp@v1`: explicit promotion gate plus DNS cutover to the managed Cloud SQL endpoint.
-- `dr/postgresql-cloudsql-failback-onprem@v1`: explicit failback gate plus DNS cutback to the on-prem PostgreSQL HA endpoint.
 
+Each shipped blueprint directory contains a `blueprint.yml` contract and a local `README.md`.
+
+### On-prem
+
+| Blueprint | Outcome |
+|---|---|
+| [`onprem/bootstrap-netbox@v1`](onprem/bootstrap-netbox@v1) | SDN, template image, pgcore, and NetBox bootstrap. |
+| [`onprem/authoritative-foundation@v1`](onprem/authoritative-foundation@v1) | NetBox-backed IPAM foundation for later platform services. |
+| [`onprem/netbox-ha-cutover@v1`](onprem/netbox-ha-cutover@v1) | Re-point NetBox from bootstrap pgcore to PostgreSQL HA. |
+| [`onprem/postgresql-ha@v1`](onprem/postgresql-ha@v1) | Patroni + etcd PostgreSQL HA on the on-prem foundation. |
+| [`onprem/rke2@v1`](onprem/rke2@v1) | On-prem RKE2 cluster with exported kubeconfig. |
+| [`onprem/rke2-workloads@v1`](onprem/rke2-workloads@v1) | RKE2 plus Argo CD root app and GSM bootstrap secret. |
+| [`onprem/eve-ng@v1`](onprem/eve-ng@v1) | Proxmox-hosted EVE-NG lab platform. |
+
+### GCP
+
+| Blueprint | Outcome |
+|---|---|
+| [`gcp/gke-burst@v1`](gcp/gke-burst@v1) | GKE burst cluster with kubeconfig, Argo CD, and GCP Secret Manager store. |
+| [`gcp/linux-desktop@v1`](gcp/linux-desktop@v1) | Ubuntu desktop VM with XFCE and XRDP. |
+| [`gcp/windows-desktop@v1`](gcp/windows-desktop@v1) | Windows Server VM with scoped RDP access. |
+| [`gcp/eve-ng@v1`](gcp/eve-ng@v1) | Private nested-virtualization-capable EVE-NG host on GCP. |
+
+### Networking
+
+| Blueprint | Outcome |
+|---|---|
+| [`networking/hetzner-vyos-edge@v1`](networking/hetzner-vyos-edge@v1) | Hetzner VyOS routed edge pair. |
+| [`networking/onprem-vyos-edge@v1`](networking/onprem-vyos-edge@v1) | Proxmox-hosted VyOS edge appliance. |
+| [`networking/wan-hub-edge@v1`](networking/wan-hub-edge@v1) | GCP hub, Hetzner edge, HA VPN, and BGP. |
+| [`networking/onprem-site-extension@v1`](networking/onprem-site-extension@v1) | Dual-tunnel site extension between on-prem and edge. |
+| [`networking/edge-control-plane@v1`](networking/edge-control-plane@v1) | WAN, observability, DNS intent, and decision-control services. |
+| [`networking/gcp-ops-runner@v1`](networking/gcp-ops-runner@v1) | Private GCP runner for runner-local DR and burst execution. |
+| [`networking/onprem-ops-runner@v1`](networking/onprem-ops-runner@v1) | On-prem runner for failback and local platform operations. |
+| [`networking/powerdns-shared-primary@v1`](networking/powerdns-shared-primary@v1) | Writable internal DNS authority on the shared control host. |
+| [`networking/powerdns-onprem-secondary@v1`](networking/powerdns-onprem-secondary@v1) | On-prem secondary DNS for local resolution resilience. |
+
+### Disaster recovery
+
+| Blueprint | Outcome |
+|---|---|
+| [`dr/postgresql-ha-backup-gcp@v1`](dr/postgresql-ha-backup-gcp@v1) | GCS-backed pgBackRest backup configuration. |
+| [`dr/postgresql-ha-failover-gcp@v1`](dr/postgresql-ha-failover-gcp@v1) | Restore PostgreSQL HA into GCP from pgBackRest. |
+| [`dr/postgresql-ha-failback-onprem@v1`](dr/postgresql-ha-failback-onprem@v1) | Restore PostgreSQL HA back on-prem from backups. |
+| [`dr/postgresql-cloudsql-standby-gcp@v1`](dr/postgresql-cloudsql-standby-gcp@v1) | Managed Cloud SQL standby without traffic cutover. |
+| [`dr/postgresql-cloudsql-promote-gcp@v1`](dr/postgresql-cloudsql-promote-gcp@v1) | Explicit Cloud SQL promotion gate and DNS cutover. |
+| [`dr/postgresql-cloudsql-failback-onprem@v1`](dr/postgresql-cloudsql-failback-onprem@v1) | Explicit managed-cloud failback gate and DNS cutback. |
 
 ## CLI Usage
 - Validate:

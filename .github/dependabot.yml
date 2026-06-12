@@ -1,0 +1,34 @@
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:45"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "maintenance"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "maintenance"
+    groups:
+      core-python:
+        patterns:
+          - "*"

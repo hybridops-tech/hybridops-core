@@ -1,6 +1,6 @@
 # HybridOps Core
 
-**Run reproducible infrastructure on Proxmox, Hetzner, GCP, AWS, Azure, and local — with DR, Kubernetes HA, and hybrid WAN — from a single CLI and a contract-driven module system.**
+**Run reproducible infrastructure across Proxmox, Hetzner, GCP, AWS, Azure, Kubernetes, Cloudflare, and local targets — with DR, Kubernetes HA, and hybrid WAN — from a single CLI and a contract-driven module system.**
 
 [![License: MIT-0](https://img.shields.io/badge/license-MIT--0-blue.svg)](LICENSE)
 [![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/)
@@ -8,14 +8,14 @@
 
 ---
 
-| 72 modules | 26 blueprints | 52 decision records | 6 deployment surfaces |
+| 72 modules | 26 blueprints | 52 public decision records | 8 supported surfaces |
 |:---:|:---:|:---:|:---:|
 
 ---
 
 ## What this is
 
-HybridOps Core is the automation runtime behind a hybrid infrastructure platform that runs across **Proxmox, Hetzner, GCP, AWS, Azure, and local** environments.
+HybridOps Core is the automation runtime behind a hybrid infrastructure platform that runs across **Proxmox, Hetzner, GCP, AWS, Azure, Kubernetes, Cloudflare, and local** targets.
 
 It acts as a contract-driven execution layer above tools such as **Terraform, Terragrunt, Ansible, and Packer**. It adds:
 
@@ -31,14 +31,14 @@ The platform is validated end to end — not just tested in isolation. Every sce
 
 | Scenario | What it delivers |
 |---|---|
-| **Authoritative on-prem foundation** | NetBox as IPAM + inventory source of truth, Proxmox SDN as the routed network baseline |
-| **PostgreSQL HA failover and failback** | Patroni + pgBackRest — GCP recovery in 12 min, controlled failback in 40 min |
-| **RKE2 HA platform foundation** | Three-node RKE2 cluster + Argo CD GitOps delivery on Proxmox |
-| **Hybrid WAN edge and site extension** | VyOS HA pair on Hetzner, BGP peering to GCP HA VPN, on-prem site extension |
-| **Managed PostgreSQL DR with Cloud SQL** | External replica standby on GCP, explicit promotion, controlled failback |
-| **Hybrid portal burst to GKE** | Identity-gated workload burst from on-prem to GKE under load |
-| **Secret delivery pipeline** | GCP Secret Manager → ESO → Kubernetes Secret on RKE2 and GKE |
-| **Governed network emulation** | EVE-NG as a managed lab platform on GCP (nested virtualisation) or Proxmox |
+| **[Authoritative on-prem foundation](https://docs.hybridops.tech/reference-scenarios/authoritative-onprem-foundation/)** | NetBox as IPAM + inventory source of truth, Proxmox SDN as the routed network baseline |
+| **[PostgreSQL HA failover and failback](https://docs.hybridops.tech/reference-scenarios/postgresql-ha-dr-cycle/)** | Patroni + pgBackRest — GCP recovery in 12 min, controlled failback in 40 min |
+| **[RKE2 HA platform foundation](https://docs.hybridops.tech/reference-scenarios/gitops-kubernetes-foundation/)** | Three-node RKE2 cluster + Argo CD GitOps delivery on Proxmox |
+| **[Hybrid WAN edge and site extension](https://docs.hybridops.tech/reference-scenarios/hybrid-wan-edge-site-extension/)** | VyOS HA pair on Hetzner, BGP peering to GCP HA VPN, on-prem site extension |
+| **[Managed PostgreSQL DR with Cloud SQL](https://docs.hybridops.tech/reference-scenarios/postgresql-managed-cloudsql-dr/)** | External replica standby on GCP, explicit promotion, controlled failback |
+| **[Hybrid portal burst to GKE](https://docs.hybridops.tech/reference-scenarios/hybrid-portal-burst-gke/)** | Identity-gated workload burst from on-prem to GKE under load |
+| **[Secret delivery pipeline](https://docs.hybridops.tech/reference-scenarios/secret-delivery-pipeline/)** | GCP Secret Manager → ESO → Kubernetes Secret on RKE2 and GKE |
+| **[Governed network emulation](https://docs.hybridops.tech/reference-scenarios/eveng-lab-foundation/)** | EVE-NG as a managed lab platform on GCP (nested virtualisation) or Proxmox |
 
 Walkthroughs, architecture diagrams, and platform-state captures for each scenario: **[docs.hybridops.tech/reference-scenarios](https://docs.hybridops.tech/reference-scenarios)**.
 
