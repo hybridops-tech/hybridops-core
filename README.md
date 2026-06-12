@@ -6,10 +6,9 @@
 [![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/)
 [![CI](https://github.com/hybridops-tech/hybridops-core/actions/workflows/ci.yml/badge.svg)](https://github.com/hybridops-tech/hybridops-core/actions/workflows/ci.yml)
 
----
-
-| 72 modules | 26 blueprints | 52 public decision records | 8 supported surfaces |
-|:---:|:---:|:---:|:---:|
+<p align="center">
+  <strong>72 modules</strong> &middot; <strong>26 blueprints</strong> &middot; <strong>52 public decision records</strong> &middot; <strong>8 supported surfaces</strong>
+</p>
 
 ---
 
