@@ -32,6 +32,7 @@ hyops setup all --sudo
   - `hyops setup ansible --hybridops-source git`
   - `hyops setup ansible --hybridops-source git --hybridops-git-manifest /path/to/manifest.json`
   - builds and installs pinned `hybridops.common`, `hybridops.helper`, and `hybridops.app` from Git into runtime state
+  - requires access to the private collection release workspaces named in the manifest
   - the primary public install contract remains the released collection set
 - For local source-tree iteration, point `hyops setup` at the checkout you want to use:
   - `hyops setup ansible --root /path/to/hybridops-core --hybridops-source git`
