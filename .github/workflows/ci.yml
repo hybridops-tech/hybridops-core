@@ -10,6 +10,8 @@ on:
     tags: ["v*"]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "23 7 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -29,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
