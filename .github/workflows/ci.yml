@@ -58,7 +58,7 @@ jobs:
           bash pkg/verify_release.sh "${TARBALL}"
 
       - name: Upload bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: hybridops-core-release-bundle
           path: |
