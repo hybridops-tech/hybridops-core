@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: mailto:security@hybridops.tech
+    about: Report suspected vulnerabilities privately. Do not open a public issue.

@@ -1,0 +1,59 @@
+name: Runtime or module defect
+description: Report a reproducible problem in HybridOps Core.
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, tokens, private addresses, customer data, or unredacted run records.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI or runtime
+        - Module or blueprint
+        - Driver or pack
+        - Installer or setup
+        - CI or release bundle
+        - Documentation or example
+    validations:
+      required: true
+  - type: input
+    id: reference
+    attributes:
+      label: Relevant reference
+      description: Module, blueprint, command, file, or release version involved.
+      placeholder: platform/onprem/netbox, onprem/rke2@v1, hyops apply, v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behaviour
+      description: Include the exact error or result, with sensitive data removed.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run ...
+        2. Provide ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, provider or platform version, and relevant tool versions.

@@ -1,0 +1,48 @@
+name: Focused improvement
+description: Propose a bounded improvement to HybridOps Core.
+title: "[improvement] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Direct pull requests are welcome for contained improvements. Use this form when the change needs agreement before implementation.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI or runtime
+        - Module or blueprint
+        - Driver or pack
+        - Preflight, probe, or run record
+        - Installer, CI, or release bundle
+        - Documentation or example
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the operator or contributor problem this would solve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Keep the proposal bounded. Link related modules, blueprints, or documents where useful.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What should be demonstrably true when the change is complete?
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I can work on a pull request for this change.
