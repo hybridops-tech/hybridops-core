@@ -117,6 +117,7 @@ Every `hyops` command writes a non-secret structured run record:
 
 - **Full docs and reference scenarios:** [docs.hybridops.tech](https://docs.hybridops.tech)
 - **Public site:** [hybridops.tech](https://hybridops.tech)
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Security reports:** [security@hybridops.tech](mailto:security@hybridops.tech), see [SECURITY.md](.github/SECURITY.md)
 - **Bugs and feature requests:** use the issue tracker
 
