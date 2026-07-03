@@ -1,0 +1,46 @@
+name: Usage question or documentation clarification
+description: Ask a focused question about Core usage, docs, modules, blueprints, or safe evaluation.
+title: "[question] "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for focused questions and documentation clarification. Do not include credentials, tokens, private addresses, customer data, or unredacted run records.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI or runtime
+        - Module or blueprint
+        - Driver or pack
+        - Preflight, probe, or run record
+        - Installer, CI, or release bundle
+        - Documentation or example
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Ask the specific thing you need clarified.
+    validations:
+      required: true
+  - type: input
+    id: reference
+    attributes:
+      label: Relevant reference
+      description: Module, blueprint, command, docs path, or release version involved.
+      placeholder: README.md, blueprints/README.md, hyops apply, onprem/rke2@v1
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Add enough context to make the question answerable. Say if this is based on docs review rather than a command you ran.
+  - type: textarea
+    id: checked
+    attributes:
+      label: What you checked
+      description: Link the README section, docs page, issue, command output, or file you already reviewed.
