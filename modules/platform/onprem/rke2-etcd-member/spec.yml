@@ -1,0 +1,58 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/onprem/rke2-etcd-member"
+
+metadata:
+  title: "RKE2 Etcd Member Lifecycle (On-Prem)"
+  description: "Safely removes an unhealthy embedded-etcd member from an existing RKE2 cluster using a surviving, IPAM-backed control-plane host."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    # One surviving RKE2 server used as the maintenance operator. Prefer the
+    # state-backed form so its management address remains NetBox-authoritative.
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    inventory_requires_ipam: true
+
+    # SSH defaults applied to the operator host.
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_proxy_jump_auto: true
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "root"
+    ssh_proxy_jump_port: 22
+    become: true
+    become_user: "root"
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+    load_vault_env: false
+    required_env: []
+
+    # Exact live etcd identity. The operation resolves the current member ID
+    # at runtime and rejects a name or peer URL mismatch.
+    etcd_member_name: ""
+    etcd_member_peer_url: ""
+    kubernetes_node_name: ""
+    remove_kubernetes_node: true
+    member_removal_confirm: false
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "onprem/common/platform/55-rke2-etcd-member@v1.0"
+
+outputs:
+  publish:
+    - etcd_member
+    - cap.k8s.rke2_etcd_member
+
+probes: []
+constraints: []

@@ -129,6 +129,17 @@ def validate(inputs: dict[str, Any]) -> None:
         data.get("rke2_stage_images_from_controller"), bool
     ):
         raise ValueError("inputs.rke2_stage_images_from_controller must be a boolean when set")
+    if data.get("rke2_reconcile_agent_server") is not None and not isinstance(
+        data.get("rke2_reconcile_agent_server"), bool
+    ):
+        raise ValueError("inputs.rke2_reconcile_agent_server must be a boolean when set")
+    if data.get("rke2_reconcile_server_config") is not None and not isinstance(
+        data.get("rke2_reconcile_server_config"), bool
+    ):
+        raise ValueError("inputs.rke2_reconcile_server_config must be a boolean when set")
+    rpf_mode = str(data.get("rke2_reverse_path_filter_mode") or "preserve").strip().lower()
+    if rpf_mode not in {"preserve", "loose"}:
+        raise ValueError("inputs.rke2_reverse_path_filter_mode must be one of: preserve, loose")
     if data.get("rke2_image_download_timeout_s") is not None:
         raw_dl_timeout = data.get("rke2_image_download_timeout_s")
         if isinstance(raw_dl_timeout, bool) or not isinstance(raw_dl_timeout, int):

@@ -64,6 +64,19 @@ inputs:
     # Default false so node-side download works even when the operator workstation
     # has restricted egress.
     rke2_stage_images_from_controller: false
+    # When a registration endpoint is replaced, explicitly update existing
+    # agent config.yaml server entries to the first declared control plane.
+    # Disabled by default because ordinary reconciliations preserve the agent's
+    # current registration endpoint.
+    rke2_reconcile_agent_server: false
+    # Recovery-only control-plane lifecycle operation. Stop one server before
+    # reconciling its RKE2 configuration, then let the role start and verify it.
+    # Disabled by default: ordinary config changes are handled by the role.
+    rke2_reconcile_server_config: false
+    # Multi-homed nodes with asymmetric return paths need loose reverse-path
+    # filtering. "preserve" leaves the operating-system default unchanged;
+    # "loose" persists rp_filter=2 without restarting RKE2.
+    rke2_reverse_path_filter_mode: "preserve"
     # Install node-level prerequisites required by Longhorn before the RKE2 role runs.
     enable_longhorn_prereqs: false
     # Per-file timeout for controller-side tarball download.

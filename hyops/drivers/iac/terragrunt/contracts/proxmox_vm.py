@@ -761,31 +761,32 @@ def _compute_static_pool(
     return start_ip, end_ip, int(net.prefixlen), str(gw_ip)
 
 
-def _collect_used_ipv4_hosts_from_platform_vm_state(state_dir: Path) -> set[str]:
-    used: set[str] = set()
-    try:
-        payload = read_module_state(state_dir, "platform/onprem/platform-vm")
-    except Exception:
-        return used
-
+def _extract_platform_vm_ipv4_claims_from_state_payload(
+    payload: Any,
+    *,
+    slot: str,
+) -> dict[str, list[dict[str, str]]]:
+    """Return published IPv4 claims keyed by host address for one VM state slot."""
+    if not isinstance(payload, dict):
+        return {}
     if str(payload.get("status") or "").strip().lower() != "ok":
-        return used
-
+        return {}
     outputs = payload.get("outputs")
     if not isinstance(outputs, dict):
-        return used
-
+        return {}
     vms = outputs.get("vms")
     if not isinstance(vms, dict):
-        return used
+        return {}
 
-    for _, vm in vms.items():
-        if not isinstance(vm, dict):
+    claims: dict[str, list[dict[str, str]]] = {}
+    for raw_vm_name, vm in vms.items():
+        vm_name = str(raw_vm_name or "").strip()
+        if not vm_name or not isinstance(vm, dict):
             continue
         ifaces = vm.get("interfaces_configured")
         if not isinstance(ifaces, list):
             continue
-        for nic in ifaces:
+        for idx, nic in enumerate(ifaces, start=1):
             if not isinstance(nic, dict):
                 continue
             ipv4 = nic.get("ipv4")
@@ -798,9 +799,57 @@ def _collect_used_ipv4_hosts_from_platform_vm_state(state_dir: Path) -> set[str]
                 iface = ipaddress.ip_interface(addr)
             except Exception:
                 continue
-            if isinstance(iface, ipaddress.IPv4Interface):
-                used.add(str(iface.ip))
-    return used
+            if not isinstance(iface, ipaddress.IPv4Interface):
+                continue
+            claims.setdefault(str(iface.ip), []).append(
+                {
+                    "slot": slot,
+                    "vm_name": vm_name,
+                    "bridge": str(nic.get("bridge") or "").strip(),
+                    "nic_index": str(idx),
+                }
+            )
+    return claims
+
+
+def _collect_platform_vm_ipv4_claims_by_address(
+    state_dir: Path,
+) -> tuple[dict[str, list[dict[str, str]]], str]:
+    """Read IPv4 claims from every ready platform-vm state slot in this env."""
+    module_id = module_id_from_ref("platform/onprem/platform-vm")
+    if not module_id:
+        return {}, "unable to resolve platform/onprem/platform-vm state module ID"
+
+    module_dir = (state_dir / "modules" / module_id).resolve()
+    if not module_dir.exists():
+        return {}, ""
+
+    state_paths: list[tuple[str, Path]] = []
+    latest_path = module_dir / "latest.json"
+    if latest_path.exists():
+        state_paths.append(("latest", latest_path))
+
+    instances_dir = module_dir / "instances"
+    if instances_dir.exists():
+        try:
+            state_paths.extend((f"instance:{path.stem}", path) for path in sorted(instances_dir.glob("*.json")))
+        except Exception as exc:
+            return {}, f"failed to enumerate platform-vm state instances: {exc}"
+
+    claims: dict[str, list[dict[str, str]]] = {}
+    for slot, path in state_paths:
+        try:
+            payload = read_json(path)
+        except Exception as exc:
+            return {}, f"failed to read platform-vm state slot {slot}: {exc}"
+        for address, rows in _extract_platform_vm_ipv4_claims_from_state_payload(payload, slot=slot).items():
+            claims.setdefault(address, []).extend(rows)
+    return claims, ""
+
+
+def _collect_used_ipv4_hosts_from_platform_vm_state(state_dir: Path) -> set[str]:
+    claims, _ = _collect_platform_vm_ipv4_claims_by_address(state_dir)
+    return set(claims)
 
 
 def _collect_requested_vm_names(inputs: dict[str, Any]) -> set[str]:
@@ -1449,8 +1498,115 @@ class ProxmoxVmContract(TerragruntModuleContract):
                         subnet_by_vnet[vnet_name] = s
 
                 used_hosts = _collect_used_ipv4_hosts_from_platform_vm_state(state_dir)
+                existing_claims, existing_claims_err = _collect_platform_vm_ipv4_claims_by_address(state_dir)
+                if existing_claims_err:
+                    return out, warnings, existing_claims_err
 
-                # No mutations on preflight/plan/validate: we just prove we can reach NetBox and parse pools.
+                try:
+                    from hyops.drivers.inventory.netbox.tools.netbox_api import (
+                        find_ip_by_address,
+                        find_ip_by_description,
+                    )
+                except ModuleNotFoundError as exc:
+                    return out, warnings, f"ipam requires python dependency: {exc.name} (run: hyops setup base --sudo)"
+
+                def validate_explicit_ipam_addresses(vm_name: str, interfaces: list[Any]) -> str:
+                    """Require explicit IPAM addresses to be reserved for this exact VM/NIC."""
+                    for idx, nic_raw in enumerate(interfaces, start=1):
+                        if not isinstance(nic_raw, dict):
+                            return f"inputs.vms[{vm_name}].interfaces[{idx}] must be a mapping"
+                        bridge = str(nic_raw.get("bridge") or "").strip()
+                        if not bridge:
+                            return f"inputs.vms[{vm_name}].interfaces[{idx}].bridge is required"
+                        ipv4 = nic_raw.get("ipv4")
+                        if not isinstance(ipv4, dict):
+                            continue
+                        requested = str(ipv4.get("address") or "").strip()
+                        if not requested or requested.lower() == "dhcp":
+                            continue
+                        try:
+                            requested_iface = ipaddress.ip_interface(requested)
+                        except Exception as exc:
+                            return f"inputs.vms[{vm_name}].interfaces[{idx}].ipv4.address is invalid: {exc}"
+                        if not isinstance(requested_iface, ipaddress.IPv4Interface):
+                            return f"inputs.vms[{vm_name}].interfaces[{idx}].ipv4.address must be IPv4"
+
+                        subnet = subnet_by_vnet.get(bridge)
+                        if not subnet:
+                            known = ", ".join(sorted(subnet_by_vnet.keys()))
+                            return (
+                                f"ipam cannot map bridge={bridge!r} to a subnet from {network_state_ref}. "
+                                f"Known vnets: [{known}]"
+                            )
+                        try:
+                            subnet_network = ipaddress.ip_network(str(subnet.get("cidr") or ""), strict=False)
+                        except Exception as exc:
+                            return f"ipam subnet for bridge={bridge!r} has invalid cidr: {exc}"
+                        if requested_iface.ip not in subnet_network or requested_iface.network.prefixlen != subnet_network.prefixlen:
+                            return (
+                                f"explicit IPAM address {requested} for {vm_name}/{bridge} is outside "
+                                f"the authoritative subnet {subnet_network}"
+                            )
+
+                        identity = f"hyops:{zone_name}:{vm_name}:{bridge}:{idx}"
+                        by_identity = find_ip_by_description(client, description=identity)
+                        by_address = find_ip_by_address(client, address=str(requested_iface))
+                        if not by_identity or not by_address:
+                            return (
+                                f"explicit IPAM address {requested} is not reserved in NetBox for {identity}. "
+                                "Remove ipv4.address and let HybridOps allocate it, or create the reservation through HybridOps first."
+                            )
+                        reserved_address = str(by_identity.get("address") or "").split("/", 1)[0].strip()
+                        address_owner = str(by_address.get("description") or "").strip()
+                        if reserved_address != str(requested_iface.ip) or address_owner != identity:
+                            return (
+                                f"explicit IPAM address {requested} is owned by NetBox identity {address_owner or '<none>'!r}, "
+                                f"not {identity!r}"
+                            )
+
+                        conflicting_claims = [
+                            claim
+                            for claim in existing_claims.get(str(requested_iface.ip), [])
+                            if not (
+                                claim.get("vm_name") == vm_name
+                                and claim.get("bridge") == bridge
+                                and claim.get("nic_index") == str(idx)
+                            )
+                        ]
+                        if conflicting_claims:
+                            details = ", ".join(
+                                f"{claim.get('slot')}:{claim.get('vm_name')}:{claim.get('bridge')}:{claim.get('nic_index')}"
+                                for claim in conflicting_claims
+                            )
+                            return (
+                                f"explicit IPAM address {requested} is already published by another HybridOps VM state "
+                                f"claim: {details}"
+                            )
+                    return ""
+
+                vms = out.get("vms")
+                is_pool = isinstance(vms, dict) and len(vms) > 0
+                if is_pool:
+                    module_ifaces = out.get("interfaces")
+                    module_ifaces_list: list[Any] = module_ifaces if isinstance(module_ifaces, list) else []
+                    for vm_name, vm_cfg in vms.items():
+                        if not isinstance(vm_cfg, dict):
+                            return out, warnings, f"inputs.vms[{vm_name}] must be a mapping"
+                        ifaces = vm_cfg.get("interfaces")
+                        effective_ifaces = ifaces if isinstance(ifaces, list) else module_ifaces_list
+                        err = validate_explicit_ipam_addresses(str(vm_name), effective_ifaces)
+                        if err:
+                            return out, warnings, err
+                else:
+                    vm_name = str(out.get("vm_name") or "").strip()
+                    interfaces = out.get("interfaces")
+                    if vm_name and isinstance(interfaces, list):
+                        err = validate_explicit_ipam_addresses(vm_name, interfaces)
+                        if err:
+                            return out, warnings, err
+
+                # No mutations on preflight/plan/validate: explicit addresses are still
+                # validated against NetBox and state, but allocations happen only on apply.
                 if normalized_command in ("preflight", "plan", "validate"):
                     return out, warnings, ""
 
@@ -1568,9 +1724,6 @@ class ProxmoxVmContract(TerragruntModuleContract):
                             ipv4.pop("gateway", None)
 
                     return ""
-
-                vms = out.get("vms")
-                is_pool = isinstance(vms, dict) and len(vms) > 0
 
                 if is_pool:
                     module_ifaces = out.get("interfaces")

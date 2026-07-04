@@ -15,7 +15,10 @@
   any_errors_fatal: true
   become: true
   gather_facts: true
-  serial: 5
+  # A control-plane config change can restart rke2-server. Keep quorum by
+  # reconciling one member at a time rather than restarting every server in
+  # the inventory concurrently.
+  serial: 1
 
   vars:
     rke2_server_role_fqcn: "{{ rke2_server_role_fqcn | default(rke2_role_fqcn | default('rancherfederal.rke2_ansible.rke2_server')) }}"
@@ -24,8 +27,37 @@
     enable_longhorn_prereqs: "{{ enable_longhorn_prereqs | default(false) }}"
     rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
     rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
+    rke2_reconcile_agent_server: "{{ rke2_reconcile_agent_server | default(false) }}"
+    rke2_reconcile_server_config: "{{ rke2_reconcile_server_config | default(false) }}"
+    rke2_reverse_path_filter_mode: "{{ rke2_reverse_path_filter_mode | default('preserve') }}"
 
   pre_tasks:
+    - name: Validate reverse-path filter mode on servers
+      ansible.builtin.assert:
+        that:
+          - rke2_reverse_path_filter_mode | lower in ['preserve', 'loose']
+        fail_msg: "rke2_reverse_path_filter_mode must be preserve or loose"
+
+    # Loose reverse-path filtering supports valid asymmetric replies on
+    # multi-homed Kubernetes nodes. This changes kernel networking only; it
+    # does not restart RKE2 or alter the cluster's advertised node addresses.
+    - name: Persist loose reverse-path filtering on servers
+      when: rke2_reverse_path_filter_mode | lower == 'loose'
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/60-hybridops-rke2-networking.conf
+        mode: "0644"
+        content: |
+          # Managed by HybridOps platform/onprem/rke2-cluster.
+          # Loose mode is required when a multi-homed node has asymmetric routes.
+          net.ipv4.conf.all.rp_filter = 2
+          net.ipv4.conf.default.rp_filter = 2
+
+    - name: Apply loose reverse-path filtering on servers
+      when: rke2_reverse_path_filter_mode | lower == 'loose'
+      ansible.builtin.command:
+        cmd: sysctl -p /etc/sysctl.d/60-hybridops-rke2-networking.conf
+      changed_when: false
+
     - name: Ensure Longhorn prerequisite packages on Red Hat servers
       when:
         - (enable_longhorn_prereqs | bool)
@@ -94,6 +126,43 @@
               | combine(({'rke2_images_urls': _effective_rke2_images_urls} if (_effective_rke2_images_urls | length > 0) else {}), recursive=True))
           }}
       changed_when: false
+
+    # Opt-in recovery operation for a server left in an in-flight systemd
+    # start after a failed configuration attempt. The server play is serial,
+    # so this preserves etcd quorum while its configuration is reconciled.
+    - name: Stop server before configuration reconciliation
+      when: rke2_reconcile_server_config | bool
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: stopped
+
+    # The upstream role only adds a server declaration when one is missing.
+    # During recovery, stale declarations can point at a removed control-plane
+    # member and leave future restarts hanging. Remove every server declaration
+    # first, then add one back only for non-initial servers.
+    - name: Remove existing server registration endpoint declarations
+      when: rke2_reconcile_server_config | bool
+      ansible.builtin.replace:
+        path: /etc/rancher/rke2/config.yaml
+        regexp: '^server:\s*.*\n?'
+        replace: ''
+
+    - name: Declare a single reconciled server registration endpoint
+      when:
+        - rke2_reconcile_server_config | bool
+        - inventory_hostname != (groups.get('rke2_servers', []) | first)
+      vars:
+        _hyops_registration_host: >-
+          {{
+            hostvars[(groups.get('rke2_servers', []) | first)].ansible_host
+            | default((groups.get('rke2_servers', []) | first))
+          }}
+      ansible.builtin.lineinfile:
+        path: /etc/rancher/rke2/config.yaml
+        line: "server: https://{{ _hyops_registration_host }}:9345"
+        insertbefore: BOF
+        create: true
+        mode: "0640"
 
     - name: Ensure target image directory exists with executable perms
       when:
@@ -174,8 +243,32 @@
     enable_longhorn_prereqs: "{{ enable_longhorn_prereqs | default(false) }}"
     rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
     rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
+    rke2_reverse_path_filter_mode: "{{ rke2_reverse_path_filter_mode | default('preserve') }}"
 
   pre_tasks:
+    - name: Validate reverse-path filter mode on agents
+      ansible.builtin.assert:
+        that:
+          - rke2_reverse_path_filter_mode | lower in ['preserve', 'loose']
+        fail_msg: "rke2_reverse_path_filter_mode must be preserve or loose"
+
+    - name: Persist loose reverse-path filtering on agents
+      when: rke2_reverse_path_filter_mode | lower == 'loose'
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/60-hybridops-rke2-networking.conf
+        mode: "0644"
+        content: |
+          # Managed by HybridOps platform/onprem/rke2-cluster.
+          # Loose mode is required when a multi-homed node has asymmetric routes.
+          net.ipv4.conf.all.rp_filter = 2
+          net.ipv4.conf.default.rp_filter = 2
+
+    - name: Apply loose reverse-path filtering on agents
+      when: rke2_reverse_path_filter_mode | lower == 'loose'
+      ansible.builtin.command:
+        cmd: sysctl -p /etc/sysctl.d/60-hybridops-rke2-networking.conf
+      changed_when: false
+
     - name: Ensure Longhorn prerequisite packages on Red Hat agents
       when:
         - (enable_longhorn_prereqs | bool)
@@ -244,6 +337,41 @@
               | combine(({'rke2_images_urls': _effective_rke2_images_urls} if (_effective_rke2_images_urls | length > 0) else {}), recursive=True))
           }}
       changed_when: false
+
+    # This is intentionally opt-in: it is a recovery operation for agents
+    # whose original registration server has been replaced. Stop the agent
+    # before touching config so an in-flight connection to the old server
+    # cannot hold a systemd start job open.
+    - name: Stop agent before registration endpoint reconciliation
+      when: rke2_reconcile_agent_server | default(false) | bool
+      ansible.builtin.systemd:
+        name: rke2-agent
+        state: stopped
+
+    # `lineinfile` replaces only one matching line. Remove every existing
+    # server declaration first, because duplicated YAML keys make RKE2 use
+    # the last (potentially stale) address.
+    - name: Remove existing agent registration endpoint declarations
+      when: rke2_reconcile_agent_server | default(false) | bool
+      ansible.builtin.replace:
+        path: /etc/rancher/rke2/config.yaml
+        regexp: '^server:\\s*.*\\n?'
+        replace: ''
+
+    - name: Declare a single reconciled agent registration endpoint
+      when: rke2_reconcile_agent_server | default(false) | bool
+      vars:
+        _hyops_registration_host: >-
+          {{
+            hostvars[(groups.get('rke2_servers', []) | first)].ansible_host
+            | default((groups.get('rke2_servers', []) | first))
+          }}
+      ansible.builtin.lineinfile:
+        path: /etc/rancher/rke2/config.yaml
+        line: "server: https://{{ _hyops_registration_host }}:9345"
+        insertbefore: BOF
+        create: true
+        mode: "0640"
 
     - name: Ensure target image directory exists with executable perms
       when:

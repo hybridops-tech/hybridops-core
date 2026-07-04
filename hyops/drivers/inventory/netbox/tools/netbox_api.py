@@ -762,6 +762,28 @@ def find_ip_by_description(client: NetBoxClient, *, description: str) -> Optiona
     return _get_one(client, path, {"description": description})
 
 
+def find_ip_by_address(client: NetBoxClient, *, address: str) -> Optional[Dict[str, Any]]:
+    """Return the exact IPv4/IPv6 record for an address, if NetBox has one.
+
+    NetBox deployments differ on whether the address filter expects a CIDR suffix,
+    so query both the supplied value and its host portion, then verify the result.
+    """
+    token = str(address or "").strip()
+    if not token:
+        raise NetBoxConfigError("address is required")
+
+    host = token.split("/", 1)[0].strip()
+    path = "/api/ipam/ip-addresses/"
+    for candidate in (token, host):
+        found = _get_one(client, path, {"address": candidate})
+        if not found:
+            continue
+        found_host = str(found.get("address") or "").split("/", 1)[0].strip()
+        if found_host == host:
+            return found
+    return None
+
+
 def reserve_ip(
     client: NetBoxClient,
     *,

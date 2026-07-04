@@ -25,6 +25,7 @@ from ._internal.execution import (
     resolve_terragrunt_config as _resolve_terragrunt_config,
     run_terragrunt_init as _run_terragrunt_init,
     run_terragrunt_operation as _run_terragrunt_operation,
+    run_terragrunt_state_detach as _run_terragrunt_state_detach,
 )
 from ._internal.export_hooks import run_apply_export_hooks as _run_apply_export_hooks
 from ._internal.meta import (
@@ -91,7 +92,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     lifecycle_command = str(request.get("lifecycle_command") or command_name).strip().lower()
     if command_name == "deploy":
         command_name = "apply"
-    if command_name not in ("apply", "plan", "validate", "destroy", "import", "state_unlock", "preflight"):
+    if command_name not in ("apply", "plan", "validate", "destroy", "import", "state_detach", "state_unlock", "preflight"):
         return _fail(ev, {"status": "error", "run_id": run_id, "normalized_outputs": {}, "warnings": []}, f"unsupported command for terragrunt driver: {command_name}")
 
     result: dict[str, Any] = {
@@ -439,27 +440,55 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             state_payload["lock_id"] = effective_lock_id
             op_request["state"] = state_payload
 
-    outputs, op_error = _run_terragrunt_operation(
-        command_name=command_name,
-        request=op_request,
-        tg_bin=str(terragrunt_cfg["tg_bin"]),
-        apply_args=list(terragrunt_cfg["apply_args"]),
-        destroy_args=list(terragrunt_cfg["destroy_args"]),
-        import_args=list(terragrunt_cfg["import_args"]),
-        force_unlock_args=list(terragrunt_cfg["force_unlock_args"]),
-        plan_args=list(terragrunt_cfg["plan_args"]),
-        validate_args=list(terragrunt_cfg["validate_args"]),
-        output_args=list(terragrunt_cfg["output_args"]),
-        stack_dst=stack_dst,
-        env=env,
-        evidence_dir=evidence_dir,
-        policy_timeout_s=policy_timeout_s,
-        policy_redact=policy_redact,
-        policy_retries=policy_retries,
-        tg_log=tg_log,
-    )
+    if command_name == "state_detach":
+        detach_summary, op_error = _run_terragrunt_state_detach(
+            request=op_request,
+            tg_bin=str(terragrunt_cfg["tg_bin"]),
+            state_show_args=list(terragrunt_cfg["state_show_args"]),
+            state_rm_args=list(terragrunt_cfg["state_rm_args"]),
+            stack_dst=stack_dst,
+            env=env,
+            evidence_dir=evidence_dir,
+            policy_timeout_s=policy_timeout_s,
+            policy_redact=policy_redact,
+            policy_retries=policy_retries,
+            tg_log=tg_log,
+        )
+        outputs = {}
+    else:
+        detach_summary = {}
+        outputs, op_error = _run_terragrunt_operation(
+            command_name=command_name,
+            request=op_request,
+            tg_bin=str(terragrunt_cfg["tg_bin"]),
+            apply_args=list(terragrunt_cfg["apply_args"]),
+            destroy_args=list(terragrunt_cfg["destroy_args"]),
+            import_args=list(terragrunt_cfg["import_args"]),
+            force_unlock_args=list(terragrunt_cfg["force_unlock_args"]),
+            plan_args=list(terragrunt_cfg["plan_args"]),
+            validate_args=list(terragrunt_cfg["validate_args"]),
+            output_args=list(terragrunt_cfg["output_args"]),
+            stack_dst=stack_dst,
+            env=env,
+            evidence_dir=evidence_dir,
+            policy_timeout_s=policy_timeout_s,
+            policy_redact=policy_redact,
+            policy_retries=policy_retries,
+            tg_log=tg_log,
+        )
     if op_error:
         return _fail(ev, result, op_error)
+
+    if command_name == "state_detach":
+        result["status"] = "ok"
+        result["state_detach"] = dict(detach_summary)
+        result["normalized_outputs"] = {
+            "terragrunt_outputs": {},
+            "workdir": str(workdir),
+            "command": command_name,
+        }
+        ev.write_json("driver_result.json", result)
+        return result
 
     post_apply_readiness_summary: dict[str, Any] | None = None
     readiness_warnings: list[str] = []

@@ -43,6 +43,10 @@ IPAM enforcement:
 - In IPAM mode, apply/preflight fails fast when NetBox authority state is not ready.
 - In IPAM mode, HybridOps also reads `core/onprem/network-sdn` from the SDN authority (default: `--env shared`) to map `bridge -> subnet` for allocations.
 - In IPAM mode, interfaces without explicit `ipv4.address` are allocated from NetBox IPAM.
+- In IPAM mode, an explicit `ipv4.address` is allowed only when NetBox already
+  reserves that exact address for the same HybridOps logical VM, bridge, and NIC
+  identity. A hand-entered address cannot bypass NetBox or another platform VM
+  state instance.
 - IP allocation is identity-based: HybridOps reserves by a stable NetBox IP description key (`zone + logical_vm_name + bridge + nic_index`) and reuses that reservation on re-apply when the IP record still exists.
 - NetBox IPAM prevents duplicate allocations/conflicts; if a prior reservation is still present, HybridOps will not allocate the same IP to another VM.
 - In IPAM mode, ensure `NETBOX_API_TOKEN` is present for the target env (`hyops secrets ensure --env <env> NETBOX_API_TOKEN`).

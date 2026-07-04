@@ -1,7 +1,7 @@
 <h1 align="center">HybridOps Core</h1>
 
 <p align="center">
-  <strong>Run reproducible infrastructure across Proxmox, Hetzner, GCP, AWS, Azure, Kubernetes, Cloudflare, and local targets from a single CLI and a contract-driven module system.</strong>
+  <strong>A contract-driven runtime for repeatable infrastructure execution across on-prem, cloud, Kubernetes, and local targets.</strong>
 </p>
 
 <p align="center">
@@ -33,22 +33,17 @@ It acts as a contract-driven execution layer above tools such as **Terraform, Te
 
 Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) resolves the contract, selects a driver, executes it, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments, evaluate required preflight checks before execution, and surface explicit confirmation when rerun or destructive risk is detected.
 
-The platform is validated end to end, not just tested in isolation. Every scenario below has a recorded walkthrough.
+## Validation
 
-## Proven scenarios
+HybridOps is validated through recorded reference scenarios rather than isolated examples. The public scenario library covers source-of-truth operations, Kubernetes platform foundations, hybrid WAN extension, secret delivery, and disaster recovery workflows.
 
-| Scenario | What it delivers |
-|---|---|
-| **[Authoritative on-prem foundation](https://docs.hybridops.tech/reference-scenarios/authoritative-onprem-foundation/)** | NetBox as IPAM + inventory source of truth, Proxmox SDN as the routed network baseline |
-| **[PostgreSQL HA failover and failback](https://docs.hybridops.tech/reference-scenarios/postgresql-ha-dr-cycle/)** | Patroni + pgBackRest; GCP recovery in 12 min, controlled failback in 40 min |
-| **[RKE2 HA platform foundation](https://docs.hybridops.tech/reference-scenarios/gitops-kubernetes-foundation/)** | Three-node RKE2 cluster + Argo CD GitOps delivery on Proxmox |
-| **[Hybrid WAN edge and site extension](https://docs.hybridops.tech/reference-scenarios/hybrid-wan-edge-site-extension/)** | VyOS HA pair on Hetzner, BGP peering to GCP HA VPN, on-prem site extension |
-| **[Managed PostgreSQL DR with Cloud SQL](https://docs.hybridops.tech/reference-scenarios/postgresql-managed-cloudsql-dr/)** | External replica standby on GCP, explicit promotion, controlled failback |
-| **[Hybrid portal burst to GKE](https://docs.hybridops.tech/reference-scenarios/hybrid-portal-burst-gke/)** | Identity-gated workload burst from on-prem to GKE under load |
-| **[Secret delivery pipeline](https://docs.hybridops.tech/reference-scenarios/secret-delivery-pipeline/)** | GCP Secret Manager to ESO to Kubernetes Secret on RKE2 and GKE |
-| **[Governed network emulation](https://docs.hybridops.tech/reference-scenarios/eveng-lab-foundation/)** | EVE-NG as a managed lab platform on GCP (nested virtualisation) or Proxmox |
+Representative scenarios:
 
-Walkthroughs, architecture diagrams, and platform-state captures for each scenario: **[docs.hybridops.tech/reference-scenarios](https://docs.hybridops.tech/reference-scenarios)**.
+- **[Authoritative on-prem foundation](https://docs.hybridops.tech/reference-scenarios/authoritative-onprem-foundation/):** NetBox-backed source-of-truth operations and Proxmox SDN baseline
+- **[PostgreSQL HA failover and failback](https://docs.hybridops.tech/reference-scenarios/postgresql-ha-dr-cycle/):** Patroni, pgBackRest, GCP recovery, and controlled failback
+- **[RKE2 HA platform foundation](https://docs.hybridops.tech/reference-scenarios/gitops-kubernetes-foundation/):** RKE2 cluster foundation with GitOps delivery
+
+The full reference scenario library is published at **[docs.hybridops.tech/reference-scenarios](https://docs.hybridops.tech/reference-scenarios)**.
 
 ## Quick start
 
@@ -97,7 +92,7 @@ flowchart LR
     driver --> record
 ```
 
-The boundary is the point: module specs keep intent clean, profiles carry policy, packs carry implementation, and drivers produce reviewable evidence.
+This boundary keeps intent, policy, implementation, and execution evidence separate: module specs define intent, profiles carry policy, packs carry implementation assets, and drivers produce reviewable run records.
 
 Blueprints sequence modules into repeatable deployments with explicit ordering, required preflight evaluation before execution, and confirmation prompts when rerun or destructive risk is detected.
 

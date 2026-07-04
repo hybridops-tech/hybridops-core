@@ -1,0 +1,12 @@
+---
+- name: Platform/onprem/rke2-etcd-member (destroy state record only)
+  hosts: localhost
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Write absent lifecycle output
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {'cap.k8s.rke2_etcd_member': 'absent'} | to_json }}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ def resolve_terragrunt_config(profile: dict[str, Any]) -> dict[str, Any]:
         "destroy_args": as_argv(terragrunt_cfg.get("destroy_args"), ["destroy", "-auto-approve", "-no-color"]),
         "import_args": as_argv(terragrunt_cfg.get("import_args"), ["import", "-no-color"]),
         "force_unlock_args": as_argv(terragrunt_cfg.get("force_unlock_args"), ["force-unlock"]),
+        "state_show_args": as_argv(terragrunt_cfg.get("state_show_args"), ["state", "show", "-no-color"]),
+        "state_rm_args": as_argv(terragrunt_cfg.get("state_rm_args"), ["state", "rm", "-no-color"]),
         "plan_args": as_argv(terragrunt_cfg.get("plan_args"), ["plan", "-input=false", "-no-color"]),
         "validate_args": as_argv(terragrunt_cfg.get("validate_args"), ["validate", "-no-color"]),
         "output_args": as_argv(terragrunt_cfg.get("output_args"), ["output", "-json", "-no-color"]),
@@ -136,6 +139,90 @@ def run_terragrunt_operation(
         if r_out.rc == 0:
             outputs = parse_terragrunt_outputs(r_out.stdout or "")
     return outputs, ""
+
+
+def run_terragrunt_state_detach(
+    *,
+    request: dict[str, Any],
+    tg_bin: str,
+    state_show_args: list[str],
+    state_rm_args: list[str],
+    stack_dst: Path,
+    env: dict[str, str],
+    evidence_dir: Path,
+    policy_timeout_s: int | None,
+    policy_redact: bool,
+    policy_retries: int,
+    tg_log: Path,
+) -> tuple[dict[str, Any], str]:
+    """Remove one resource from Terraform state after an exact ID check.
+
+    This is deliberately state-only: it runs ``state show`` first and refuses
+    the detach unless the saved resource ID exactly matches the caller's
+    expected value. It never invokes a provider destroy operation.
+    """
+
+    state_payload = request.get("state")
+    if not isinstance(state_payload, dict):
+        return {}, "state_detach requires request.state payload"
+    if not bool(state_payload.get("force")):
+        return {}, "state_detach requires force=true"
+
+    resource_address = str(state_payload.get("resource_address") or "").strip()
+    expected_resource_id = str(state_payload.get("expected_resource_id") or "").strip()
+    if not resource_address or not expected_resource_id:
+        return {}, "state_detach requires resource_address and expected_resource_id"
+
+    show = run_capture_with_policy(
+        argv=[tg_bin, *state_show_args, resource_address],
+        cwd=str(stack_dst),
+        env=env,
+        evidence_dir=evidence_dir,
+        label="terragrunt_state_show",
+        timeout_s=policy_timeout_s,
+        redact=policy_redact,
+        retries=policy_retries,
+        tee_path=tg_log,
+        stream=False,
+    )
+    if show.rc != 0:
+        return {}, "terragrunt state show failed"
+
+    actual_resource_id = ""
+    for line in (show.stdout or "").splitlines():
+        match = re.match(r'^\s*id\s*=\s*"?(.*?)"?\s*$', line)
+        if match:
+            actual_resource_id = str(match.group(1) or "").strip()
+            break
+    if not actual_resource_id:
+        return {}, "terragrunt state show did not return a resource id"
+    if actual_resource_id != expected_resource_id:
+        return {}, (
+            "state detach refused: resource id mismatch for "
+            f"{resource_address}: expected={expected_resource_id!r} actual={actual_resource_id!r}"
+        )
+
+    remove = run_capture_with_policy(
+        argv=[tg_bin, *state_rm_args, resource_address],
+        cwd=str(stack_dst),
+        env=env,
+        evidence_dir=evidence_dir,
+        label="terragrunt_state_rm",
+        timeout_s=policy_timeout_s,
+        redact=policy_redact,
+        retries=policy_retries,
+        tee_path=tg_log,
+        stream=True,
+    )
+    if remove.rc != 0:
+        return {}, "terragrunt state rm failed"
+
+    return {
+        "resource_address": resource_address,
+        "expected_resource_id": expected_resource_id,
+        "actual_resource_id": actual_resource_id,
+        "provider_resource_changed": False,
+    }, ""
 
 
 def resolve_exec_operation(

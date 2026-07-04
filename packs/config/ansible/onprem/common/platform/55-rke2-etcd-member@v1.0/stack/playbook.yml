@@ -1,0 +1,287 @@
+---
+- name: Platform/onprem/rke2-etcd-member (validate operator inventory)
+  hosts: localhost
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Assert exactly one maintenance operator exists
+      ansible.builtin.assert:
+        that:
+          - groups.get('rke2_operator', []) | length == 1
+        fail_msg: "inventory must define exactly one rke2_operator host"
+
+- name: Platform/onprem/rke2-etcd-member (remove unhealthy member)
+  hosts: rke2_operator
+  become: true
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+
+  vars:
+    _hyops_crictl_bin: /var/lib/rancher/rke2/bin/crictl
+    _hyops_cri_config: /var/lib/rancher/rke2/agent/etc/crictl.yaml
+    _hyops_etcd_cert: /var/lib/rancher/rke2/server/tls/etcd/server-client.crt
+    _hyops_etcd_key: /var/lib/rancher/rke2/server/tls/etcd/server-client.key
+    _hyops_etcd_ca: /var/lib/rancher/rke2/server/tls/etcd/server-ca.crt
+
+  tasks:
+    - name: Require explicit etcd member-removal confirmation
+      ansible.builtin.assert:
+        that:
+          - member_removal_confirm | bool
+        fail_msg: "member_removal_confirm=true is required"
+
+    - name: Locate the running RKE2 etcd container
+      ansible.builtin.command:
+        argv:
+          - "{{ _hyops_crictl_bin }}"
+          - --config
+          - "{{ _hyops_cri_config }}"
+          - ps
+          - --name
+          - etcd
+          - --quiet
+      register: _hyops_etcd_containers
+      # Discovery must run during `hyops plan`; command is otherwise skipped by
+      # Ansible check mode even though it has no side effects.
+      check_mode: false
+      changed_when: false
+
+    - name: Assert exactly one local etcd container is running
+      ansible.builtin.assert:
+        that:
+          - _hyops_etcd_containers.rc == 0
+          - _hyops_etcd_containers.stdout_lines | length == 1
+        fail_msg: "expected exactly one running local RKE2 etcd container on the maintenance operator"
+
+    - name: Record the local etcd container identity
+      ansible.builtin.set_fact:
+        _hyops_etcd_container: "{{ _hyops_etcd_containers.stdout_lines[0] }}"
+      changed_when: false
+
+    - name: Read the live etcd member list as JSON
+      ansible.builtin.command:
+        argv:
+          - "{{ _hyops_crictl_bin }}"
+          - --config
+          - "{{ _hyops_cri_config }}"
+          - exec
+          - "{{ _hyops_etcd_container }}"
+          - etcdctl
+          - member
+          - list
+          - --write-out=json
+          - --cert
+          - "{{ _hyops_etcd_cert }}"
+          - --key
+          - "{{ _hyops_etcd_key }}"
+          - --cacert
+          - "{{ _hyops_etcd_ca }}"
+      register: _hyops_etcd_member_list_raw
+      check_mode: false
+      changed_when: false
+
+    - name: Parse and locate the exact requested etcd member
+      ansible.builtin.set_fact:
+        _hyops_etcd_members: "{{ (_hyops_etcd_member_list_raw.stdout | from_json).members | default([]) }}"
+        _hyops_target_members: >-
+          {{
+            ((_hyops_etcd_member_list_raw.stdout | from_json).members | default([]))
+            | selectattr('name', 'defined')
+            | selectattr('name', 'equalto', etcd_member_name)
+            | list
+          }}
+      changed_when: false
+
+    - name: Assert the requested etcd member is not ambiguous
+      ansible.builtin.assert:
+        that:
+          - _hyops_target_members | length <= 1
+        fail_msg: "requested etcd_member_name resolves to more than one current etcd member"
+
+    - name: Record the exact current target member
+      ansible.builtin.set_fact:
+        _hyops_target_member: "{{ _hyops_target_members | first | default({}) }}"
+        # etcdctl's JSON response exposes IDs as decimal integers, while its
+        # member remove command accepts an unsigned hexadecimal ID.
+        _hyops_target_member_id_hex: "{{ '%x' | format(((_hyops_target_members | first | default({})).ID | default(0)) | int) }}"
+        _hyops_remaining_members: >-
+          {{
+            (_hyops_etcd_members | selectattr('name', 'undefined') | list)
+            + (_hyops_etcd_members | selectattr('name', 'defined')
+               | rejectattr('name', 'equalto', etcd_member_name) | list)
+          }}
+      changed_when: false
+
+    - name: Assert target peer identity and safe surviving quorum
+      ansible.builtin.assert:
+        that:
+          - (_hyops_target_members | length == 0) or (etcd_member_peer_url in (_hyops_target_member.peerURLs | default([])))
+          - (_hyops_target_members | length == 0) or (etcd_member_peer_url != ('https://' ~ (ansible_host | default(inventory_hostname)) ~ ':2380'))
+          - _hyops_remaining_members | length >= 2
+        fail_msg: >-
+          refusing member removal: target peer URL does not match the current member,
+          target is the maintenance operator, or fewer than two members would remain
+
+    - name: Verify every surviving etcd endpoint is healthy before removal
+      ansible.builtin.command:
+        argv:
+          - "{{ _hyops_crictl_bin }}"
+          - --config
+          - "{{ _hyops_cri_config }}"
+          - exec
+          - "{{ _hyops_etcd_container }}"
+          - etcdctl
+          - endpoint
+          - health
+          - "--endpoints={{ item.clientURLs | first }}"
+          - --cert
+          - "{{ _hyops_etcd_cert }}"
+          - --key
+          - "{{ _hyops_etcd_key }}"
+          - --cacert
+          - "{{ _hyops_etcd_ca }}"
+      loop: "{{ _hyops_remaining_members }}"
+      loop_control:
+        label: "{{ item.name }}"
+      check_mode: false
+      changed_when: false
+
+    - name: Verify no etcd alarm blocks membership maintenance
+      ansible.builtin.command:
+        argv:
+          - "{{ _hyops_crictl_bin }}"
+          - --config
+          - "{{ _hyops_cri_config }}"
+          - exec
+          - "{{ _hyops_etcd_container }}"
+          - etcdctl
+          - alarm
+          - list
+          - --cert
+          - "{{ _hyops_etcd_cert }}"
+          - --key
+          - "{{ _hyops_etcd_key }}"
+          - --cacert
+          - "{{ _hyops_etcd_ca }}"
+      register: _hyops_etcd_alarms
+      check_mode: false
+      changed_when: false
+
+    - name: Assert etcd has no active alarms
+      ansible.builtin.assert:
+        that:
+          - (_hyops_etcd_alarms.stdout | trim) == ''
+        fail_msg: "refusing member removal while etcd alarms are present"
+
+    - name: Describe the confirmed member-removal plan
+      ansible.builtin.debug:
+        msg: >-
+          would remove etcd member {{ _hyops_target_member.name }}
+          (ID 0x{{ _hyops_target_member_id_hex }}) and peer {{ etcd_member_peer_url }}
+          using operator {{ inventory_hostname }}
+      changed_when: false
+      when:
+        - ansible_check_mode
+        - _hyops_target_members | length == 1
+
+    - name: Describe an already-absent etcd member
+      ansible.builtin.debug:
+        msg: "etcd member {{ etcd_member_name }} is already absent; verifying remaining members and Kubernetes cleanup"
+      changed_when: false
+      when:
+        - ansible_check_mode
+        - _hyops_target_members | length == 0
+
+    - name: Remove the exact unhealthy etcd member
+      ansible.builtin.command:
+        argv:
+          - "{{ _hyops_crictl_bin }}"
+          - --config
+          - "{{ _hyops_cri_config }}"
+          - exec
+          - "{{ _hyops_etcd_container }}"
+          - etcdctl
+          - member
+          - remove
+          - "{{ _hyops_target_member_id_hex }}"
+          - --cert
+          - "{{ _hyops_etcd_cert }}"
+          - --key
+          - "{{ _hyops_etcd_key }}"
+          - --cacert
+          - "{{ _hyops_etcd_ca }}"
+      register: _hyops_etcd_member_remove
+      changed_when: "'removed from cluster' in (_hyops_etcd_member_remove.stdout | lower)"
+      when:
+        - not ansible_check_mode
+        - _hyops_target_members | length == 1
+
+    - name: Verify the removed etcd member is absent
+      ansible.builtin.command:
+        argv:
+          - "{{ _hyops_crictl_bin }}"
+          - --config
+          - "{{ _hyops_cri_config }}"
+          - exec
+          - "{{ _hyops_etcd_container }}"
+          - etcdctl
+          - member
+          - list
+          - --write-out=json
+          - --cert
+          - "{{ _hyops_etcd_cert }}"
+          - --key
+          - "{{ _hyops_etcd_key }}"
+          - --cacert
+          - "{{ _hyops_etcd_ca }}"
+      register: _hyops_etcd_member_list_after
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Assert the target no longer exists in etcd membership
+      ansible.builtin.assert:
+        that:
+          - >-
+            (((_hyops_etcd_member_list_after.stdout | from_json).members | default([]))
+            | selectattr('name', 'defined')
+            | selectattr('name', 'equalto', etcd_member_name) | list | length) == 0
+        fail_msg: "etcd accepted the removal command but the target member remains present"
+      when: not ansible_check_mode
+
+    - name: Remove the stale Kubernetes Node object
+      ansible.builtin.command:
+        argv:
+          - /var/lib/rancher/rke2/bin/kubectl
+          - --kubeconfig
+          - /etc/rancher/rke2/rke2.yaml
+          - delete
+          - node
+          - "{{ kubernetes_node_name }}"
+          - --ignore-not-found=true
+          - --wait=false
+      register: _hyops_kubernetes_node_remove
+      changed_when: "'deleted' in (_hyops_kubernetes_node_remove.stdout | lower)"
+      when:
+        - not ansible_check_mode
+        - remove_kubernetes_node | bool
+
+- name: Platform/onprem/rke2-etcd-member (publish outputs)
+  hosts: localhost
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Write HyOps outputs
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'etcd_member': {
+              'name': etcd_member_name,
+              'peer_url': etcd_member_peer_url,
+              'kubernetes_node_name': kubernetes_node_name,
+              'state': 'absent'
+            },
+            'cap.k8s.rke2_etcd_member': 'absent'
+          } | to_json }}

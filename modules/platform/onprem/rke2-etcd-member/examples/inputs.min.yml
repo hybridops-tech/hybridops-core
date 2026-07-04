@@ -1,0 +1,18 @@
+# Remove one failed RKE2 embedded-etcd member using a surviving control plane.
+# Obtain the exact member name and peer URL with the module plan or documented
+# RKE2 etcd diagnostics; do not guess either value.
+
+inventory_state_ref: platform/onprem/platform-vm#rke2_vms
+inventory_vm_groups:
+  rke2_operator:
+    - rke2-cp-02
+inventory_requires_ipam: true
+
+target_user: opsadmin
+ssh_private_key_file: ~/.ssh/id_ed25519
+ssh_proxy_jump_auto: true
+
+etcd_member_name: CHANGE_ME
+etcd_member_peer_url: https://192.0.2.10:2380
+kubernetes_node_name: CHANGE_ME
+member_removal_confirm: false
