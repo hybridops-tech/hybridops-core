@@ -95,6 +95,7 @@ Every `hyops` command writes a non-secret structured run record:
 - **Public site:** [hybridops.tech](https://hybridops.tech)
 - **Security reports:** [security@hybridops.tech](mailto:security@hybridops.tech) — see [SECURITY.md](.github/SECURITY.md)
 - **Bugs and feature requests:** use the issue tracker
+- **Architectural References:** [Anuket CNTT](https://cntt.readthedocs.io/en/latest/common/chapter00.html)
 
 ## License
 
