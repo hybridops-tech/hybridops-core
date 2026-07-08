@@ -1,10 +1,10 @@
 # On-Prem EVE-NG Platform Stack
 
-Build a rebuildable EVE-NG lab host on Proxmox instead of hand-maintaining a long-lived VM.
+Build a rebuildable EVE-NG host on Proxmox instead of hand-maintaining a long-lived VM.
 
 This blueprint consumes the shared on-prem SDN and NetBox authority, builds a verified Ubuntu Jammy template image, provisions an EVE-NG VM from that template, configures EVE-NG, and runs a health check so the host proves it is reachable.
 
-Use this when you want the lab platform itself to be reproducible, not just the topologies that run inside EVE-NG.
+Use this when you want the EVE-NG platform itself to be reproducible, not just the topologies that run inside it.
 
 ## What This Delivers
 
@@ -30,7 +30,7 @@ The blueprint file is [blueprint.yml](blueprint.yml).
 ## Documentation
 
 - [Deploy EVE-NG blueprint runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-eve-ng/)
-- [Reusable EVE-NG Lab Foundation reference scenario](https://docs.hybridops.tech/reference-scenarios/eveng-lab-foundation/)
+- [Reusable EVE-NG training environment reference scenario](https://docs.hybridops.tech/reference-scenarios/eveng-lab-foundation/)
 
 ## Prerequisites
 
@@ -99,7 +99,7 @@ Addressing is IPAM-driven. The VM module reads NetBox and the shared SDN authori
 
 ## Why This Exists
 
-EVE-NG is often treated as a manually built lab box: install it once, patch it carefully, and hope nobody needs to recreate it from scratch.
+EVE-NG is often treated as a manually built appliance: install it once, patch it carefully, and hope nobody needs to recreate it from scratch.
 
 This blueprint turns that host into a normal platform outcome:
 
@@ -107,9 +107,9 @@ This blueprint turns that host into a normal platform outcome:
 - the template is smoke-checked before use
 - the VM is provisioned from state, not from a remembered VMID
 - EVE-NG configuration is a module step, not a manual shell session
-- the final health check produces evidence that the lab host is reachable
+- the final health check produces evidence that the EVE-NG host is reachable
 
-That makes the lab host disposable enough to rebuild and predictable enough to use as part of a wider training or network-emulation platform.
+That makes the EVE-NG host disposable enough to rebuild and predictable enough to use as part of a wider training or network-emulation platform.
 
 ## Related Modules
 

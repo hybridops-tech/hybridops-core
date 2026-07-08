@@ -4,8 +4,8 @@ kind: ModuleSpec
 module_ref: "platform/linux/eve-ng-labs"
 
 metadata:
-  title: "Linux EVE-NG Labs"
-  description: "Load lab content onto an existing EVE-NG host from a local path, Git repository, or remote file source."
+  title: "Linux EVE-NG Topology Content"
+  description: "Load EVE-NG topology content onto an existing host from a local path, Git repository, or remote file source."
 
 requirements:
   credentials: []

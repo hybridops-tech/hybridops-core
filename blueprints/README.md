@@ -34,7 +34,7 @@ Each shipped blueprint directory contains a `blueprint.yml` contract and a local
 | [`onprem/postgresql-ha@v1`](onprem/postgresql-ha@v1) | Patroni + etcd PostgreSQL HA on the on-prem foundation. |
 | [`onprem/rke2@v1`](onprem/rke2@v1) | On-prem RKE2 cluster with exported kubeconfig. |
 | [`onprem/rke2-workloads@v1`](onprem/rke2-workloads@v1) | RKE2 plus Argo CD root app and GSM bootstrap secret. |
-| [`onprem/eve-ng@v1`](onprem/eve-ng@v1) | Proxmox-hosted EVE-NG lab platform. |
+| [`onprem/eve-ng@v1`](onprem/eve-ng@v1) | Proxmox-hosted EVE-NG training and network simulation platform. |
 
 ### GCP
 

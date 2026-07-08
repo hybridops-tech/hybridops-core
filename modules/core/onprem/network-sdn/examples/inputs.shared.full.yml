@@ -13,7 +13,7 @@
 # - 31 staging data tier (enterprise refinement)
 # - 40 prod
 # - 41 prod data tier (enterprise refinement)
-# - 50 lab
+# - 50 validation
 
 zone_name: "hybzone"
 zone_bridge: "vmbr0"
@@ -120,7 +120,7 @@ vnets:
 
   vnetlab:
     vlan_id: 50
-    description: "Lab network"
+    description: "Validation network"
     subnets:
       sublab:
         cidr: "10.50.0.0/24"

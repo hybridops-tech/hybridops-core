@@ -5,9 +5,9 @@ blueprint_ref: "gcp/eve-ng@v1"
 mode: "hybrid"
 
 metadata:
-  title: "GCP EVE-NG Lab Host"
+  title: "GCP EVE-NG Host"
   description: "Provision a single nested-virtualization-capable GCP VM and configure EVE-NG over IAP."
-  outcome: "A private EVE-NG host exists in GCP and is configured for governed lab use."
+  outcome: "A private EVE-NG host exists in GCP and is configured for governed training and network simulation use."
 
 policy:
   fail_fast: true

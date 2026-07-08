@@ -1,15 +1,15 @@
-# GCP EVE-NG Lab Host
+# GCP EVE-NG Host
 
-Build a private EVE-NG lab host on Google Cloud using a nested-virtualization-capable Compute Engine VM.
+Build a private EVE-NG host on Google Cloud using a nested-virtualization-capable Compute Engine VM.
 
-This blueprint provisions the VM, connects to it over GCP IAP, configures EVE-NG, and runs a health check so the host proves it is reachable. It is the cloud-friendly EVE-NG path for users who want a reproducible lab host but do not have a Proxmox environment.
+This blueprint provisions the VM, connects to it over GCP IAP, configures EVE-NG, and runs a health check so the host proves it is reachable. It is the cloud-friendly EVE-NG path for users who want a reproducible training or network-simulation host but do not have a Proxmox environment.
 
-Use this when you want the EVE-NG host lifecycle to be rebuildable from infrastructure code instead of manually creating and patching a lab server.
+Use this when you want the EVE-NG host lifecycle to be rebuildable from infrastructure code instead of manually creating and patching a long-lived server.
 
 ## What This Delivers
 
 - a private GCP Compute Engine VM for EVE-NG
-- nested virtualization enabled for KVM-backed lab workloads
+- nested virtualization enabled for KVM-backed network simulation workloads
 - no public IP by default
 - SSH access through GCP IAP
 - VM provisioning through `platform/gcp/platform-vm`
@@ -30,7 +30,7 @@ The blueprint file is [blueprint.yml](blueprint.yml).
 ## Documentation
 
 - [Deploy EVE-NG blueprint runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-eve-ng/)
-- [Reusable EVE-NG Lab Foundation reference scenario](https://docs.hybridops.tech/reference-scenarios/eveng-lab-foundation/)
+- [Reusable EVE-NG training environment reference scenario](https://docs.hybridops.tech/reference-scenarios/eveng-lab-foundation/)
 
 ## Prerequisites
 
@@ -97,15 +97,15 @@ The VM is placed on the workload subnet exported by the selected GCP network sta
 
 ## Why This Exists
 
-Not every networking learner or lab operator has a Proxmox cluster available. A cloud-hosted EVE-NG path makes the host lifecycle easier to reproduce from a clean state while still keeping access private and controlled.
+Not every networking learner or platform operator has a Proxmox cluster available. A cloud-hosted EVE-NG path makes the host lifecycle easier to reproduce from a clean state while still keeping access private and controlled.
 
-This blueprint turns the lab host into a normal platform outcome:
+This blueprint turns the EVE-NG host into a normal platform outcome:
 
 - the VM is provisioned from a declared contract
 - nested virtualization is explicitly enabled
 - access goes through IAP instead of exposing SSH publicly
 - EVE-NG configuration is a module step, not a manual shell session
-- the final health check produces evidence that the lab host is reachable
+- the final health check produces evidence that the EVE-NG host is reachable
 
 That makes the EVE-NG host disposable enough to rebuild and predictable enough to share as part of a training or network-emulation workflow.
 

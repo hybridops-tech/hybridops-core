@@ -1,6 +1,6 @@
 # platform/linux/eve-ng-labs
 
-Load lab content onto an existing EVE-NG host.
+Load EVE-NG topology content onto an existing host.
 
 Use this after `platform/linux/eve-ng` has already established the EVE-NG runtime.
 
@@ -23,6 +23,6 @@ hyops apply --env dev \
 Destroy is conservative.
 
 - the staging directory is cleaned
-- installed labs are removed only when `eveng_lab_folders` explicitly lists the managed folders
+- installed topology folders are removed only when `eveng_lab_folders` explicitly lists the managed folders
 
-That keeps the module safe for shared lab libraries.
+That keeps the module safe for shared topology libraries.

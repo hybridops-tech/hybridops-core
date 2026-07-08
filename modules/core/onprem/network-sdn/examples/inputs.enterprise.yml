@@ -41,7 +41,7 @@ vnets:
         dhcp_dns_server: "10.12.0.53"
   vnetlab:
     vlan_id: 50
-    description: "Lab network"
+    description: "Validation network"
     subnets:
       sublab:
         cidr: "10.50.0.0/24"
