@@ -38,11 +38,15 @@ EOS
     fi
     echo "[install] installing from local wheelhouse"
     if [[ "${USE_SYSTEM_DEPS}" == "true" ]]; then
-      "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" --no-deps hybridops-core >/dev/null
+      if "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" --no-deps hybridops-core >/dev/null; then
+        return 0
+      fi
     else
-      "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" hybridops-core >/dev/null
+      if "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" hybridops-core >/dev/null; then
+        return 0
+      fi
     fi
-    return 0
+    echo "WARN: local wheelhouse is incompatible with this Python or platform; retrying with the package index" >&2
   fi
 
   if [[ "${USE_SYSTEM_DEPS}" == "true" ]]; then
