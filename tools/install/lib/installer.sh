@@ -46,7 +46,12 @@ hyops_install_run() {
   echo "[install] bin_dir=${BIN_DIR}"
 
   if [[ "${SETUP_ALL}" == "auto" ]]; then
-    if [[ "${SYSTEM_LINK}" == "true" ]]; then
+    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+      # Homebrew refuses to run as root. Keep the CLI install smooth and leave
+      # prerequisite installation as an explicit, user-owned setup step.
+      SETUP_ALL="false"
+      echo "[install] macOS detected; automatic setup-all is disabled"
+    elif [[ "${SYSTEM_LINK}" == "true" ]]; then
       SETUP_ALL="true"
     else
       SETUP_ALL="false"

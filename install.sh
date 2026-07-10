@@ -16,7 +16,7 @@ Defaults:
   --prefix           ~/.hybridops/core
   --bin-dir          ~/.local/bin
   --system-link      enabled (installs /usr/local/bin/hyops; requires sudo)
-  --setup-all        auto (runs when --system-link is enabled; use --no-setup-all to skip)
+  --setup-all        auto (Linux: runs when --system-link is enabled; macOS: skipped)
 USAGE
 }
 
