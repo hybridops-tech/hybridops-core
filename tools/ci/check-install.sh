@@ -41,11 +41,18 @@ common_env=(
 env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
 
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  grep -Fqx 'export PATH="$HOME/.local/bin:$PATH"' "${USER_HOME}/.zprofile"
+fi
+
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" --help >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --help >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --runtime-root "${USER_HOME}/.hybridops" --dry-run >/dev/null
 env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  [[ "$(grep -Fxc 'export PATH="$HOME/.local/bin:$PATH"' "${USER_HOME}/.zprofile")" -eq 1 ]]
+fi
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" show --help >/dev/null
 
 if sudo -n true >/dev/null 2>&1; then

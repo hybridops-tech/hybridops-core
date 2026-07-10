@@ -83,13 +83,27 @@ hyops_install_run() {
 
   hyops_install_install_user_wrapper
   hyops_install_install_system_link
+  hyops_install_configure_macos_user_path
+  hyops_install_verify_command
   hyops_install_run_setup_all
 
   echo "[install] OK"
-  echo "Try:"
-  echo "  hyops --help"
-  echo "  hyops preflight"
-  if [[ -n "${WRAPPER:-}" ]]; then
+  local resolved_hyops=""
+  resolved_hyops="$(command -v hyops 2>/dev/null || true)"
+  if [[ "${resolved_hyops}" == "${SYSTEM_LINK_PATH}" || ( -n "${WRAPPER:-}" && "${resolved_hyops}" == "${WRAPPER}" ) ]]; then
+    echo "Next:"
+    echo "  hyops --help"
+    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+      echo "  hyops setup base"
+    else
+      echo "  hyops preflight"
+    fi
+  elif [[ -n "${PATH_PROFILE:-}" ]]; then
+    echo "Open a new terminal, then run:"
+    echo "  hyops --help"
+    echo "  hyops setup base"
+  else
+    echo "Run:"
     echo "  ${WRAPPER} --help"
   fi
 }
