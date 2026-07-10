@@ -26,5 +26,24 @@ if ! command -v gke-gcloud-auth-plugin >/dev/null 2>&1; then
   }
 fi
 
+if ! command -v gke-gcloud-auth-plugin >/dev/null 2>&1; then
+  sdk_root="$(gcloud info --format='value(installation.sdk_root)' 2>/dev/null || true)"
+  plugin_path="${sdk_root}/bin/gke-gcloud-auth-plugin"
+  brew_bin="$(brew --prefix)/bin"
+  if [[ -x "${plugin_path}" ]]; then
+    mkdir -p "${brew_bin}"
+    ln -sf "${plugin_path}" "${brew_bin}/gke-gcloud-auth-plugin"
+  fi
+fi
+
+command -v gke-gcloud-auth-plugin >/dev/null 2>&1 || {
+  echo "ERR: gke-gcloud-auth-plugin was installed but is not available on PATH" >&2
+  exit 2
+}
+gke-gcloud-auth-plugin --version >/dev/null 2>&1 || {
+  echo "ERR: gke-gcloud-auth-plugin failed its version check" >&2
+  exit 2
+}
+
 echo "[setup] gcloud installed"
 echo "[setup] gke-gcloud-auth-plugin installed"
