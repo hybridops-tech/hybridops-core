@@ -37,16 +37,22 @@ EOS
       exit 2
     fi
     echo "[install] installing from local wheelhouse"
+    local wheelhouse_error="${VENV_DIR}/wheelhouse-install.err"
     if [[ "${USE_SYSTEM_DEPS}" == "true" ]]; then
-      if "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" --no-deps hybridops-core >/dev/null; then
+      if "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" --no-deps hybridops-core \
+        >/dev/null 2>"${wheelhouse_error}"; then
+        rm -f "${wheelhouse_error}"
         return 0
       fi
     else
-      if "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" hybridops-core >/dev/null; then
+      if "${VENV_DIR}/bin/python3" -m pip install --no-index --find-links "${wheelhouse}" hybridops-core \
+        >/dev/null 2>"${wheelhouse_error}"; then
+        rm -f "${wheelhouse_error}"
         return 0
       fi
     fi
-    echo "WARN: local wheelhouse is incompatible with this Python or platform; retrying with the package index" >&2
+    rm -f "${wheelhouse_error}"
+    echo "[install] bundled dependencies are not available for this platform; using the package index"
   fi
 
   if [[ "${USE_SYSTEM_DEPS}" == "true" ]]; then
