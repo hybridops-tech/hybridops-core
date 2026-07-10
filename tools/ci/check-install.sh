@@ -35,7 +35,7 @@ mkdir -p "${USER_HOME}" "${ROOT_SHARED}" "${ROOT_HOME}" "${ROOT_PREFIX}" "${ROOT
 chmod 0755 "${ROOT_SHARED}" "${ROOT_HOME}" "${ROOT_PREFIX}" "${ROOT_BIN_DIR}" "${ROOT_USER_BIN}" "${ROOT_CACHE_DIR}" "${ROOT_FAKE_APP}" "${ROOT_FAKE_APP}/tools" "${ROOT_FAKE_APP}/tools/setup"
 
 common_env=(
-  PATH="/usr/bin:/bin:${PATH}"
+  PATH="${PATH}:/usr/bin:/bin"
   HYOPS_INSTALL_USE_SYSTEM_DEPS=true
 )
 
