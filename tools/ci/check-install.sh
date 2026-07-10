@@ -36,7 +36,6 @@ chmod 0755 "${ROOT_SHARED}" "${ROOT_HOME}" "${ROOT_PREFIX}" "${ROOT_BIN_DIR}" "$
 
 common_env=(
   PATH="${PATH}:/usr/bin:/bin"
-  HYOPS_INSTALL_USE_SYSTEM_DEPS=true
 )
 
 env HOME="${USER_HOME}" "${common_env[@]}" \
