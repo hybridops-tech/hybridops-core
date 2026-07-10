@@ -10,6 +10,9 @@ import os
 import sys
 
 from hyops.runtime.exitcodes import CANCELLED
+from hyops.runtime.command_evidence import PythonCommandEvidence, command_evidence_dir
+from hyops.runtime.layout import ensure_layout
+from hyops.runtime.paths import resolve_runtime_paths
 from hyops.init.command import add_init_subparser
 from hyops.inventory.command import add_inventory_subparser
 from hyops.module.command import add_module_subparser
@@ -134,6 +137,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
+        if ns.cmd == "preflight":
+            paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+            ensure_layout(paths)
+            evidence_dir = command_evidence_dir(paths.logs_dir, "preflight")
+            with PythonCommandEvidence(evidence_dir, command="preflight", argv=argv) as evidence:
+                evidence.exit_code = int(ns._handler(ns))
+                return evidence.exit_code
         return int(ns._handler(ns))
     except KeyboardInterrupt:
         print("Cancelled by user.", file=sys.stderr)

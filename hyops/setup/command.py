@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 
 from hyops.runtime.exitcodes import OK, INTERNAL_ERROR, OPERATOR_ERROR
+from hyops.runtime.command_evidence import command_evidence_dir, run_streamed
+from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
 
 
@@ -256,5 +258,12 @@ def run(ns) -> int:
         argv += ["--hybridops-git-manifest", hybridops_git_manifest]
     if sudo:
         argv = ["sudo", "-E"] + argv
-    rc = subprocess.call(argv, env=env)
-    return int(rc)
+    evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
+    ensure_layout(evidence_paths)
+    evidence_dir = command_evidence_dir(evidence_paths.logs_dir, "setup", canonical_action)
+    return run_streamed(
+        argv,
+        env=env,
+        evidence_dir=evidence_dir,
+        command=f"setup {canonical_action}",
+    )

@@ -26,6 +26,7 @@ FORCE="false"
 NO_WRAPPER="false"
 SYSTEM_LINK="true"
 SETUP_ALL="auto"
+INSTALL_ORIGINAL_ARGV=("$@")
 
 while [[ $# -gt 0 ]]; do
   case "${1:-}" in
@@ -51,4 +52,23 @@ fi
 
 # shellcheck source=/dev/null
 source "${INSTALL_LIB}"
+
+INSTALL_RUN_ID="install-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+INSTALL_EVIDENCE_DIR="${HOME}/.hybridops/logs/install/${INSTALL_RUN_ID}"
+INSTALL_EVIDENCE_HELPER="${SRC_ROOT}/tools/install/install_evidence.py"
+INSTALL_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+mkdir -p "${INSTALL_EVIDENCE_DIR}"
+chmod 0700 "${INSTALL_EVIDENCE_DIR}"
+
+_hyops_install_record_exit() {
+  local rc="$?"
+  trap - EXIT
+  PYTHONPATH="${SRC_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" python3 "${INSTALL_EVIDENCE_HELPER}" result \
+    "${INSTALL_EVIDENCE_DIR}/result.json" "${INSTALL_STARTED_AT}" "${rc}" "$@" >/dev/null 2>&1 || true
+  echo "run record: ${INSTALL_EVIDENCE_DIR}"
+  exit "${rc}"
+}
+
+trap '_hyops_install_record_exit "${INSTALL_ORIGINAL_ARGV[@]}"' EXIT
+exec > >(PYTHONPATH="${SRC_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" python3 "${INSTALL_EVIDENCE_HELPER}" stream "${INSTALL_EVIDENCE_DIR}/output.log") 2>&1
 hyops_install_run
