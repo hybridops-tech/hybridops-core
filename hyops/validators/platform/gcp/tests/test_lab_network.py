@@ -36,7 +36,6 @@ class LabNetworkValidatorTests(unittest.TestCase):
 
     def test_invalid_inputs_are_rejected(self) -> None:
         cases = {
-            "missing region": ("region", ""),
             "placeholder region": ("region", "CHANGE_ME_GCP_REGION"),
             "invalid project": ("project_id", "Not_A_Project"),
             "invalid network name": ("network_name", "Lab_Network"),
@@ -55,6 +54,11 @@ class LabNetworkValidatorTests(unittest.TestCase):
                 inputs[key] = value
                 with self.assertRaises(ModuleValidationError):
                     validate(inputs)
+
+    def test_region_may_come_from_gcp_init(self) -> None:
+        inputs = valid_inputs()
+        inputs["region"] = ""
+        validate(inputs)
 
     def test_iap_lists_are_optional_when_iap_is_disabled(self) -> None:
         inputs = valid_inputs()
