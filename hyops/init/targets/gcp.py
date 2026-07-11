@@ -1171,6 +1171,8 @@ def _ensure_terraform_sa_project_roles(
     All gcloud operations are idempotent: re-running produces the same state.
 
     APIs enabled:
+      compute.googleapis.com         — required for Compute Engine resources
+      iap.googleapis.com             — required for private VM SSH through IAP
       orgpolicy.googleapis.com       — required for `gcloud resource-manager org-policies` calls
       secretmanager.googleapis.com   — required for Secret Manager resources
 
@@ -1195,6 +1197,8 @@ def _ensure_terraform_sa_project_roles(
     member = f"serviceAccount:{terraform_sa_email}"
 
     apis = [
+        "compute.googleapis.com",
+        "iap.googleapis.com",
         "orgpolicy.googleapis.com",
         "secretmanager.googleapis.com",
     ]
