@@ -9,10 +9,11 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from hyops.runtime.exitcodes import OK, INTERNAL_ERROR, OPERATOR_ERROR
-from hyops.runtime.command_evidence import command_evidence_dir, run_streamed
+from hyops.runtime.command_evidence import PythonCommandEvidence, command_evidence_dir, run_streamed
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
 
@@ -190,10 +191,6 @@ def _run_check() -> int:
 
 def run(ns) -> int:
     action = ns._setup_action
-
-    if action == "check":
-        return _run_check()
-
     canonical_action = "ansible" if action in ("config-mgmt", "config-management") else action
 
     runtime_root: Path | None = None
@@ -204,6 +201,18 @@ def run(ns) -> int:
     force = bool(getattr(ns, "force", False))
     hybridops_source = getattr(ns, "hybridops_source", None)
     hybridops_git_manifest = getattr(ns, "hybridops_git_manifest", None)
+
+    if action == "check":
+        evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
+        ensure_layout(evidence_paths)
+        evidence_dir = command_evidence_dir(evidence_paths.logs_dir, "setup", canonical_action)
+        with PythonCommandEvidence(
+            evidence_dir,
+            command="setup check",
+            argv=sys.argv[1:],
+        ) as evidence:
+            evidence.exit_code = _run_check()
+            return evidence.exit_code
 
     if canonical_action in ("ansible", "all"):
         if runtime_root_arg and env_arg:
