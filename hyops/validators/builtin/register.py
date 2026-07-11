@@ -42,7 +42,7 @@ from hyops.validators.platform.network import (
     vyos_edge_wan,
 )
 from hyops.validators.platform.gcp import platform_vm as gcp_platform_vm
-from hyops.validators.platform.gcp import gke_cluster, gke_kubeconfig
+from hyops.validators.platform.gcp import gke_cluster, gke_kubeconfig, lab_network
 from hyops.validators.platform.k8s import gcp_secret_store, gsm_bootstrap
 from hyops.validators.platform.linux import (
     eve_ng as linux_eve_ng,
@@ -100,6 +100,7 @@ def register_all() -> None:
     register("platform/gcp/platform-vm", gcp_platform_vm.validate)
     register("platform/gcp/gke-cluster", gke_cluster.validate)
     register("platform/gcp/gke-kubeconfig", gke_kubeconfig.validate)
+    register("platform/gcp/lab-network", lab_network.validate)
     register("platform/linux/eve-ng", linux_eve_ng.validate)
     register("platform/linux/eve-ng-images", eve_ng_images.validate)
     register("platform/linux/eve-ng-labs", eve_ng_labs.validate)
