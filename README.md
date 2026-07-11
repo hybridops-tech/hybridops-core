@@ -55,13 +55,14 @@ pip install .
 Inspect a shipped blueprint before configuring a provider:
 
 ```bash
-hyops blueprint validate --ref gcp/eve-ng@v1
-hyops blueprint plan --ref gcp/eve-ng@v1
+hyops blueprint validate --ref onprem/authoritative-foundation@v1
+hyops blueprint plan --ref onprem/authoritative-foundation@v1
 ```
 
 `validate` checks the blueprint manifest. `plan` validates the manifest and
 prints the ordered steps. Neither command selects a runtime, invokes a driver,
-or contacts the provider. See the [GCP EVE-NG blueprint](blueprints/gcp/eve-ng@v1/README.md)
+or contacts the provider. See the
+[authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/README.md)
 for the complete operating sequence.
 
 Initialise a target environment:
@@ -76,7 +77,7 @@ credential requirements, state, and driver checks. Some module paths may inspect
 live state, but preflight does not deploy resources:
 
 ```bash
-hyops blueprint preflight --env dev --ref gcp/eve-ng@v1
+hyops blueprint preflight --env dev --ref onprem/authoritative-foundation@v1
 ```
 
 Run a module:
@@ -89,7 +90,7 @@ hyops apply --env dev --module org/gcp/project-factory
 Run a full blueprint (ordered multi-step deployment):
 
 ```bash
-hyops blueprint deploy --env dev --ref onprem/rke2@v1 --execute
+hyops blueprint deploy --env dev --ref onprem/authoritative-foundation@v1 --execute
 ```
 
 The runtime root defaults to `~/.hybridops`. Override with `--root <path>` or `$HYOPS_RUNTIME_ROOT`.
