@@ -71,16 +71,40 @@ Each shipped blueprint directory contains a `blueprint.yml` contract and a local
 | [`dr/postgresql-cloudsql-failback-onprem@v1`](dr/postgresql-cloudsql-failback-onprem@v1) | Explicit managed-cloud failback gate and DNS cutback. |
 
 ## CLI Usage
-- Validate:
-  - `hyops blueprint validate --ref onprem/bootstrap-netbox@v1 --blueprints-root blueprints`
-- Preflight:
-  - `hyops blueprint preflight --ref onprem/authoritative-foundation@v1 --blueprints-root blueprints --root /tmp/hyops-runtime`
-- Plan:
-  - `hyops blueprint plan --ref onprem/authoritative-foundation@v1 --blueprints-root blueprints`
-- Deploy (execute):
-  - `hyops blueprint deploy --ref onprem/authoritative-foundation@v1 --blueprints-root blueprints --execute`
-- Deploy with explicit runtime root:
-  - `hyops blueprint deploy --ref onprem/authoritative-foundation@v1 --blueprints-root blueprints --execute --root /tmp/hyops-runtime`
+
+Inspect a blueprint locally before configuring a runtime or provider:
+
+```bash
+hyops blueprint validate --ref gcp/eve-ng@v1 --blueprints-root blueprints
+hyops blueprint plan --ref gcp/eve-ng@v1 --blueprints-root blueprints
+```
+
+`validate` checks the manifest. `plan` validates it and prints the ordered
+steps. Neither command selects a runtime, invokes a driver, or contacts the
+provider.
+
+Preflight is the next boundary. It resolves the runtime, module contracts,
+credential requirements, state, and driver checks. Some paths may inspect live
+state, but preflight does not deploy resources:
+
+```bash
+hyops blueprint preflight --env dev \
+  --ref gcp/eve-ng@v1 \
+  --blueprints-root blueprints
+```
+
+Execution begins only when `deploy` is given `--execute`:
+
+```bash
+hyops blueprint deploy --env dev \
+  --ref gcp/eve-ng@v1 \
+  --blueprints-root blueprints \
+  --execute
+```
+
+Use `--root /tmp/hyops-runtime` when an explicit runtime root is required. The
+[GCP EVE-NG blueprint](gcp/eve-ng@v1/README.md) contains the complete operating
+sequence.
 
 ## Shipped Blueprint Boundary
 
