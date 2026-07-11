@@ -25,6 +25,7 @@ from hyops.init.shared_args import add_init_shared_args
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.gcp import (
     diagnose_billing_association_permission,
+    diagnose_project_billing,
     diagnose_private_service_access_permissions,
     normalize_billing_account_id,
 )
@@ -618,6 +619,23 @@ def run(ns) -> int:
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
 
+    billing_validated = False
+    billing_enabled = False
+    if project_access_validated:
+        billing_validated, billing_enabled, billing_detail = diagnose_project_billing(project_id)
+        if not billing_validated:
+            print(f"ERR: could not validate billing for GCP project {project_id}")
+            if billing_detail:
+                print(f"detail: {billing_detail}")
+            print("hint: confirm the active gcloud identity can view project billing, then re-run init.")
+            print(f"run record: {evidence_dir}")
+            return OPERATOR_ERROR
+        if not billing_enabled:
+            print(f"ERR: billing is not enabled for GCP project {project_id}")
+            print("hint: enable billing in Google Cloud, then re-run init before deploying resources.")
+            print(f"run record: {evidence_dir}")
+            return OPERATOR_ERROR
+
     if adc_quota_project_id:
         run_capture(
             ["gcloud", "auth", "application-default", "set-quota-project", adc_quota_project_id],
@@ -782,6 +800,8 @@ def run(ns) -> int:
                     "impersonation_validated": bool(impersonation_validated),
                     "project_access_validated": bool(project_access_validated),
                     "project_bootstrap_pending": bool(project_bootstrap_pending),
+                    "billing_validated": bool(billing_validated),
+                    "billing_enabled": bool(billing_enabled),
                     "ssh_public_key": ssh_public_key,
                     "eso_sa_email": eso_sa_email,
                 },
