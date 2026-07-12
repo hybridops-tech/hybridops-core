@@ -39,6 +39,19 @@ common_env=(
   HYOPS_INSTALL_USE_SYSTEM_DEPS=true
 )
 
+latest_evidence_dir() {
+  python3 - "$1" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+directories = [path for path in root.iterdir() if path.is_dir()]
+if not directories:
+    raise SystemExit(f"no evidence directories found under {root}")
+print(max(directories, key=lambda path: path.stat().st_mtime_ns))
+PY
+}
+
 env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
 
@@ -46,7 +59,7 @@ env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" --help >/d
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --help >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --runtime-root "${USER_HOME}/.hybridops" --dry-run >/dev/null
 
-INSTALL_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/install" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+INSTALL_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/install")"
 python3 - "${INSTALL_EVIDENCE}" <<'PY'
 import json
 import os
@@ -66,7 +79,7 @@ assert result["status"] == "ok"
 PY
 
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" preflight >/dev/null
-PREFLIGHT_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/preflight" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+PREFLIGHT_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/preflight")"
 python3 - "${PREFLIGHT_EVIDENCE}" <<'PY'
 import json
 from pathlib import Path
@@ -83,7 +96,7 @@ set +e
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup check >"${WORK_DIR}/setup-check.out" 2>&1
 SETUP_CHECK_RC=$?
 set -e
-SETUP_CHECK_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/setup/check" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+SETUP_CHECK_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/setup/check")"
 python3 - "${SETUP_CHECK_EVIDENCE}" "${SETUP_CHECK_RC}" <<'PY'
 import json
 from pathlib import Path
@@ -105,7 +118,7 @@ env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" \
 PREFLIGHT_FAILURE_RC=$?
 set -e
 [[ "${PREFLIGHT_FAILURE_RC}" -ne 0 ]]
-PREFLIGHT_FAILURE_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/preflight" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+PREFLIGHT_FAILURE_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/preflight")"
 python3 - "${PREFLIGHT_FAILURE_EVIDENCE}/result.json" "${PREFLIGHT_FAILURE_RC}" <<'PY'
 import json
 from pathlib import Path
@@ -118,7 +131,7 @@ PY
 
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" \
   preflight --vault-password-command 'token=evidence-argv-secret' >/dev/null
-PREFLIGHT_ARGV_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/preflight" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+PREFLIGHT_ARGV_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/preflight")"
 ! grep -Fq 'evidence-argv-secret' "${PREFLIGHT_ARGV_EVIDENCE}/result.json"
 grep -Fq 'token=***REDACTED***' "${PREFLIGHT_ARGV_EVIDENCE}/result.json"
 
@@ -138,7 +151,7 @@ set -e
 [[ "${SETUP_RC}" -eq 7 ]]
 ! grep -Fq 'evidence-test-secret' "${WORK_DIR}/setup-failure.out"
 grep -Fq 'token=***REDACTED***' "${WORK_DIR}/setup-failure.out"
-SETUP_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/setup/base" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+SETUP_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/setup/base")"
 ! grep -Fq 'evidence-test-secret' "${SETUP_EVIDENCE}/output.log"
 grep -Fq 'token=***REDACTED***' "${SETUP_EVIDENCE}/output.log"
 python3 - "${SETUP_EVIDENCE}/result.json" <<'PY'
