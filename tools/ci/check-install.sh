@@ -45,6 +45,111 @@ env HOME="${USER_HOME}" "${common_env[@]}" \
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" --help >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --help >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --runtime-root "${USER_HOME}/.hybridops" --dry-run >/dev/null
+
+INSTALL_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/install" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+python3 - "${INSTALL_EVIDENCE}" <<'PY'
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+root = Path(sys.argv[1])
+assert stat.S_IMODE(root.stat().st_mode) == 0o700
+for name in ("output.log", "result.json"):
+    path = root / name
+    assert path.is_file()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+result = json.loads((root / "result.json").read_text())
+assert result["exit_code"] == 0
+assert result["status"] == "ok"
+PY
+
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" preflight >/dev/null
+PREFLIGHT_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/preflight" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+python3 - "${PREFLIGHT_EVIDENCE}" <<'PY'
+import json
+from pathlib import Path
+import stat
+import sys
+
+root = Path(sys.argv[1])
+assert stat.S_IMODE(root.stat().st_mode) == 0o700
+assert stat.S_IMODE((root / "output.log").stat().st_mode) == 0o600
+assert json.loads((root / "result.json").read_text())["exit_code"] == 0
+PY
+
+set +e
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup check >"${WORK_DIR}/setup-check.out" 2>&1
+SETUP_CHECK_RC=$?
+set -e
+SETUP_CHECK_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/setup/check" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+python3 - "${SETUP_CHECK_EVIDENCE}" "${SETUP_CHECK_RC}" <<'PY'
+import json
+from pathlib import Path
+import stat
+import sys
+
+root = Path(sys.argv[1])
+expected_rc = int(sys.argv[2])
+assert stat.S_IMODE(root.stat().st_mode) == 0o700
+assert stat.S_IMODE((root / "output.log").stat().st_mode) == 0o600
+result = json.loads((root / "result.json").read_text())
+assert result["exit_code"] == expected_rc
+assert result["status"] == ("ok" if expected_rc == 0 else "failed")
+PY
+
+set +e
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" \
+  preflight --target evidence-target-does-not-exist >"${WORK_DIR}/preflight-failure.out" 2>&1
+PREFLIGHT_FAILURE_RC=$?
+set -e
+[[ "${PREFLIGHT_FAILURE_RC}" -ne 0 ]]
+PREFLIGHT_FAILURE_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/preflight" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+python3 - "${PREFLIGHT_FAILURE_EVIDENCE}/result.json" "${PREFLIGHT_FAILURE_RC}" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+result = json.loads(Path(sys.argv[1]).read_text())
+assert result["exit_code"] == int(sys.argv[2])
+assert result["status"] == "failed"
+PY
+
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" \
+  preflight --vault-password-command 'token=evidence-argv-secret' >/dev/null
+PREFLIGHT_ARGV_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/preflight" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+! grep -Fq 'evidence-argv-secret' "${PREFLIGHT_ARGV_EVIDENCE}/result.json"
+grep -Fq 'token=***REDACTED***' "${PREFLIGHT_ARGV_EVIDENCE}/result.json"
+
+FAKE_SETUP_ROOT="${WORK_DIR}/fake-setup-core"
+mkdir -p "${FAKE_SETUP_ROOT}/tools/setup"
+cat >"${FAKE_SETUP_ROOT}/tools/setup/setup-base.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "token=evidence-test-secret"
+echo "expected setup failure"
+exit 7
+EOF
+chmod 0755 "${FAKE_SETUP_ROOT}/tools/setup/setup-base.sh"
+set +e
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup base --root "${FAKE_SETUP_ROOT}" >"${WORK_DIR}/setup-failure.out" 2>&1
+SETUP_RC=$?
+set -e
+[[ "${SETUP_RC}" -eq 7 ]]
+! grep -Fq 'evidence-test-secret' "${WORK_DIR}/setup-failure.out"
+grep -Fq 'token=***REDACTED***' "${WORK_DIR}/setup-failure.out"
+SETUP_EVIDENCE="$(find "${USER_HOME}/.hybridops/logs/setup/base" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+! grep -Fq 'evidence-test-secret' "${SETUP_EVIDENCE}/output.log"
+grep -Fq 'token=***REDACTED***' "${SETUP_EVIDENCE}/output.log"
+python3 - "${SETUP_EVIDENCE}/result.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+result = json.loads(Path(sys.argv[1]).read_text())
+assert result["exit_code"] == 7
+assert result["status"] == "failed"
+PY
 env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" show --help >/dev/null
