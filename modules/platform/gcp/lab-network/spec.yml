@@ -1,0 +1,66 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/gcp/lab-network"
+
+metadata:
+  title: "GCP Private Lab Network"
+  description: "Create an isolated GCP VPC, subnet, IAP SSH access, and private outbound egress for a disposable lab."
+
+requirements:
+  credentials: ["gcp"]
+
+inputs:
+  defaults:
+    name_prefix: ""
+    context_id: ""
+    project_id: ""
+    region: ""
+
+    network_name: "lab-network"
+    routing_mode: "REGIONAL"
+    subnetwork_name: "lab"
+    subnetwork_cidr: "10.80.0.0/24"
+    enable_private_google_access: true
+
+    enable_iap_ssh: true
+    iap_source_cidrs:
+      - "35.235.240.0/20"
+    iap_target_tags:
+      - "allow-iap-ssh"
+
+    router_name: "lab-router"
+    nat_name: "lab-nat"
+    nat_min_ports_per_vm: 64
+    nat_enable_endpoint_independent_mapping: true
+    nat_log_filter: "ERRORS_ONLY"
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "gcp@v1.0"
+  pack_ref:
+    id: "gcp/platform/10-platform/20-lab-network@v1.0"
+  hooks:
+    export_infra:
+      enabled: true
+      target: "cloud-gcp"
+      strict: false
+      push_to_netbox: false
+
+outputs:
+  publish:
+    - project_id
+    - region
+    - network_name
+    - network_self_link
+    - subnetwork_name
+    - subnetwork_self_link
+    - subnetwork_cidr
+    - router_name
+    - router_self_link
+    - nat_name
+    - nat_self_link
+    - iap_firewall_rule_name
+
+probes: []
+constraints: []

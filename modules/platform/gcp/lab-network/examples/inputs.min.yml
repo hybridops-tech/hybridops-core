@@ -1,0 +1,3 @@
+region: "europe-west2"
+name_prefix: "student"
+context_id: "network-lab"
