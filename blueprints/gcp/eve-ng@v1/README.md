@@ -9,6 +9,7 @@ Use this when you want the EVE-NG host lifecycle to be rebuildable from infrastr
 ## What This Delivers
 
 - a private GCP Compute Engine VM for EVE-NG
+- an isolated VPC, subnet, IAP SSH rule, router, and subnet-scoped Cloud NAT
 - nested virtualization enabled for KVM-backed network simulation workloads
 - no public IP by default
 - SSH access through GCP IAP
@@ -20,7 +21,8 @@ Use this when you want the EVE-NG host lifecycle to be rebuildable from infrastr
 ## Execution Chain
 
 ```text
-platform/gcp/platform-vm
+platform/gcp/lab-network
+  -> platform/gcp/platform-vm
   -> platform/linux/eve-ng
   -> platform/linux/eve-ng-healthcheck
 ```
@@ -34,13 +36,15 @@ The blueprint file is [blueprint.yml](blueprint.yml).
 
 ## Prerequisites
 
-This blueprint assumes the GCP foundation for the target environment already exists:
+This blueprint creates its own lab network. It assumes the GCP account and
+target environment are ready:
 
 - `hyops init gcp --env <env>` has been run.
 - A GCP project is selected for the environment.
-- The WAN hub network state exists at `org/gcp/wan-hub-network`.
-- The workload subnet output is available as `subnet_workloads_name`.
-- IAP TCP forwarding is allowed for VMs tagged `allow-iap-ssh`.
+- Billing is enabled on the selected project. The deployment and running VM can
+  consume free-trial credit or incur charges.
+- The operator can create Compute Engine networks, firewall rules, routers,
+  NAT configuration, and instances.
 - EVE-NG secrets are seeded for the target environment.
 - The placeholder `CHANGE_ME_GCP_ZONE` in [blueprint.yml](blueprint.yml) has been copied or overridden with a real zone that supports the selected machine family.
 
@@ -93,7 +97,8 @@ The shipped blueprint provisions one VM:
 - SSH user: `opsadmin`
 - network tag: `allow-iap-ssh`
 
-The VM is placed on the workload subnet exported by the selected GCP network state.
+The VM is placed on the private subnet created by the blueprint's lab-network
+step.
 
 ## Why This Exists
 
@@ -111,6 +116,7 @@ That makes the EVE-NG host disposable enough to rebuild and predictable enough t
 
 ## Related Modules
 
+- [platform/gcp/lab-network](../../../modules/platform/gcp/lab-network)
 - [platform/gcp/platform-vm](../../../modules/platform/gcp/platform-vm)
 - [platform/linux/eve-ng](../../../modules/platform/linux/eve-ng)
 - [platform/linux/eve-ng-healthcheck](../../../modules/platform/linux/eve-ng-healthcheck)
