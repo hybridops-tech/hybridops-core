@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 from urllib.parse import urlparse
@@ -134,30 +135,29 @@ def _read_first_pubkey() -> str:
 
 
 def _detect_workstation_ip(target_host: str) -> str:
-    r = run_proc(["ip", "route", "get", target_host], timeout_s=5)
-    if r.rc == 0:
-        m = re.search(r"\bsrc\s+([0-9.]+)\b", r.stdout or "")
-        if m:
-            return m.group(1)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+            route.connect((target_host, 9))
+            selected = str(route.getsockname()[0] or "").strip()
+            if selected and selected != "0.0.0.0":
+                return selected
+    except OSError:
+        pass
 
-    r = run_proc(["hostname", "-I"], timeout_s=5)
-    if r.rc == 0:
-        parts = (r.stdout or "").strip().split()
-        if parts:
-            return parts[0]
+    if _need_cmd("ip"):
+        r = run_proc(["ip", "route", "get", target_host], timeout_s=5)
+        if r.rc == 0:
+            m = re.search(r"\bsrc\s+([0-9.]+)\b", r.stdout or "")
+            if m:
+                return m.group(1)
+
+    if _need_cmd("hostname"):
+        r = run_proc(["hostname", "-I"], timeout_s=5)
+        if r.rc == 0:
+            parts = (r.stdout or "").strip().split()
+            if parts:
+                return parts[0]
     return ""
-
-
-def _local_ipv4_addresses() -> set[str]:
-    r = run_proc(["ip", "-4", "-o", "addr", "show", "scope", "global"], timeout_s=5)
-    if r.rc != 0:
-        return set()
-    ips: set[str] = set()
-    for raw in (r.stdout or "").splitlines():
-        m = re.search(r"\binet\s+([0-9.]+)/\d+\b", raw)
-        if m:
-            ips.add(m.group(1))
-    return ips
 
 
 def _is_valid_http_bind_address(value: str) -> bool:
@@ -166,7 +166,12 @@ def _is_valid_http_bind_address(value: str) -> bool:
         return False
     if addr == "0.0.0.0":
         return True
-    return addr in _local_ipv4_addresses()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind((addr, 0))
+    except OSError:
+        return False
+    return True
 
 
 def _parse_exports(text: str) -> dict[str, str]:
