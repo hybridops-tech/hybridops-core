@@ -1,8 +1,60 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
-from hyops.blueprint.planner import compute_preflight
+from hyops.blueprint.planner import _required_env_error, compute_preflight
+
+
+class RequiredEnvironmentPreflightTest(TestCase):
+    def test_missing_secrets_include_recovery_command(self):
+        with patch.dict("hyops.blueprint.planner.os.environ", {}, clear=True):
+            error = _required_env_error(
+                inputs={
+                    "required_env": ["EVENG_ROOT_PASSWORD", "EVENG_ADMIN_PASSWORD"],
+                    "load_vault_env": True,
+                },
+                action="deploy",
+                env_name="student-lab",
+                runtime_root=Path("/tmp/hyops-required-env-test"),
+            )
+
+        self.assertIn("EVENG_ADMIN_PASSWORD, EVENG_ROOT_PASSWORD", error)
+        self.assertIn(
+            "hyops secrets ensure --env student-lab "
+            "EVENG_ADMIN_PASSWORD EVENG_ROOT_PASSWORD",
+            error,
+        )
+
+    def test_destroy_does_not_require_deploy_secrets(self):
+        error = _required_env_error(
+            inputs={
+                "required_env": ["EVENG_ROOT_PASSWORD"],
+                "required_env_destroy": [],
+            },
+            action="destroy",
+            env_name="student-lab",
+            runtime_root=Path("/tmp/hyops-required-env-test"),
+        )
+        self.assertEqual(error, "")
+
+    def test_vault_backed_values_satisfy_requirement(self):
+        def load_vault(env, _runtime_root):
+            env["EVENG_ROOT_PASSWORD"] = "stored"
+            return {"EVENG_ROOT_PASSWORD": "stored"}, ""
+
+        with patch.dict(
+            "hyops.blueprint.planner.os.environ", {}, clear=True
+        ), patch(
+            "hyops.blueprint.planner.merge_vault_env", side_effect=load_vault
+        ):
+            error = _required_env_error(
+                inputs={"required_env": ["EVENG_ROOT_PASSWORD"]},
+                action="deploy",
+                env_name="student-lab",
+                runtime_root=Path("/tmp/hyops-required-env-test"),
+            )
+        self.assertEqual(error, "")
 
 
 class PlannedDependencyPreflightTest(TestCase):

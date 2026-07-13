@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 from typing import Any
 
+from hyops.drivers.config.ansible.config import resolve_required_env
+from hyops.drivers.config.ansible.runtime_env import merge_vault_env, missing_env
 from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.source_roots import resolve_module_root
@@ -18,6 +21,31 @@ from .contracts import (
     resolved_step_inputs_file,
     step_state_ref,
 )
+
+
+def _required_env_error(
+    *, inputs: dict[str, Any], action: str, env_name: str, runtime_root: Path
+) -> str:
+    key = "required_env_destroy" if action == "destroy" else "required_env"
+    required, config_error = resolve_required_env(inputs, key=key)
+    if config_error:
+        return config_error
+    if not required:
+        return ""
+
+    env = {str(k): str(v) for k, v in os.environ.items()}
+    _, vault_error = merge_vault_env(env, runtime_root)
+    missing = sorted(missing_env(env, required))
+    if not missing:
+        return ""
+
+    names = ", ".join(missing)
+    hint = f"missing required env vars: {names}. "
+    if vault_error:
+        hint += f"{vault_error}. "
+    hint += "Generate them before deployment: "
+    hint += f"hyops secrets ensure --env {env_name or '<env>'} " + " ".join(missing)
+    return hint
 
 
 def run_step_module_command(step: dict[str, Any], payload: dict[str, Any], ns, paths) -> int:
@@ -164,28 +192,6 @@ def preflight_step(
         result["checks"].append({"name": "contracts", "ok": False, "detail": str(exc)})
         return result
 
-    if deferred_driver_preflight_refs:
-        refs = ", ".join(sorted(deferred_driver_preflight_refs))
-        result["checks"].append(
-            {
-                "name": "module_resolve",
-                "ok": True,
-                "detail": f"deferred until upstream blueprint state exists: {refs}",
-            }
-        )
-        result["checks"].append(
-            {
-                "name": "module_preflight",
-                "ok": True,
-                "detail": f"deferred until upstream blueprint state exists: {refs}",
-            }
-        )
-        result["driver_preflight"] = {
-            "status": "deferred",
-            "deferred_state_refs": sorted(deferred_driver_preflight_refs),
-        }
-        return result
-
     try:
         module_root = resolve_module_root(getattr(ns, "module_root", "modules"))
         resolved = resolve_module(
@@ -203,6 +209,40 @@ def preflight_step(
     except Exception as exc:
         result["status"] = "blocked"
         result["checks"].append({"name": "module_resolve", "ok": False, "detail": str(exc)})
+        return result
+
+    required_env_error = _required_env_error(
+        inputs=resolved.inputs,
+        action=str(step.get("action") or "").strip().lower(),
+        env_name=str(getattr(ns, "env", None) or "").strip(),
+        runtime_root=Path(paths.root),
+    )
+    if required_env_error:
+        result["status"] = "blocked"
+        result["checks"].append(
+            {"name": "required_env", "ok": False, "detail": required_env_error}
+        )
+        return result
+    result["checks"].append(
+        {"name": "required_env", "ok": True, "detail": "ok"}
+    )
+
+    if deferred_driver_preflight_refs:
+        refs = ", ".join(sorted(deferred_driver_preflight_refs))
+        result["checks"].append(
+            {
+                "name": "module_preflight",
+                "ok": True,
+                "detail": (
+                    "driver checks deferred until upstream blueprint state exists: "
+                    f"{refs}"
+                ),
+            }
+        )
+        result["driver_preflight"] = {
+            "status": "deferred",
+            "deferred_state_refs": sorted(deferred_driver_preflight_refs),
+        }
         return result
 
     try:
