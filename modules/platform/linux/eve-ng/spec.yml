@@ -50,6 +50,12 @@ inputs:
     eveng_domain: "lab.local"
     eveng_users: []
     eveng_force_reinstall: false
+    eveng_guest_nat_enabled: false
+    eveng_guest_nat_bridge: "pnet9"
+    eveng_guest_nat_cidr: "172.29.129.1/24"
+    eveng_guest_nat_subnet: "172.29.129.0/24"
+    eveng_guest_nat_dhcp_start: "172.29.129.50"
+    eveng_guest_nat_dhcp_end: "172.29.129.200"
     eveng_root_password_env: "EVENG_ROOT_PASSWORD"
     eveng_admin_password_env: "EVENG_ADMIN_PASSWORD"
 
