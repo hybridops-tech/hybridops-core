@@ -1,1 +1,1 @@
-"""Tests for blueprint planning and preflight."""
+"""Tests for blueprint planning, preflight, and lifecycle commands."""
