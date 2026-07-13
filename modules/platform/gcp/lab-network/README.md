@@ -11,6 +11,8 @@ contract.
 
 - `hyops init gcp --env <env>` is ready.
 - The selected project has billing enabled and the required Compute Engine APIs.
+  GCP init and module preflight validate billing before create/update operations;
+  destroy remains available when billing is disabled.
 - The operator can create VPC, firewall, router, and NAT resources.
 
 ## Security boundary
