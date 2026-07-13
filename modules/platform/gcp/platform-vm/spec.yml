@@ -20,6 +20,7 @@ inputs:
 
     # Location / network
     zone: "" # required
+    zone_from_init_region: false
     network_state_ref: ""
     network: "default"
     subnetwork: "" # optional (empty => let GCP pick default subnet for the zone)

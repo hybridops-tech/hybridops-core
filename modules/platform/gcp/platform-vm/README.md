@@ -24,6 +24,10 @@ It can also enable nested virtualization for workloads that need KVM in the gues
 - `network_state_ref`: resolves `inputs.network`
 - `subnetwork_output_key`: resolves `inputs.subnetwork` from a named output published by the network state
 - `ssh_keys_from_init`: resolves `inputs.ssh_keys` from `<root>/meta/gcp.ready.json` so blueprints do not need to embed a public key
+- `zone_from_init_region`: when explicitly enabled with an empty `zone`, derives
+  the `-a` zone from GCP init readiness and rejects an explicit zone from a
+  different region. Keep it disabled for governed modules that require an
+  explicit placement decision.
 
 SSH key source of truth is intentionally strict:
 

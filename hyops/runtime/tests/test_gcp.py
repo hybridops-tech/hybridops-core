@@ -1,7 +1,11 @@
 from unittest import TestCase
 from unittest.mock import patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from hyops.runtime.gcp import diagnose_project_billing
+from hyops.runtime.module_state_contracts import resolve_gcp_vm_zone_from_init
+from hyops.runtime.readiness import write_marker
 
 
 class ProjectBillingTest(TestCase):
@@ -30,3 +34,28 @@ class ProjectBillingTest(TestCase):
         self.assertFalse(validated)
         self.assertFalse(enabled)
         self.assertIn("unexpected billingEnabled value", detail)
+
+
+class GcpVmZoneResolutionTest(TestCase):
+    def test_derives_zone_from_initialized_region(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_root = root / "state"
+            write_marker(root / "meta", "gcp", {"status": "ready", "context": {"region": "europe-west2"}})
+            inputs = {"zone": "", "zone_from_init_region": True}
+
+            resolve_gcp_vm_zone_from_init(inputs, state_root=state_root)
+
+        self.assertEqual(inputs["zone"], "europe-west2-a")
+
+    def test_rejects_zone_outside_initialized_region(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_root = root / "state"
+            write_marker(root / "meta", "gcp", {"status": "ready", "context": {"region": "europe-west2"}})
+
+            with self.assertRaisesRegex(ValueError, "does not belong"):
+                resolve_gcp_vm_zone_from_init(
+                    {"zone": "us-central1-a", "zone_from_init_region": True},
+                    state_root=state_root,
+                )

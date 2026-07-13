@@ -45,6 +45,7 @@ def run_single(
     allow_state_drift_recreate: bool = False,
     import_resource_address: str | None = None,
     import_resource_id: str | None = None,
+    profile_override: str | None = None,
 ) -> int:
     command_name = str(command_name or "apply").strip().lower()
     if command_name not in ("apply", "deploy", "plan", "validate", "destroy", "import"):
@@ -63,6 +64,8 @@ def run_single(
             lifecycle_command=command_name,
             invocation_command=command_name,
         )
+        if profile_override:
+            resolved.execution["profile"] = str(profile_override).strip()
     except Exception as exc:
         print(f"ERR: {exc}", file=sys.stderr)
         return 1

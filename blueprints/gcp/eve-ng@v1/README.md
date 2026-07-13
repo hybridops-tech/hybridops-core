@@ -2,7 +2,7 @@
 
 Build a private EVE-NG host on Google Cloud using a nested-virtualization-capable Compute Engine VM.
 
-This blueprint provisions the VM, connects to it over GCP IAP, configures EVE-NG, and runs a health check so the host proves it is reachable. It is the cloud-friendly EVE-NG path for users who want a reproducible training or network-simulation host but do not have a Proxmox environment.
+This blueprint provisions the VM, connects to it over GCP IAP, configures EVE-NG, loads a small starter image set, and runs a health check so the host proves it is reachable. It is the cloud-friendly EVE-NG path for users who want a reproducible training or network-simulation host but do not have a Proxmox environment.
 
 Use this when you want the EVE-NG host lifecycle to be rebuildable from infrastructure code instead of manually creating and patching a long-lived server.
 
@@ -15,6 +15,8 @@ Use this when you want the EVE-NG host lifecycle to be rebuildable from infrastr
 - SSH access through GCP IAP
 - VM provisioning through `platform/gcp/platform-vm`
 - EVE-NG installation and configuration through `platform/linux/eve-ng`
+- a starter image set through `platform/linux/eve-ng-images`
+- a guest NAT network with DHCP for lab nodes that need outbound internet access
 - a basic EVE-NG health check through `platform/linux/eve-ng-healthcheck`
 - structured run records for each module step
 
@@ -24,6 +26,7 @@ Use this when you want the EVE-NG host lifecycle to be rebuildable from infrastr
 platform/gcp/lab-network
   -> platform/gcp/platform-vm
   -> platform/linux/eve-ng
+  -> platform/linux/eve-ng-images
   -> platform/linux/eve-ng-healthcheck
 ```
 
@@ -47,7 +50,9 @@ target environment are ready:
 - The operator can create Compute Engine networks, firewall rules, routers,
   NAT configuration, and instances.
 - EVE-NG secrets are seeded for the target environment.
-- The placeholder `CHANGE_ME_GCP_ZONE` in [blueprint.yml](blueprint.yml) has been copied or overridden with a real zone that supports the selected machine family.
+- The VM zone is derived from the initialized GCP region. An environment
+  overlay may select another zone in the same region when quota or capacity
+  requires it; a zone from a different region is rejected before apply.
 
 Seed the EVE-NG secrets before deployment:
 
@@ -74,6 +79,17 @@ hyops blueprint preflight \
   --blueprints-root blueprints
 ```
 
+Open the private EVE-NG UI after deployment:
+
+```bash
+hyops blueprint access --env dev --ref gcp/eve-ng@v1
+```
+
+HybridOps resolves the VM, project, and zone from module state, forwards HTTP
+through the existing IAP SSH path with the declared HybridOps key, opens the
+browser, and keeps access active until `Ctrl-C`. Port 80 remains closed at the
+GCP firewall. Use `--no-browser` when only the printed local URL is required.
+
 Deploy:
 
 ```bash
@@ -83,6 +99,18 @@ hyops blueprint deploy \
   --blueprints-root blueprints \
   --execute
 ```
+
+Rebuild the blueprint-managed resources:
+
+```bash
+hyops blueprint rebuild \
+  --env dev \
+  --ref gcp/eve-ng@v1 \
+  --execute
+```
+
+The command shows the destroy and deploy order and requests confirmation before
+the first destroy step.
 
 ## Default Shape
 
@@ -101,6 +129,26 @@ The shipped blueprint provisions one VM:
 The VM is placed on the private subnet created by the blueprint's lab-network
 step.
 
+The starter image set contains Alpine Linux, NETem, Tiny Core Linux, and Ubuntu
+Server. Additional public image entries are retained as commented choices in
+the blueprint. They are not downloaded unless an operator enables them. This
+keeps the first deployment relatively small and avoids filling the VM disk with
+desktop, security, and legacy images that a lab does not need.
+
+The blueprint downloads enabled images from their upstream links at deployment
+time. HybridOps does not include the image archives in its release package.
+
+## Guest Internet Access
+
+The EVE-NG host provides a guest NAT network labelled `Cloud9`. Connect a lab
+node interface to `Cloud9` and configure that interface for DHCP. The node
+receives an address from `172.29.129.50-172.29.129.200`, uses
+`172.29.129.1` as its gateway, and reaches the internet through the EVE-NG
+host's private GCP connection.
+
+DHCP is supplied by the EVE-NG host, not by GCP. GCP provides the upstream
+network path. No additional public IP is assigned to the lab node.
+
 ## Why This Exists
 
 Not every networking learner or platform operator has a Proxmox cluster available. A cloud-hosted EVE-NG path makes the host lifecycle easier to reproduce from a clean state while still keeping access private and controlled.
@@ -111,7 +159,8 @@ This blueprint turns the EVE-NG host into a normal platform outcome:
 - nested virtualization is explicitly enabled
 - access goes through IAP instead of exposing SSH publicly
 - EVE-NG configuration is a module step, not a manual shell session
-- the final health check produces evidence that the EVE-NG host is reachable
+- the declared starter images are installed before validation
+- the final health check records whether the EVE-NG host is reachable
 
 That makes the EVE-NG host disposable enough to rebuild and predictable enough to share as part of a training or network-emulation workflow.
 
@@ -120,6 +169,7 @@ That makes the EVE-NG host disposable enough to rebuild and predictable enough t
 - [platform/gcp/lab-network](../../../modules/platform/gcp/lab-network)
 - [platform/gcp/platform-vm](../../../modules/platform/gcp/platform-vm)
 - [platform/linux/eve-ng](../../../modules/platform/linux/eve-ng)
+- [platform/linux/eve-ng-images](../../../modules/platform/linux/eve-ng-images)
 - [platform/linux/eve-ng-healthcheck](../../../modules/platform/linux/eve-ng-healthcheck)
 
 ## On-Prem Alternative
