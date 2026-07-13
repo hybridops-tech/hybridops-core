@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -33,11 +34,34 @@ class ProgressDisplay:
 
     enabled: bool = field(default_factory=concise_enabled)
     _started: dict[str, float] = field(default_factory=dict)
+    _stops: dict[str, threading.Event] = field(default_factory=dict)
+    _threads: dict[str, threading.Thread] = field(default_factory=dict)
+
+    def _animate(self, key: str, label: str, stopped: threading.Event) -> None:
+        frames = ("|", "/", "-", "\\")
+        frame = 0
+        while not stopped.wait(0.2):
+            started = self._started.get(key, time.monotonic())
+            print(
+                f"\r\033[2K{frames[frame]} {label}  {_elapsed(started)}",
+                end="",
+                flush=True,
+            )
+            frame = (frame + 1) % len(frames)
 
     def start(self, key: str, label: str, *, plain: str) -> None:
         self._started[key] = time.monotonic()
         if self.enabled:
-            print(f"… {label}", flush=True)
+            print(f"| {label}  0s", end="", flush=True)
+            stopped = threading.Event()
+            thread = threading.Thread(
+                target=self._animate,
+                args=(key, label, stopped),
+                daemon=True,
+            )
+            self._stops[key] = stopped
+            self._threads[key] = thread
+            thread.start()
         else:
             print(plain, flush=True)
 
@@ -56,6 +80,12 @@ class ProgressDisplay:
         if not self.enabled:
             print(plain, flush=True)
             return
+        stopped = self._stops.pop(key, None)
+        if stopped is not None:
+            stopped.set()
+        thread = self._threads.pop(key, None)
+        if thread is not None:
+            thread.join(timeout=1)
         symbol = {
             "ok": "✓",
             "skipped": "○",
@@ -66,4 +96,4 @@ class ProgressDisplay:
         suffix = f"  {_elapsed(started)}"
         if detail:
             suffix += f"  {detail}"
-        print(f"{symbol} {label}{suffix}", flush=True)
+        print(f"\r\033[2K{symbol} {label}{suffix}", flush=True)

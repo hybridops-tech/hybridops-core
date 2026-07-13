@@ -17,6 +17,7 @@ import threading
 import time
 
 from hyops.runtime.redact import redact_text
+from hyops.runtime.progress import ProgressDisplay, concise_enabled
 from hyops.runtime.state import write_json_atomic
 
 
@@ -90,7 +91,13 @@ def run_capture(
     timeout_s: int | None = None,
     redact: bool = True,
 ) -> ProcResult:
-    r = run(argv, cwd=cwd, env=env, timeout_s=timeout_s)
+    r = _run_with_delayed_progress(
+        argv,
+        label=label,
+        cwd=cwd,
+        env=env,
+        timeout_s=timeout_s,
+    )
 
     out = r.stdout
     err = r.stderr
@@ -103,6 +110,66 @@ def run_capture(
     (evidence_dir / f"{label}.stderr.txt").write_text(err, encoding="utf-8")
     _write_result_envelope(evidence_dir, label, r, redact=redact)
     return r
+
+
+def _progress_label(label: str) -> str:
+    return " ".join(label.replace("_", " ").replace("-", " ").split())
+
+
+def _run_with_delayed_progress(
+    argv: Sequence[str],
+    *,
+    label: str,
+    cwd: str | None,
+    env: Mapping[str, str] | None,
+    timeout_s: int | None,
+) -> ProcResult:
+    """Show progress for a captured command only when it outlasts a quick probe."""
+
+    enabled = concise_enabled() and str(os.getenv("HYOPS_PROGRESS_CHILD") or "").strip() != "1"
+    if not enabled:
+        return run(argv, cwd=cwd, env=env, timeout_s=timeout_s)
+
+    display = ProgressDisplay(enabled=True)
+    key = f"proc:{label}"
+    display_label = _progress_label(label)
+    state_lock = threading.Lock()
+    state = {"complete": False, "started": False}
+
+    def begin() -> None:
+        with state_lock:
+            if state["complete"]:
+                return
+            display.start(key, display_label, plain=f"operation={label} status=running")
+            state["started"] = True
+
+    timer = threading.Timer(1.0, begin)
+    timer.daemon = True
+    timer.start()
+    result: ProcResult | None = None
+    error: BaseException | None = None
+    try:
+        result = run(argv, cwd=cwd, env=env, timeout_s=timeout_s)
+    except BaseException as exc:
+        error = exc
+    finally:
+        with state_lock:
+            state["complete"] = True
+            started = state["started"]
+        timer.cancel()
+
+    if started:
+        succeeded = error is None and result is not None and result.rc == 0
+        display.finish(
+            key,
+            display_label,
+            "ok" if succeeded else "failed",
+            plain=f"operation={label} status={'ok' if succeeded else 'failed'}",
+        )
+    if error is not None:
+        raise error
+    assert result is not None
+    return result
 
 
 def run_interactive(
@@ -182,6 +249,12 @@ def run_capture_stream(
     terminal_lock = threading.Lock()
     heartbeat_stop = threading.Event()
     verbose_terminal = str(os.getenv("HYOPS_VERBOSE") or "").strip().lower() in {"1", "true", "yes", "on"}
+    stream_progress = ProgressDisplay(
+        enabled=(
+            concise_enabled()
+            and str(os.getenv("HYOPS_PROGRESS_CHILD") or "").strip() != "1"
+        )
+    )
     if tee_path is not None:
         try:
             tee_path.parent.mkdir(parents=True, exist_ok=True)
@@ -227,6 +300,12 @@ def run_capture_stream(
         stderr=subprocess.PIPE,
         bufsize=1,
     )
+    if stream_progress.enabled:
+        stream_progress.start(
+            label,
+            _progress_label(label),
+            plain=f"operation={label} status=running",
+        )
     assert p.stdout is not None
     assert p.stderr is not None
 
@@ -274,6 +353,8 @@ def run_capture_stream(
         if interval <= 0:
             return
         if verbose_terminal:
+            return
+        if stream_progress.enabled:
             return
         if str(os.getenv("HYOPS_PROGRESS_CHILD") or "").strip() == "1":
             return
@@ -350,6 +431,13 @@ def run_capture_stream(
         stderr="",
     )
     _write_result_envelope(evidence_dir, label, r, redact=redact)
+    if stream_progress.enabled:
+        stream_progress.finish(
+            label,
+            _progress_label(label),
+            "cancelled" if interrupted else ("ok" if rc == 0 else "failed"),
+            plain=f"operation={label} status={'cancelled' if interrupted else ('ok' if rc == 0 else 'failed')}",
+        )
     if interrupted:
         raise KeyboardInterrupt
     return r
@@ -367,7 +455,13 @@ def run_capture_sensitive(
 
     For commands that may emit secrets, do not persist stdout/stderr to disk.
     """
-    r = run(argv, cwd=cwd, env=env, timeout_s=timeout_s)
+    r = _run_with_delayed_progress(
+        argv,
+        label=label,
+        cwd=cwd,
+        env=env,
+        timeout_s=timeout_s,
+    )
     evidence_dir.mkdir(parents=True, exist_ok=True)
     _write_result_envelope(evidence_dir, label, r)
     return r

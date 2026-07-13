@@ -37,10 +37,13 @@ class ProgressDisplayTests(unittest.TestCase):
         display = ProgressDisplay(enabled=True)
         with redirect_stdout(output), patch(
             "hyops.runtime.progress.time.monotonic", side_effect=[10.0, 15.0]
-        ):
+        ), patch.object(display, "_animate"):
             display.start("network", "Network", plain="ignored")
             display.finish("network", "Network", "ok", plain="ignored")
-        self.assertEqual(output.getvalue().splitlines(), ["… Network", "✓ Network  5s"])
+        self.assertEqual(
+            output.getvalue(),
+            "| Network  0s\r\x1b[2K✓ Network  5s\n",
+        )
 
     def test_verbose_disables_concise_output(self) -> None:
         output = _Stream(True)
