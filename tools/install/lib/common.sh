@@ -22,9 +22,11 @@ hyops_install_set_blueprint_payload_read_only() {
 
 hyops_install_abs_path() {
   local raw_path="$1"
-  python3 - <<PY
+  python3 - "${raw_path}" <<'PY'
 import os
-print(os.path.abspath(os.path.expanduser(${raw_path@Q})))
+import sys
+
+print(os.path.abspath(os.path.expanduser(sys.argv[1])))
 PY
 }
 

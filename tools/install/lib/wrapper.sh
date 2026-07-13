@@ -70,3 +70,57 @@ exec "${VENV_DIR}/bin/hyops" "\$@"
 EOS
   sudo chmod 0755 "${SYSTEM_LINK_PATH}"
 }
+
+hyops_install_path_contains_dir() {
+  case ":${PATH}:" in
+    *":$1:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+hyops_install_configure_macos_user_path() {
+  PATH_PROFILE=""
+  [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]] || return 0
+  [[ -n "${WRAPPER:-}" ]] || return 0
+
+  if [[ "${SYSTEM_LINK}" == "true" ]] && hyops_install_path_contains_dir "${SYSTEM_LINK_DIR}"; then
+    return 0
+  fi
+  if hyops_install_path_contains_dir "${BIN_DIR}"; then
+    return 0
+  fi
+
+  if [[ "${BIN_DIR}" != "${HOME}/.local/bin" ]]; then
+    echo "WARN: ${BIN_DIR} is not on PATH; add it to your shell profile" >&2
+    return 0
+  fi
+
+  PATH_PROFILE="${HOME}/.zprofile"
+  local path_line='export PATH="$HOME/.local/bin:$PATH"'
+  if [[ ! -f "${PATH_PROFILE}" ]] || ! grep -Fqx "${path_line}" "${PATH_PROFILE}"; then
+    {
+      echo ""
+      echo "# HybridOps CLI"
+      echo "${path_line}"
+    } >>"${PATH_PROFILE}"
+    echo "[install] added ${BIN_DIR} to ${PATH_PROFILE}"
+  fi
+}
+
+hyops_install_verify_command() {
+  local installed_command=""
+  if [[ "${SYSTEM_LINK}" == "true" && -x "${SYSTEM_LINK_PATH}" ]]; then
+    installed_command="${SYSTEM_LINK_PATH}"
+  elif [[ -n "${WRAPPER:-}" && -x "${WRAPPER}" ]]; then
+    installed_command="${WRAPPER}"
+  fi
+
+  [[ -n "${installed_command}" ]] || {
+    echo "ERR: hyops command wrapper was not installed" >&2
+    exit 2
+  }
+  "${installed_command}" --help >/dev/null || {
+    echo "ERR: installed hyops command failed its verification check" >&2
+    exit 2
+  }
+}
