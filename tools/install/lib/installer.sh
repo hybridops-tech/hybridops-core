@@ -136,16 +136,30 @@ _hyops_install_run_transaction() {
   rm -rf "${HYOPS_INSTALL_TX_PREVIOUS_PREFIX}"
   trap - EXIT HUP INT TERM
   echo "[install] OK"
-  echo "Next:"
-  echo "  hyops --help"
-  if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
-    echo "  hyops setup base"
-    echo "  hyops setup gcp"
-    echo "  hyops setup galaxy"
+  local resolved_hyops=""
+  resolved_hyops="$(command -v hyops 2>/dev/null || true)"
+  if [[ "${resolved_hyops}" == "${SYSTEM_LINK_PATH}" || ( -n "${WRAPPER:-}" && "${resolved_hyops}" == "${WRAPPER}" ) ]]; then
+    echo "Next:"
+    echo "  hyops --help"
+    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+      echo "  hyops setup base"
+      echo "  hyops setup gcp"
+      echo "  hyops setup galaxy"
+    else
+      echo "  hyops preflight"
+    fi
+  elif [[ -n "${PATH_PROFILE:-}" ]]; then
+    echo "Open a new terminal, then run:"
+    echo "  hyops --help"
+    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+      echo "  hyops setup base"
+      echo "  hyops setup gcp"
+      echo "  hyops setup galaxy"
+    else
+      echo "  hyops preflight"
+    fi
   else
-    echo "  hyops preflight"
-  fi
-  if [[ -n "${WRAPPER:-}" ]]; then
+    echo "Run:"
     echo "  ${WRAPPER} --help"
   fi
 }

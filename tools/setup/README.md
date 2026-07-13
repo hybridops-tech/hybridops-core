@@ -11,9 +11,9 @@ hyops setup check
 hyops setup base --sudo
 hyops setup cloud-azure --sudo
 hyops setup cloud-gcp --sudo
-hyops setup ansible
-hyops setup ansible --hybridops-source git
-hyops setup ansible --root /path/to/hybridops-core --hybridops-source git
+hyops setup galaxy
+hyops setup galaxy --hybridops-source git
+hyops setup galaxy --root /path/to/hybridops-core --hybridops-source git
 hyops setup all --sudo
 ```
 
@@ -21,7 +21,7 @@ hyops setup all --sudo
 
 - On macOS, install [Homebrew](https://brew.sh/) first, then run setup commands
   without `--sudo` (`hyops setup base`, `hyops setup gcp`, and
-  `hyops setup ansible`). Linux setup commands retain their existing `--sudo`
+  `hyops setup galaxy`). Linux setup commands retain their existing `--sudo`
   behavior.
 - `hyops setup gcp` and `hyops setup azure` are operator-friendly aliases for
   `cloud-gcp` and `cloud-azure`.
@@ -35,13 +35,13 @@ hyops setup all --sudo
   `hybridops.helper`, and `hybridops.app` collections from
   [tools/setup/requirements/ansible.galaxy.yml](./requirements/ansible.galaxy.yml).
 - Git-based install path (for iteration or a pinned Git-based flow):
-  - `hyops setup ansible --hybridops-source git`
-  - `hyops setup ansible --hybridops-source git --hybridops-git-manifest /path/to/manifest.json`
+  - `hyops setup galaxy --hybridops-source git`
+  - `hyops setup galaxy --hybridops-source git --hybridops-git-manifest /path/to/manifest.json`
   - builds and installs pinned `hybridops.common`, `hybridops.helper`, and `hybridops.app` from Git into runtime state
   - requires access to the private collection release workspaces named in the manifest
   - the primary public install contract remains the released collection set
 - For local source-tree iteration, point `hyops setup` at the checkout you want to use:
-  - `hyops setup ansible --root /path/to/hybridops-core --hybridops-source git`
+  - `hyops setup galaxy --root /path/to/hybridops-core --hybridops-source git`
 - Drivers and modules do not install dependencies automatically; they fail fast and instruct which `hyops setup` command to run.
 
 ## Documentation

@@ -16,7 +16,7 @@ Python wheel because operators need the runtime payload as shipped:
 
 HybridOps Ansible collection source is not part of the public bundle contract.
 Operators install the pinned released `hybridops.*` collection artifacts through
-`hyops setup ansible`.
+`hyops setup galaxy`.
 
 ## Public Product Boundary
 
@@ -75,7 +75,7 @@ TMPDIR=/dev/shm ./pkg/verify_release.sh dist/releases/hybridops-core-<label>.tar
 - `install.sh` can install the bundle into an isolated runtime root
 - installed `hyops` runs without relying on the source checkout
 - the bundle and installed payload do not include vendored HybridOps collection source
-- installed `hyops` still exposes the `setup ansible` operator path
+- installed `hyops` exposes `setup galaxy` and the compatible `setup ansible` path
 - the installed payload matches the shipped checksum manifest
 - the temporary filesystem has enough free space before extraction begins
 
