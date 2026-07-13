@@ -320,7 +320,7 @@ def ensure_hybridops_collections_available(env: dict[str, str]) -> str:
     collections_path = str(env.get("ANSIBLE_COLLECTIONS_PATH") or env.get("ANSIBLE_COLLECTIONS_PATHS") or "").strip()
     if _has_hybridops_collection(collections_path):
         return ""
-    return "missing HybridOps Ansible collections; run: hyops setup ansible"
+    return "missing HybridOps Ansible collections; run: hyops setup galaxy"
 
 
 def merge_vault_env(env: dict[str, str], runtime_root: Path) -> tuple[dict[str, str], str]:

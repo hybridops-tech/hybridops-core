@@ -59,8 +59,10 @@ if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
 fi
 
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" --help >/dev/null
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup galaxy --help >/dev/null
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup galaxy --runtime-root "${USER_HOME}/.hybridops" --dry-run >/dev/null
+# Compatibility alias remains available for existing runbooks.
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --help >/dev/null
-env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --runtime-root "${USER_HOME}/.hybridops" --dry-run >/dev/null
 
 INSTALL_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/install")"
 python3 - "${INSTALL_EVIDENCE}" <<'PY'
@@ -201,7 +203,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-setup-all >/dev/null
 
   env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" --help >/dev/null
-  env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" setup ansible --help >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" setup galaxy --help >/dev/null
   sudo env HOME="${ROOT_HOME}" "${common_env[@]}" \
     PIP_CACHE_DIR="${ROOT_CACHE_DIR}" \
     HYOPS_INSTALL_SYSTEM_LINK_PATH="${ROOT_BIN_DIR}/hyops" \
@@ -212,7 +214,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-wrapper \
       --no-setup-all >/dev/null
   env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" show --help >/dev/null
-  env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" setup ansible --runtime-root "${ROOT_HOME}/.hybridops" --dry-run >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME}" "${ROOT_BIN_DIR}/hyops" setup galaxy --runtime-root "${ROOT_HOME}/.hybridops" --dry-run >/dev/null
 
   cat > "${ROOT_FAKE_APP}/tools/setup/setup-all.sh" <<'EOF'
 #!/usr/bin/env bash

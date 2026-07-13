@@ -21,7 +21,7 @@ from hyops.runtime.paths import resolve_runtime_paths
 def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     # Common args must be present on both the setup parser and subcommands so operators can run:
     #   hyops setup base --sudo
-    #   hyops setup ansible
+    #   hyops setup galaxy
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--root",
@@ -57,14 +57,14 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
         "--force",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Force reinstall where supported (currently: ansible, all).",
+        help="Force reinstall where supported (currently: galaxy, all).",
     )
     common.add_argument(
         "--hybridops-source",
         choices=("release", "git"),
         default=argparse.SUPPRESS,
         help=(
-            "How to source HybridOps collections for setup ansible/all. "
+            "How to source HybridOps collections for setup galaxy/all. "
             "release installs the pinned published collection artifacts; git installs pinned "
             "collections from Git repositories into runtime state."
         ),
@@ -82,15 +82,16 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     ssp = p.add_subparsers(dest="setup_cmd", required=True)
 
     _add(ssp, "base", "Install base system prerequisites.", parents=[common])
-    _add(ssp, "ansible", "Install Ansible Galaxy dependencies into the runtime state directory.", parents=[common])
+    _add(ssp, "galaxy", "Install Ansible Galaxy dependencies into the runtime state directory.", parents=[common])
     _add(ssp, "cloud-azure", "Install Azure CLI prerequisites.", parents=[common])
     _add(ssp, "cloud-gcp", "Install GCP SDK prerequisites.", parents=[common])
     _add(ssp, "all", "Run base + ansible + cloud installers.", parents=[common])
     _add(ssp, "check", "Check presence of common tools (no installs).", parents=[common])
 
     # Aliases (operator-friendly)
-    _add(ssp, "config-mgmt", "Alias for: ansible.", parents=[common])
-    _add(ssp, "config-management", "Alias for: ansible.", parents=[common])
+    _add(ssp, "ansible", "Compatibility alias for: galaxy.", parents=[common])
+    _add(ssp, "config-mgmt", "Alias for: galaxy.", parents=[common])
+    _add(ssp, "config-management", "Alias for: galaxy.", parents=[common])
     _add(ssp, "azure", "Alias for: cloud-azure.", parents=[common])
     _add(ssp, "gcp", "Alias for: cloud-gcp.", parents=[common])
 
@@ -143,8 +144,8 @@ def _find_core_root(ns_root: str | None) -> Path | None:
 
 
 def _script_for(action: str) -> str | None:
-    if action in ("config-mgmt", "config-management"):
-        action = "ansible"
+    if action in ("ansible", "config-mgmt", "config-management"):
+        action = "galaxy"
     elif action == "azure":
         action = "cloud-azure"
     elif action == "gcp":
@@ -152,7 +153,7 @@ def _script_for(action: str) -> str | None:
 
     mapping = {
         "base": "setup-base.sh",
-        "ansible": "setup-ansible.sh",
+        "galaxy": "setup-ansible.sh",
         "cloud-azure": "setup-cloud-azure.sh",
         "cloud-gcp": "setup-cloud-gcp.sh",
         "all": "setup-all.sh",
@@ -176,7 +177,7 @@ def _run_check() -> int:
         ("gpg", ["gpg"]),
         ("pass", ["pass"]),
         # Different distros provide different pinentry flavors.
-        ("pinentry", ["pinentry", "pinentry-curses", "pinentry-tty", "pinentry-gtk-2"]),
+        ("pinentry", ["pinentry", "pinentry-mac", "pinentry-curses", "pinentry-tty", "pinentry-gtk-2"]),
     ]
     ok = True
     for label, candidates in checks:
@@ -198,8 +199,9 @@ def _run_check() -> int:
 def run(ns) -> int:
     action = ns._setup_action
     aliases = {
-        "config-mgmt": "ansible",
-        "config-management": "ansible",
+        "ansible": "galaxy",
+        "config-mgmt": "galaxy",
+        "config-management": "galaxy",
         "azure": "cloud-azure",
         "gcp": "cloud-gcp",
     }
@@ -226,7 +228,7 @@ def run(ns) -> int:
             evidence.exit_code = _run_check()
             return evidence.exit_code
 
-    if canonical_action in ("ansible", "all"):
+    if canonical_action in ("galaxy", "all"):
         if runtime_root_arg and env_arg:
             print("ERR: --runtime-root and --env are mutually exclusive")
             return OPERATOR_ERROR
@@ -237,8 +239,8 @@ def run(ns) -> int:
             print(f"ERR: {exc}")
             return OPERATOR_ERROR
 
-    if canonical_action == "ansible" and sudo:
-        print("ERR: hyops setup ansible must not be run with --sudo (it installs into user runtime state)")
+    if canonical_action == "galaxy" and sudo:
+        print("ERR: hyops setup galaxy must not be run with --sudo (it installs into user runtime state)")
         return OPERATOR_ERROR
 
     script_name = _script_for(canonical_action)
@@ -269,13 +271,13 @@ def run(ns) -> int:
             env["HYOPS_ENV"] = str(env_arg).strip()
 
     argv: list[str] = ["bash", str(script)]
-    if canonical_action == "ansible" and runtime_root is not None:
+    if canonical_action == "galaxy" and runtime_root is not None:
         argv += ["--root", str(runtime_root)]
-    if force and canonical_action in ("ansible", "all"):
+    if force and canonical_action in ("galaxy", "all"):
         argv += ["--force"]
-    if hybridops_source and canonical_action in ("ansible", "all"):
+    if hybridops_source and canonical_action in ("galaxy", "all"):
         argv += ["--hybridops-source", hybridops_source]
-    if hybridops_git_manifest and canonical_action in ("ansible", "all"):
+    if hybridops_git_manifest and canonical_action in ("galaxy", "all"):
         argv += ["--hybridops-git-manifest", hybridops_git_manifest]
     if sudo:
         argv = ["sudo", "-E"] + argv

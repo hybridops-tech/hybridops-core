@@ -119,8 +119,9 @@ fi
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" --help >/dev/null
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" preflight --help >/dev/null
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" init --help >/dev/null
+  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup galaxy --help >/dev/null
+  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup galaxy --runtime-root "${HOME_DIR}/.hybridops" --dry-run >/dev/null
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup ansible --help >/dev/null
-  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup ansible --runtime-root "${HOME_DIR}/.hybridops" --dry-run >/dev/null
 )
 
 env "${install_env[@]}" \
@@ -163,7 +164,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-setup-all >/dev/null
 
   env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" --help >/dev/null
-  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" setup ansible --help >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" setup galaxy --help >/dev/null
   sudo env HOME="${ROOT_HOME_DIR}" PATH="/usr/bin:/bin:${PATH}" \
     HYOPS_INSTALL_SYSTEM_LINK_PATH="${ROOT_LINK_HYOPS}" \
     HYOPS_INSTALL_USE_SYSTEM_DEPS=true \
@@ -175,7 +176,7 @@ if sudo -n true >/dev/null 2>&1; then
       --no-wrapper \
       --no-setup-all >/dev/null
   env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" show --help >/dev/null
-  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" setup ansible --runtime-root "${ROOT_HOME_DIR}/.hybridops" --dry-run >/dev/null
+  env -u PYTHONPATH HOME="${ROOT_HOME_DIR}" "${ROOT_LINK_HYOPS}" setup galaxy --runtime-root "${ROOT_HOME_DIR}/.hybridops" --dry-run >/dev/null
 
   cat > "${ROOT_FAKE_APP_DIR}/tools/setup/setup-all.sh" <<'EOF'
 #!/usr/bin/env bash
