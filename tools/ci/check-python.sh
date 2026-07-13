@@ -11,6 +11,8 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 hyops_ci::require_cmd python3
 
+python3 "${HYOPS_REPO_ROOT}/tools/ci/check-module-catalog.py"
+
 python3 -m compileall "${HYOPS_REPO_ROOT}/hyops"
 
 python3 -m unittest discover \
