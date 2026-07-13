@@ -1300,7 +1300,8 @@ def run_destroy(ns) -> int:
             print("execution disabled; destroy order:")
             for step_id in destroy_order:
                 step = next(s for s in payload["steps"] if s["id"] == step_id)
-                print(f"  - {step_id}: destroy {step['module_ref']}")
+                action = "retain" if bool(step.get("retain_on_destroy", False)) else "destroy"
+                print(f"  - {step_id}: {action} {step['module_ref']}")
         return 0
 
     json_mode = bool(getattr(ns, "json", False))
@@ -1334,8 +1335,9 @@ def run_destroy(ns) -> int:
             step = by_id[step_id]
             state_ref = step_state_ref(step)
             status = module_state_status(paths.state_dir, state_ref) or "missing"
+            action = "retain" if bool(step.get("retain_on_destroy", False)) else "destroy"
             print(
-                f"  - {step_id}: destroy {step['module_ref']} "
+                f"  - {step_id}: {action} {step['module_ref']} "
                 f"(state={status} ref={state_ref})"
             )
 
@@ -1383,6 +1385,13 @@ def run_destroy(ns) -> int:
         }
 
         state_ref = step_state_ref(step)
+        if bool(step.get("retain_on_destroy", False)):
+            result = dict(base)
+            result.update({"status": "retained", "reason": "retain_on_destroy", "rc": 0})
+            step_results.append(result)
+            print(f"step={step_id} status=retained reason=retain_on_destroy")
+            continue
+
         state_status = module_state_status(paths.state_dir, state_ref)
         if not state_status or state_status in {"destroyed", "absent"}:
             reason = "no-state" if not state_status else f"state-{state_status}"
@@ -1526,7 +1535,9 @@ def run_rebuild(ns) -> int:
     )
     print("destroy_order:")
     for step_id in destroy_order:
-        print(f"  - {step_id}")
+        step = next(s for s in payload["steps"] if s["id"] == step_id)
+        suffix = " (retained)" if bool(step.get("retain_on_destroy", False)) else ""
+        print(f"  - {step_id}{suffix}")
     print("deploy_order:")
     for step_id in payload["order"]:
         print(f"  - {step_id}")

@@ -40,14 +40,18 @@ def _namespace():
 
 
 class ResumableBlueprintDestroyTest(TestCase):
-    def _run(self, statuses, run_step):
+    def _run(self, statuses, run_step, *, retained=()):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        payload = _payload()
+        for step in payload["steps"]:
+            if step["id"] in retained:
+                step["retain_on_destroy"] = True
 
         def state_status(_state_dir, state_ref):
             return statuses[state_ref.rsplit("#", 1)[-1]]
 
         with (
-            patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
             patch("hyops.blueprint.command.require_runtime_selection"),
             patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
             patch("hyops.blueprint.command.ensure_layout"),
@@ -58,6 +62,17 @@ class ResumableBlueprintDestroyTest(TestCase):
         ):
             rc = run_destroy(_namespace())
         return rc, inputs_file, command
+
+    def test_retained_dependency_is_not_destroyed(self):
+        rc, inputs_file, command = self._run(
+            {"network": "ok", "vm": "destroyed", "health": "destroyed"},
+            [],
+            retained=("network",),
+        )
+
+        self.assertEqual(rc, 0)
+        inputs_file.assert_not_called()
+        command.assert_not_called()
 
     def test_second_destroy_skips_terminal_state_before_inputs(self):
         rc, inputs_file, command = self._run(
