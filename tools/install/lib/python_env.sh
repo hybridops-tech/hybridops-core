@@ -62,3 +62,24 @@ EOS
     "${VENV_DIR}/bin/python3" -m pip install "${APP_DIR}" >/dev/null
   fi
 }
+
+hyops_install_relocate_venv() {
+  local source_prefix="$1"
+  local target_prefix="$2"
+
+  python3 - "${VENV_DIR}/bin" "${source_prefix}" "${target_prefix}" <<'PY'
+import pathlib
+import sys
+
+bin_dir = pathlib.Path(sys.argv[1])
+source = sys.argv[2].encode()
+target = sys.argv[3].encode()
+
+for path in bin_dir.iterdir():
+    if path.is_symlink() or not path.is_file():
+        continue
+    content = path.read_bytes()
+    if source in content:
+        path.write_bytes(content.replace(source, target))
+PY
+}
