@@ -25,7 +25,8 @@ hyops_install_is_windows_wsl() {
   if [[ -z "${kernel_release}" ]]; then
     kernel_release="$(uname -r 2>/dev/null || true)"
   fi
-  [[ "${kernel_release,,}" == *microsoft* ]]
+  kernel_release="$(printf '%s' "${kernel_release}" | tr '[:upper:]' '[:lower:]')"
+  [[ "${kernel_release}" == *microsoft* ]]
 }
 
 hyops_install_set_blueprint_payload_read_only() {
