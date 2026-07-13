@@ -128,7 +128,11 @@ for index, (tag, filename, text) in enumerate(entries):
 tree.write(path, encoding="utf-8", xml_declaration=True)
 PY
 
-product_args=(--distribution "${DISTRIBUTION_XML}" --resources "${RESOURCES_DIR}")
+product_args=(
+  --distribution "${DISTRIBUTION_XML}"
+  --package-path "${WORK_DIR}"
+  --resources "${RESOURCES_DIR}"
+)
 if [[ -n "${SIGN_IDENTITY}" ]]; then
   product_args+=(--sign "${SIGN_IDENTITY}")
 fi

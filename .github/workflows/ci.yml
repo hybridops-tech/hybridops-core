@@ -97,6 +97,7 @@ jobs:
         run: |
           PKG="$(ls -1 dist/releases/hybridops-core-*-macos.pkg | head -n 1)"
           EXPANDED="${RUNNER_TEMP}/hybridops-core-pkg"
+          test "$(stat -f '%z' "${PKG}")" -gt 1000000
           pkgutil --expand "${PKG}" "${EXPANDED}"
           test -f "${EXPANDED}/Distribution"
           python3 - "${EXPANDED}/Distribution" <<'PY'
