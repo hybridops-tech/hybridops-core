@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import ipaddress
 import json
 import os
 import re
@@ -598,6 +599,95 @@ def _native_console_status(ports: list[int]) -> str:
     return "native consoles: no active QEMU nodes; web access remains available"
 
 
+def _extract_access_host(outputs: dict[str, Any]) -> str:
+    def valid_ipv4(value: Any) -> str:
+        token = str(value or "").strip().split("/", 1)[0]
+        try:
+            address = ipaddress.ip_address(token)
+        except ValueError:
+            return ""
+        if not isinstance(address, ipaddress.IPv4Address):
+            return ""
+        if address.is_unspecified or address.is_loopback or address.is_link_local:
+            return ""
+        return str(address)
+
+    def first_ipv4(value: Any) -> str:
+        if isinstance(value, dict):
+            for item in value.values():
+                found = first_ipv4(item)
+                if found:
+                    return found
+            return ""
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                found = first_ipv4(item)
+                if found:
+                    return found
+            return ""
+        return valid_ipv4(value)
+
+    vms = outputs.get("vms")
+    if isinstance(vms, dict):
+        for item in vms.values():
+            if not isinstance(item, dict):
+                continue
+            for key in ("ipv4_address", "private_ipv4", "ipv4_addresses"):
+                found = first_ipv4(item.get(key))
+                if found:
+                    return found
+
+    for key in ("ipv4_addresses_all", "ipv4_addresses", "ipv4_configured_primary"):
+        found = first_ipv4(outputs.get(key))
+        if found:
+            return found
+
+    if isinstance(vms, dict):
+        for item in vms.values():
+            if not isinstance(item, dict):
+                continue
+            found = first_ipv4(item.get("ipv4_configured_primary"))
+            if found:
+                return found
+    return ""
+
+
+def _print_guest_network_guidance(access: dict[str, Any]) -> None:
+    guest_network = str(access.get("guest_network_label") or "").strip()
+    if not guest_network:
+        return
+    print(f"guest egress network: {guest_network}")
+    print(f"guest gateway and DNS: {access.get('guest_gateway')}")
+    print(f"guest DHCP range: {access.get('guest_dhcp_range')}")
+    print(f"guest setup: connect a node interface to {guest_network} and use DHCP")
+
+
+def _access_known_hosts_file(paths, state_ref: str, state: dict[str, Any]) -> Path:
+    run_id = str(state.get("run_id") or "current").strip() or "current"
+    scope = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{state_ref}-{run_id}").strip("._")
+    directory = (Path(paths.meta_dir) / "access_known_hosts").resolve()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        directory.chmod(0o700)
+    except OSError:
+        pass
+    return directory / f"{scope}.known_hosts"
+
+
+def _ssh_access_error(stderr: str, known_hosts_file: Path) -> str:
+    detail = str(stderr or "").strip()
+    if (
+        "REMOTE HOST IDENTIFICATION HAS CHANGED" in detail
+        or "Host key verification failed" in detail
+    ):
+        return (
+            "SSH host identity changed unexpectedly for the current VM state; access was stopped. "
+            f"Review the deployed VM and its scoped trust record: {known_hosts_file}. "
+            "If the VM was intentionally rebuilt, rerun the blueprint deploy so access uses the new VM state."
+        )
+    return detail or "SSH connection failed"
+
+
 def _stop_process(proc: subprocess.Popen | None) -> None:
     if proc is None or proc.poll() is not None:
         return
@@ -610,23 +700,16 @@ def _stop_process(proc: subprocess.Popen | None) -> None:
 
 
 def run_access(ns) -> int:
-    iap_proc: subprocess.Popen | None = None
     try:
         payload = _resolve_and_validate(ns)
         access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
         if not access:
             raise ValueError("blueprint does not declare an access path")
-        require_runtime_selection(
-            ns.root,
-            getattr(ns, "env", None),
-            command_label="hyops blueprint access",
-        )
+        require_runtime_selection(ns.root, getattr(ns, "env", None), command_label="hyops blueprint access")
         paths = resolve_runtime_paths(ns.root, getattr(ns, "env", None))
         state_ref = str(access.get("state_ref") or "").strip()
         module_ref, state_instance = split_module_state_ref(state_ref)
-        state = read_module_state(
-            paths.state_dir, module_ref, state_instance=state_instance
-        )
+        state = read_module_state(paths.state_dir, module_ref, state_instance=state_instance)
         outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
         vms = outputs.get("vms") if isinstance(outputs.get("vms"), dict) else {}
         if not vms:
@@ -634,27 +717,120 @@ def run_access(ns) -> int:
         vm = next(iter(vms.values()))
         if not isinstance(vm, dict):
             raise ValueError(f"VM output is invalid in state {state_ref}")
+        access_type = str(access.get("type") or "").strip()
+        remote_port = int(access.get("remote_port") or 80)
+        path = str(access.get("path") or "/")
+
+        if access_type in {"direct-http", "ssh-forward"}:
+            host = _extract_access_host(outputs)
+            if not host:
+                raise ValueError(f"VM state does not contain a usable IPv4 address: {state_ref}")
+            if access_type == "direct-http":
+                url = f"http://{host}:{remote_port}{path}"
+                print("opening direct EVE-NG access")
+                print(f"URL: {url}")
+                _print_guest_network_guidance(access)
+                if not bool(getattr(ns, "no_browser", False)):
+                    webbrowser.open(url)
+                return 0
+
+            ssh = shutil.which("ssh")
+            if not ssh:
+                raise ValueError("ssh is required; run: hyops setup base")
+            ssh_user = str(access.get("ssh_user") or "").strip()
+            ssh_key = Path(str(access.get("ssh_key_file") or "")).expanduser().resolve()
+            if not ssh_key.exists():
+                raise ValueError(f"declared SSH key does not exist: {ssh_key}")
+            ssh_target = f"{ssh_user}@{host}"
+            known_hosts_file = _access_known_hosts_file(paths, state_ref, state)
+            ssh_base = [
+                ssh,
+                "-o", "BatchMode=yes",
+                "-o", "IdentitiesOnly=yes",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", f"UserKnownHostsFile={known_hosts_file}",
+                "-i", str(ssh_key),
+            ]
+            identity_check = subprocess.run(
+                [*ssh_base, ssh_target, "true"],
+                cwd=str(Path.home()),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=20,
+                check=False,
+            )
+            if identity_check.returncode != 0:
+                raise ValueError(
+                    _ssh_access_error(identity_check.stderr, known_hosts_file)
+                )
+            console_ports: list[int] = []
+            if bool(getattr(ns, "native_consoles", False)):
+                if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
+                    raise ValueError("blueprint does not declare native EVE-NG console access")
+                probe = subprocess.run(
+                    [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
+                    cwd=str(Path.home()),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=20,
+                    check=False,
+                )
+                if probe.returncode != 0:
+                    raise ValueError(
+                        "failed to discover native EVE-NG consoles: "
+                        + _ssh_access_error(probe.stderr, known_hosts_file)
+                    )
+                console_ports = _parse_eve_qemu_console_ports(probe.stdout)
+                if console_ports:
+                    _require_local_ports_available(console_ports)
+
+            port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
+            url = f"http://127.0.0.1:{port}{path}"
+            argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
+            argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{remote_port}"])
+            for console_port in console_ports:
+                argv.extend(
+                    ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
+                )
+            argv.append(ssh_target)
+
+            print("opening private Proxmox EVE-NG access")
+            print(f"local URL: {url}")
+            _print_guest_network_guidance(access)
+            if bool(getattr(ns, "native_consoles", False)):
+                print(_native_console_status(console_ports))
+                if not console_ports:
+                    print("native console setup: start a QEMU node, then rerun access with --native-consoles")
+            print("press Ctrl-C to close access")
+            proc = subprocess.Popen(argv, cwd=str(Path.home()))
+            time.sleep(2)
+            if proc.poll() is not None:
+                return OPERATOR_ERROR
+            if not bool(getattr(ns, "no_browser", False)):
+                webbrowser.open(url)
+            try:
+                return int(proc.wait())
+            except KeyboardInterrupt:
+                _stop_process(proc)
+                print("access closed")
+                return 0
+
         vm_id = str(vm.get("vm_id") or "").strip()
-        match = re.fullmatch(
-            r"projects/([^/]+)/zones/([^/]+)/instances/([^/]+)", vm_id
-        )
+        match = re.fullmatch(r"projects/([^/]+)/zones/([^/]+)/instances/([^/]+)", vm_id)
         if not match:
             raise ValueError("GCP VM state does not contain a usable instance id")
         project, zone, instance = match.groups()
-        remote_port = int(access.get("remote_port") or 80)
-        path = str(access.get("path") or "/")
         port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
         url = f"http://127.0.0.1:{port}{path}"
         gcloud = shutil.which("gcloud")
         if not gcloud:
             raise ValueError("gcloud is required; run: hyops setup gcp")
-
-        console_ports: list[int] = []
+        iap_proc: subprocess.Popen | None = None
         if str(access.get("type") or "") == "gcp-iap-ssh-forward":
             ssh_user = str(access.get("ssh_user") or "").strip()
-            ssh_key = str(
-                Path(str(access.get("ssh_key_file") or "")).expanduser().resolve()
-            )
+            ssh_key = str(Path(str(access.get("ssh_key_file") or "")).expanduser().resolve())
             if not Path(ssh_key).exists():
                 raise ValueError(f"declared SSH key does not exist: {ssh_key}")
             ssh = shutil.which("ssh")
@@ -663,15 +839,8 @@ def run_access(ns) -> int:
             iap_port = _available_local_port(0)
             print("preparing private GCP IAP access", flush=True)
             iap_argv = [
-                gcloud,
-                "compute",
-                "start-iap-tunnel",
-                instance,
-                "22",
-                "--project",
-                project,
-                "--zone",
-                zone,
+                gcloud, "compute", "start-iap-tunnel", instance, "22",
+                "--project", project, "--zone", zone,
                 f"--local-host-port=127.0.0.1:{iap_port}",
                 "--verbosity=error",
             ]
@@ -679,23 +848,17 @@ def run_access(ns) -> int:
             _wait_for_local_port(iap_port, iap_proc)
             ssh_base = [
                 ssh,
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "IdentitiesOnly=yes",
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                "-i",
-                ssh_key,
-                "-p",
-                str(iap_port),
+                "-o", "BatchMode=yes",
+                "-o", "IdentitiesOnly=yes",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-i", ssh_key,
+                "-p", str(iap_port),
             ]
             ssh_target = f"{ssh_user}@127.0.0.1"
+            console_ports: list[int] = []
             if bool(getattr(ns, "native_consoles", False)):
                 if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
-                    raise ValueError(
-                        "blueprint does not declare native EVE-NG console access"
-                    )
+                    raise ValueError("blueprint does not declare native EVE-NG console access")
                 probe = subprocess.run(
                     [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
                     cwd=str(Path.home()),
@@ -717,39 +880,24 @@ def run_access(ns) -> int:
             argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{remote_port}"])
             for console_port in console_ports:
                 argv.extend(
-                    [
-                        "-L",
-                        f"127.0.0.1:{console_port}:127.0.0.1:{console_port}",
-                    ]
+                    ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
                 )
             argv.append(ssh_target)
         else:
             if bool(getattr(ns, "native_consoles", False)):
-                raise ValueError(
-                    "native consoles require an SSH-forward access declaration"
-                )
+                raise ValueError("native consoles require an SSH-forward access declaration")
             argv = [
-                gcloud,
-                "compute",
-                "start-iap-tunnel",
-                instance,
-                str(remote_port),
-                "--project",
-                project,
-                "--zone",
-                zone,
+                gcloud, "compute", "start-iap-tunnel", instance, str(remote_port),
+                "--project", project, "--zone", zone,
                 f"--local-host-port=127.0.0.1:{port}",
             ]
-
         print("opening private GCP IAP access")
         print(f"local URL: {url}")
+        _print_guest_network_guidance(access)
         if bool(getattr(ns, "native_consoles", False)):
             print(_native_console_status(console_ports))
             if not console_ports:
-                print(
-                    "native console setup: start a QEMU node, then rerun access "
-                    "with --native-consoles"
-                )
+                print("native console setup: start a QEMU node, then rerun access with --native-consoles")
         print("press Ctrl-C to close access")
         proc = subprocess.Popen(argv, cwd=str(Path.home()))
         time.sleep(2)
@@ -768,7 +916,8 @@ def run_access(ns) -> int:
             print("access closed")
             return 0
     except Exception as exc:
-        _stop_process(iap_proc)
+        if "iap_proc" in locals():
+            _stop_process(iap_proc)
         print(f"ERR: blueprint access failed: {exc}")
         return OPERATOR_ERROR
 

@@ -14,6 +14,18 @@ policy:
   evidence_required: true
   ipam_authority: "none"
 
+access:
+  type: "ssh-forward"
+  state_ref: "platform/onprem/platform-vm#eve_ng_vm"
+  remote_port: 80
+  path: "/"
+  ssh_user: "opsadmin"
+  ssh_key_file: "~/.ssh/id_ed25519"
+  native_console_mode: "eve-ng-qemu"
+  guest_network_label: "Cloud9"
+  guest_gateway: "172.29.129.1"
+  guest_dhcp_range: "172.29.129.50-172.29.129.200"
+
 steps:
   - id: template_image_jammy
     module_ref: "core/onprem/template-image"
