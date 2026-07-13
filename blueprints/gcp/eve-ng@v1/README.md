@@ -38,6 +38,9 @@ This blueprint assumes the GCP foundation for the target environment already exi
 
 - `hyops init gcp --env <env>` has been run.
 - A GCP project is selected for the environment.
+- Billing is enabled on the selected project. `hyops init gcp` and GCP module
+  preflight stop when billing is disabled or cannot be confirmed. The deployment
+  and running VM can consume free-trial credit or incur charges.
 - The WAN hub network state exists at `org/gcp/wan-hub-network`.
 - The workload subnet output is available as `subnet_workloads_name`.
 - IAP TCP forwarding is allowed for VMs tagged `allow-iap-ssh`.
