@@ -61,11 +61,17 @@ state, and verification explicit in the blueprint contract.
 
 ## Validate your change
 
-Run the checks that cover the files you changed:
+Use a focused check while working on the relevant area:
+
+```bash
+python3 -m unittest hyops.tests.test_cli
+python3 tools/ci/check-module-catalog.py
+```
+
+Before opening a pull request, run the applicable full checks:
 
 ```bash
 bash tools/ci/check-python.sh
-python3 -m unittest hyops.tests.test_cli
 bash tools/ci/check-ruff.sh
 bash tools/ci/check-yaml.sh
 bash tools/ci/check-shell.sh
