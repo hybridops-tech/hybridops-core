@@ -80,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="hyops", add_help=True)
     p.add_argument("--version", action="store_true", help="Print version and exit.")
     p.add_argument(
+        "-v",
         "--verbose",
         action="store_true",
         help="Stream tool output to terminal while also writing run records.",
