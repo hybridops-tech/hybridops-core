@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Any
 
 from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
+from hyops.runtime.evidence import new_run_id
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.root import require_runtime_selection
@@ -335,6 +337,48 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         help="Proceed without interactive confirmation.",
     )
     d.set_defaults(_handler=run_destroy)
+
+    b = ssp.add_parser(
+        "rebuild",
+        help="Destroy blueprint resources, then deploy them again in dependency order.",
+    )
+    add_common_args(b)
+    b.add_argument(
+        "--execute",
+        action="store_true",
+        help="Execute reverse destruction followed by ordered deployment.",
+    )
+    b.add_argument("--root", default=None, help="Override runtime root.")
+    b.add_argument("--env", default=None, help="Runtime environment namespace.")
+    b.add_argument(
+        "--module-root",
+        default="modules",
+        help="Module root directory for step execution.",
+    )
+    b.add_argument(
+        "--out-dir", default=None, help="Override run-record root for module steps."
+    )
+    b.add_argument(
+        "--deps-inputs-dir",
+        default=None,
+        help="Optional dependency inputs directory for deploy steps.",
+    )
+    b.add_argument(
+        "--deps-force",
+        action="store_true",
+        help="Force dependency applies during deployment.",
+    )
+    b.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip deploy preflight after teardown.",
+    )
+    b.add_argument(
+        "--yes",
+        action="store_true",
+        help="Proceed without interactive confirmation.",
+    )
+    b.set_defaults(_handler=run_rebuild)
 
 
 def run_validate(ns) -> int:
@@ -952,6 +996,113 @@ def run_destroy(ns) -> int:
     return 0 if not required_failures else OPERATOR_ERROR
 
 
+def run_rebuild(ns) -> int:
+    try:
+        payload = _resolve_and_validate(ns)
+    except Exception as exc:
+        print(f"ERR: blueprint rebuild failed: {exc}")
+        return OPERATOR_ERROR
+
+    destroy_order = list(reversed(payload["order"]))
+    print(
+        f"blueprint={payload['blueprint_ref']} mode={payload['mode']} "
+        f"rebuild_steps={len(payload['order'])}"
+    )
+    print("destroy_order:")
+    for step_id in destroy_order:
+        print(f"  - {step_id}")
+    print("deploy_order:")
+    for step_id in payload["order"]:
+        print(f"  - {step_id}")
+
+    if not bool(getattr(ns, "execute", False)):
+        return 0
+    if bool(getattr(ns, "json", False)):
+        print("ERR: --json is not supported with blueprint rebuild --execute")
+        return OPERATOR_ERROR
+
+    try:
+        require_runtime_selection(
+            getattr(ns, "root", None),
+            getattr(ns, "env", None),
+            command_label="hyops blueprint rebuild",
+        )
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None), getattr(ns, "env", None)
+        )
+        ensure_layout(paths)
+    except Exception as exc:
+        print(f"ERR: blueprint rebuild failed: {exc}")
+        return OPERATOR_ERROR
+
+    env_name = str(getattr(ns, "env", None) or paths.root.name).strip()
+    if not bool(getattr(ns, "yes", False)):
+        print(
+            "WARN: blueprint rebuild will destroy and recreate owned resources "
+            f"in env={env_name}."
+        )
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print("ERR: non-interactive rebuild requires --yes")
+            return OPERATOR_ERROR
+        try:
+            answer = input("Proceed with blueprint rebuild? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return CANCELLED
+        if answer not in {"y", "yes"}:
+            print("ERR: blueprint rebuild cancelled by operator")
+            return CANCELLED
+
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", payload["blueprint_ref"])
+    run_id = new_run_id("rebuild")
+    record_dir = paths.logs_dir / "blueprint" / token / run_id
+    record_dir.mkdir(parents=True, exist_ok=True)
+    record_file = record_dir / "rebuild.json"
+
+    def write_record(
+        status: str, destroy_rc: int | None, deploy_rc: int | None
+    ) -> None:
+        record_file.write_text(
+            json.dumps(
+                {
+                    "blueprint_ref": payload["blueprint_ref"],
+                    "env": env_name,
+                    "run_id": run_id,
+                    "status": status,
+                    "destroy_order": destroy_order,
+                    "deploy_order": payload["order"],
+                    "destroy_rc": destroy_rc,
+                    "deploy_rc": deploy_rc,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    write_record("running", None, None)
+    child_args = dict(vars(ns))
+    child_args.update({"yes": True, "json": False, "execute": True})
+    print("rebuild_phase=destroy status=running")
+    destroy_rc = int(run_destroy(argparse.Namespace(**child_args)))
+    if destroy_rc != 0:
+        write_record("destroy-failed", destroy_rc, None)
+        print("rebuild_phase=deploy status=skipped reason=destroy-failed")
+        print(f"run record: {record_dir}")
+        return destroy_rc
+
+    print("rebuild_phase=destroy status=ok")
+    print("rebuild_phase=deploy status=running")
+    deploy_rc = int(run_deploy(argparse.Namespace(**child_args)))
+    final_status = "ok" if deploy_rc == 0 else "deploy-failed"
+    write_record(final_status, destroy_rc, deploy_rc)
+    print(f"rebuild_phase=deploy status={'ok' if deploy_rc == 0 else 'failed'}")
+    print(f"blueprint={payload['blueprint_ref']} rebuild_status={final_status}")
+    print(f"run record: {record_dir}")
+    return deploy_rc
+
+
 __all__ = [
     "add_blueprint_subparser",
     "run_validate",
@@ -959,4 +1110,5 @@ __all__ = [
     "run_plan",
     "run_deploy",
     "run_destroy",
+    "run_rebuild",
 ]
