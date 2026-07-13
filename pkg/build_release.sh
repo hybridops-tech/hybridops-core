@@ -166,7 +166,8 @@ cp "${REPO_ROOT}/install-windows.cmd" "${WINDOWS_INSTALLER_PATH}"
 WINDOWS_STAGE="${WORK_DIR}/${PACKAGE_ROOT}-windows"
 mkdir -p "${WINDOWS_STAGE}"
 cp "${TARBALL_PATH}" "${SHA256_PATH}" "${WINDOWS_INSTALLER_PATH}" "${WINDOWS_HELPER_PATH}" \
-  "${REPO_ROOT}/open-hybridops.cmd" "${WINDOWS_STAGE}/"
+  "${REPO_ROOT}/open-hybridops.cmd" "${REPO_ROOT}/assets/windows/hybridops.ico" \
+  "${WINDOWS_STAGE}/"
 cat >"${WINDOWS_STAGE}/README-WINDOWS.txt" <<EOF
 HybridOps.Core for Windows 11 (WSL2)
 

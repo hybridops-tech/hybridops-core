@@ -59,8 +59,12 @@ grep -Fq 'start "Ubuntu 24.04 account setup" wsl.exe -d %DISTRO%' "${HYOPS_REPO_
 grep -Fq ':wait_for_ubuntu_user' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 grep -Fq "CreateShortcut([Environment]::GetFolderPath('Desktop')" "${HYOPS_REPO_ROOT}/install-windows.cmd"
 grep -Fq -- "-d %DISTRO% --cd ~" "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq "LOCALAPPDATA 'HybridOps'" "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq "Copy-Item -Force -LiteralPath '%~dp0hybridops.ico'" "${HYOPS_REPO_ROOT}/install-windows.cmd"
 grep -Fq 'Create a HybridOps.Core desktop shortcut? [y/N]:' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 grep -Fq 'open-hybridops.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+grep -Fq 'assets/windows/hybridops.ico' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+test -s "${HYOPS_REPO_ROOT}/assets/windows/hybridops.ico"
 grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 

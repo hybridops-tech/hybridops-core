@@ -275,7 +275,7 @@ echo.
 set "CREATE_SHORTCUT="
 set /p "CREATE_SHORTCUT=Create a HybridOps.Core desktop shortcut? [y/N]: "
 if /I "!CREATE_SHORTCUT!"=="y" (
-  powershell.exe -NoProfile -Command "$shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HybridOps.Core.lnk'); $shortcut.TargetPath = $env:SystemRoot + '\System32\wsl.exe'; $shortcut.Arguments = '-d %DISTRO% --cd ~'; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $env:SystemRoot + '\System32\wsl.exe,0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save()"
+  powershell.exe -NoProfile -Command "$iconDir = Join-Path $env:LOCALAPPDATA 'HybridOps'; New-Item -ItemType Directory -Force -Path $iconDir | Out-Null; $iconPath = Join-Path $iconDir 'hybridops.ico'; Copy-Item -Force -LiteralPath '%~dp0hybridops.ico' -Destination $iconPath; $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HybridOps.Core.lnk'); $shortcut.TargetPath = $env:SystemRoot + '\System32\wsl.exe'; $shortcut.Arguments = '-d %DISTRO% --cd ~'; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $iconPath + ',0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save()"
   if errorlevel 1 (
     echo WARN: unable to create the HybridOps.Core desktop shortcut.
   ) else (
