@@ -112,14 +112,14 @@ def run_single(
         )
     )
     if not child_progress:
+        print(f"run record: {evidence_dir}")
+        if not progress.enabled:
+            print(f"progress: logs={progress_log_hint(driver_ref, evidence_dir)}")
         progress.start(
             module_ref,
             f"{command_name} {module_ref}",
             plain=f"module={module_ref} status=running run_id={run_id}",
         )
-        print(f"run record: {evidence_dir}")
-        if not progress.enabled:
-            print(f"progress: logs={progress_log_hint(driver_ref, evidence_dir)}")
 
     def persist_status_error_state(error_message: str) -> None:
         if command_name not in ("apply", "deploy"):
