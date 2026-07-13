@@ -29,6 +29,35 @@ def _gcloud_capture(argv: list[str]) -> tuple[int, str, str]:
     return int(proc.returncode), str(proc.stdout or "").strip(), str(proc.stderr or "").strip()
 
 
+def diagnose_project_billing(project_id: str | None) -> tuple[bool, bool, str]:
+    """Return whether project billing was validated and whether it is enabled."""
+
+    target_project_id = str(project_id or "").strip()
+    if not target_project_id:
+        return False, False, "project id is missing"
+
+    rc, stdout, stderr = _gcloud_capture(
+        [
+            "gcloud",
+            "billing",
+            "projects",
+            "describe",
+            target_project_id,
+            "--format=value(billingEnabled)",
+        ]
+    )
+    if rc != 0:
+        detail = stderr or stdout or "billing status query failed"
+        return False, False, detail
+
+    value = stdout.strip().lower()
+    if value == "true":
+        return True, True, ""
+    if value == "false":
+        return True, False, f"billing is not enabled for project {target_project_id}"
+    return False, False, f"unexpected billingEnabled value for project {target_project_id}: {stdout!r}"
+
+
 def _test_billing_permission_with_token(token: str, billing_account_id: str, permission: str) -> tuple[bool, str]:
     body = json.dumps({"permissions": [permission]}).encode("utf-8")
     req = urllib.request.Request(

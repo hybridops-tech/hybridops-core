@@ -19,7 +19,13 @@ hyops setup all --sudo
 
 ## Notes
 
-- System installers require sudo.
+- On macOS, install [Homebrew](https://brew.sh/) first, then run setup commands
+  without `--sudo` (`hyops setup base`, `hyops setup gcp`, and
+  `hyops setup ansible`). Linux setup commands retain their existing `--sudo`
+  behavior.
+- `hyops setup gcp` and `hyops setup azure` are operator-friendly aliases for
+  `cloud-gcp` and `cloud-azure`.
+- Linux system installers require sudo.
 - `hyops setup cloud-gcp --sudo` installs both `gcloud` and `gke-gcloud-auth-plugin`; it also repairs older machines where `gcloud` is already present but the GKE auth plugin is missing.
 - Ansible Galaxy dependencies are installed into the selected runtime root:
   - `<runtime_root>/state/ansible/galaxy_collections`

@@ -105,10 +105,11 @@ def validate(inputs: dict[str, Any]) -> None:
         if not _PROJECT_ID_RE.fullmatch(project_id):
             raise ModuleValidationError("inputs.project_id is not a valid GCP project id format")
 
-    region = _req_str(inputs, "region")
-    _reject_placeholder(region, "region")
-    if not _REGION_RE.fullmatch(region):
-        raise ModuleValidationError("inputs.region is not a valid GCP region format")
+    region = str(inputs.get("region") or "").strip()
+    if region:
+        _reject_placeholder(region, "region")
+        if not _REGION_RE.fullmatch(region):
+            raise ModuleValidationError("inputs.region is not a valid GCP region format")
 
     _req_name(inputs, "network_name")
     _req_name(inputs, "subnetwork_name")

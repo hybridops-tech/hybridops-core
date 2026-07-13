@@ -35,8 +35,7 @@ mkdir -p "${USER_HOME}" "${ROOT_SHARED}" "${ROOT_HOME}" "${ROOT_PREFIX}" "${ROOT
 chmod 0755 "${ROOT_SHARED}" "${ROOT_HOME}" "${ROOT_PREFIX}" "${ROOT_BIN_DIR}" "${ROOT_USER_BIN}" "${ROOT_CACHE_DIR}" "${ROOT_FAKE_APP}" "${ROOT_FAKE_APP}/tools" "${ROOT_FAKE_APP}/tools/setup"
 
 common_env=(
-  PATH="/usr/bin:/bin:${PATH}"
-  HYOPS_INSTALL_USE_SYSTEM_DEPS=true
+  PATH="${PATH}:/usr/bin:/bin"
 )
 
 latest_evidence_dir() {
@@ -54,6 +53,10 @@ PY
 
 env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
+
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  grep -Fqx 'export PATH="$HOME/.local/bin:$PATH"' "${USER_HOME}/.zprofile"
+fi
 
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" --help >/dev/null
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup ansible --help >/dev/null
@@ -165,6 +168,9 @@ assert result["status"] == "failed"
 PY
 env HOME="${USER_HOME}" "${common_env[@]}" \
   bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  [[ "$(grep -Fxc 'export PATH="$HOME/.local/bin:$PATH"' "${USER_HOME}/.zprofile")" -eq 1 ]]
+fi
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" show --help >/dev/null
 
 if sudo -n true >/dev/null 2>&1; then

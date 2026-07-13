@@ -5,6 +5,10 @@
 
 set -euo pipefail
 
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/setup-cloud-azure-macos.sh" "$@"
+fi
+
 command -v az >/dev/null 2>&1 && { echo "[setup] azure-cli present"; exit 0; }
 
 [[ "${EUID}" -eq 0 ]] || { echo "ERR: requires root (use: hyops setup cloud-azure --sudo)"; exit 2; }

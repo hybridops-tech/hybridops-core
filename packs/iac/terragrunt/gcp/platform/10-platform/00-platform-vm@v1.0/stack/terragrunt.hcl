@@ -7,5 +7,8 @@ terraform {
   source = "${get_terragrunt_dir()}/terraform"
 }
 
-# inputs come from root.hcl (hyops.inputs.json). Do not override here.
-
+# SSH readiness is a HyOps post-apply control, not a Terraform variable.
+inputs = {
+  for key, value in include.root.locals.inputs :
+  key => value if key != "post_apply_ssh_readiness"
+}

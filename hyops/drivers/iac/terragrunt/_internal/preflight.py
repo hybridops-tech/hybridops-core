@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from hyops.runtime.coerce import as_int
+from hyops.runtime.credentials import parse_tfvars
+from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.module_state import read_module_state
 from hyops.runtime.terraform_cloud import preflight_cloud_backend
 
@@ -37,6 +39,59 @@ def _resolve_gke_project_id(*, runtime_root: Path, inputs: dict[str, Any]) -> st
     if not isinstance(outputs, dict):
         return ""
     return str(outputs.get("project_id") or "").strip()
+
+
+def _resolve_gcp_project_id(
+    *,
+    runtime: dict[str, Any],
+    inputs: dict[str, Any],
+) -> str:
+    direct = str(inputs.get("project_id") or inputs.get("network_project_id") or "").strip()
+    if direct:
+        return direct
+
+    credentials_dir_raw = str(runtime.get("credentials_dir") or "").strip()
+    if not credentials_dir_raw:
+        return ""
+    tfvars_path = Path(credentials_dir_raw).expanduser().resolve() / "gcp.credentials.tfvars"
+    try:
+        tfvars = parse_tfvars(tfvars_path)
+    except Exception:
+        return ""
+    return str(tfvars.get("project_id") or "").strip()
+
+
+def _preflight_gcp_billing(
+    *,
+    lifecycle_command: str,
+    module_ref: str,
+    profile_ref: str,
+    runtime: dict[str, Any],
+    inputs: dict[str, Any],
+) -> str:
+    if not str(profile_ref or "").strip().lower().startswith("gcp"):
+        return ""
+    if str(lifecycle_command or "").strip().lower() == "destroy":
+        return ""
+    if str(module_ref or "").strip() == "org/gcp/project-factory":
+        return ""
+
+    project_id = _resolve_gcp_project_id(runtime=runtime, inputs=inputs)
+    if not project_id:
+        return "GCP billing preflight failed: project id could not be resolved from module inputs or init credentials."
+
+    validated, enabled, detail = diagnose_project_billing(project_id)
+    if not validated:
+        return (
+            f"GCP billing preflight failed: could not validate billing for project {project_id}. "
+            + (detail or "Confirm the active gcloud identity can view project billing.")
+        )
+    if not enabled:
+        return (
+            f"GCP billing preflight failed: billing is not enabled for project {project_id}. "
+            "Enable billing before creating or updating resources. Destroy remains available."
+        )
+    return ""
 
 
 def _preflight_gke_default_compute_sa(
@@ -146,6 +201,16 @@ def run_preflight_phase(
         tfc_error = preflight_cloud_backend(env=env, runtime_root=runtime_root, env_name=env_name)
         if tfc_error:
             return True, tfc_error
+
+    billing_error = _preflight_gcp_billing(
+        lifecycle_command=str(runtime.get("lifecycle_command") or ""),
+        module_ref=module_ref,
+        profile_ref=profile_ref,
+        runtime=runtime,
+        inputs=inputs,
+    )
+    if billing_error:
+        return True, billing_error
 
     if module_ref == "platform/gcp/gke-cluster":
         gke_default_sa_error = _preflight_gke_default_compute_sa(
