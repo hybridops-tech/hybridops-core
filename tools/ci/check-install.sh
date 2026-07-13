@@ -38,14 +38,16 @@ common_env=(
   PATH="${PATH}:/usr/bin:/bin"
 )
 
-env WSL_DISTRO_NAME=Ubuntu bash -c \
+env HYOPS_TEST_SYSTEM_NAME=Linux WSL_DISTRO_NAME=Ubuntu bash -c \
   'source "$1"; hyops_install_is_windows_wsl' _ \
   "${HYOPS_REPO_ROOT}/tools/install/lib/common.sh"
 env -u WSL_DISTRO_NAME -u WSL_INTEROP \
+  HYOPS_TEST_SYSTEM_NAME=Linux \
   HYOPS_TEST_KERNEL_RELEASE=5.15.167.4-microsoft-standard-WSL2 \
   bash -c 'source "$1"; hyops_install_is_windows_wsl' _ \
   "${HYOPS_REPO_ROOT}/tools/install/lib/common.sh"
 if env -u WSL_DISTRO_NAME -u WSL_INTEROP \
+  HYOPS_TEST_SYSTEM_NAME=Linux \
   HYOPS_TEST_KERNEL_RELEASE=6.8.0-generic \
   bash -c 'source "$1"; hyops_install_is_windows_wsl' _ \
   "${HYOPS_REPO_ROOT}/tools/install/lib/common.sh"; then

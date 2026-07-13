@@ -12,7 +12,11 @@ hyops_install_need_cmd() {
 }
 
 hyops_install_is_windows_wsl() {
-  [[ "$(uname -s 2>/dev/null || true)" == "Linux" ]] || return 1
+  local system_name="${HYOPS_TEST_SYSTEM_NAME:-}"
+  if [[ -z "${system_name}" ]]; then
+    system_name="$(uname -s 2>/dev/null || true)"
+  fi
+  [[ "${system_name}" == "Linux" ]] || return 1
   if [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
     return 0
   fi
