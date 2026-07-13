@@ -68,6 +68,61 @@ test -s "${HYOPS_REPO_ROOT}/assets/windows/hybridops.ico"
 grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 
+bash -n "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
+sh -n "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+sh -n "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
+grep -Fq -- '--no-system-link --no-setup-all' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq 'Runtime environments, logs and vault data were retained.' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
+grep -Fq 'tech.hybridops.core' "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
+
+MACOS_PKG_TEST_DIR="${WORK_DIR}/macos-pkg"
+MACOS_PKG_FAKE_BIN="${MACOS_PKG_TEST_DIR}/bin"
+MACOS_PKG_ARCHIVE="${MACOS_PKG_TEST_DIR}/hybridops-core-test.tar.gz"
+MACOS_PKG_OUTPUT="${MACOS_PKG_TEST_DIR}/hybridops-core-test.pkg"
+mkdir -p "${MACOS_PKG_FAKE_BIN}"
+printf 'package fixture\n' >"${MACOS_PKG_ARCHIVE}"
+cat >"${MACOS_PKG_FAKE_BIN}/uname" <<'EOF'
+#!/usr/bin/env bash
+echo Darwin
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/pkgbuild" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+root=""
+scripts=""
+output="${!#}"
+while [[ "$#" -gt 1 ]]; do
+  case "$1" in
+    --root) root="$2"; shift 2 ;;
+    --scripts) scripts="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+test -x "${root}/usr/local/share/hybridops-core/uninstall-macos.sh"
+test -x "${scripts}/postinstall"
+test -s "${scripts}/release.tar.gz"
+test -s "${scripts}/release.tar.gz.sha256"
+: >"${output}"
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/productbuild" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+: >"${!#}"
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/pkgutil" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod 0755 "${MACOS_PKG_FAKE_BIN}"/*
+PATH="${MACOS_PKG_FAKE_BIN}:${PATH}" \
+  bash "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh" \
+    --archive "${MACOS_PKG_ARCHIVE}" \
+    --version 0.1.0 \
+    --output "${MACOS_PKG_OUTPUT}" >/dev/null
+test -f "${MACOS_PKG_OUTPUT}"
+
 latest_evidence_dir() {
   python3 - "$1" <<'PY'
 import sys

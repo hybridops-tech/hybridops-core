@@ -53,6 +53,29 @@ Optionally set an explicit label:
 HYOPS_RELEASE_LABEL=0.1.0 ./pkg/build_release.sh
 ```
 
+On macOS, build a native installer from the release archive:
+
+```bash
+./pkg/build_macos_pkg.sh \
+  --archive dist/releases/hybridops-core-0.1.0.tar.gz \
+  --version 0.1.0
+```
+
+The resulting package is unsigned unless `--sign "Developer ID Installer: ..."`
+is supplied. Local unsigned packages are intended for acceptance testing;
+public distribution requires the normal Apple signing and notarisation process.
+
+The package installs Core for the signed-in macOS user and places `hyops` in
+`/usr/local/bin`. To remove the installed software while retaining runtime
+environments, logs and vault data:
+
+```bash
+sudo /usr/local/share/hybridops-core/uninstall-macos.sh
+```
+
+Pass `--purge-runtime` only when the retained runtime data should also be
+removed.
+
 Verify a bundle through an isolated install:
 
 ```bash

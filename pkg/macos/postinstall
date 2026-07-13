@@ -1,0 +1,84 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+archive="${script_dir}/release.tar.gz"
+checksum="${archive}.sha256"
+
+console_user=$(/usr/bin/stat -f '%Su' /dev/console)
+case "${console_user}" in
+  ""|root|loginwindow)
+    echo "HybridOps.Core requires a signed-in macOS user." >&2
+    exit 1
+    ;;
+esac
+
+console_home=$(/usr/bin/dscl . -read "/Users/${console_user}" NFSHomeDirectory | /usr/bin/awk '{print $2}')
+case "${console_home}" in
+  /*) ;;
+  *)
+    echo "Unable to determine the home directory for ${console_user}." >&2
+    exit 1
+    ;;
+esac
+
+installed_home_file="/usr/local/share/hybridops-core/installed-home"
+if [ -f "${installed_home_file}" ]; then
+  previous_home=$(/bin/cat "${installed_home_file}")
+  if [ -n "${previous_home}" ] && [ "${previous_home}" != "${console_home}" ]; then
+    echo "HybridOps.Core is installed for another macOS user. Uninstall it before continuing." >&2
+    exit 1
+  fi
+fi
+
+if [ ! -f "${archive}" ] || [ ! -f "${checksum}" ]; then
+  echo "HybridOps.Core package payload is incomplete." >&2
+  exit 1
+fi
+
+work_dir=$(/usr/bin/mktemp -d /private/tmp/hybridops-core.pkg.XXXXXX)
+cleanup() {
+  /bin/rm -rf "${work_dir}"
+}
+trap cleanup EXIT HUP INT TERM
+
+(
+  cd "${script_dir}"
+  /usr/bin/shasum -a 256 -c "$(basename -- "${checksum}")"
+)
+/usr/bin/tar -xzf "${archive}" -C "${work_dir}"
+source_root=$(/usr/bin/find "${work_dir}" -mindepth 1 -maxdepth 2 -type f -name install.sh -print | /usr/bin/head -n 1)
+if [ -z "${source_root}" ]; then
+  echo "HybridOps.Core installer was not found in the package payload." >&2
+  exit 1
+fi
+source_root=$(dirname -- "${source_root}")
+
+/usr/bin/sudo -H -u "${console_user}" \
+  /usr/bin/env HOME="${console_home}" PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  /bin/bash "${source_root}/install.sh" --force --no-system-link --no-setup-all
+
+user_command="${console_home}/.local/bin/hyops"
+if [ ! -x "${user_command}" ]; then
+  echo "HybridOps.Core user command was not installed." >&2
+  exit 1
+fi
+
+/bin/mkdir -p /usr/local/bin /usr/local/share/hybridops-core
+{
+  echo '#!/bin/sh'
+  echo '# HybridOps.Core macOS package launcher'
+  printf 'exec "%s" "$@"\n' "${user_command}"
+} > /usr/local/bin/hyops
+/bin/chmod 0755 /usr/local/bin/hyops
+printf '%s\n' "${console_user}" > /usr/local/share/hybridops-core/installed-user
+printf '%s\n' "${console_home}" > /usr/local/share/hybridops-core/installed-home
+/bin/chmod 0644 \
+  /usr/local/share/hybridops-core/installed-user \
+  /usr/local/share/hybridops-core/installed-home
+
+/usr/local/bin/hyops --help >/dev/null
+echo "HybridOps.Core installed for ${console_user}."
+echo "Next: hyops setup gcp  # or: azure, proxmox"
+
+exit 0

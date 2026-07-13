@@ -145,6 +145,8 @@ hyops_ci::all_shellcheck_targets() {
   local targets=(
     "${HYOPS_REPO_ROOT}/install.sh"
     "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+    "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
+    "${HYOPS_REPO_ROOT}/pkg/macos"
     "${HYOPS_REPO_ROOT}/pkg/verify_release.sh"
     "${HYOPS_REPO_ROOT}/tools/build/vyos"
     "${HYOPS_REPO_ROOT}/tools/ci"
