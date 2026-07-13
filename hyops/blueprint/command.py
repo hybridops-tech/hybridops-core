@@ -14,6 +14,7 @@ from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
+from hyops.runtime.progress import ProgressDisplay
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
 
@@ -576,6 +577,14 @@ def run_deploy(ns) -> int:
     required_failures: list[str] = []
     optional_failures: list[str] = []
     cancelled = False
+    progress = ProgressDisplay(
+        enabled=bool(
+            sys.stdout
+            and sys.stdout.isatty()
+            and not json_mode
+            and not os.getenv("HYOPS_VERBOSE")
+        )
+    )
 
     for step_id in payload["order"]:
         step = by_id[step_id]
@@ -615,7 +624,13 @@ def run_deploy(ns) -> int:
                     result = dict(base)
                     result.update({"status": "skipped", "reason": "state-ok", "rc": 0})
                     step_results.append(result)
-                    print(f"step={step_id} status=skipped reason=state-ok")
+                    progress.finish(
+                        step_id,
+                        step_id,
+                        "skipped",
+                        plain=f"step={step_id} status=skipped reason=state-ok",
+                        detail="state-ok",
+                    )
                     continue
 
                 try:
@@ -631,7 +646,13 @@ def run_deploy(ns) -> int:
                     result = dict(base)
                     result.update({"status": "skipped", "reason": detail, "rc": 0})
                     step_results.append(result)
-                    print(f"step={step_id} status=skipped reason={detail}")
+                    progress.finish(
+                        step_id,
+                        step_id,
+                        "skipped",
+                        plain=f"step={step_id} status=skipped reason={detail}",
+                        detail=detail,
+                    )
                     continue
 
                 if skip_status == "error":
@@ -681,7 +702,17 @@ def run_deploy(ns) -> int:
                 break
             continue
 
-        print(f"step={step_id} status=running action={step['action']} module={step['module_ref']}")
+        progress.start(
+            step_id,
+            step_id,
+            plain=(
+                f"step={step_id} status=running action={step['action']} "
+                f"module={step['module_ref']}"
+            ),
+        )
+        previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
+        if not os.getenv("HYOPS_VERBOSE"):
+            os.environ["HYOPS_PROGRESS_CHILD"] = "1"
         try:
             rc = run_step_module_command(step, payload, ns, paths)
         except KeyboardInterrupt:
@@ -692,12 +723,17 @@ def run_deploy(ns) -> int:
             err = str(exc)
         else:
             err = ""
+        finally:
+            if previous_child is None:
+                os.environ.pop("HYOPS_PROGRESS_CHILD", None)
+            else:
+                os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
 
         if rc == 0:
             result = dict(base)
             result.update({"status": "ok", "rc": 0})
             step_results.append(result)
-            print(f"step={step_id} status=ok")
+            progress.finish(step_id, step_id, "ok", plain=f"step={step_id} status=ok")
             continue
 
         result = dict(base)
@@ -706,18 +742,35 @@ def run_deploy(ns) -> int:
             result["status"] = "cancelled"
             step_results.append(result)
             cancelled = True
-            print(f"step={step_id} status=cancelled rc={rc}")
+            progress.finish(
+                step_id,
+                step_id,
+                "cancelled",
+                plain=f"step={step_id} status=cancelled rc={rc}",
+            )
             break
         if step["optional"]:
             result["status"] = "failed-optional"
             optional_failures.append(step_id)
             step_results.append(result)
-            print(f"step={step_id} status=failed-optional rc={rc}")
+            progress.finish(
+                step_id,
+                step_id,
+                "failed-optional",
+                plain=f"step={step_id} status=failed-optional rc={rc}",
+            )
             continue
 
         required_failures.append(step_id)
         step_results.append(result)
-        print(f"step={step_id} status=failed rc={rc}")
+        failure_detail = err or "see module run record"
+        progress.finish(
+            step_id,
+            step_id,
+            "failed",
+            plain=f"step={step_id} status=failed rc={rc} reason={failure_detail}",
+            detail=failure_detail,
+        )
         if fail_fast:
             break
 
@@ -845,6 +898,14 @@ def run_destroy(ns) -> int:
     required_failures: list[str] = []
     optional_failures: list[str] = []
     cancelled = False
+    progress = ProgressDisplay(
+        enabled=bool(
+            sys.stdout
+            and sys.stdout.isatty()
+            and not json_mode
+            and not os.getenv("HYOPS_VERBOSE")
+        )
+    )
 
     for step_id in destroy_order:
         step = by_id[step_id]
@@ -867,7 +928,13 @@ def run_destroy(ns) -> int:
             result = dict(base)
             result.update({"status": "skipped", "reason": reason, "rc": 0})
             step_results.append(result)
-            print(f"step={step_id} status=skipped reason={reason}")
+            progress.finish(
+                step_id,
+                step_id,
+                "skipped",
+                plain=f"step={step_id} status=skipped reason={reason}",
+                detail=reason,
+            )
             continue
 
         # Materialize inputs only for a step that still has state to destroy.
@@ -880,7 +947,17 @@ def run_destroy(ns) -> int:
             if inputs_file:
                 base["inputs_file"] = str(inputs_file)
 
-        print(f"step={step_id} status=running action=destroy module={step['module_ref']}")
+        progress.start(
+            step_id,
+            step_id,
+            plain=(
+                f"step={step_id} status=running action=destroy "
+                f"module={step['module_ref']}"
+            ),
+        )
+        previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
+        if not os.getenv("HYOPS_VERBOSE"):
+            os.environ["HYOPS_PROGRESS_CHILD"] = "1"
         try:
             rc = run_step_module_command(destroy_step, payload, ns, paths)
         except KeyboardInterrupt:
@@ -891,12 +968,17 @@ def run_destroy(ns) -> int:
             err = str(exc)
         else:
             err = ""
+        finally:
+            if previous_child is None:
+                os.environ.pop("HYOPS_PROGRESS_CHILD", None)
+            else:
+                os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
 
         if rc == 0:
             result = dict(base)
             result.update({"status": "ok", "rc": 0})
             step_results.append(result)
-            print(f"step={step_id} status=ok")
+            progress.finish(step_id, step_id, "ok", plain=f"step={step_id} status=ok")
             continue
 
         result = dict(base)
@@ -905,18 +987,35 @@ def run_destroy(ns) -> int:
             result["status"] = "cancelled"
             step_results.append(result)
             cancelled = True
-            print(f"step={step_id} status=cancelled rc={rc}")
+            progress.finish(
+                step_id,
+                step_id,
+                "cancelled",
+                plain=f"step={step_id} status=cancelled rc={rc}",
+            )
             break
         if step["optional"]:
             result["status"] = "failed-optional"
             optional_failures.append(step_id)
             step_results.append(result)
-            print(f"step={step_id} status=failed-optional rc={rc}")
+            progress.finish(
+                step_id,
+                step_id,
+                "failed-optional",
+                plain=f"step={step_id} status=failed-optional rc={rc}",
+            )
             continue
 
         required_failures.append(step_id)
         step_results.append(result)
-        print(f"step={step_id} status=failed rc={rc}")
+        failure_detail = err or "see module run record"
+        progress.finish(
+            step_id,
+            step_id,
+            "failed",
+            plain=f"step={step_id} status=failed rc={rc} reason={failure_detail}",
+            detail=failure_detail,
+        )
         if fail_fast:
             break
 

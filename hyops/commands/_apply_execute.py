@@ -4,6 +4,7 @@ Execution path for single-module apply/deploy/plan/validate/destroy/import.
 
 from __future__ import annotations
 
+import os
 import sys
 import yaml
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
 from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.module_state import write_module_state
+from hyops.runtime.progress import ProgressDisplay
 from hyops.runtime.stamp import stamp_runtime
 
 
@@ -95,9 +97,26 @@ def run_single(
     evidence_dir = init_evidence_dir(root, run_id)
     ev = EvidenceWriter(evidence_dir)
 
-    print(f"module={module_ref} status=running run_id={run_id}")
-    print(f"run record: {evidence_dir}")
-    print(f"progress: logs={progress_log_hint(driver_ref, evidence_dir)}")
+    child_progress = (
+        str(os.getenv("HYOPS_PROGRESS_CHILD") or "").strip() == "1"
+        and not os.getenv("HYOPS_VERBOSE")
+    )
+    progress = ProgressDisplay(
+        enabled=(
+            not child_progress
+            and bool(sys.stdout and sys.stdout.isatty())
+            and not os.getenv("HYOPS_VERBOSE")
+        )
+    )
+    if not child_progress:
+        progress.start(
+            module_ref,
+            f"{command_name} {module_ref}",
+            plain=f"module={module_ref} status=running run_id={run_id}",
+        )
+        print(f"run record: {evidence_dir}")
+        if not progress.enabled:
+            print(f"progress: logs={progress_log_hint(driver_ref, evidence_dir)}")
 
     def persist_status_error_state(error_message: str) -> None:
         if command_name not in ("apply", "deploy"):
@@ -226,8 +245,16 @@ def run_single(
         ev.write_json("guard_failure.json", {"error": str(exc)})
         persist_status_error_state(str(exc))
         print(f"error: {exc}", file=sys.stderr)
-        print(f"module={module_ref} status=error run_id={run_id}")
-        print(f"run record: {evidence_dir}")
+        if not child_progress:
+            progress.finish(
+                module_ref,
+                f"{command_name} {module_ref}",
+                "error",
+                plain=f"module={module_ref} status=error run_id={run_id}",
+            )
+            print(f"run record: {evidence_dir}")
+        else:
+            print(f"run record: {evidence_dir}", file=sys.stderr)
         return 1
 
     try:
@@ -265,7 +292,8 @@ def run_single(
 
     try:
         if not skip_preflight:
-            print(f"progress: phase=preflight driver={driver_ref}")
+            if not child_progress and not progress.enabled:
+                print(f"progress: phase=preflight driver={driver_ref}")
             preflight_request = dict(request)
             preflight_request["command"] = "preflight"
             preflight_request["lifecycle_command"] = command_name
@@ -280,23 +308,39 @@ def run_single(
                     print(f"error: preflight failed: {preflight_error}", file=sys.stderr)
                 else:
                     print("error: preflight failed", file=sys.stderr)
-                print(f"module={module_ref} status=error run_id={run_id}")
-                print(f"run record: {evidence_dir}")
+                if not child_progress:
+                    progress.finish(
+                        module_ref,
+                        f"{command_name} {module_ref}",
+                        "error",
+                        plain=f"module={module_ref} status=error run_id={run_id}",
+                    )
+                    print(f"run record: {evidence_dir}")
+                else:
+                    print(f"run record: {evidence_dir}", file=sys.stderr)
                 return 1
 
-        print(f"progress: phase={command_name} driver={driver_ref}")
+        if not child_progress and not progress.enabled:
+            print(f"progress: phase={command_name} driver={driver_ref}")
         result = driver_fn(request)
         ev.write_json("result.json", result)
 
         status = str(result.get("status", "unknown")).strip().lower()
-        print(f"module={module_ref} status={status or 'unknown'} run_id={run_id}")
-        print(f"run record: {evidence_dir}")
-
+        if not child_progress:
+            progress.finish(
+                module_ref,
+                f"{command_name} {module_ref}",
+                status or "unknown",
+                plain=f"module={module_ref} status={status or 'unknown'} run_id={run_id}",
+            )
+            print(f"run record: {evidence_dir}")
         if status != "ok":
             err = str(result.get("error") or "").strip()
             persist_status_error_state(err or f"driver returned status={status or 'unknown'}")
             if err:
                 print(f"error: {err}", file=sys.stderr)
+            if child_progress:
+                print(f"run record: {evidence_dir}", file=sys.stderr)
             return 1
     except KeyboardInterrupt:
         ev.write_json(
@@ -309,15 +353,31 @@ def run_single(
                 "reason": "cancelled by user",
             },
         )
-        print(f"module={module_ref} status=cancelled run_id={run_id}")
-        print(f"run record: {evidence_dir}")
+        if not child_progress:
+            progress.finish(
+                module_ref,
+                f"{command_name} {module_ref}",
+                "cancelled",
+                plain=f"module={module_ref} status=cancelled run_id={run_id}",
+            )
+            print(f"run record: {evidence_dir}")
+        else:
+            print(f"run record: {evidence_dir}", file=sys.stderr)
         print("error: cancelled by user", file=sys.stderr)
         return CANCELLED
     except Exception as exc:
         persist_status_error_state(str(exc))
         print(f"error: {exc}", file=sys.stderr)
-        print(f"module={module_ref} status=error run_id={run_id}")
-        print(f"run record: {evidence_dir}")
+        if not child_progress:
+            progress.finish(
+                module_ref,
+                f"{command_name} {module_ref}",
+                "error",
+                plain=f"module={module_ref} status=error run_id={run_id}",
+            )
+            print(f"run record: {evidence_dir}")
+        else:
+            print(f"run record: {evidence_dir}", file=sys.stderr)
         return 1
 
     if command_name in ("apply", "deploy", "destroy", "import"):

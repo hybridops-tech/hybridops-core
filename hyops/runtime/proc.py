@@ -270,17 +270,12 @@ def run_capture_stream(
                 return cleaned
         return ""
 
-    if sys.stdout and sys.stdout.isatty():
-        print(
-            f"[hyops] {label}: watch logs: tail -f {progress_path}",
-            file=sys.stdout,
-            flush=True,
-        )
-
     def heartbeat() -> None:
         if interval <= 0:
             return
         if verbose_terminal:
+            return
+        if str(os.getenv("HYOPS_PROGRESS_CHILD") or "").strip() == "1":
             return
         if not sys.stdout or not sys.stdout.isatty():
             return
