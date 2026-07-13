@@ -17,7 +17,11 @@ def _payload() -> dict:
         "mode": "hybrid",
         "path": "/tmp/blueprint.yml",
         "order": ["network", "vm", "config"],
-        "steps": [{"id": item} for item in ("network", "vm", "config")],
+        "steps": [
+            {"id": "network", "retain_on_destroy": True},
+            {"id": "vm"},
+            {"id": "config"},
+        ],
         "policy": {},
     }
 
@@ -41,6 +45,13 @@ def _namespace(root: str, *, execute: bool) -> argparse.Namespace:
 
 
 class BlueprintRebuildTests(unittest.TestCase):
+    def test_plan_marks_retained_destroy_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "hyops.blueprint.command._resolve_and_validate", return_value=_payload()
+        ), patch("builtins.print") as output:
+            self.assertEqual(run_rebuild(_namespace(tmp, execute=False)), 0)
+            output.assert_any_call("  - network (retained)")
+
     def test_plan_only_does_not_execute(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch(
             "hyops.blueprint.command._resolve_and_validate", return_value=_payload()

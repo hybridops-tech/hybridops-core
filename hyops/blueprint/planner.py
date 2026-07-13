@@ -31,7 +31,10 @@ def run_step_module_command(step: dict[str, Any], payload: dict[str, Any], ns, p
         module=step["module_ref"],
         module_root=getattr(ns, "module_root", "modules"),
         inputs=str(inputs_file) if inputs_file else None,
-        with_deps=bool(step.get("with_deps", False)),
+        with_deps=(
+            bool(step.get("with_deps", False))
+            and str(step.get("action") or "").strip().lower() in {"apply", "deploy"}
+        ),
         deps_inputs_dir=getattr(ns, "deps_inputs_dir", None),
         deps_force=bool(getattr(ns, "deps_force", False)),
         out_dir=getattr(ns, "out_dir", None),

@@ -21,6 +21,7 @@ steps:
     action: "deploy"
     phase: "bootstrap"
     with_deps: true
+    retain_on_destroy: true
     contracts:
       addressing_mode: "static"
     inputs:
