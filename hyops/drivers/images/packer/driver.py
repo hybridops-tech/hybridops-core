@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import socket
 import time
 from pathlib import Path
 from typing import Any
@@ -85,25 +86,18 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _local_ipv4_addresses() -> set[str]:
-    r = _run_proc(["ip", "-4", "-o", "addr", "show", "scope", "global"], timeout_s=5)
-    if r.rc != 0:
-        return set()
-    ips: set[str] = set()
-    for raw in (r.stdout or "").splitlines():
-        m = re.search(r"\binet\s+([0-9.]+)/\d+\b", raw)
-        if m:
-            ips.add(m.group(1))
-    return ips
-
-
 def _http_bind_address_is_valid(value: str) -> bool:
     addr = str(value or "").strip()
     if not addr:
         return False
     if addr == "0.0.0.0":
         return True
-    return addr in _local_ipv4_addresses()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind((addr, 0))
+    except OSError:
+        return False
+    return True
 
 
 def _parse_proxmox_host(proxmox_url: str) -> str:
@@ -120,17 +114,28 @@ def _parse_proxmox_host(proxmox_url: str) -> str:
 def _detect_workstation_ip(target_host: str) -> str:
     host = str(target_host or "").strip()
     if host:
-        r = _run_proc(["ip", "route", "get", host], timeout_s=5)
-        if r.rc == 0:
-            m = re.search(r"\bsrc\s+([0-9.]+)\b", r.stdout or "")
-            if m:
-                return m.group(1)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+                route.connect((host, 9))
+                selected = str(route.getsockname()[0] or "").strip()
+                if selected and selected != "0.0.0.0":
+                    return selected
+        except OSError:
+            pass
 
-    r = _run_proc(["hostname", "-I"], timeout_s=5)
-    if r.rc == 0:
-        parts = (r.stdout or "").strip().split()
-        if parts:
-            return parts[0]
+        if shutil.which("ip"):
+            r = _run_proc(["ip", "route", "get", host], timeout_s=5)
+            if r.rc == 0:
+                m = re.search(r"\bsrc\s+([0-9.]+)\b", r.stdout or "")
+                if m:
+                    return m.group(1)
+
+    if shutil.which("hostname"):
+        r = _run_proc(["hostname", "-I"], timeout_s=5)
+        if r.rc == 0:
+            parts = (r.stdout or "").strip().split()
+            if parts:
+                return parts[0]
     return ""
 
 
