@@ -173,6 +173,21 @@ if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
 fi
 env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" show --help >/dev/null
 
+# A failed replacement must leave the previous CLI usable and remove staging
+# directories. Make the vault helper read-only to force a post-activation error.
+cp "${USER_HOME}/.hybridops/core/app/install.sh" "${WORK_DIR}/installed-app.sh"
+chmod 0555 "${USER_HOME}/.hybridops/tools" "${USER_HOME}/.hybridops/tools/vault-pass.sh"
+if env HOME="${USER_HOME}" "${common_env[@]}" \
+  bash "${HYOPS_REPO_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null 2>&1; then
+  echo "ERR: installer rollback smoke did not trigger the expected failure" >&2
+  exit 1
+fi
+chmod 0755 "${USER_HOME}/.hybridops/tools" "${USER_HOME}/.hybridops/tools/vault-pass.sh"
+cmp "${WORK_DIR}/installed-app.sh" "${USER_HOME}/.hybridops/core/app/install.sh"
+env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" --help >/dev/null
+test -z "$(find "${USER_HOME}/.hybridops" -maxdepth 1 \
+  \( -name 'core.install.*' -o -name 'core.previous.*' \) -print -quit)"
+
 if sudo -n true >/dev/null 2>&1; then
   sudo install -d -m 0755 "${ROOT_CACHE_DIR}"
   sudo env HOME="${ROOT_HOME}" "${common_env[@]}" \
