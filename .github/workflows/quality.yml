@@ -65,7 +65,11 @@ jobs:
         run: bash tools/ci/check-ruff.sh
 
   install-quality:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout

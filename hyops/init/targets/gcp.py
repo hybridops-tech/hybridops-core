@@ -25,6 +25,7 @@ from hyops.init.shared_args import add_init_shared_args
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.gcp import (
     diagnose_billing_association_permission,
+    diagnose_project_billing,
     diagnose_private_service_access_permissions,
     normalize_billing_account_id,
 )
@@ -618,6 +619,23 @@ def run(ns) -> int:
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
 
+    billing_validated = False
+    billing_enabled = False
+    if project_access_validated:
+        billing_validated, billing_enabled, billing_detail = diagnose_project_billing(project_id)
+        if not billing_validated:
+            print(f"ERR: could not validate billing for GCP project {project_id}")
+            if billing_detail:
+                print(f"detail: {billing_detail}")
+            print("hint: confirm the active gcloud identity can view project billing, then re-run init.")
+            print(f"run record: {evidence_dir}")
+            return OPERATOR_ERROR
+        if not billing_enabled:
+            print(f"ERR: billing is not enabled for GCP project {project_id}")
+            print("hint: enable billing in Google Cloud, then re-run init before deploying resources.")
+            print(f"run record: {evidence_dir}")
+            return OPERATOR_ERROR
+
     if adc_quota_project_id:
         run_capture(
             ["gcloud", "auth", "application-default", "set-quota-project", adc_quota_project_id],
@@ -639,13 +657,11 @@ def run(ns) -> int:
         print("note: GCP_TERRAFORM_SA_EMAIL not set; skipping impersonation validation.")
         print("hint: after running org/gcp/project-factory, re-run: hyops init gcp --env <env> --force")
     else:
-        imp_ok = _shell_ok(
-            "gcloud auth print-access-token "
-            f"--impersonate-service-account={shlex.quote(terraform_sa_email)} "
-            f"--project={shlex.quote(project_id)} "
-            ">/dev/null",
-            evidence_dir,
-            "impersonation_check",
+        imp_ok = _adc_impersonation_ok(
+            terraform_sa_email=terraform_sa_email,
+            project_id=project_id,
+            evidence_dir=evidence_dir,
+            label="adc_impersonation_check",
         )
         if (
             (not imp_ok)
@@ -660,28 +676,37 @@ def run(ns) -> int:
                 terraform_sa_email=terraform_sa_email,
                 evidence_dir=evidence_dir,
             ):
-                imp_ok = _shell_ok(
-                    "gcloud auth print-access-token "
-                    f"--impersonate-service-account={shlex.quote(terraform_sa_email)} "
-                    f"--project={shlex.quote(project_id)} "
-                    ">/dev/null",
-                    evidence_dir,
-                    "impersonation_check_after_bootstrap_grant",
+                imp_ok = _adc_impersonation_ok(
+                    terraform_sa_email=terraform_sa_email,
+                    project_id=project_id,
+                    evidence_dir=evidence_dir,
+                    label="adc_impersonation_check_after_bootstrap_grant",
+                )
+        if (
+            (not imp_ok)
+            and (not non_interactive)
+            and bool(getattr(ns, "with_cli_login", False))
+        ):
+            if _run_interactive_adc_login(
+                evidence_dir,
+                reason=(
+                    "ADC cannot impersonate the Terraform service account. "
+                    "Refresh ADC with the confirmed gcloud identity."
+                ),
+            ):
+                imp_ok = _adc_impersonation_ok(
+                    terraform_sa_email=terraform_sa_email,
+                    project_id=project_id,
+                    evidence_dir=evidence_dir,
+                    label="adc_impersonation_check_after_adc_login",
                 )
         if not imp_ok:
-            if not terraform_sa_email_explicit:
-                print("WARN: derived Terraform service account failed impersonation validation; continuing without impersonation.")
-                print(
-                    "hint: set GCP_TERRAFORM_SA_EMAIL explicitly once caller permissions are correct, "
-                    "or keep using direct ADC for this environment."
-                )
-                terraform_sa_email = ""
-            else:
-                print("ERR: impersonation validation failed; see run record")
-                print("hint: caller must have roles/iam.serviceAccountTokenCreator on the target service account.")
-                print("hint: ensure iamcredentials.googleapis.com is enabled in the target project.")
-                print(f"run record: {evidence_dir}")
-                return TARGET_EXEC_FAILURE
+            print("ERR: ADC impersonation validation failed; see run record")
+            print("hint: the ADC principal must have roles/iam.serviceAccountTokenCreator on the target service account.")
+            print("hint: if ADC is stale, run: gcloud auth application-default login")
+            print("hint: ensure iamcredentials.googleapis.com is enabled in the target project.")
+            print(f"run record: {evidence_dir}")
+            return TARGET_EXEC_FAILURE
         impersonation_validated = bool(terraform_sa_email)
         if impersonation_validated:
             auth_mode = "impersonation"
@@ -782,6 +807,8 @@ def run(ns) -> int:
                     "impersonation_validated": bool(impersonation_validated),
                     "project_access_validated": bool(project_access_validated),
                     "project_bootstrap_pending": bool(project_bootstrap_pending),
+                    "billing_validated": bool(billing_validated),
+                    "billing_enabled": bool(billing_enabled),
                     "ssh_public_key": ssh_public_key,
                     "eso_sa_email": eso_sa_email,
                 },
@@ -1016,6 +1043,25 @@ def _require_tty() -> bool:
     return os.isatty(0) and os.isatty(1)
 
 
+def _adc_impersonation_ok(
+    *,
+    terraform_sa_email: str,
+    project_id: str,
+    evidence_dir: Path,
+    label: str,
+) -> bool:
+    """Verify the same ADC-to-service-account path used by Terraform."""
+
+    return _shell_ok(
+        "gcloud auth application-default print-access-token "
+        f"--impersonate-service-account={shlex.quote(terraform_sa_email)} "
+        f"--project={shlex.quote(project_id)} "
+        ">/dev/null",
+        evidence_dir,
+        label,
+    )
+
+
 def _run_interactive_adc_login(evidence_dir: Path, *, reason: str) -> bool:
     if not _require_tty():
         print("ERR: interactive authentication requires a TTY")
@@ -1145,6 +1191,8 @@ def _ensure_terraform_sa_project_roles(
     All gcloud operations are idempotent: re-running produces the same state.
 
     APIs enabled:
+      compute.googleapis.com         — required for Compute Engine resources
+      iap.googleapis.com             — required for private VM SSH through IAP
       orgpolicy.googleapis.com       — required for `gcloud resource-manager org-policies` calls
       secretmanager.googleapis.com   — required for Secret Manager resources
 
@@ -1169,6 +1217,8 @@ def _ensure_terraform_sa_project_roles(
     member = f"serviceAccount:{terraform_sa_email}"
 
     apis = [
+        "compute.googleapis.com",
+        "iap.googleapis.com",
         "orgpolicy.googleapis.com",
         "secretmanager.googleapis.com",
     ]

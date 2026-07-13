@@ -15,11 +15,28 @@ policy:
   ipam_authority: "none"
 
 steps:
+  - id: gcp_eve_ng_network
+    module_ref: "platform/gcp/lab-network"
+    state_instance: "gcp_eve_ng_network"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "labs"
+      subnetwork_cidr: "10.80.50.0/24"
+
   - id: gcp_eve_ng_vm
     module_ref: "platform/gcp/platform-vm"
     state_instance: "gcp_eve_ng_vm"
     action: "deploy"
     phase: "bootstrap"
+    requires:
+      - gcp_eve_ng_network
     with_deps: true
     skip_if_state_ok: true
     verify_state_on_skip: true
@@ -28,8 +45,8 @@ steps:
     inputs:
       name_prefix: "platform"
       context_id: "labs"
-      network_state_ref: "org/gcp/wan-hub-network"
-      subnetwork_output_key: "subnet_workloads_name"
+      network_state_ref: "platform/gcp/lab-network#gcp_eve_ng_network"
+      subnetwork_output_key: "subnetwork_name"
       zone: "CHANGE_ME_GCP_ZONE"
       machine_type: "n2-standard-8"
       boot_disk_size_gb: 256

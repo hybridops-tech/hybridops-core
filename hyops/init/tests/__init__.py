@@ -1,1 +1,1 @@
-"""Tests for provider initialisation targets."""
+"""Tests for provider init target behaviour."""

@@ -164,6 +164,28 @@ def preflight_step(
         result["checks"].append({"name": "contracts", "ok": False, "detail": str(exc)})
         return result
 
+    if deferred_driver_preflight_refs:
+        refs = ", ".join(sorted(deferred_driver_preflight_refs))
+        result["checks"].append(
+            {
+                "name": "module_resolve",
+                "ok": True,
+                "detail": f"deferred until upstream blueprint state exists: {refs}",
+            }
+        )
+        result["checks"].append(
+            {
+                "name": "module_preflight",
+                "ok": True,
+                "detail": f"deferred until upstream blueprint state exists: {refs}",
+            }
+        )
+        result["driver_preflight"] = {
+            "status": "deferred",
+            "deferred_state_refs": sorted(deferred_driver_preflight_refs),
+        }
+        return result
+
     try:
         module_root = resolve_module_root(getattr(ns, "module_root", "modules"))
         resolved = resolve_module(
@@ -181,21 +203,6 @@ def preflight_step(
     except Exception as exc:
         result["status"] = "blocked"
         result["checks"].append({"name": "module_resolve", "ok": False, "detail": str(exc)})
-        return result
-
-    if deferred_driver_preflight_refs:
-        refs = ", ".join(sorted(deferred_driver_preflight_refs))
-        result["checks"].append(
-            {
-                "name": "module_preflight",
-                "ok": True,
-                "detail": f"deferred until upstream blueprint state exists: {refs}",
-            }
-        )
-        result["driver_preflight"] = {
-            "status": "deferred",
-            "deferred_state_refs": sorted(deferred_driver_preflight_refs),
-        }
         return result
 
     try:
@@ -242,6 +249,7 @@ def compute_preflight(
     # Existing on-disk states are resolved normally so preflight keeps real
     # safety checks for non-blueprint dependencies.
     assumed_state_ok: set[str] = set()
+    step_status_by_id: dict[str, str] = {}
 
     for step_id in payload["order"]:
         step = by_id[step_id]
@@ -254,7 +262,10 @@ def compute_preflight(
             if not isinstance(dep_step, dict):
                 continue
             dep_state_ref = step_state_ref(dep_step)
-            if dep_state_ref in assumed_state_ok and not module_state_ok(paths.state_dir, dep_state_ref):
+            if (
+                dep_state_ref in assumed_state_ok
+                and step_status_by_id.get(str(dep_id)) == "ready"
+            ):
                 deferred_driver_preflight_refs.add(dep_state_ref)
         result = preflight_step(
             step,
@@ -265,6 +276,7 @@ def compute_preflight(
             deferred_driver_preflight_refs=deferred_driver_preflight_refs,
         )
         step_results.append(result)
+        step_status_by_id[step_id] = str(result.get("status") or "")
 
         if result["status"] == "blocked":
             if result.get("optional", False):

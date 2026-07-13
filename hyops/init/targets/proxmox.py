@@ -632,6 +632,14 @@ def _ensure_bootstrap_ssh_access(
     return True
 
 
+def _remote_token_controls(*, token_secret: str, force: bool) -> list[str]:
+    if force:
+        return ["ALLOW_TOKEN_ROTATION=1"]
+    if token_secret:
+        return ["SKIP_TOKEN_GEN=1"]
+    return []
+
+
 def _write_tfvars(
     path: Path,
     values: dict[str, str],
@@ -1020,8 +1028,10 @@ def run(ns) -> int:
             f"FALLBACK_STORAGE_SNIPPETS={shlex.quote(values['fallback_storage_snippets'])}",
             f"FALLBACK_BRIDGE={shlex.quote(values['fallback_bridge'])}",
         ]
-        if token_secret and not bool(getattr(ns, "force", False)):
-            env_parts.insert(0, "SKIP_TOKEN_GEN=1")
+        env_parts[0:0] = _remote_token_controls(
+            token_secret=token_secret,
+            force=bool(getattr(ns, "force", False)),
+        )
 
         ssh_cmd = [
             "ssh",
@@ -1037,6 +1047,12 @@ def run(ns) -> int:
         )
 
         if ssh_res.rc != 0:
+            remote_detail = f"{ssh_res.stdout or ''}\n{ssh_res.stderr or ''}"
+            if "already exists and rotation was not authorised" in remote_detail:
+                print(f"ERR: Proxmox token {token_id} already exists, but its secret is not available locally.")
+                print("hint: choose a different token_name for this workstation.")
+                print("hint: use --force only to deliberately replace the token and invalidate its current users.")
+                return SECRETS_FAILED
             print("remote bootstrap failed; see evidence")
             return REMOTE_FAILED
 
