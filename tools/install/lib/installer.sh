@@ -46,7 +46,12 @@ hyops_install_run() {
   echo "[install] bin_dir=${BIN_DIR}"
 
   if [[ "${SETUP_ALL}" == "auto" ]]; then
-    if [[ "${SYSTEM_LINK}" == "true" ]]; then
+    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+      # Homebrew refuses to run as root. Keep the CLI install smooth and leave
+      # prerequisite installation as an explicit, user-owned setup step.
+      SETUP_ALL="false"
+      echo "[install] macOS detected; automatic setup-all is disabled"
+    elif [[ "${SYSTEM_LINK}" == "true" ]]; then
       SETUP_ALL="true"
     else
       SETUP_ALL="false"
@@ -78,13 +83,27 @@ hyops_install_run() {
 
   hyops_install_install_user_wrapper
   hyops_install_install_system_link
+  hyops_install_configure_macos_user_path
+  hyops_install_verify_command
   hyops_install_run_setup_all
 
   echo "[install] OK"
-  echo "Try:"
-  echo "  hyops --help"
-  echo "  hyops preflight"
-  if [[ -n "${WRAPPER:-}" ]]; then
+  local resolved_hyops=""
+  resolved_hyops="$(command -v hyops 2>/dev/null || true)"
+  if [[ "${resolved_hyops}" == "${SYSTEM_LINK_PATH}" || ( -n "${WRAPPER:-}" && "${resolved_hyops}" == "${WRAPPER}" ) ]]; then
+    echo "Next:"
+    echo "  hyops --help"
+    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+      echo "  hyops setup base"
+    else
+      echo "  hyops preflight"
+    fi
+  elif [[ -n "${PATH_PROFILE:-}" ]]; then
+    echo "Open a new terminal, then run:"
+    echo "  hyops --help"
+    echo "  hyops setup base"
+  else
+    echo "Run:"
     echo "  ${WRAPPER} --help"
   fi
 }

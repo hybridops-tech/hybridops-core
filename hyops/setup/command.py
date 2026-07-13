@@ -91,6 +91,8 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     # Aliases (operator-friendly)
     _add(ssp, "config-mgmt", "Alias for: ansible.", parents=[common])
     _add(ssp, "config-management", "Alias for: ansible.", parents=[common])
+    _add(ssp, "azure", "Alias for: cloud-azure.", parents=[common])
+    _add(ssp, "gcp", "Alias for: cloud-gcp.", parents=[common])
 
     p.set_defaults(_handler=run)
 
@@ -143,6 +145,10 @@ def _find_core_root(ns_root: str | None) -> Path | None:
 def _script_for(action: str) -> str | None:
     if action in ("config-mgmt", "config-management"):
         action = "ansible"
+    elif action == "azure":
+        action = "cloud-azure"
+    elif action == "gcp":
+        action = "cloud-gcp"
 
     mapping = {
         "base": "setup-base.sh",
@@ -191,7 +197,13 @@ def _run_check() -> int:
 
 def run(ns) -> int:
     action = ns._setup_action
-    canonical_action = "ansible" if action in ("config-mgmt", "config-management") else action
+    aliases = {
+        "config-mgmt": "ansible",
+        "config-management": "ansible",
+        "azure": "cloud-azure",
+        "gcp": "cloud-gcp",
+    }
+    canonical_action = aliases.get(action, action)
 
     runtime_root: Path | None = None
     runtime_root_arg = getattr(ns, "runtime_root", None)
