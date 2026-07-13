@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import stat
 import tempfile
@@ -447,25 +448,12 @@ def run(ns) -> int:
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         if not project_id:
-            try:
-                project_id = str(input("GCP project id: ") or "").strip()
-                if project_id:
-                    project_id_source = "prompt"
-            except EOFError:
-                project_id = ""
-            except KeyboardInterrupt:
-                print()
-                return OPERATOR_ERROR
+            projects = _discover_gcp_projects(evidence_dir)
+            project_id, project_id_source = _select_gcp_project_interactive(projects)
         if not region:
-            try:
-                region = str(input("GCP region: ") or "").strip()
-                if region:
-                    region_source = "prompt"
-            except EOFError:
-                region = ""
-            except KeyboardInterrupt:
-                print()
-                return OPERATOR_ERROR
+            region = _prompt_gcp_region()
+            if region:
+                region_source = "prompt"
 
     if (not billing_account_id) and not non_interactive and bool(getattr(ns, "with_cli_login", False)):
         if not _require_tty():
@@ -516,6 +504,14 @@ def run(ns) -> int:
         print("hint: or re-run with --with-cli-login and answer the prompts.")
         print(f"run record: {evidence_dir}")
         return OPERATOR_ERROR
+
+    if (
+        not ssh_public_key
+        and not non_interactive
+        and bool(getattr(ns, "with_cli_login", False))
+        and _require_tty()
+    ):
+        ssh_public_key = _offer_ssh_key_generation(evidence_dir)
 
     project_access = _diagnose_gcp_project_access(project_id, evidence_dir)
     project_access_validated = bool(project_access[0])
@@ -654,8 +650,14 @@ def run(ns) -> int:
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         # Bootstrap-friendly mode: allow running without an impersonation target.
-        print("note: GCP_TERRAFORM_SA_EMAIL not set; skipping impersonation validation.")
-        print("hint: after running org/gcp/project-factory, re-run: hyops init gcp --env <env> --force")
+        print("note: no Terraform service account is configured; using validated direct ADC.")
+        if project_bootstrap_pending:
+            print("hint: after running org/gcp/project-factory, re-run: hyops init gcp --env <env> --force")
+        else:
+            print(
+                "hint: service-account impersonation is optional for this existing project; "
+                "configure GCP_TERRAFORM_SA_EMAIL later if your operating policy requires it."
+            )
     else:
         imp_ok = _adc_impersonation_ok(
             terraform_sa_email=terraform_sa_email,
@@ -1095,6 +1097,50 @@ def _read_first_pubkey() -> str:
     return ""
 
 
+def _offer_ssh_key_generation(evidence_dir: Path) -> str:
+    key_path = Path.home() / ".ssh" / "id_ed25519"
+    try:
+        answer = str(
+            input(f"No SSH public key was found. Generate {key_path}? [Y/n]: ") or ""
+        ).strip().lower()
+    except EOFError:
+        return ""
+    except KeyboardInterrupt:
+        print()
+        return ""
+    if answer not in ("", "y", "yes"):
+        return ""
+    if key_path.exists() or key_path.with_suffix(".pub").exists():
+        print(f"WARN: {key_path} already exists; refusing to overwrite it.")
+        return _read_first_pubkey()
+
+    key_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(key_path.parent, stat.S_IRWXU)
+    result = run_capture(
+        [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-f",
+            str(key_path),
+            "-N",
+            "",
+            "-C",
+            "hybridops",
+        ],
+        evidence_dir=evidence_dir,
+        label="ssh_keygen_ed25519",
+        redact=True,
+    )
+    if result.rc != 0:
+        print("WARN: SSH key generation failed; see the init run record.")
+        return ""
+    public_key = _read_first_pubkey()
+    if public_key:
+        print(f"generated SSH key: {key_path}.pub")
+    return public_key
+
+
 def _terraform_sa_from_state(state_dir: Path) -> str:
     """Best-effort: infer the Terraform runtime service account email from module state.
 
@@ -1405,6 +1451,93 @@ def _discover_open_billing_accounts(evidence_dir: Path) -> list[dict[str, str]]:
     return []
 
 
+def _discover_gcp_projects(evidence_dir: Path) -> list[dict[str, str]]:
+    raw = _cmd_stdout(
+        [
+            "gcloud",
+            "projects",
+            "list",
+            "--filter=lifecycleState:ACTIVE",
+            "--format=json(projectId,name)",
+        ],
+        evidence_dir,
+        "gcloud_projects_list",
+    )
+    if not raw.strip():
+        return []
+    try:
+        items = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(items, list):
+        return []
+
+    projects: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        project_id = str(item.get("projectId") or item.get("project_id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not project_id or project_id in seen:
+            continue
+        seen.add(project_id)
+        projects.append({"id": project_id, "name": name})
+    return sorted(projects, key=lambda item: (item["name"].casefold(), item["id"]))
+
+
+def _select_gcp_project_interactive(projects: list[dict[str, str]]) -> tuple[str, str]:
+    if len(projects) == 1:
+        project_id = projects[0]["id"]
+        name = projects[0]["name"]
+        suffix = f" ({project_id})" if name else ""
+        print(f"selected GCP project: {name or project_id}{suffix}")
+        return project_id, "gcloud"
+
+    if projects:
+        print("available GCP projects:")
+        for idx, item in enumerate(projects, start=1):
+            project_id = item["id"]
+            name = item["name"]
+            suffix = f" ({project_id})" if name else ""
+            print(f"  {idx}. {name or project_id}{suffix}")
+        prompt = "GCP project [number, project id, or unique name]: "
+    else:
+        print("note: no active GCP projects were auto-discovered from gcloud.")
+        prompt = "GCP project id: "
+
+    while True:
+        try:
+            answer = str(input(prompt) or "").strip()
+        except EOFError:
+            return "", ""
+        except KeyboardInterrupt:
+            print()
+            return "", ""
+        if not answer:
+            print("a GCP project is required; enter a number, project id, or unique name.")
+            continue
+        if not projects:
+            return answer, "prompt"
+        if answer.isdigit():
+            idx = int(answer)
+            if 1 <= idx <= len(projects):
+                return projects[idx - 1]["id"], "prompt"
+            print(f"enter a number from 1 to {len(projects)}, a project id, or a unique name.")
+            continue
+
+        exact_ids = [item for item in projects if item["id"].casefold() == answer.casefold()]
+        if exact_ids:
+            return exact_ids[0]["id"], "prompt"
+        named = [item for item in projects if item["name"].casefold() == answer.casefold()]
+        if len(named) == 1:
+            return named[0]["id"], "prompt"
+        if len(named) > 1:
+            print("that project name is not unique; enter its number or project id.")
+            continue
+        return answer, "prompt"
+
+
 def _select_billing_account_interactive(accounts: list[dict[str, str]]) -> tuple[str, str]:
     if len(accounts) == 1:
         choice = str(accounts[0].get("id") or "").strip()
@@ -1474,15 +1607,7 @@ def _review_detected_gcp_defaults_interactive(
     if project_ans:
         project_id = project_ans
 
-    try:
-        region_ans = str(input(f"GCP region [{region}]: ") or "").strip()
-    except EOFError:
-        region_ans = ""
-    except KeyboardInterrupt:
-        print()
-        return project_id, region, billing_account_id
-    if region_ans:
-        region = region_ans
+    region = _prompt_gcp_region(default=region)
 
     billing_prompt_default = billing_account_id or ""
     try:
@@ -1496,6 +1621,29 @@ def _review_detected_gcp_defaults_interactive(
         billing_account_id = billing_ans
 
     return project_id, region, billing_account_id
+
+
+def _prompt_gcp_region(*, default: str = "") -> str:
+    default = str(default or "").strip()
+    default_label = default or "example: europe-west2"
+    while True:
+        try:
+            answer = str(input(f"GCP region [{default_label}]: ") or "").strip()
+        except EOFError:
+            return default
+        except KeyboardInterrupt:
+            print()
+            return default
+        region = answer or default
+        if not region:
+            print("a GCP region is required; for example: europe-west2")
+            continue
+        if not re.fullmatch(r"[a-z]+(?:-[a-z0-9]+)+[0-9]", region):
+            print("enter a GCP region such as europe-west2, not a zone such as europe-west2-a.")
+            continue
+        return region
+
+
 
 
 def _diagnose_gcp_project_access(project_id: str, evidence_dir: Path) -> tuple[bool, str]:
