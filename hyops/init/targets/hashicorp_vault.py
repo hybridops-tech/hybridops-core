@@ -9,10 +9,10 @@ import argparse
 import getpass
 import os
 from pathlib import Path
-import webbrowser
 
 from hyops.init.helpers import init_evidence_path, init_run_id, read_kv_file
 from hyops.init.shared_args import add_init_shared_args
+from hyops.runtime.browser import open_operator_url
 from hyops.runtime.config import write_template_if_missing
 from hyops.runtime.exitcodes import (
     CONFIG_TEMPLATE_WRITTEN,
@@ -322,7 +322,7 @@ def run(ns) -> int:
             ui_url = _vault_ui_url(vault_addr)
             opened = False
             try:
-                opened = bool(webbrowser.open(ui_url, new=2))
+                opened = open_operator_url(ui_url, new=2)
             except Exception:
                 opened = False
             if opened:

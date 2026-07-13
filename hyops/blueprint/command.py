@@ -13,13 +13,13 @@ import socket
 import subprocess
 import sys
 import time
-import webbrowser
 from pathlib import Path
 from typing import Any
 
 from hyops.drivers.iac.terragrunt.contracts import get_contract
-from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
+from hyops.runtime.browser import open_operator_url
 from hyops.runtime.evidence import new_run_id
+from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import read_module_state, split_module_state_ref
 from hyops.runtime.paths import resolve_runtime_paths
@@ -731,7 +731,7 @@ def run_access(ns) -> int:
                 print(f"URL: {url}")
                 _print_guest_network_guidance(access)
                 if not bool(getattr(ns, "no_browser", False)):
-                    webbrowser.open(url)
+                    open_operator_url(url)
                 return 0
 
             ssh = shutil.which("ssh")
@@ -809,7 +809,7 @@ def run_access(ns) -> int:
             if proc.poll() is not None:
                 return OPERATOR_ERROR
             if not bool(getattr(ns, "no_browser", False)):
-                webbrowser.open(url)
+                open_operator_url(url)
             try:
                 return int(proc.wait())
             except KeyboardInterrupt:
@@ -905,7 +905,7 @@ def run_access(ns) -> int:
             _stop_process(iap_proc)
             return OPERATOR_ERROR
         if not bool(getattr(ns, "no_browser", False)):
-            webbrowser.open(url)
+            open_operator_url(url)
         try:
             rc = int(proc.wait())
             _stop_process(iap_proc)

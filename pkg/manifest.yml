@@ -4,6 +4,7 @@
 
 include:
   - install.sh
+  - install-windows.cmd
   - LICENSE
   - README
   - CHANGELOG
