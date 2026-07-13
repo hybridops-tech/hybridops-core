@@ -72,16 +72,23 @@ _hyops_install_run_transaction() {
   echo "[install] prefix=${PREFIX}"
   echo "[install] bin_dir=${BIN_DIR}"
 
+  local is_windows_wsl="false"
+  if hyops_install_is_windows_wsl; then
+    is_windows_wsl="true"
+    echo "[install] platform=windows-wsl"
+  fi
+
   if [[ "${SETUP_ALL}" == "auto" ]]; then
     if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
       # Homebrew refuses to run as root. Leave prerequisite installation as an
       # explicit setup step owned by the macOS user.
       SETUP_ALL="false"
       echo "[install] macOS detected; automatic setup-all is disabled"
-    elif [[ "${SYSTEM_LINK}" == "true" ]]; then
-      SETUP_ALL="true"
+    elif [[ "${is_windows_wsl}" == "true" ]]; then
+      SETUP_ALL="false"
     else
       SETUP_ALL="false"
+      echo "[install] automatic setup-all is disabled"
     fi
   fi
   echo "[install] setup_all=${SETUP_ALL}"
@@ -141,23 +148,11 @@ _hyops_install_run_transaction() {
   if [[ "${resolved_hyops}" == "${SYSTEM_LINK_PATH}" || ( -n "${WRAPPER:-}" && "${resolved_hyops}" == "${WRAPPER}" ) ]]; then
     echo "Next:"
     echo "  hyops --help"
-    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
-      echo "  hyops setup base"
-      echo "  hyops setup gcp"
-      echo "  hyops setup galaxy"
-    else
-      echo "  hyops preflight"
-    fi
+    echo "  hyops setup gcp      # or: azure, proxmox"
   elif [[ -n "${PATH_PROFILE:-}" ]]; then
     echo "Open a new terminal, then run:"
     echo "  hyops --help"
-    if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
-      echo "  hyops setup base"
-      echo "  hyops setup gcp"
-      echo "  hyops setup galaxy"
-    else
-      echo "  hyops preflight"
-    fi
+    echo "  hyops setup gcp      # or: azure, proxmox"
   else
     echo "Run:"
     echo "  ${WRAPPER} --help"

@@ -132,10 +132,12 @@ fi
 
 # temp/cache: keep ansible-galaxy reliable in constrained environments
 TMP_DIR="${RUNTIME_ROOT}/tmp"
-mkdir -p "${TMP_DIR}/ansible-local"
+GALAXY_CACHE_DIR="${TMP_DIR}/galaxy-cache"
+mkdir -p "${TMP_DIR}/ansible-local" "${GALAXY_CACHE_DIR}"
 export TMPDIR="${TMP_DIR}"
 export ANSIBLE_LOCAL_TEMP="${TMP_DIR}/ansible-local"
 export ANSIBLE_REMOTE_TEMP="/tmp/.ansible-tmp"
+export ANSIBLE_GALAXY_CACHE_DIR="${GALAXY_CACHE_DIR}"
 export HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE="${HYBRIDOPS_SOURCE}"
 if [[ -n "${HYBRIDOPS_GIT_MANIFEST_FILE}" ]]; then
   export HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST="${HYBRIDOPS_GIT_MANIFEST_FILE}"

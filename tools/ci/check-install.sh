@@ -38,6 +38,30 @@ common_env=(
   PATH="${PATH}:/usr/bin:/bin"
 )
 
+env WSL_DISTRO_NAME=Ubuntu bash -c \
+  'source "$1"; hyops_install_is_windows_wsl' _ \
+  "${HYOPS_REPO_ROOT}/tools/install/lib/common.sh"
+env -u WSL_DISTRO_NAME -u WSL_INTEROP \
+  HYOPS_TEST_KERNEL_RELEASE=5.15.167.4-microsoft-standard-WSL2 \
+  bash -c 'source "$1"; hyops_install_is_windows_wsl' _ \
+  "${HYOPS_REPO_ROOT}/tools/install/lib/common.sh"
+if env -u WSL_DISTRO_NAME -u WSL_INTEROP \
+  HYOPS_TEST_KERNEL_RELEASE=6.8.0-generic \
+  bash -c 'source "$1"; hyops_install_is_windows_wsl' _ \
+  "${HYOPS_REPO_ROOT}/tools/install/lib/common.sh"; then
+  echo "ERR: plain Linux was detected as Windows WSL" >&2
+  exit 1
+fi
+
+grep -Fq 'start "Ubuntu 24.04 account setup" wsl.exe -d %DISTRO%' "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq ':wait_for_ubuntu_user' "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq "CreateShortcut([Environment]::GetFolderPath('Desktop')" "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq -- "-d %DISTRO% --cd ~" "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq 'Create a HybridOps.Core desktop shortcut? [y/N]:' "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq 'open-hybridops.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${HYOPS_REPO_ROOT}/install-windows.cmd"
+grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${HYOPS_REPO_ROOT}/install-windows.cmd"
+
 latest_evidence_dir() {
   python3 - "$1" <<'PY'
 import sys
@@ -155,7 +179,8 @@ SETUP_RC=$?
 set -e
 [[ "${SETUP_RC}" -eq 7 ]]
 ! grep -Fq 'evidence-test-secret' "${WORK_DIR}/setup-failure.out"
-grep -Fq 'token=***REDACTED***' "${WORK_DIR}/setup-failure.out"
+grep -Fq 'setup=base status=failed' "${WORK_DIR}/setup-failure.out"
+grep -Fq 'rerun: hyops setup base --verbose' "${WORK_DIR}/setup-failure.out"
 SETUP_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/setup/base")"
 ! grep -Fq 'evidence-test-secret' "${SETUP_EVIDENCE}/output.log"
 grep -Fq 'token=***REDACTED***' "${SETUP_EVIDENCE}/output.log"

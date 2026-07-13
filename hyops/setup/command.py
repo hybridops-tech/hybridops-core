@@ -16,6 +16,24 @@ from hyops.runtime.exitcodes import OK, INTERNAL_ERROR, OPERATOR_ERROR
 from hyops.runtime.command_evidence import PythonCommandEvidence, command_evidence_dir, run_streamed
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
+from hyops.runtime.progress import ProgressDisplay, verbose_enabled
+
+
+TARGET_STEPS = {
+    "gcp": ("base", "cloud-gcp", "galaxy"),
+    "azure": ("base", "cloud-azure", "galaxy"),
+    "proxmox": ("base", "galaxy"),
+}
+
+SETUP_LABELS = {
+    "base": "Base tools",
+    "cloud-gcp": "GCP tools",
+    "cloud-azure": "Azure tools",
+    "galaxy": "Galaxy dependencies",
+    "all": "All setup components",
+}
+
+TARGET_LABELS = {"gcp": "GCP", "azure": "Azure", "proxmox": "Proxmox"}
 
 
 def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
@@ -23,6 +41,13 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     #   hyops setup base --sudo
     #   hyops setup galaxy
     common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Stream setup output while retaining the run record.",
+    )
     common.add_argument(
         "--root",
         "--core-root",
@@ -33,18 +58,27 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     common.add_argument(
         "--env",
         default=argparse.SUPPRESS,
-        help="Target runtime environment for installers that write into runtime state (e.g. ansible).",
+        help=(
+            "Target runtime environment for installers that write into runtime state "
+            "(for example, Galaxy)."
+        ),
     )
     common.add_argument(
         "--runtime-root",
         default=argparse.SUPPRESS,
-        help="Override runtime root for installers that write into runtime state (mutually exclusive with --env).",
+        help=(
+            "Override runtime root for installers that write into runtime state "
+            "(mutually exclusive with --env)."
+        ),
     )
     common.add_argument(
         "--sudo",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Run setup script via sudo (recommended for system installers).",
+        help=(
+            "Run an individual setup script via sudo; target setup elevates "
+            "system stages automatically."
+        ),
     )
     common.add_argument(
         "--dry-run",
@@ -57,14 +91,14 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
         "--force",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Force reinstall where supported (currently: galaxy, all).",
+        help="Force Galaxy dependency installation where supported.",
     )
     common.add_argument(
         "--hybridops-source",
         choices=("release", "git"),
         default=argparse.SUPPRESS,
         help=(
-            "How to source HybridOps collections for setup galaxy/all. "
+            "How to source HybridOps collections for setup galaxy/all or target setup. "
             "release installs the pinned published collection artifacts; git installs pinned "
             "collections from Git repositories into runtime state."
         ),
@@ -78,22 +112,32 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
         ),
     )
 
-    p = sp.add_parser("setup", help="Install prerequisites (explicit operator action).", parents=[common])
+    p = sp.add_parser(
+        "setup",
+        help="Install prerequisites (explicit operator action).",
+        parents=[common],
+    )
     ssp = p.add_subparsers(dest="setup_cmd", required=True)
 
     _add(ssp, "base", "Install base system prerequisites.", parents=[common])
-    _add(ssp, "galaxy", "Install Ansible Galaxy dependencies into the runtime state directory.", parents=[common])
+    _add(
+        ssp,
+        "galaxy",
+        "Install Ansible Galaxy dependencies into runtime state.",
+        parents=[common],
+    )
     _add(ssp, "cloud-azure", "Install Azure CLI prerequisites.", parents=[common])
     _add(ssp, "cloud-gcp", "Install GCP SDK prerequisites.", parents=[common])
     _add(ssp, "all", "Run base + ansible + cloud installers.", parents=[common])
     _add(ssp, "check", "Check presence of common tools (no installs).", parents=[common])
 
-    # Aliases (operator-friendly)
+    # Compatibility aliases and complete target setup commands.
     _add(ssp, "ansible", "Compatibility alias for: galaxy.", parents=[common])
     _add(ssp, "config-mgmt", "Alias for: galaxy.", parents=[common])
     _add(ssp, "config-management", "Alias for: galaxy.", parents=[common])
-    _add(ssp, "azure", "Alias for: cloud-azure.", parents=[common])
-    _add(ssp, "gcp", "Alias for: cloud-gcp.", parents=[common])
+    _add(ssp, "azure", "Install Azure workstation prerequisites.", parents=[common])
+    _add(ssp, "gcp", "Install GCP workstation prerequisites.", parents=[common])
+    _add(ssp, "proxmox", "Install Proxmox workstation prerequisites.", parents=[common])
 
     p.set_defaults(_handler=run)
 
@@ -161,6 +205,30 @@ def _script_for(action: str) -> str | None:
     return mapping.get(action)
 
 
+def _setup_argv(
+    action: str,
+    script: Path,
+    *,
+    runtime_root: Path | None,
+    force: bool,
+    hybridops_source: str | None,
+    hybridops_git_manifest: str | None,
+    elevate: bool,
+) -> list[str]:
+    argv = ["bash", str(script)]
+    if action == "galaxy" and runtime_root is not None:
+        argv += ["--root", str(runtime_root)]
+    if force and action in ("galaxy", "all"):
+        argv += ["--force"]
+    if hybridops_source and action in ("galaxy", "all"):
+        argv += ["--hybridops-source", hybridops_source]
+    if hybridops_git_manifest and action in ("galaxy", "all"):
+        argv += ["--hybridops-git-manifest", hybridops_git_manifest]
+    if elevate:
+        argv = ["sudo", "-H", "-E"] + argv
+    return argv
+
+
 def _run_check() -> int:
     checks: list[tuple[str, list[str]]] = [
         ("python3", ["python3"]),
@@ -177,13 +245,24 @@ def _run_check() -> int:
         ("gpg", ["gpg"]),
         ("pass", ["pass"]),
         # Different distros provide different pinentry flavors.
-        ("pinentry", ["pinentry", "pinentry-mac", "pinentry-curses", "pinentry-tty", "pinentry-gtk-2"]),
+        (
+            "pinentry",
+            [
+                "pinentry",
+                "pinentry-mac",
+                "pinentry-curses",
+                "pinentry-tty",
+                "pinentry-gtk-2",
+            ],
+        ),
     ]
     ok = True
     for label, candidates in checks:
         found = ""
         for cand in candidates:
-            rc = subprocess.call(["/usr/bin/env", "bash", "-lc", f"command -v {cand} >/dev/null 2>&1"])
+            rc = subprocess.call(
+                ["/usr/bin/env", "bash", "-lc", f"command -v {cand} >/dev/null 2>&1"]
+            )
             if rc == 0:
                 found = cand
                 break
@@ -202,8 +281,6 @@ def run(ns) -> int:
         "ansible": "galaxy",
         "config-mgmt": "galaxy",
         "config-management": "galaxy",
-        "azure": "cloud-azure",
-        "gcp": "cloud-gcp",
     }
     canonical_action = aliases.get(action, action)
 
@@ -228,7 +305,7 @@ def run(ns) -> int:
             evidence.exit_code = _run_check()
             return evidence.exit_code
 
-    if canonical_action in ("galaxy", "all"):
+    if canonical_action in ("galaxy", "all", *TARGET_STEPS):
         if runtime_root_arg and env_arg:
             print("ERR: --runtime-root and --env are mutually exclusive")
             return OPERATOR_ERROR
@@ -240,18 +317,108 @@ def run(ns) -> int:
             return OPERATOR_ERROR
 
     if canonical_action == "galaxy" and sudo:
-        print("ERR: hyops setup galaxy must not be run with --sudo (it installs into user runtime state)")
+        print(
+            "ERR: hyops setup galaxy must not use --sudo "
+            "(it writes to user runtime state)"
+        )
         return OPERATOR_ERROR
 
     script_name = _script_for(canonical_action)
-    if not script_name:
+    if not script_name and canonical_action not in TARGET_STEPS:
         print(f"ERR: unsupported setup action: {canonical_action}")
         return INTERNAL_ERROR
 
     core_root = _find_core_root(getattr(ns, "root", None))
     if not core_root:
-        print("ERR: tools/setup not found. Set HYOPS_CORE_ROOT or pass: hyops setup --root <path> ...")
+        print(
+            "ERR: tools/setup not found. Set HYOPS_CORE_ROOT or pass: "
+            "hyops setup --root <path> ..."
+        )
         return INTERNAL_ERROR
+
+    if canonical_action in TARGET_STEPS:
+        steps = TARGET_STEPS[canonical_action]
+        if dry_run:
+            print(f"setup={canonical_action}")
+            for step in steps:
+                path = (core_root / "tools" / "setup" / str(_script_for(step))).resolve()
+                print(f"- {step}: {path}")
+            if runtime_root is not None:
+                print(f"runtime_root={runtime_root}")
+            return OK
+
+        env = os.environ.copy()
+        if runtime_root is not None:
+            env["HYOPS_RUNTIME_ROOT"] = str(runtime_root)
+            if (env_arg or "").strip():
+                env["HYOPS_ENV"] = str(env_arg).strip()
+
+        evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
+        ensure_layout(evidence_paths)
+        progress = ProgressDisplay()
+        print(f"Setup target: {TARGET_LABELS[canonical_action]}")
+        requires_sudo = os.uname().sysname != "Darwin" and any(
+            step != "galaxy" for step in steps
+        )
+        if requires_sudo and sys.stdin.isatty() and sys.stdout.isatty():
+            print("Administrator access is required for system setup.")
+            if subprocess.call(["sudo", "-v"]) != 0:
+                print("ERR: administrator authentication failed")
+                return OPERATOR_ERROR
+        for step in steps:
+            step_script = (
+                core_root / "tools" / "setup" / str(_script_for(step))
+            ).resolve()
+            if not step_script.exists():
+                print(f"ERR: setup script not found: {step_script}")
+                return INTERNAL_ERROR
+            argv = _setup_argv(
+                step,
+                step_script,
+                runtime_root=runtime_root,
+                force=force,
+                hybridops_source=hybridops_source,
+                hybridops_git_manifest=hybridops_git_manifest,
+                elevate=step != "galaxy" and os.uname().sysname != "Darwin",
+            )
+            label = SETUP_LABELS[step]
+            evidence_dir = command_evidence_dir(
+                evidence_paths.logs_dir,
+                "setup",
+                f"{canonical_action}/{step}",
+            )
+            progress.start(
+                step,
+                label,
+                plain=f"setup={canonical_action} stage={step} status=running",
+            )
+            rc = run_streamed(
+                argv,
+                env=env,
+                evidence_dir=evidence_dir,
+                command=f"setup {canonical_action} {step}",
+                stream_output=verbose_enabled(),
+                announce=False,
+            )
+            if rc != 0:
+                progress.finish(
+                    step,
+                    label,
+                    "failed",
+                    plain=f"setup={canonical_action} stage={step} status=failed",
+                )
+                print(f"run record: {evidence_dir}")
+                print(f"rerun: hyops setup {canonical_action} --verbose")
+                return rc
+            progress.finish(
+                step,
+                label,
+                "ok",
+                plain=f"setup={canonical_action} stage={step} status=ok",
+            )
+        print(f"setup={canonical_action} status=ok")
+        print(f"run records: {evidence_paths.logs_dir / 'setup' / canonical_action}")
+        return OK
 
     script = (core_root / "tools" / "setup" / script_name).resolve()
     if not script.exists():
@@ -270,23 +437,39 @@ def run(ns) -> int:
         if (env_arg or "").strip():
             env["HYOPS_ENV"] = str(env_arg).strip()
 
-    argv: list[str] = ["bash", str(script)]
-    if canonical_action == "galaxy" and runtime_root is not None:
-        argv += ["--root", str(runtime_root)]
-    if force and canonical_action in ("galaxy", "all"):
-        argv += ["--force"]
-    if hybridops_source and canonical_action in ("galaxy", "all"):
-        argv += ["--hybridops-source", hybridops_source]
-    if hybridops_git_manifest and canonical_action in ("galaxy", "all"):
-        argv += ["--hybridops-git-manifest", hybridops_git_manifest]
-    if sudo:
-        argv = ["sudo", "-E"] + argv
+    argv = _setup_argv(
+        canonical_action,
+        script,
+        runtime_root=runtime_root,
+        force=force,
+        hybridops_source=hybridops_source,
+        hybridops_git_manifest=hybridops_git_manifest,
+        elevate=sudo,
+    )
     evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
     ensure_layout(evidence_paths)
     evidence_dir = command_evidence_dir(evidence_paths.logs_dir, "setup", canonical_action)
-    return run_streamed(
+    label = SETUP_LABELS.get(canonical_action, canonical_action)
+    progress = ProgressDisplay()
+    progress.start(canonical_action, label, plain=f"setup={canonical_action} status=running")
+    rc = run_streamed(
         argv,
         env=env,
         evidence_dir=evidence_dir,
         command=f"setup {canonical_action}",
+        stream_output=verbose_enabled(),
+        announce=False,
     )
+    if rc == 0:
+        progress.finish(canonical_action, label, "ok", plain=f"setup={canonical_action} status=ok")
+    else:
+        progress.finish(
+            canonical_action,
+            label,
+            "failed",
+            plain=f"setup={canonical_action} status=failed",
+        )
+    print(f"run record: {evidence_dir}")
+    if rc != 0:
+        print(f"rerun: hyops setup {action} --verbose")
+    return rc

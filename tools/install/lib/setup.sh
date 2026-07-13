@@ -24,5 +24,5 @@ hyops_install_run_setup_all() {
     exit 2
   }
 
-  sudo -E bash "${setup_all_script}"
+  sudo -H -E bash "${setup_all_script}"
 }
