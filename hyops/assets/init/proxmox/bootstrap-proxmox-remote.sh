@@ -46,6 +46,11 @@ if [[ -n "${SKIP_TOKEN_GEN:-}" ]]; then
   log_info "SKIP_TOKEN_GEN set; reusing existing vault secret"
 else
   if pveum user token list "${USER_FQ}" --output-format json 2>/dev/null | grep -q "\"tokenid\":\"${TOKEN_NAME}\""; then
+    if [[ "${ALLOW_TOKEN_ROTATION:-}" != "1" ]]; then
+      log_error "Token ${TOKEN_ID} already exists and rotation was not authorised"
+      log_error "Choose a different token name or re-run with explicit --force authority"
+      exit 3
+    fi
     log_info "Rotating token"
     pveum user token remove "${USER_FQ}" "${TOKEN_NAME}" 2>/dev/null || true
   fi
