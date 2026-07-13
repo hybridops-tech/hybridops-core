@@ -11,6 +11,19 @@ hyops_install_need_cmd() {
   }
 }
 
+hyops_install_is_windows_wsl() {
+  [[ "$(uname -s 2>/dev/null || true)" == "Linux" ]] || return 1
+  if [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
+    return 0
+  fi
+
+  local kernel_release="${HYOPS_TEST_KERNEL_RELEASE:-}"
+  if [[ -z "${kernel_release}" ]]; then
+    kernel_release="$(uname -r 2>/dev/null || true)"
+  fi
+  [[ "${kernel_release,,}" == *microsoft* ]]
+}
+
 hyops_install_set_blueprint_payload_read_only() {
   local root="$1"
   local bp_root="${root}/blueprints"

@@ -28,6 +28,9 @@ OUT_DIR="${OUT_DIR:-${REPO_ROOT}/dist/releases}"
 PACKAGE_ROOT="hybridops-core-${RELEASE_LABEL}"
 TARBALL_PATH="${OUT_DIR}/${PACKAGE_ROOT}.tar.gz"
 SHA256_PATH="${TARBALL_PATH}.sha256"
+WINDOWS_INSTALLER_PATH="${OUT_DIR}/install-windows.cmd"
+WINDOWS_HELPER_PATH="${REPO_ROOT}/tools/install/windows/install-windows-wsl.sh"
+WINDOWS_BUNDLE_PATH="${OUT_DIR}/${PACKAGE_ROOT}-windows.zip"
 BUILD_WHEELHOUSE="${HYOPS_RELEASE_BUILD_WHEELHOUSE:-true}"
 
 WORK_DIR="$(mktemp -d)"
@@ -39,6 +42,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "${OUT_DIR}" "${STAGE_ROOT}"
+rm -f "${OUT_DIR}/install-windows.ps1"
 
 estimate_manifest_bytes() {
   local relpath=""
@@ -157,8 +161,55 @@ tar -C "${WORK_DIR}" -czf "${TARBALL_PATH}" "${PACKAGE_ROOT}"
   cd "${OUT_DIR}"
   sha256sum "$(basename "${TARBALL_PATH}")" >"$(basename "${SHA256_PATH}")"
 )
+cp "${REPO_ROOT}/install-windows.cmd" "${WINDOWS_INSTALLER_PATH}"
+
+WINDOWS_STAGE="${WORK_DIR}/${PACKAGE_ROOT}-windows"
+mkdir -p "${WINDOWS_STAGE}"
+cp "${TARBALL_PATH}" "${SHA256_PATH}" "${WINDOWS_INSTALLER_PATH}" "${WINDOWS_HELPER_PATH}" \
+  "${REPO_ROOT}/open-hybridops.cmd" "${WINDOWS_STAGE}/"
+cat >"${WINDOWS_STAGE}/README-WINDOWS.txt" <<EOF
+HybridOps.Core for Windows 11 (WSL2)
+
+1. Extract every file from this ZIP archive.
+2. Run install-windows.cmd.
+
+After installation, run open-hybridops.cmd to open HybridOps.Core. The
+installer can also create an optional desktop shortcut.
+
+The first Ubuntu launch may ask you to create a Linux username and password.
+Complete that prompt. Control returns to the installer automatically.
+
+If Windows features require a reboot, the bootstrap asks before scheduling it.
+The default answer is No.
+
+For replacement of an existing installation, run install-windows.cmd --force.
+
+The bootstrap verifies the included release archive, prepares Ubuntu 24.04 on
+WSL2, and starts the HybridOps.Core installer.
+
+The initial installation provides the HybridOps CLI. Install prerequisites for
+one target afterward:
+  hyops setup gcp
+  hyops setup azure
+  hyops setup proxmox
+EOF
+python3 - "${WINDOWS_STAGE}" "${WINDOWS_BUNDLE_PATH}" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    for path in sorted(source.iterdir()):
+        archive.write(path, arcname=path.name)
+PY
 
 echo "Built bundle:"
 echo "  ${TARBALL_PATH}"
 echo "Checksum:"
 echo "  ${SHA256_PATH}"
+echo "Windows bootstrap:"
+echo "  ${WINDOWS_INSTALLER_PATH}"
+echo "Windows bundle:"
+echo "  ${WINDOWS_BUNDLE_PATH}"
