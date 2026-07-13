@@ -5,6 +5,10 @@
 
 set -euo pipefail
 
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/setup-cloud-gcp-macos.sh" "$@"
+fi
+
 have_gcloud=false
 have_gke_auth_plugin=false
 

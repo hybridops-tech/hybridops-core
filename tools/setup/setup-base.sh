@@ -5,6 +5,10 @@
 
 set -euo pipefail
 
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/setup-base-macos.sh" "$@"
+fi
+
 [[ "${EUID}" -eq 0 ]] || { echo "ERR: requires root (use: hyops setup base --sudo)"; exit 2; }
 
 export PATH="/usr/local/bin:/usr/local/sbin:${PATH}"

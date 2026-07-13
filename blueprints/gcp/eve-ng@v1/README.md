@@ -41,8 +41,9 @@ target environment are ready:
 
 - `hyops init gcp --env <env>` has been run.
 - A GCP project is selected for the environment.
-- Billing is enabled on the selected project. The deployment and running VM can
-  consume free-trial credit or incur charges.
+- Billing is enabled on the selected project. `hyops init gcp` and GCP module
+  preflight stop when billing is disabled or cannot be confirmed. The deployment
+  and running VM can consume free-trial credit or incur charges.
 - The operator can create Compute Engine networks, firewall rules, routers,
   NAT configuration, and instances.
 - EVE-NG secrets are seeded for the target environment.
