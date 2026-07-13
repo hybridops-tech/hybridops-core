@@ -99,7 +99,13 @@ jobs:
           EXPANDED="${RUNNER_TEMP}/hybridops-core-pkg"
           pkgutil --expand "${PKG}" "${EXPANDED}"
           test -f "${EXPANDED}/Distribution"
-          grep -Fq '<title>HybridOps.Core</title>' "${EXPANDED}/Distribution"
+          python3 - "${EXPANDED}/Distribution" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          assert root.findtext("title") == "HybridOps.Core"
+          PY
           test -n "$(find "${EXPANDED}" -maxdepth 1 -type d -name '*.pkg' -print -quit)"
 
       - name: Upload macOS package artifact
