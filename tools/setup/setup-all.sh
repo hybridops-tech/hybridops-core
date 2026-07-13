@@ -31,6 +31,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+  if [[ "${EUID}" -eq 0 ]]; then
+    echo "ERR: macOS setup-all must run as your user (omit --sudo)" >&2
+    exit 2
+  fi
+  bash "${ROOT}/setup-base.sh"
+  bash "${ROOT}/setup-cloud-azure.sh"
+  bash "${ROOT}/setup-cloud-gcp.sh"
+  bash "${ROOT}/setup-ansible.sh" "${FORCE_ARGS[@]}" "${HYBRIDOPS_ARGS[@]}"
+  exit 0
+fi
+
 if [[ "${EUID}" -ne 0 ]]; then
   exec sudo -E bash "$0" "$@"
 fi
