@@ -14,7 +14,7 @@ hyops_ci::require_cmd python3
 python3 -m compileall "${HYOPS_REPO_ROOT}/hyops"
 
 python3 -m unittest discover \
-  -s "${HYOPS_REPO_ROOT}/hyops/validators" \
+  -s "${HYOPS_REPO_ROOT}/hyops" \
   -p 'test_*.py'
 
 python3 - "${HYOPS_REPO_ROOT}" <<'PY'

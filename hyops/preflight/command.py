@@ -165,6 +165,7 @@ def run(ns) -> int:
                 command_label="hyops preflight",
             )
         paths = resolve_runtime_paths(ns.root, getattr(ns, "env", None))
+        ensure_layout(paths)
     except Exception as e:
         if ns.json:
             print(_json_dumps({"ok": False, "error": str(e)}))
