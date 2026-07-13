@@ -5,6 +5,8 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
+import ipaddress
+import re
 from typing import Any
 
 from hyops.validators.common import (
@@ -80,4 +82,60 @@ def validate(inputs: dict[str, Any]) -> None:
         require_non_empty_str(data.get("eveng_domain"), "inputs.eveng_domain")
     if data.get("eveng_force_reinstall") is not None:
         require_bool(data.get("eveng_force_reinstall"), "inputs.eveng_force_reinstall")
+    guest_nat_enabled = require_bool(
+        data.get("eveng_guest_nat_enabled"), "inputs.eveng_guest_nat_enabled"
+    )
+    if guest_nat_enabled:
+        bridge = require_non_empty_str(
+            data.get("eveng_guest_nat_bridge"), "inputs.eveng_guest_nat_bridge"
+        )
+        if not re.fullmatch(r"pnet[1-9]", bridge):
+            raise ValueError(
+                "inputs.eveng_guest_nat_bridge must be one of pnet1 through pnet9"
+            )
+        try:
+            gateway = ipaddress.ip_interface(
+                require_non_empty_str(
+                    data.get("eveng_guest_nat_cidr"), "inputs.eveng_guest_nat_cidr"
+                )
+            )
+            subnet = ipaddress.ip_network(
+                require_non_empty_str(
+                    data.get("eveng_guest_nat_subnet"),
+                    "inputs.eveng_guest_nat_subnet",
+                ),
+                strict=True,
+            )
+            dhcp_start = ipaddress.ip_address(
+                require_non_empty_str(
+                    data.get("eveng_guest_nat_dhcp_start"),
+                    "inputs.eveng_guest_nat_dhcp_start",
+                )
+            )
+            dhcp_end = ipaddress.ip_address(
+                require_non_empty_str(
+                    data.get("eveng_guest_nat_dhcp_end"),
+                    "inputs.eveng_guest_nat_dhcp_end",
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"inputs EVE-NG guest NAT addressing is invalid: {exc}"
+            ) from exc
+        if gateway.network != subnet or gateway.ip not in subnet:
+            raise ValueError(
+                "inputs.eveng_guest_nat_cidr must belong to eveng_guest_nat_subnet"
+            )
+        if (
+            dhcp_start not in subnet
+            or dhcp_end not in subnet
+            or int(dhcp_start) > int(dhcp_end)
+        ):
+            raise ValueError(
+                "inputs EVE-NG guest NAT DHCP range must be ordered within the guest subnet"
+            )
+        if gateway.ip in {dhcp_start, dhcp_end}:
+            raise ValueError(
+                "inputs EVE-NG guest NAT gateway must not be a DHCP range endpoint"
+            )
     _validate_users(data.get("eveng_users"))

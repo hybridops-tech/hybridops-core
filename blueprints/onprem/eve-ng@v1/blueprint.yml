@@ -6,13 +6,13 @@ mode: "hybrid"
 
 metadata:
   title: "On-Prem EVE-NG Platform Stack"
-  description: "Consume shared SDN/NetBox authority, build a Jammy template image (if needed), provision the EVE-NG VM, then configure EVE-NG."
+  description: "Build a Jammy template image (if needed), provision a standalone EVE-NG VM on the Proxmox uplink, then configure EVE-NG."
   outcome: "EVE-NG is installed and reachable."
 
 policy:
   fail_fast: true
   evidence_required: true
-  ipam_authority: "netbox"
+  ipam_authority: "none"
 
 steps:
   - id: template_image_jammy
@@ -38,26 +38,22 @@ steps:
     requires:
       - template_image_jammy
     contracts:
-      addressing_mode: "ipam"
-      requires_authority: "netbox"
+      addressing_mode: "static"
     inputs:
-      require_ipam: true
+      require_ipam: false
       template_state_ref: "core/onprem/template-image#template_image_ubuntu_22_04"
       template_key: "ubuntu-22.04"
       cpu_cores: 8
       memory_mb: 32768
       disk_size_gb: 256
       ssh_username: "opsadmin"
-      addressing:
-        mode: "ipam"
-        ipam:
-          provider: "netbox"
-          network_state_ref: "core/onprem/network-sdn"
       vms:
         eve-ng-01:
           role: "eve-ng"
           interfaces:
-            - bridge: "vnetmgmt"
+            - bridge: "vmbr0"
+              ipv4:
+                address: "dhcp"
 
   - id: eve_ng_config
     module_ref: "platform/linux/eve-ng"
@@ -79,6 +75,46 @@ steps:
       become: true
       become_user: "root"
       eveng_resource_profile: "standard"
+      eveng_guest_nat_enabled: true
+
+  - id: eve_ng_images
+    module_ref: "platform/linux/eve-ng-images"
+    state_instance: "eve_ng_images"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    skip_if_state_ok: false
+    requires:
+      - eve_ng_config
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#eve_ng_vm"
+      inventory_vm_groups:
+        targets:
+          - "eve-ng-01"
+      target_user: "opsadmin"
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      become: true
+      become_user: "root"
+      eveng_images_source: "url"
+      eveng_images_logging_enabled: true
+      eveng_images_generate_report: true
+      eveng_images_list:
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/LhBG1ZQI"
+          name: "linux-alpine-3.21.3.tar.gz"
+          type: "qemu"
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/GopE0RJR"
+          name: "linux-netem.tar.gz"
+          type: "qemu"
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/nkJjgBQL"
+          name: "linux-tinycore-6.4.tar.gz"
+          type: "qemu"
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/uoIABDjA"
+          name: "linux-ubuntu-24.04.01-server.tar.gz"
+          type: "qemu"
 
   - id: eve_ng_healthcheck
     module_ref: "platform/linux/eve-ng-healthcheck"
@@ -88,7 +124,7 @@ steps:
     with_deps: false
     skip_if_state_ok: false
     requires:
-      - eve_ng_config
+      - eve_ng_images
     contracts:
       addressing_mode: "static"
     inputs:
