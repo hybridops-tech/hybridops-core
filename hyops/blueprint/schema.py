@@ -165,6 +165,42 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
     if metadata is not None:
         as_mapping(metadata, "metadata")
     policy = validate_policy(spec.get("policy"))
+    access: dict[str, Any] = {}
+    if spec.get("access") is not None:
+        raw_access = as_mapping(spec.get("access"), "access")
+        access_type = as_non_empty_string(raw_access.get("type"), "access.type")
+        if access_type not in {"gcp-iap-http", "gcp-iap-ssh-forward"}:
+            raise ValueError(
+                "access.type must be gcp-iap-http or gcp-iap-ssh-forward"
+            )
+        access = {
+            "type": access_type,
+            "state_ref": as_non_empty_string(
+                raw_access.get("state_ref"), "access.state_ref"
+            ),
+            "remote_port": int(raw_access.get("remote_port") or 80),
+            "path": str(raw_access.get("path") or "/").strip() or "/",
+            "ssh_user": str(raw_access.get("ssh_user") or "").strip(),
+            "ssh_key_file": str(raw_access.get("ssh_key_file") or "").strip(),
+            "native_console_mode": str(
+                raw_access.get("native_console_mode") or ""
+            ).strip(),
+        }
+        if not 1 <= access["remote_port"] <= 65535:
+            raise ValueError("access.remote_port must be between 1 and 65535")
+        if access_type == "gcp-iap-ssh-forward":
+            if not access["ssh_user"]:
+                raise ValueError(
+                    "access.ssh_user is required for gcp-iap-ssh-forward"
+                )
+            if not access["ssh_key_file"]:
+                raise ValueError(
+                    "access.ssh_key_file is required for gcp-iap-ssh-forward"
+                )
+        if access["native_console_mode"] not in {"", "eve-ng-qemu"}:
+            raise ValueError(
+                "access.native_console_mode must be eve-ng-qemu when set"
+            )
 
     raw_steps = spec.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
@@ -320,6 +356,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         "mode": mode,
         "metadata": metadata if isinstance(metadata, dict) else {},
         "policy": policy,
+        "access": access,
         "steps": steps,
         "order": order,
     }

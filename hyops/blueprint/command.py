@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
+import re
 import shutil
+import socket
+import subprocess
 import sys
+import time
+import webbrowser
 from pathlib import Path
 from typing import Any
 
 from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.layout import ensure_layout
+from hyops.runtime.module_state import read_module_state, split_module_state_ref
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
@@ -274,6 +281,26 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     add_common_args(r)
     r.set_defaults(_handler=run_plan)
 
+    a = ssp.add_parser("access", help="Open a declared private blueprint access path.")
+    add_common_args(a)
+    a.add_argument("--root", default=None, help="Override runtime root.")
+    a.add_argument("--env", default=None, help="Runtime environment namespace.")
+    a.add_argument(
+        "--local-port",
+        type=int,
+        default=0,
+        help="Local port (default: choose an available port).",
+    )
+    a.add_argument(
+        "--no-browser", action="store_true", help="Do not open the default browser."
+    )
+    a.add_argument(
+        "--native-consoles",
+        action="store_true",
+        help="Forward active native console ports declared by the blueprint.",
+    )
+    a.set_defaults(_handler=run_access)
+
     t = ssp.add_parser("deploy", help="Deploy blueprint steps in dependency order.")
     add_common_args(t)
     t.add_argument(
@@ -457,6 +484,248 @@ def run_plan(ns) -> int:
         return 0
     except Exception as exc:
         print(f"ERR: blueprint plan failed: {exc}")
+        return OPERATOR_ERROR
+
+
+def _available_local_port(requested: int) -> int:
+    if requested:
+        if not 1 <= requested <= 65535:
+            raise ValueError("--local-port must be between 1 and 65535")
+        return requested
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_local_port(
+    port: int, proc: subprocess.Popen, timeout_s: float = 15.0
+) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"IAP SSH tunnel exited with rc={proc.returncode}")
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as exc:
+            if exc.errno in {errno.EADDRINUSE, 48, 98}:
+                return
+        finally:
+            probe.close()
+        time.sleep(0.25)
+    raise TimeoutError("timed out waiting for the local IAP SSH tunnel")
+
+
+def _parse_eve_qemu_console_ports(output: str) -> list[int]:
+    ports: set[int] = set()
+    for line in str(output or "").splitlines():
+        if "qemu-system-" not in line:
+            continue
+        for raw in re.findall(r"(?:\*|\[[^]]+\]|[0-9a-fA-F:.]+):(\d+)\b", line):
+            port = int(raw)
+            if 1 <= port <= 65535:
+                ports.add(port)
+    return sorted(ports)
+
+
+def _require_local_ports_available(ports: list[int]) -> None:
+    sockets: list[socket.socket] = []
+    try:
+        for port in ports:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                sock.close()
+                raise
+            sockets.append(sock)
+    except OSError as exc:
+        raise ValueError(
+            f"native console port {port} is unavailable on localhost: {exc}"
+        ) from exc
+    finally:
+        for sock in sockets:
+            sock.close()
+
+
+def _native_console_status(ports: list[int]) -> str:
+    if ports:
+        return "native console ports: " + ", ".join(str(item) for item in ports)
+    return "native consoles: no active QEMU nodes; web access remains available"
+
+
+def _stop_process(proc: subprocess.Popen | None) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+
+
+def run_access(ns) -> int:
+    iap_proc: subprocess.Popen | None = None
+    try:
+        payload = _resolve_and_validate(ns)
+        access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+        if not access:
+            raise ValueError("blueprint does not declare an access path")
+        require_runtime_selection(
+            ns.root,
+            getattr(ns, "env", None),
+            command_label="hyops blueprint access",
+        )
+        paths = resolve_runtime_paths(ns.root, getattr(ns, "env", None))
+        state_ref = str(access.get("state_ref") or "").strip()
+        module_ref, state_instance = split_module_state_ref(state_ref)
+        state = read_module_state(
+            paths.state_dir, module_ref, state_instance=state_instance
+        )
+        outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
+        vms = outputs.get("vms") if isinstance(outputs.get("vms"), dict) else {}
+        if not vms:
+            raise ValueError(f"VM outputs are unavailable in state {state_ref}")
+        vm = next(iter(vms.values()))
+        if not isinstance(vm, dict):
+            raise ValueError(f"VM output is invalid in state {state_ref}")
+        vm_id = str(vm.get("vm_id") or "").strip()
+        match = re.fullmatch(
+            r"projects/([^/]+)/zones/([^/]+)/instances/([^/]+)", vm_id
+        )
+        if not match:
+            raise ValueError("GCP VM state does not contain a usable instance id")
+        project, zone, instance = match.groups()
+        remote_port = int(access.get("remote_port") or 80)
+        path = str(access.get("path") or "/")
+        port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
+        url = f"http://127.0.0.1:{port}{path}"
+        gcloud = shutil.which("gcloud")
+        if not gcloud:
+            raise ValueError("gcloud is required; run: hyops setup gcp")
+
+        console_ports: list[int] = []
+        if str(access.get("type") or "") == "gcp-iap-ssh-forward":
+            ssh_user = str(access.get("ssh_user") or "").strip()
+            ssh_key = str(
+                Path(str(access.get("ssh_key_file") or "")).expanduser().resolve()
+            )
+            if not Path(ssh_key).exists():
+                raise ValueError(f"declared SSH key does not exist: {ssh_key}")
+            ssh = shutil.which("ssh")
+            if not ssh:
+                raise ValueError("ssh is required; run: hyops setup base")
+            iap_port = _available_local_port(0)
+            print("preparing private GCP IAP access", flush=True)
+            iap_argv = [
+                gcloud,
+                "compute",
+                "start-iap-tunnel",
+                instance,
+                "22",
+                "--project",
+                project,
+                "--zone",
+                zone,
+                f"--local-host-port=127.0.0.1:{iap_port}",
+                "--verbosity=error",
+            ]
+            iap_proc = subprocess.Popen(iap_argv, cwd=str(Path.home()))
+            _wait_for_local_port(iap_port, iap_proc)
+            ssh_base = [
+                ssh,
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "IdentitiesOnly=yes",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-i",
+                ssh_key,
+                "-p",
+                str(iap_port),
+            ]
+            ssh_target = f"{ssh_user}@127.0.0.1"
+            if bool(getattr(ns, "native_consoles", False)):
+                if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
+                    raise ValueError(
+                        "blueprint does not declare native EVE-NG console access"
+                    )
+                probe = subprocess.run(
+                    [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
+                    cwd=str(Path.home()),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=20,
+                    check=False,
+                )
+                if probe.returncode != 0:
+                    raise ValueError(
+                        "failed to discover native EVE-NG consoles: "
+                        + (probe.stderr.strip() or f"ssh rc={probe.returncode}")
+                    )
+                console_ports = _parse_eve_qemu_console_ports(probe.stdout)
+                if console_ports:
+                    _require_local_ports_available(console_ports)
+            argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
+            argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{remote_port}"])
+            for console_port in console_ports:
+                argv.extend(
+                    [
+                        "-L",
+                        f"127.0.0.1:{console_port}:127.0.0.1:{console_port}",
+                    ]
+                )
+            argv.append(ssh_target)
+        else:
+            if bool(getattr(ns, "native_consoles", False)):
+                raise ValueError(
+                    "native consoles require an SSH-forward access declaration"
+                )
+            argv = [
+                gcloud,
+                "compute",
+                "start-iap-tunnel",
+                instance,
+                str(remote_port),
+                "--project",
+                project,
+                "--zone",
+                zone,
+                f"--local-host-port=127.0.0.1:{port}",
+            ]
+
+        print("opening private GCP IAP access")
+        print(f"local URL: {url}")
+        if bool(getattr(ns, "native_consoles", False)):
+            print(_native_console_status(console_ports))
+            if not console_ports:
+                print(
+                    "native console setup: start a QEMU node, then rerun access "
+                    "with --native-consoles"
+                )
+        print("press Ctrl-C to close access")
+        proc = subprocess.Popen(argv, cwd=str(Path.home()))
+        time.sleep(2)
+        if proc.poll() is not None:
+            _stop_process(iap_proc)
+            return OPERATOR_ERROR
+        if not bool(getattr(ns, "no_browser", False)):
+            webbrowser.open(url)
+        try:
+            rc = int(proc.wait())
+            _stop_process(iap_proc)
+            return rc
+        except KeyboardInterrupt:
+            _stop_process(proc)
+            _stop_process(iap_proc)
+            print("access closed")
+            return 0
+    except Exception as exc:
+        _stop_process(iap_proc)
+        print(f"ERR: blueprint access failed: {exc}")
         return OPERATOR_ERROR
 
 
