@@ -40,6 +40,7 @@ from hyops.runtime.module_state_contracts import (
     resolve_reverse_ssh_contract_from_state as _resolve_reverse_ssh_contract_from_state,
     resolve_router_contract_from_state as _resolve_router_contract_from_state,
     resolve_ssh_keys_from_init as _resolve_ssh_keys_from_init,
+    resolve_gcp_vm_zone_from_init as _resolve_gcp_vm_zone_from_init,
     resolve_target_host_from_state as _resolve_target_host_from_state,
     resolve_vyos_artifact_contract_from_state as _resolve_vyos_artifact_contract_from_state,
 )
@@ -185,6 +186,8 @@ def resolve_module(
                 inputs,
                 runtime_root=Path(runtime_root).expanduser().resolve() if runtime_root else None,
             )
+        if module_ref == "platform/gcp/platform-vm":
+            _resolve_gcp_vm_zone_from_init(inputs, state_root=state_root)
         _resolve_target_host_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
         _resolve_inventory_groups_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)
         _resolve_kubeconfig_contract_from_state(inputs, state_root=state_root, assumed_state_ok=assumed_state_ok)

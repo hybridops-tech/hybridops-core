@@ -1358,6 +1358,23 @@ def resolve_ssh_keys_from_init(
     inputs["ssh_keys"] = deduped
 
 
+def resolve_gcp_vm_zone_from_init(inputs: dict[str, Any], *, state_root: Path | None) -> None:
+    if not as_bool(inputs.get("zone_from_init_region"), default=False):
+        return
+    if state_root is None:
+        return
+    marker = read_marker(state_root.parent / "meta", "gcp")
+    context = marker.get("context") if isinstance(marker.get("context"), dict) else {}
+    region = str(context.get("region") or "").strip()
+    if not region:
+        return
+    zone = str(inputs.get("zone") or "").strip()
+    if not zone:
+        inputs["zone"] = f"{region}-a"
+    elif not zone.startswith(f"{region}-"):
+        raise ValueError(f"inputs.zone={zone!r} does not belong to initialized GCP region {region!r}")
+
+
 def normalize_repo_backend(raw: Any) -> str:
     backend = str(raw or "").strip().lower()
     if backend in ("gcp",):

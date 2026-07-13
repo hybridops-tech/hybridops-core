@@ -118,8 +118,14 @@ def validate(inputs: dict[str, Any]) -> None:
         network_state_ref_value = _require_non_empty_str(network_state_ref, "inputs.network_state_ref")
         _reject_placeholder(network_state_ref_value, "inputs.network_state_ref")
 
-    zone = _require_non_empty_str(data.get("zone"), "inputs.zone")
-    _reject_placeholder(zone, "inputs.zone")
+    zone_from_init_region = data.get("zone_from_init_region")
+    if zone_from_init_region is not None:
+        _require_bool(zone_from_init_region, "inputs.zone_from_init_region")
+    zone = str(data.get("zone") or "").strip()
+    if not zone and not bool(zone_from_init_region):
+        _require_non_empty_str(zone, "inputs.zone")
+    if zone:
+        _reject_placeholder(zone, "inputs.zone")
     if not has_network_state_ref:
         network = _require_non_empty_str(data.get("network"), "inputs.network")
         _reject_placeholder(network, "inputs.network")

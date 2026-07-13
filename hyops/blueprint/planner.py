@@ -43,6 +43,7 @@ def run_step_module_command(step: dict[str, Any], payload: dict[str, Any], ns, p
         out_dir=getattr(ns, "out_dir", None),
         state_instance=str(step.get("state_instance") or "").strip() or None,
         allow_state_drift_recreate=bool(step.get("verify_state_on_skip", False)),
+        profile_override=str(step.get("execution_profile") or "").strip() or None,
     )
     return int(module_command.run(step_ns))
 
@@ -255,6 +256,7 @@ def preflight_step(
                 bool(step.get("verify_state_on_skip", False))
                 and any(check.get("name") == "state_skip" for check in result["checks"])
             ),
+            profile_override=str(step.get("execution_profile") or "").strip() or None,
         )
         result["driver_preflight"] = driver_preflight
         driver_status = str(driver_preflight.get("status") or "").strip().lower()

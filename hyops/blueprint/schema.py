@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 import yaml
 
@@ -242,6 +243,11 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         step_ids.add(step_id)
 
         module_ref = module_ref_field(step.get("module_ref"), f"steps[{idx}].module_ref")
+        execution_profile = str(step.get("execution_profile") or "").strip()
+        if execution_profile and not re.fullmatch(
+            r"[a-z0-9][a-z0-9@._-]*", execution_profile
+        ):
+            raise ValueError(f"steps[{idx}].execution_profile has invalid format")
 
         action = str(step.get("action") or "deploy").strip().lower()
         if action not in ACTION_SET:
@@ -345,6 +351,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             {
                 "id": step_id,
                 "module_ref": module_ref,
+                "execution_profile": execution_profile,
                 "action": action,
                 "phase": phase,
                 "requires": requires,

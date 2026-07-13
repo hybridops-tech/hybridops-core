@@ -22,10 +22,14 @@ access:
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
   native_console_mode: "eve-ng-qemu"
+  guest_network_label: "Cloud9"
+  guest_gateway: "172.29.129.1"
+  guest_dhcp_range: "172.29.129.50-172.29.129.200"
 
 steps:
   - id: gcp_eve_ng_network
     module_ref: "platform/gcp/lab-network"
+    execution_profile: "gcp-local@v1.0"
     state_instance: "gcp_eve_ng_network"
     action: "deploy"
     phase: "bootstrap"
@@ -41,6 +45,7 @@ steps:
 
   - id: gcp_eve_ng_vm
     module_ref: "platform/gcp/platform-vm"
+    execution_profile: "gcp-local@v1.0"
     state_instance: "gcp_eve_ng_vm"
     action: "deploy"
     phase: "bootstrap"
@@ -56,7 +61,8 @@ steps:
       context_id: "labs"
       network_state_ref: "platform/gcp/lab-network#gcp_eve_ng_network"
       subnetwork_output_key: "subnetwork_name"
-      zone: "CHANGE_ME_GCP_ZONE"
+      zone: ""
+      zone_from_init_region: true
       machine_type: "n2-standard-8"
       boot_disk_size_gb: 256
       boot_disk_type: "pd-standard"
@@ -106,6 +112,73 @@ steps:
       ssh_access_mode: "gcp-iap"
       connectivity_wait_s: 90
       eveng_resource_profile: "standard"
+      eveng_guest_nat_enabled: true
+
+  - id: gcp_eve_ng_images
+    module_ref: "platform/linux/eve-ng-images"
+    state_instance: "gcp_eve_ng_images"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_eve_ng_config
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_eve_ng_vm"
+      inventory_vm_groups:
+        targets:
+          - "eve-ng-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      eveng_images_source: "url"
+      eveng_images_logging_enabled: true
+      eveng_images_generate_report: true
+      eveng_images_list:
+        # Small, broadly useful starter set for a first lab deployment.
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/LhBG1ZQI"
+          name: "linux-alpine-3.21.3.tar.gz"
+          type: "qemu"
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/GopE0RJR"
+          name: "linux-netem.tar.gz"
+          type: "qemu"
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/nkJjgBQL"
+          name: "linux-tinycore-6.4.tar.gz"
+          type: "qemu"
+        - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/uoIABDjA"
+          name: "linux-ubuntu-24.04.01-server.tar.gz"
+          type: "qemu"
+
+        # Optional public images. Enable only what a lab needs; desktop,
+        # security and legacy images can add substantial download and disk use.
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/2kIywDKR", name: "android-8.1-x86.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/u1ByjDLC", name: "android-9.1-x64.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/z1gwRLrb", name: "freebsd-13.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/6sQxhK7J", name: "freenas-11.3-U5.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/rkpgWJRR", name: "linux-alpine-3.18.4.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/utwBFI7C", name: "linux-centos-8.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/K44jUbIY", name: "linux-centos-9-stream.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/GswzBCzD", name: "linux-daloRadius-0.9.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/i4wBnSjb", name: "linux-debian-10.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/jkwEQKBI", name: "linux-freepbx-2302-1.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/mtwx2IpZ", name: "linux-kali-large-2019.3.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/OlIVQIKQ", name: "linux-metasploitable-2.0.0.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/2k52kILT", name: "linux-mint-21.1.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/q95EETIK", name: "linux-rhel-8.1.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/KkJxVQbT", name: "linux-rhel-8.4.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/DhxDWAYB", name: "linux-slax-9.11.0.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/qo5DFL6C", name: "linux-ubuntu-18.04-server.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/atJRjIoK", name: "linux-ubuntu-18.04.06-desktop.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/n0I21RAS", name: "linux-ubuntu-21.04-desktop.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/jwZ1VKoJ", name: "linux-ubuntu-21.10-desktop.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/6xIH0QTA", name: "linux-ubuntu-22.04-desktop.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/31JlSQjQ", name: "linux-ubuntu-22.04-server.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/2xpSBb4Y", name: "linux-ubuntu-22.04.02-server.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/mppnzTQT", name: "linux-ubuntu-mate-20.04.tar.gz", type: "qemu"}
+        # - {url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/u0QFzIpL", name: "linux-ubuntu-srv-16.04.4-webmin.tar.gz", type: "qemu"}
 
   - id: gcp_eve_ng_healthcheck
     module_ref: "platform/linux/eve-ng-healthcheck"
@@ -113,7 +186,7 @@ steps:
     action: "deploy"
     phase: "operations"
     requires:
-      - gcp_eve_ng_config
+      - gcp_eve_ng_images
     with_deps: false
     skip_if_state_ok: false
     contracts:

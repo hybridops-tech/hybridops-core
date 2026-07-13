@@ -47,7 +47,7 @@ def _configure_parser(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Apply dependencies even when their latest module state is already ok.",
     )
-    p.add_argument("--out-dir", default=None, help="Override evidence root.")
+    p.add_argument("--out-dir", default=None, help="Override run-record root.")
     p.add_argument(
         "--state-instance",
         default=None,
@@ -157,6 +157,7 @@ def run(ns) -> int:
                 skip_preflight=skip_preflight,
                 state_instance=None,
                 allow_state_drift_recreate=allow_state_drift_recreate,
+                profile_override=getattr(ns, "profile_override", None),
             )
             if rc != 0:
                 if rc == CANCELLED:
@@ -186,6 +187,7 @@ def run(ns) -> int:
         skip_preflight=skip_preflight,
         state_instance=state_instance,
         allow_state_drift_recreate=allow_state_drift_recreate,
+        profile_override=getattr(ns, "profile_override", None),
         import_resource_address=str(getattr(ns, "resource_address", "") or "").strip(),
         import_resource_id=str(getattr(ns, "resource_id", "") or "").strip(),
     )
