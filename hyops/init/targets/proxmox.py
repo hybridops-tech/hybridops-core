@@ -17,6 +17,8 @@ import re
 import shlex
 import shutil
 import socket
+import subprocess
+import sys
 from urllib.parse import urlparse
 
 from hyops.runtime.config import write_template_if_missing
@@ -545,6 +547,104 @@ def _bootstrap_ssh_opts(values: dict[str, str]) -> list[str]:
     return ["-i", str(resolved), *opts]
 
 
+def _bootstrap_public_key_path(values: dict[str, str]) -> Path | None:
+    configured = str(values.get("ssh_public_key") or "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_file():
+            return candidate
+    private_key = str(values.get("ssh_private_key") or "").strip()
+    if not private_key:
+        return None
+    candidate = Path(f"{Path(private_key).expanduser()}.pub")
+    return candidate if candidate.is_file() else None
+
+
+def _ensure_bootstrap_ssh_access(
+    values: dict[str, str],
+    *,
+    evidence_dir: Path,
+    non_interactive: bool,
+) -> bool:
+    ssh_username = (values.get("ssh_username") or "root").strip() or "root"
+    target = f"{ssh_username}@{values['host']}"
+    ssh_probe = ["ssh", *_bootstrap_ssh_opts(values), target, "true"]
+    first = run_capture(
+        ssh_probe,
+        evidence_dir=evidence_dir,
+        label="ssh_key_preflight",
+        timeout_s=30,
+        redact=True,
+    )
+    if first.rc == 0:
+        return True
+
+    public_key = _bootstrap_public_key_path(values)
+    command_hint = (
+        f"ssh-copy-id -i {shlex.quote(str(public_key))} {shlex.quote(target)}"
+        if public_key
+        else f"ssh-copy-id {shlex.quote(target)}"
+    )
+    if non_interactive or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print(f"ERR: Proxmox key authentication failed for {target}.")
+        print(f"hint: run: {command_hint}")
+        print(f"run record: {evidence_dir}")
+        return False
+    if public_key is None:
+        print("ERR: no SSH public key file was found for the configured private key.")
+        print("hint: create the matching .pub file or set ssh_public_key to its path.")
+        print(f"run record: {evidence_dir}")
+        return False
+    if not _need_cmd("ssh-copy-id"):
+        print("ERR: ssh-copy-id is required for first-time Proxmox key authorisation.")
+        print(f"hint: run manually: {command_hint}")
+        print(f"run record: {evidence_dir}")
+        return False
+
+    print(f"Proxmox key authentication is not configured for {target}.")
+    try:
+        answer = input(f"Install {public_key} using ssh-copy-id? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        print(f"run record: {evidence_dir}")
+        return False
+    if answer not in {"y", "yes"}:
+        print("SSH key installation declined; Proxmox was not changed.")
+        print(f"run record: {evidence_dir}")
+        return False
+
+    copy_result = subprocess.run(
+        ["ssh-copy-id", "-i", str(public_key), target],
+        check=False,
+    )
+    if copy_result.returncode != 0:
+        print("ERR: ssh-copy-id failed; key-only Proxmox access is still unavailable.")
+        print(f"run record: {evidence_dir}")
+        return False
+
+    retry = run_capture(
+        ssh_probe,
+        evidence_dir=evidence_dir,
+        label="ssh_key_preflight_retry",
+        timeout_s=30,
+        redact=True,
+    )
+    if retry.rc != 0:
+        print("ERR: Proxmox key authentication still fails after ssh-copy-id.")
+        print(f"run record: {evidence_dir}")
+        return False
+    print("Proxmox key authentication ready")
+    return True
+
+
+def _remote_token_controls(*, token_secret: str, force: bool) -> list[str]:
+    if force:
+        return ["ALLOW_TOKEN_ROTATION=1"]
+    if token_secret:
+        return ["SKIP_TOKEN_GEN=1"]
+    return []
+
+
 def _write_tfvars(
     path: Path,
     values: dict[str, str],
@@ -883,6 +983,12 @@ def run(ns) -> int:
         return OK
 
     if want_remote:
+        if not _ensure_bootstrap_ssh_access(
+            values,
+            evidence_dir=evidence_dir,
+            non_interactive=bool(getattr(ns, "non_interactive", False)),
+        ):
+            return REMOTE_FAILED
         remote_dst = f"{ssh_username}@{values['host']}:{_REMOTE_BOOTSTRAP_DEST}"
 
         if getattr(ns, "remote_bootstrap", None):
@@ -927,8 +1033,10 @@ def run(ns) -> int:
             f"FALLBACK_STORAGE_SNIPPETS={shlex.quote(values['fallback_storage_snippets'])}",
             f"FALLBACK_BRIDGE={shlex.quote(values['fallback_bridge'])}",
         ]
-        if token_secret and not bool(getattr(ns, "force", False)):
-            env_parts.insert(0, "SKIP_TOKEN_GEN=1")
+        env_parts[0:0] = _remote_token_controls(
+            token_secret=token_secret,
+            force=bool(getattr(ns, "force", False)),
+        )
 
         ssh_cmd = [
             "ssh",
@@ -944,6 +1052,12 @@ def run(ns) -> int:
         )
 
         if ssh_res.rc != 0:
+            remote_detail = f"{ssh_res.stdout or ''}\n{ssh_res.stderr or ''}"
+            if "already exists and rotation was not authorised" in remote_detail:
+                print(f"ERR: Proxmox token {token_id} already exists, but its secret is not available locally.")
+                print("hint: choose a different token_name for this workstation.")
+                print("hint: use --force only to deliberately replace the token and invalidate its current users.")
+                return SECRETS_FAILED
             print("remote bootstrap failed; see evidence")
             return REMOTE_FAILED
 

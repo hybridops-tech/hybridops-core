@@ -860,7 +860,17 @@ def run_destroy(ns) -> int:
             "optional": bool(step.get("optional", False)),
         }
 
-        # Materialize inputs file so operators have a rerun path even on skip.
+        state_ref = step_state_ref(step)
+        state_status = module_state_status(paths.state_dir, state_ref)
+        if not state_status or state_status in {"destroyed", "absent"}:
+            reason = "no-state" if not state_status else f"state-{state_status}"
+            result = dict(base)
+            result.update({"status": "skipped", "reason": reason, "rc": 0})
+            step_results.append(result)
+            print(f"step={step_id} status=skipped reason={reason}")
+            continue
+
+        # Materialize inputs only for a step that still has state to destroy.
         try:
             inputs_file = resolved_step_inputs_file(step, payload, paths)
         except Exception as exc:
@@ -869,15 +879,6 @@ def run_destroy(ns) -> int:
         else:
             if inputs_file:
                 base["inputs_file"] = str(inputs_file)
-
-        # Skip steps with no recorded state — nothing to destroy.
-        state_ref = step_state_ref(step)
-        if not module_state_status(paths.state_dir, state_ref):
-            result = dict(base)
-            result.update({"status": "skipped", "reason": "no-state", "rc": 0})
-            step_results.append(result)
-            print(f"step={step_id} status=skipped reason=no-state")
-            continue
 
         print(f"step={step_id} status=running action=destroy module={step['module_ref']}")
         try:
