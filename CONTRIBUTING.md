@@ -93,3 +93,10 @@ Small, reviewable pull requests are easier to test, understand, and merge.
 
 Do not report vulnerabilities in a public issue or pull request. Follow
 [SECURITY.md](.github/SECURITY.md) instead.
+
+## Plugin development
+
+Plugin discovery is tolerant by default: a registration error is written as a
+warning so the built-in command surface remains available. During plugin
+development or CI, set `HYOPS_STRICT_PLUGINS=1` to make driver or validator
+registration errors fail the command immediately.

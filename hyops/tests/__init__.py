@@ -1,1 +1,1 @@
-"""HybridOps CLI tests."""
+"""HybridOps unit tests."""
