@@ -14,6 +14,15 @@ policy:
   evidence_required: true
   ipam_authority: "none"
 
+access:
+  type: "gcp-iap-ssh-forward"
+  state_ref: "platform/gcp/platform-vm#gcp_eve_ng_vm"
+  remote_port: 80
+  path: "/"
+  ssh_user: "opsadmin"
+  ssh_key_file: "~/.ssh/id_ed25519"
+  native_console_mode: "eve-ng-qemu"
+
 steps:
   - id: gcp_eve_ng_network
     module_ref: "platform/gcp/lab-network"
