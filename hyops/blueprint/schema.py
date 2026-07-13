@@ -169,9 +169,15 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
     if spec.get("access") is not None:
         raw_access = as_mapping(spec.get("access"), "access")
         access_type = as_non_empty_string(raw_access.get("type"), "access.type")
-        if access_type not in {"gcp-iap-http", "gcp-iap-ssh-forward"}:
+        if access_type not in {
+            "direct-http",
+            "ssh-forward",
+            "gcp-iap-http",
+            "gcp-iap-ssh-forward",
+        }:
             raise ValueError(
-                "access.type must be gcp-iap-http or gcp-iap-ssh-forward"
+                "access.type must be direct-http, ssh-forward, gcp-iap-http, "
+                "or gcp-iap-ssh-forward"
             )
         access = {
             "type": access_type,
@@ -185,21 +191,38 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             "native_console_mode": str(
                 raw_access.get("native_console_mode") or ""
             ).strip(),
+            "guest_network_label": str(
+                raw_access.get("guest_network_label") or ""
+            ).strip(),
+            "guest_gateway": str(raw_access.get("guest_gateway") or "").strip(),
+            "guest_dhcp_range": str(
+                raw_access.get("guest_dhcp_range") or ""
+            ).strip(),
         }
         if not 1 <= access["remote_port"] <= 65535:
             raise ValueError("access.remote_port must be between 1 and 65535")
-        if access_type == "gcp-iap-ssh-forward":
+        if access_type in {"ssh-forward", "gcp-iap-ssh-forward"}:
             if not access["ssh_user"]:
                 raise ValueError(
-                    "access.ssh_user is required for gcp-iap-ssh-forward"
+                    "access.ssh_user is required for SSH-forward access"
                 )
             if not access["ssh_key_file"]:
                 raise ValueError(
-                    "access.ssh_key_file is required for gcp-iap-ssh-forward"
+                    "access.ssh_key_file is required for SSH-forward access"
                 )
         if access["native_console_mode"] not in {"", "eve-ng-qemu"}:
             raise ValueError(
                 "access.native_console_mode must be eve-ng-qemu when set"
+            )
+        guest_fields = [
+            access["guest_network_label"],
+            access["guest_gateway"],
+            access["guest_dhcp_range"],
+        ]
+        if any(guest_fields) and not all(guest_fields):
+            raise ValueError(
+                "access guest network guidance requires guest_network_label, "
+                "guest_gateway, and guest_dhcp_range"
             )
 
     raw_steps = spec.get("steps")
