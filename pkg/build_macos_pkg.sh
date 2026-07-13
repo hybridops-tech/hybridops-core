@@ -79,13 +79,18 @@ trap cleanup EXIT
 
 ROOT_DIR="${WORK_DIR}/root"
 SCRIPTS_DIR="${WORK_DIR}/scripts"
+RESOURCES_DIR="${WORK_DIR}/resources"
 COMPONENT_PKG="${WORK_DIR}/hybridops-core-component.pkg"
-mkdir -p "${ROOT_DIR}/usr/local/share/hybridops-core" "${SCRIPTS_DIR}"
+DISTRIBUTION_XML="${WORK_DIR}/distribution.xml"
+mkdir -p "${ROOT_DIR}/usr/local/share/hybridops-core" "${SCRIPTS_DIR}" "${RESOURCES_DIR}"
 
 install -m 0755 "${SCRIPT_DIR}/macos/uninstall-macos.sh" \
   "${ROOT_DIR}/usr/local/share/hybridops-core/uninstall-macos.sh"
 install -m 0755 "${SCRIPT_DIR}/macos/postinstall" "${SCRIPTS_DIR}/postinstall"
 install -m 0644 "${ARCHIVE}" "${SCRIPTS_DIR}/release.tar.gz"
+install -m 0644 "${SCRIPT_DIR}/macos/resources/welcome.html" "${RESOURCES_DIR}/welcome.html"
+install -m 0644 "${SCRIPT_DIR}/macos/resources/conclusion.html" "${RESOURCES_DIR}/conclusion.html"
+install -m 0644 "${REPO_ROOT}/LICENSE" "${RESOURCES_DIR}/LICENSE.txt"
 (
   cd "${SCRIPTS_DIR}"
   shasum -a 256 release.tar.gz > release.tar.gz.sha256
@@ -99,7 +104,31 @@ pkgbuild \
   --install-location / \
   "${COMPONENT_PKG}"
 
-product_args=(--package "${COMPONENT_PKG}")
+productbuild --synthesize --package "${COMPONENT_PKG}" "${DISTRIBUTION_XML}"
+python3 - "${DISTRIBUTION_XML}" <<'PY'
+from pathlib import Path
+import sys
+import xml.etree.ElementTree as ET
+
+path = Path(sys.argv[1])
+tree = ET.parse(path)
+root = tree.getroot()
+entries = (
+    ("title", None, "HybridOps.Core"),
+    ("welcome", "welcome.html", None),
+    ("license", "LICENSE.txt", None),
+    ("conclusion", "conclusion.html", None),
+)
+for index, (tag, filename, text) in enumerate(entries):
+    element = ET.Element(tag)
+    if filename:
+        element.set("file", filename)
+    element.text = text
+    root.insert(index, element)
+tree.write(path, encoding="utf-8", xml_declaration=True)
+PY
+
+product_args=(--distribution "${DISTRIBUTION_XML}" --resources "${RESOURCES_DIR}")
 if [[ -n "${SIGN_IDENTITY}" ]]; then
   product_args+=(--sign "${SIGN_IDENTITY}")
 fi

@@ -99,6 +99,7 @@ jobs:
           EXPANDED="${RUNNER_TEMP}/hybridops-core-pkg"
           pkgutil --expand "${PKG}" "${EXPANDED}"
           test -f "${EXPANDED}/Distribution"
+          grep -Fq '<title>HybridOps.Core</title>' "${EXPANDED}/Distribution"
           test -n "$(find "${EXPANDED}" -maxdepth 1 -type d -name '*.pkg' -print -quit)"
 
       - name: Upload macOS package artifact

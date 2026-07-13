@@ -109,6 +109,13 @@ EOF
 cat >"${MACOS_PKG_FAKE_BIN}/productbuild" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ " $* " == *" --synthesize "* ]]; then
+  cat >"${!#}" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1"><options customize="never"/></installer-gui-script>
+XML
+  exit 0
+fi
 : >"${!#}"
 EOF
 cat >"${MACOS_PKG_FAKE_BIN}/pkgutil" <<'EOF'
