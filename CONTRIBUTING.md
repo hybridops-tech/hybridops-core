@@ -65,6 +65,7 @@ Run the checks that cover the files you changed:
 
 ```bash
 bash tools/ci/check-python.sh
+python3 -m unittest hyops.tests.test_cli
 bash tools/ci/check-ruff.sh
 bash tools/ci/check-yaml.sh
 bash tools/ci/check-shell.sh
