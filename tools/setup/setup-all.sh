@@ -44,7 +44,7 @@ if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
 fi
 
 if [[ "${EUID}" -ne 0 ]]; then
-  exec sudo -E bash "$0" "$@"
+  exec sudo -H -E bash "$0" "$@"
 fi
 
 bash "${ROOT}/setup-base.sh"
@@ -52,5 +52,5 @@ bash "${ROOT}/setup-cloud-azure.sh"
 bash "${ROOT}/setup-cloud-gcp.sh"
 
 if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-  sudo -u "${SUDO_USER}" -E bash "${ROOT}/setup-ansible.sh" "${FORCE_ARGS[@]}" "${HYBRIDOPS_ARGS[@]}"
+  sudo -H -u "${SUDO_USER}" -E bash "${ROOT}/setup-ansible.sh" "${FORCE_ARGS[@]}" "${HYBRIDOPS_ARGS[@]}"
 fi

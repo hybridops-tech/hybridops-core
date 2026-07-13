@@ -60,6 +60,8 @@ def run_streamed(
     env: Mapping[str, str],
     evidence_dir: Path,
     command: str,
+    stream_output: bool = True,
+    announce: bool = True,
 ) -> int:
     started_at = _utc_now()
     output_path = evidence_dir / "output.log"
@@ -78,8 +80,9 @@ def run_streamed(
         assert process.stdout is not None
         for raw_line in process.stdout:
             safe_line = redact_text(raw_line)
-            sys.stdout.write(safe_line)
-            sys.stdout.flush()
+            if stream_output:
+                sys.stdout.write(safe_line)
+                sys.stdout.flush()
             output.write(safe_line)
             output.flush()
         exit_code = int(process.wait())
@@ -90,7 +93,8 @@ def run_streamed(
         started_at=started_at,
         exit_code=exit_code,
     )
-    print(f"run record: {evidence_dir}")
+    if announce:
+        print(f"run record: {evidence_dir}")
     return exit_code
 
 
