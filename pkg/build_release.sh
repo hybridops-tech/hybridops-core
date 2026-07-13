@@ -12,7 +12,6 @@ source "${_hyops_release_pkg_dir}/lib/common.sh"
 
 hyops_release_require_cmd python3
 hyops_release_require_cmd tar
-hyops_release_require_cmd sha256sum
 hyops_release_require_cmd find
 hyops_release_require_cmd mktemp
 hyops_release_require_cmd cp
@@ -55,7 +54,7 @@ estimate_manifest_bytes() {
     if ! source_relpath="$(hyops_release_resolve_include_path "${relpath}")"; then
       continue
     fi
-    path_bytes="$(du -sb "${REPO_ROOT}/${source_relpath}" | awk '{print $1}')"
+    path_bytes="$(du -sk "${REPO_ROOT}/${source_relpath}" | awk '{print $1 * 1024}')"
     total_bytes=$(( total_bytes + path_bytes ))
   done < <(hyops_release_manifest_items include)
 
@@ -93,15 +92,24 @@ copy_manifest_paths() {
 }
 
 prune_stage() {
-  local pattern=""
-  shopt -s dotglob globstar nullglob
-  while IFS= read -r pattern; do
-    [[ -n "${pattern}" ]] || continue
-    for match in "${STAGE_ROOT}"/${pattern}; do
-      rm -rf "${match}"
-    done
-  done < <(hyops_release_prune_globs)
-  shopt -u dotglob globstar nullglob
+  local patterns_file="${WORK_DIR}/prune-patterns.txt"
+  hyops_release_prune_globs >"${patterns_file}"
+  python3 - "${STAGE_ROOT}" "${patterns_file}" <<'PY'
+from pathlib import Path
+import shutil
+import sys
+
+root = Path(sys.argv[1])
+patterns = [line.strip() for line in Path(sys.argv[2]).read_text().splitlines() if line.strip()]
+matches = set()
+for pattern in patterns:
+    matches.update(root.glob(pattern))
+for path in sorted(matches, key=lambda item: len(item.parts), reverse=True):
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+    elif path.is_dir():
+        shutil.rmtree(path)
+PY
 }
 
 write_release_metadata() {
@@ -126,13 +134,21 @@ EOF
 
 write_release_checksums() {
   local checksum_file="${STAGE_ROOT}/pkg/release-files.sha256"
-  (
-    cd "${STAGE_ROOT}"
-    find . -type f ! -path './pkg/release-files.sha256' -print0 \
-      | sort -z \
-      | xargs -0 sha256sum \
-      | sed 's| \./| |'
-  ) >"${checksum_file}"
+  python3 - "${STAGE_ROOT}" "${checksum_file}" <<'PY'
+from hashlib import sha256
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+checksum_file = Path(sys.argv[2])
+lines = []
+for path in sorted(item for item in root.rglob("*") if item.is_file()):
+    if path == checksum_file:
+        continue
+    digest = sha256(path.read_bytes()).hexdigest()
+    lines.append(f"{digest}  {path.relative_to(root)}")
+checksum_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
 }
 
 build_wheelhouse() {
@@ -159,7 +175,15 @@ write_release_checksums
 tar -C "${WORK_DIR}" -czf "${TARBALL_PATH}" "${PACKAGE_ROOT}"
 (
   cd "${OUT_DIR}"
-  sha256sum "$(basename "${TARBALL_PATH}")" >"$(basename "${SHA256_PATH}")"
+  python3 - "$(basename "${TARBALL_PATH}")" "$(basename "${SHA256_PATH}")" <<'PY'
+from hashlib import sha256
+from pathlib import Path
+import sys
+
+archive = Path(sys.argv[1])
+target = Path(sys.argv[2])
+target.write_text(f"{sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n", encoding="utf-8")
+PY
 )
 cp "${REPO_ROOT}/install-windows.cmd" "${WINDOWS_INSTALLER_PATH}"
 
