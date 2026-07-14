@@ -25,6 +25,7 @@ access:
   guest_network_label: "Cloud9"
   guest_gateway: "172.29.129.1"
   guest_dhcp_range: "172.29.129.50-172.29.129.200"
+  offer_destroy_on_close: true
 
 steps:
   - id: gcp_eve_ng_network

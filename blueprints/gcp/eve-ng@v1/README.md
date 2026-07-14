@@ -90,6 +90,12 @@ through the existing IAP SSH path with the declared HybridOps key, opens the
 browser, and keeps access active until `Ctrl-C`. Port 80 remains closed at the
 GCP firewall. Use `--no-browser` when only the printed local URL is required.
 
+After an interactive access session closes, the blueprint reports billing
+status and resource-state age, provides the project-specific GCP Billing link
+for trial, credit and spend details, then offers to destroy the lab.
+Destruction requires the operator to type `destroy <environment>`. Declining
+leaves the environment available and prints the explicit destroy command.
+
 Deploy:
 
 ```bash
