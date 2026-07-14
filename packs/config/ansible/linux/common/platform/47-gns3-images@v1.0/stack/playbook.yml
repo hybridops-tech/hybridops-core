@@ -1,0 +1,31 @@
+---
+- name: platform/linux/gns3-images
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_gns3_images_password: >-
+      {{ lookup('env', gns3_images_password_env | default('GNS3_SERVER_PASSWORD')) }}
+
+  tasks:
+    - name: Install GNS3 images and templates
+      ansible.builtin.include_role:
+        name: "{{ gns3_images_role_fqcn }}"
+      vars:
+        gns3_images_password: "{{ _hyops_gns3_images_password }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.gns3.images': 'ready',
+            'gns3_images_requested_count': gns3_images_results.requested_count,
+            'gns3_images_installed_count': gns3_images_results.installed_count,
+            'gns3_images_template_names': gns3_images_results.template_names
+          } | to_json }}

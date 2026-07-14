@@ -14,6 +14,7 @@ network by this blueprint.
 core/onprem/template-image
   -> platform/onprem/platform-vm
   -> platform/linux/gns3-server
+  -> platform/linux/gns3-images
   -> platform/linux/gns3-starter-lab
   -> platform/linux/gns3-healthcheck
 ```

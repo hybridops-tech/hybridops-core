@@ -1,0 +1,65 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/gns3-images"
+
+metadata:
+  title: "Linux GNS3 Images"
+  description: "Install checksum-verified QEMU images and register usable GNS3 templates."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env:
+      - "GNS3_SERVER_PASSWORD"
+    required_env_destroy: []
+    load_vault_env: true
+
+    gns3_images_role_fqcn: "hybridops.app.gns3_images"
+    gns3_images_port: 3080
+    gns3_images_username: "gns3"
+    gns3_images_password_env: "GNS3_SERVER_PASSWORD"
+    gns3_images_items: []
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/47-gns3-images@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.gns3.images
+    - gns3_images_requested_count
+    - gns3_images_installed_count
+    - gns3_images_template_names
+
+probes: []
+constraints: []

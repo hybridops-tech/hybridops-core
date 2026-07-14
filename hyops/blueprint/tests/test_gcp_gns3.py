@@ -10,13 +10,14 @@ class GCPGNS3BlueprintTest(TestCase):
         path = root / "blueprints" / "gcp" / "gns3@v1" / "blueprint.yml"
         self.blueprint = validate_blueprint(load_blueprint(path), path)
 
-    def test_private_five_stage_chain(self) -> None:
+    def test_private_six_stage_chain(self) -> None:
         self.assertEqual(
             [step["id"] for step in self.blueprint["steps"]],
             [
                 "gcp_gns3_network",
                 "gcp_gns3_vm",
                 "gcp_gns3_server",
+                "gcp_gns3_images",
                 "gcp_gns3_starter_lab",
                 "gcp_gns3_healthcheck",
             ],
@@ -37,6 +38,13 @@ class GCPGNS3BlueprintTest(TestCase):
         self.assertFalse(access["open_browser"])
 
     def test_required_health_stage_is_deep(self) -> None:
-        health = self.blueprint["steps"][4]
+        health = self.blueprint["steps"][5]
         self.assertEqual(health["requires"], ["gcp_gns3_starter_lab"])
         self.assertTrue(health["inputs"]["gns3_healthcheck_deep"])
+
+    def test_images_are_verified_before_starter_lab(self) -> None:
+        image_step = self.blueprint["steps"][3]
+        self.assertEqual(image_step["requires"], ["gcp_gns3_server"])
+        image = image_step["inputs"]["gns3_images_items"][0]
+        self.assertEqual(image["disk_type"], "cdrom")
+        self.assertRegex(image["checksum"], r"^sha256:[0-9a-f]{64}$")

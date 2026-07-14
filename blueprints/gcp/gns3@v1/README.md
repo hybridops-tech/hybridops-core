@@ -9,6 +9,7 @@ The VM has no public IP; SSH and desktop-client access use IAP.
 platform/gcp/lab-network
   -> platform/gcp/platform-vm
   -> platform/linux/gns3-server
+  -> platform/linux/gns3-images
   -> platform/linux/gns3-starter-lab
   -> platform/linux/gns3-healthcheck
 ```
