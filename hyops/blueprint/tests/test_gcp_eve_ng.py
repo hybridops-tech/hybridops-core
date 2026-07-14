@@ -12,6 +12,8 @@ class GcpEveNgBlueprintTest(TestCase):
         path = root / "blueprints" / "gcp" / "eve-ng@v1" / "blueprint.yml"
         validated = validate_blueprint(load_blueprint(path), path)
 
+        self.assertTrue(validated["access"]["offer_destroy_on_close"])
+
         self.assertEqual(
             validated["order"],
             [
@@ -41,4 +43,3 @@ class GcpEveNgBlueprintTest(TestCase):
         self.assertEqual(
             by_id["gcp_eve_ng_healthcheck"]["requires"], ["gcp_eve_ng_images"]
         )
-

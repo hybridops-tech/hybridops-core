@@ -12,4 +12,3 @@ hyops apply --env lab \
   --module platform/linux/gns3-healthcheck \
   --inputs modules/platform/linux/gns3-healthcheck/examples/inputs.min.yml
 ```
-

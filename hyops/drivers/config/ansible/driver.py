@@ -57,6 +57,18 @@ _DRIVER_DIR = Path(__file__).resolve().parent
 _PROFILES_DIR = _DRIVER_DIR / "profiles"
 _PGHA_MODULE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
 
+
+def _should_load_vault_env(
+    *,
+    load_vault_env: bool,
+    effective_lifecycle: str,
+    missing_before_vault: list[str],
+) -> bool:
+    if missing_before_vault:
+        return True
+    return load_vault_env and effective_lifecycle != "destroy"
+
+
 def _resolve_hyops_executable() -> str:
     """Resolve a real hyops executable path for delegated local tasks."""
     try:
@@ -305,7 +317,11 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
 
     vault_loaded: dict[str, str] = {}
     vault_error = ""
-    if load_vault_env or missing_before_vault:
+    if _should_load_vault_env(
+        load_vault_env=load_vault_env,
+        effective_lifecycle=effective_lifecycle,
+        missing_before_vault=missing_before_vault,
+    ):
         vault_loaded, vault_error = merge_vault_env(env, runtime_root)
 
     missing_after_vault = missing_env(env, required_env)
