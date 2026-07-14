@@ -96,6 +96,8 @@ grep -Fq 'https://github.com/hybridops-tech/hybridops-core/blob/main/CONTRIBUTIN
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 grep -Fq 'https://github.com/sponsors/hybridops-tech' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq '.project-links a { text-decoration: none; }' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 if grep -Rq '<code>' "${HYOPS_REPO_ROOT}/pkg/macos/resources"; then
   echo "ERR: macOS Installer resources use inconsistent code typography" >&2
   exit 1
