@@ -1,0 +1,20 @@
+---
+- name: Destroy platform/linux/eve-ng-lab-archive
+  hosts: targets
+  become: false
+  gather_facts: false
+
+  tasks: []
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.archive': 'retained'
+          } | to_json }}
+

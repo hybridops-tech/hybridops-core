@@ -1,0 +1,72 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/eve-ng-lab-archive"
+
+metadata:
+  title: "Linux EVE-NG Lab Archive"
+  description: "Export or restore portable EVE-NG lab definitions without retaining the workload VM."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+
+    eveng_lab_archive_role_fqcn: "hybridops.helper.eveng_lab_archive"
+    eveng_lab_archive_action: "export"
+    eveng_lab_archive_labs_root: "/opt/unetlab/labs"
+    eveng_lab_archive_folders: []
+    eveng_lab_archive_name: "eve-ng-labs.tar.gz"
+    eveng_lab_archive_path: ""
+    eveng_lab_archive_expected_sha256: ""
+    eveng_lab_archive_overwrite: false
+    eveng_lab_archive_remote_dir: "/tmp/hyops-eveng-lab-archive"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/48-eve-ng-lab-archive@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.eveng.archive
+    - eveng_lab_archive_action
+    - eveng_lab_archive_path
+    - eveng_lab_archive_manifest_path
+    - eveng_lab_archive_sha256
+    - eveng_lab_archive_created_at
+    - eveng_lab_archive_folders
+
+probes: []
+constraints: []
+
