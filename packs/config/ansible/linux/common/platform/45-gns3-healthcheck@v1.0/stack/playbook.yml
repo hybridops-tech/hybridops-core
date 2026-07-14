@@ -1,0 +1,32 @@
+---
+- name: platform/linux/gns3-healthcheck
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    _hyops_gns3_healthcheck_password: >-
+      {{ lookup('env', gns3_healthcheck_password_env | default('GNS3_SERVER_PASSWORD')) }}
+
+  tasks:
+    - name: Run GNS3 health checks
+      ansible.builtin.include_role:
+        name: "{{ gns3_healthcheck_role_fqcn }}"
+      vars:
+        gns3_healthcheck_password: "{{ _hyops_gns3_healthcheck_password }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.gns3.health': 'checked',
+            'gns3_health_status': gns3_healthcheck_results.status,
+            'gns3_health_version': gns3_healthcheck_results.version,
+            'gns3_health_deep_check': gns3_healthcheck_results.deep_check
+          } | to_json }}
+

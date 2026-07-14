@@ -89,3 +89,26 @@ steps:
       gns3_server_enable_kvm: true
       gns3_server_require_kvm: true
       gns3_server_install_emulators: true
+
+  - id: gns3_healthcheck
+    module_ref: "platform/linux/gns3-healthcheck"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gns3_server
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      become: true
+      become_user: "root"
+      gns3_healthcheck_require_kvm: true
+      gns3_healthcheck_require_local_compute: true
+      gns3_healthcheck_deep: true

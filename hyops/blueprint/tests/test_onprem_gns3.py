@@ -16,7 +16,7 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(self.blueprint["policy"]["ipam_authority"], "none")
         self.assertEqual(
             [step["id"] for step in self.blueprint["steps"]],
-            ["template_image_jammy", "gns3_vm", "gns3_server"],
+            ["template_image_jammy", "gns3_vm", "gns3_server", "gns3_healthcheck"],
         )
 
         vm_step = self.blueprint["steps"][1]
@@ -51,3 +51,11 @@ class OnPremGNS3BlueprintTest(TestCase):
             template_step["inputs"]["template_key"],
             "ubuntu-22.04",
         )
+
+    def test_healthcheck_runs_disposable_vpcs_lifecycle(self) -> None:
+        health_step = self.blueprint["steps"][3]
+        self.assertEqual(health_step["requires"], ["gns3_server"])
+        self.assertEqual(
+            health_step["module_ref"], "platform/linux/gns3-healthcheck"
+        )
+        self.assertTrue(health_step["inputs"]["gns3_healthcheck_deep"])

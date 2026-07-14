@@ -1,0 +1,68 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/gns3-healthcheck"
+
+metadata:
+  title: "Linux GNS3 Health Check"
+  description: "Validate an installed GNS3 server, its local compute runtime, and optional disposable VPCS execution."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env:
+      - "GNS3_SERVER_PASSWORD"
+    required_env_destroy: []
+    load_vault_env: true
+
+    gns3_healthcheck_role_fqcn: "hybridops.app.gns3_healthcheck"
+    gns3_healthcheck_port: 3080
+    gns3_healthcheck_username: "gns3"
+    gns3_healthcheck_password_env: "GNS3_SERVER_PASSWORD"
+    gns3_healthcheck_require_kvm: true
+    gns3_healthcheck_require_local_compute: true
+    gns3_healthcheck_deep: false
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/45-gns3-healthcheck@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.gns3.health
+    - gns3_health_status
+    - gns3_health_version
+    - gns3_health_deep_check
+
+probes: []
+constraints: []
+
