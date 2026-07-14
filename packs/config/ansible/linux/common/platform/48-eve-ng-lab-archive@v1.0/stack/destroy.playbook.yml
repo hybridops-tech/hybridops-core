@@ -1,5 +1,5 @@
 ---
-- name: Destroy platform/linux/gns3-healthcheck
+- name: Destroy platform/linux/eve-ng-lab-archive
   hosts: targets
   become: false
   gather_facts: false
@@ -15,8 +15,5 @@
         mode: "0600"
         content: |
           {{ {
-            'cap.lab.gns3.health': 'not-run',
-            'gns3_health_status': 'not-run',
-            'gns3_health_version': '',
-            'gns3_health_deep_check': 'not-run'
+            'cap.lab.eveng.archive': 'retained'
           } | to_json }}

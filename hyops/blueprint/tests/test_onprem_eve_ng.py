@@ -14,6 +14,11 @@ class OnPremEveNgBlueprintTest(TestCase):
         validated = validate_blueprint(payload, path)
 
         self.assertEqual(validated["policy"]["ipam_authority"], "none")
+        self.assertTrue(validated["access"]["offer_destroy_on_close"])
+        self.assertEqual(
+            validated["archive_before_destroy"]["module_ref"],
+            "platform/linux/eve-ng-lab-archive",
+        )
         self.assertEqual(len(validated["steps"]), 5)
         vm_step = next(
             step for step in validated["steps"] if step["id"] == "eve_ng_vm"
