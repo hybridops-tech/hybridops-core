@@ -93,6 +93,7 @@ def run_module_driver_preflight(
     state_instance: str | None = None,
     assumed_state_ok: set[str] | None = None,
     allow_state_drift_recreate: bool = False,
+    profile_override: str | None = None,
 ) -> dict[str, Any]:
     module_ref = normalize_module_ref(str(module_ref or "").strip())
     if not module_ref:
@@ -109,6 +110,8 @@ def run_module_driver_preflight(
         invocation_command="preflight",
         assumed_state_ok=assumed_state_ok,
     )
+    if str(profile_override or "").strip():
+        resolved.execution["profile"] = str(profile_override).strip()
 
     driver_ref = str(resolved.execution.get("driver") or "").strip()
     driver_fn = REGISTRY.resolve(driver_ref)
