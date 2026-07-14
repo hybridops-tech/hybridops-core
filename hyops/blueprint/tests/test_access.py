@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import io
 import socket
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from hyops.blueprint.command import (
     _access_known_hosts_file,
     _extract_access_host,
     _native_console_status,
+    _offer_access_close_destroy,
     _parse_eve_qemu_console_ports,
     _require_local_ports_available,
     _ssh_access_error,
     _wait_for_local_port,
 )
+
+
+class _TTY(io.StringIO):
+    def isatty(self) -> bool:
+        return True
 
 
 class BlueprintAccessTests(unittest.TestCase):
@@ -114,6 +122,57 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
                 listener.accept()
         finally:
             listener.close()
+
+    def test_access_close_destroy_requires_environment_phrase(self) -> None:
+        ns = SimpleNamespace(env="student-lab", root=None, ref="gcp/eve-ng@v1")
+        stdout = _TTY()
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "access": {"offer_destroy_on_close": True},
+        }
+        with (
+            patch("hyops.blueprint.command.sys.stdin", _TTY()),
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+            patch(
+                "hyops.blueprint.command.diagnose_project_billing",
+                return_value=(True, True, ""),
+            ),
+            patch("hyops.blueprint.command.run_destroy", return_value=0) as destroy,
+        ):
+            rc = _offer_access_close_destroy(
+                ns,
+                payload,
+                {"updated_at": "2026-07-14T08:00:00Z"},
+                project_id="student-project",
+            )
+
+        self.assertEqual(rc, 0)
+        destroy.assert_called_once()
+        destroy_ns = destroy.call_args.args[0]
+        self.assertTrue(destroy_ns.execute)
+        self.assertFalse(destroy_ns.yes)
+        self.assertFalse(destroy_ns.archive_before_destroy)
+        self.assertFalse(destroy_ns.skip_archive)
+        self.assertIn(
+            "https://console.cloud.google.com/billing?project=student-project",
+            stdout.getvalue(),
+        )
+
+    def test_access_close_destroy_delegates_confirmation(self) -> None:
+        ns = SimpleNamespace(env="student-lab")
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "access": {"offer_destroy_on_close": True},
+        }
+        with (
+            patch("hyops.blueprint.command.sys.stdin", _TTY()),
+            patch("hyops.blueprint.command.sys.stdout", _TTY()),
+            patch("hyops.blueprint.command.run_destroy", return_value=0) as destroy,
+        ):
+            rc = _offer_access_close_destroy(ns, payload, {})
+
+        self.assertEqual(rc, 0)
+        destroy.assert_called_once()
 
 
 if __name__ == "__main__":
