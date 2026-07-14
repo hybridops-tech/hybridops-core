@@ -78,6 +78,8 @@ grep -Fq '[1/4] Verifying the release package' "${HYOPS_REPO_ROOT}/pkg/macos/pos
 grep -Fq 'Window → Installer Log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
 grep -Fq 'font-family: -apple-system' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
 grep -Fq 'Open installation log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'file:///System/Applications/Utilities/Terminal.app' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 grep -Fq 'file:///Library/Logs/HybridOps/core-install.log' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 if grep -Rq '<code>' "${HYOPS_REPO_ROOT}/pkg/macos/resources"; then
