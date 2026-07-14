@@ -92,9 +92,18 @@ GCP firewall. Use `--no-browser` when only the printed local URL is required.
 
 After an interactive access session closes, the blueprint reports billing
 status and resource-state age, provides the project-specific GCP Billing link
-for trial, credit and spend details, then offers to destroy the lab.
-Destruction requires the operator to type `destroy <environment>`. Declining
-leaves the environment available and prints the explicit destroy command.
+for trial, credit and spend details, then offers to keep the environment,
+export its lab definitions before teardown, or destroy without an export.
+Destruction requires the operator to type `destroy <environment>`.
+
+Automation must state the intended archive behaviour:
+
+```bash
+hyops blueprint destroy --env dev --ref gcp/eve-ng@v1 --execute --yes \
+  --archive-before-destroy
+```
+
+Use `--skip-archive` only when the current lab definitions are disposable.
 
 Deploy:
 

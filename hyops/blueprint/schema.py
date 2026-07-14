@@ -230,6 +230,34 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 "guest_gateway, and guest_dhcp_range"
             )
 
+    archive_before_destroy: dict[str, Any] = {}
+    if spec.get("archive_before_destroy") is not None:
+        raw_archive = as_mapping(
+            spec.get("archive_before_destroy"), "archive_before_destroy"
+        )
+        allowed = {"module_ref", "state_instance", "inputs"}
+        unknown = sorted(str(key) for key in raw_archive if str(key) not in allowed)
+        if unknown:
+            raise ValueError(
+                "archive_before_destroy has unknown keys: " + ", ".join(unknown)
+            )
+        archive_inputs = raw_archive.get("inputs")
+        if archive_inputs is not None:
+            archive_inputs = as_mapping(
+                archive_inputs, "archive_before_destroy.inputs"
+            )
+        archive_before_destroy = {
+            "module_ref": module_ref_field(
+                raw_archive.get("module_ref"),
+                "archive_before_destroy.module_ref",
+            ),
+            "state_instance": as_non_empty_string(
+                raw_archive.get("state_instance"),
+                "archive_before_destroy.state_instance",
+            ),
+            "inputs": archive_inputs if isinstance(archive_inputs, dict) else {},
+        }
+
     raw_steps = spec.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise ValueError("steps must be a non-empty list")
@@ -395,6 +423,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         "metadata": metadata if isinstance(metadata, dict) else {},
         "policy": policy,
         "access": access,
+        "archive_before_destroy": archive_before_destroy,
         "steps": steps,
         "order": order,
     }

@@ -133,7 +133,6 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
         with (
             patch("hyops.blueprint.command.sys.stdin", _TTY()),
             patch("hyops.blueprint.command.sys.stdout", stdout),
-            patch("builtins.input", side_effect=["y", "destroy student-lab"]),
             patch(
                 "hyops.blueprint.command.diagnose_project_billing",
                 return_value=(True, True, ""),
@@ -151,13 +150,15 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
         destroy.assert_called_once()
         destroy_ns = destroy.call_args.args[0]
         self.assertTrue(destroy_ns.execute)
-        self.assertTrue(destroy_ns.yes)
+        self.assertFalse(destroy_ns.yes)
+        self.assertFalse(destroy_ns.archive_before_destroy)
+        self.assertFalse(destroy_ns.skip_archive)
         self.assertIn(
             "https://console.cloud.google.com/billing?project=student-project",
             stdout.getvalue(),
         )
 
-    def test_access_close_destroy_rejects_wrong_phrase(self) -> None:
+    def test_access_close_destroy_delegates_confirmation(self) -> None:
         ns = SimpleNamespace(env="student-lab")
         payload = {
             "blueprint_ref": "gcp/eve-ng@v1",
@@ -166,13 +167,12 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
         with (
             patch("hyops.blueprint.command.sys.stdin", _TTY()),
             patch("hyops.blueprint.command.sys.stdout", _TTY()),
-            patch("builtins.input", side_effect=["y", "destroy another-lab"]),
-            patch("hyops.blueprint.command.run_destroy") as destroy,
+            patch("hyops.blueprint.command.run_destroy", return_value=0) as destroy,
         ):
             rc = _offer_access_close_destroy(ns, payload, {})
 
         self.assertEqual(rc, 0)
-        destroy.assert_not_called()
+        destroy.assert_called_once()
 
 
 if __name__ == "__main__":
