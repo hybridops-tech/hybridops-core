@@ -99,7 +99,7 @@ grep -Fq 'https://github.com/hybridops-tech/hybridops-core/blob/main/CONTRIBUTIN
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 grep -Fq 'https://github.com/sponsors/hybridops-tech' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
-grep -Fq '.project-links a { text-decoration: none; }' \
+grep -Fq 'Sponsor the project</a>' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 if grep -RqE '—|–' "${HYOPS_REPO_ROOT}/pkg/macos/resources"; then
   echo "ERR: macOS Installer resources use decorative dash characters" >&2
