@@ -35,6 +35,7 @@ Each shipped blueprint directory contains a `blueprint.yml` contract and a local
 | [`onprem/rke2@v1`](onprem/rke2@v1) | On-prem RKE2 cluster with exported kubeconfig. |
 | [`onprem/rke2-workloads@v1`](onprem/rke2-workloads@v1) | RKE2 plus Argo CD root app and GSM bootstrap secret. |
 | [`onprem/eve-ng@v1`](onprem/eve-ng@v1) | Proxmox-hosted EVE-NG training and network simulation platform. |
+| [`onprem/gns3@v1`](onprem/gns3@v1) | Private GNS3 server on a Proxmox-hosted Ubuntu VM. |
 
 ### GCP
 
