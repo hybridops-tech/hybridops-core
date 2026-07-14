@@ -6,4 +6,3 @@ eveng_lab_archive_action: "restore"
 eveng_lab_archive_path: "CHANGE_ME_ARCHIVE_PATH"
 eveng_lab_archive_expected_sha256: "CHANGE_ME_SHA256"
 eveng_lab_archive_overwrite: false
-

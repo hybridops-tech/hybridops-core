@@ -49,4 +49,3 @@
             'eveng_lab_archive_created_at': eveng_lab_archive_results.created_at | default(''),
             'eveng_lab_archive_folders': eveng_lab_archive_results.folders
           } | to_json }}
-
