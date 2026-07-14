@@ -76,6 +76,14 @@ grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/p
 grep -Fq '/Library/Logs/HybridOps' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq '[1/4] Verifying the release package' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq 'Window → Installer Log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
+grep -Fq 'font-family: -apple-system' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
+grep -Fq 'Open installation log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'file:///Library/Logs/HybridOps/core-install.log' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+if grep -Rq '<code>' "${HYOPS_REPO_ROOT}/pkg/macos/resources"; then
+  echo "ERR: macOS Installer resources use inconsistent code typography" >&2
+  exit 1
+fi
 python3 - "${HYOPS_REPO_ROOT}/pkg/macos/postinstall" <<'PY'
 from pathlib import Path
 import sys
