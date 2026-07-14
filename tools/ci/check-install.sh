@@ -69,9 +69,13 @@ grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${HYOPS_REPO_ROOT}/install-w
 grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 
 bash -n "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
+bash -n "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
 bash -n "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 sh -n "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
 grep -Fq -- '--no-system-link --no-setup-all' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq 'Python 3.11 or newer' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
+grep -Fq 'macOS 13 or newer' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
+grep -Fq 'hybridops-core/discussions' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
 grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq '/Library/Logs/HybridOps' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq '[1/4] Verifying the release package' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"

@@ -86,6 +86,7 @@ mkdir -p "${ROOT_DIR}/usr/local/share/hybridops-core" "${SCRIPTS_DIR}" "${RESOUR
 
 install -m 0755 "${SCRIPT_DIR}/macos/uninstall-macos.sh" \
   "${ROOT_DIR}/usr/local/share/hybridops-core/uninstall-macos.sh"
+install -m 0755 "${SCRIPT_DIR}/macos/preinstall" "${SCRIPTS_DIR}/preinstall"
 install -m 0755 "${SCRIPT_DIR}/macos/postinstall" "${SCRIPTS_DIR}/postinstall"
 install -m 0644 "${ARCHIVE}" "${SCRIPTS_DIR}/release.tar.gz"
 install -m 0644 "${SCRIPT_DIR}/macos/resources/welcome.html" "${RESOURCES_DIR}/welcome.html"

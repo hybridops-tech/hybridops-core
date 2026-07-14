@@ -67,7 +67,9 @@ public distribution requires the normal Apple signing and notarisation process.
 
 The package installs Core for the signed-in macOS user and places `hyops` in
 `/usr/local/bin`. Package installation output is retained at
-`/Library/Logs/HybridOps/core-install.log`. To remove the installed software
+`/Library/Logs/HybridOps/core-install.log`. The package supports Intel and
+Apple silicon Macs running macOS 13 or newer. Python 3.11 or newer must be
+installed before the package is opened. To remove the installed software
 while retaining runtime environments, logs and vault data:
 
 ```bash

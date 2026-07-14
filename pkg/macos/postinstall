@@ -74,8 +74,22 @@ fi
 source_root=$(dirname "${source_root}")
 
 echo "[2/4] Installing HybridOps.Core for ${console_user}"
+python_path=""
+for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+  if [ -x "${candidate}" ] && \
+    "${candidate}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
+    python_path="${candidate}"
+    break
+  fi
+done
+if [ -z "${python_path}" ]; then
+  echo "A compatible Python installation was not found. Run the package again after installing Python 3.11 or newer." >&2
+  echo "Support: https://github.com/hybridops-tech/hybridops-core/discussions" >&2
+  exit 1
+fi
+python_bin=$(dirname "${python_path}")
 /usr/bin/sudo -H -u "${console_user}" \
-  /usr/bin/env HOME="${console_home}" PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  /usr/bin/env HOME="${console_home}" PATH="${python_bin}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   /bin/bash "${source_root}/install.sh" --force --no-system-link --no-setup-all
 
 user_command="${console_home}/.local/bin/hyops"
