@@ -48,6 +48,7 @@ from hyops.validators.platform.linux import (
     eve_ng as linux_eve_ng,
     eve_ng_healthcheck,
     eve_ng_images,
+    eve_ng_lab_archive,
     eve_ng_labs,
 )
 from hyops.validators.platform.onprem import (
@@ -103,6 +104,7 @@ def register_all() -> None:
     register("platform/gcp/lab-network", lab_network.validate)
     register("platform/linux/eve-ng", linux_eve_ng.validate)
     register("platform/linux/eve-ng-images", eve_ng_images.validate)
+    register("platform/linux/eve-ng-lab-archive", eve_ng_lab_archive.validate)
     register("platform/linux/eve-ng-labs", eve_ng_labs.validate)
     register("platform/linux/eve-ng-healthcheck", eve_ng_healthcheck.validate)
     register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)

@@ -1,0 +1,55 @@
+---
+- name: platform/linux/eve-ng-lab-archive
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) | trim }}"
+    _hyops_archive_path: >-
+      {{
+        (eveng_lab_archive_path | default('') | trim)
+        if (eveng_lab_archive_path | default('') | trim | length > 0)
+        else (
+          _hyops_runtime_root ~ '/artifacts/eveng/labs/' ~
+          (eveng_lab_archive_name | default('eve-ng-labs.tar.gz'))
+        )
+      }}
+
+  tasks:
+    - name: Require HybridOps runtime root for the default archive path
+      ansible.builtin.assert:
+        that:
+          - _hyops_archive_path | trim | length > 0
+          - >-
+            (eveng_lab_archive_path | default('') | trim | length > 0)
+            or (_hyops_runtime_root | length > 0)
+        fail_msg: "HYOPS_RUNTIME_ROOT is required when eveng_lab_archive_path is empty"
+
+    - name: Resolve controller archive path
+      ansible.builtin.set_fact:
+        _hyops_archive_resolved_path: "{{ _hyops_archive_path }}"
+
+    - name: Export or restore EVE-NG labs
+      ansible.builtin.include_role:
+        name: "{{ eveng_lab_archive_role_fqcn }}"
+      vars:
+        eveng_lab_archive_resolved_path: "{{ _hyops_archive_resolved_path }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.eveng.archive': 'ready',
+            'eveng_lab_archive_action': eveng_lab_archive_results.action,
+            'eveng_lab_archive_path': eveng_lab_archive_results.archive_path,
+            'eveng_lab_archive_manifest_path': eveng_lab_archive_results.manifest_path | default(''),
+            'eveng_lab_archive_sha256': eveng_lab_archive_results.sha256,
+            'eveng_lab_archive_created_at': eveng_lab_archive_results.created_at | default(''),
+            'eveng_lab_archive_folders': eveng_lab_archive_results.folders
+          } | to_json }}

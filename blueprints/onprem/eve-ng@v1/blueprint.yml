@@ -25,6 +25,23 @@ access:
   guest_network_label: "Cloud9"
   guest_gateway: "172.29.129.1"
   guest_dhcp_range: "172.29.129.50-172.29.129.200"
+  offer_destroy_on_close: true
+
+archive_before_destroy:
+  module_ref: "platform/linux/eve-ng-lab-archive"
+  state_instance: "eve_ng_lab_archive"
+  inputs:
+    inventory_state_ref: "platform/onprem/platform-vm#eve_ng_vm"
+    inventory_vm_groups:
+      targets:
+        - "eve-ng-01"
+    target_user: "opsadmin"
+    ssh_private_key_file: "~/.ssh/id_ed25519"
+    ssh_proxy_jump_auto: true
+    ssh_proxy_jump_user: "root"
+    become: true
+    become_user: "root"
+    eveng_lab_archive_action: "export"
 
 steps:
   - id: template_image_jammy
