@@ -92,6 +92,7 @@ install -m 0644 "${ARCHIVE}" "${SCRIPTS_DIR}/release.tar.gz"
 install -m 0644 "${SCRIPT_DIR}/macos/resources/welcome.html" "${RESOURCES_DIR}/welcome.html"
 install -m 0644 "${SCRIPT_DIR}/macos/resources/conclusion.html" "${RESOURCES_DIR}/conclusion.html"
 install -m 0644 "${SCRIPT_DIR}/macos/resources/license.html" "${RESOURCES_DIR}/license.html"
+install -m 0644 "${SCRIPT_DIR}/macos/resources/hybridops.svg" "${RESOURCES_DIR}/hybridops.svg"
 (
   cd "${SCRIPTS_DIR}"
   shasum -a 256 release.tar.gz > release.tar.gz.sha256

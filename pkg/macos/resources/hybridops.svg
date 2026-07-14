@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="HybridOps">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#g)" d="M 22,4 C 2,16 2,48 22,60 L 22,52 C 12,42 12,22 22,12 Z"/>
+  <circle fill="url(#g)" cx="32" cy="32" r="4"/>
+  <path fill="url(#g)" d="M 42,4 C 62,16 62,48 42,60 L 42,52 C 52,42 52,22 42,12 Z"/>
+</svg>
