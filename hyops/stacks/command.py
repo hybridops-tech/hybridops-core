@@ -13,7 +13,7 @@ from hyops.runtime.exitcodes import INTERNAL_ERROR
 
 
 def add_stacks_subparser(sp: argparse._SubParsersAction) -> None:
-    p = sp.add_parser("stacks", help="Terragrunt stack alias utilities.")
+    p = sp.add_parser("stacks", help=argparse.SUPPRESS)
     ssp = p.add_subparsers(dest="stacks_cmd", required=True)
 
     q = ssp.add_parser("aliases", help="Generate stacks aliases from a Terragrunt live root.")

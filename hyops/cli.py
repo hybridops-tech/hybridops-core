@@ -40,6 +40,15 @@ _DRIVERS_REGISTERED = False
 _VALIDATORS_REGISTERED = False
 
 
+class _OperatorHelpFormatter(argparse.HelpFormatter):
+    """Omit compatibility-only commands from the primary operator view."""
+
+    def _format_action(self, action: argparse.Action) -> str:
+        if action.help == argparse.SUPPRESS:
+            return ""
+        return super()._format_action(action)
+
+
 def _register_drivers() -> None:
     global _DRIVERS_REGISTERED
     if _DRIVERS_REGISTERED:
@@ -77,7 +86,11 @@ def _register_validators() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="hyops", add_help=True)
+    p = argparse.ArgumentParser(
+        prog="hyops",
+        add_help=True,
+        formatter_class=_OperatorHelpFormatter,
+    )
     p.add_argument("--version", action="store_true", help="Print version and exit.")
     p.add_argument(
         "-v",
@@ -85,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Stream tool output to terminal while also writing run records.",
     )
-    sp = p.add_subparsers(dest="cmd", required=False)
+    sp = p.add_subparsers(dest="cmd", required=False, metavar="COMMAND")
 
     add_init_subparser(sp)
     add_module_subparser(sp)
