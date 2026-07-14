@@ -49,6 +49,7 @@ fi
 
 echo "[1/4] Verifying the release package"
 work_dir=$(/usr/bin/mktemp -d /private/tmp/hybridops-core.pkg.XXXXXX)
+/bin/chmod 0755 "${work_dir}"
 cleanup() {
   /bin/rm -rf "${work_dir}"
 }

@@ -76,6 +76,16 @@ grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/p
 grep -Fq '/Library/Logs/HybridOps' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq '[1/4] Verifying the release package' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq 'Window → Installer Log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
+python3 - "${HYOPS_REPO_ROOT}/pkg/macos/postinstall" <<'PY'
+from pathlib import Path
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+created = script.index('work_dir=$(/usr/bin/mktemp -d')
+traversable = script.index('/bin/chmod 0755 "${work_dir}"')
+user_install = script.index('/usr/bin/sudo -H -u "${console_user}"')
+assert created < traversable < user_install
+PY
 if grep -Eq '(-mindepth|-maxdepth)' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"; then
   echo "ERR: macOS postinstall uses GNU find options" >&2
   exit 1
