@@ -21,6 +21,14 @@ if [[ -z "${RELEASE_LABEL}" ]]; then
   RELEASE_LABEL="$(hyops_release_default_label)"
 fi
 RELEASE_LABEL="$(hyops_release_sanitize_label "${RELEASE_LABEL}")"
+RELEASE_VERSION="${HYOPS_RELEASE_VERSION:-}"
+if [[ -z "${RELEASE_VERSION}" && "${RELEASE_LABEL}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  RELEASE_VERSION="${RELEASE_LABEL}"
+fi
+if [[ -n "${RELEASE_VERSION}" && ! "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERR: HYOPS_RELEASE_VERSION must use X.Y.Z numeric form" >&2
+  exit 2
+fi
 
 REPO_ROOT="$(hyops_release_repo_root)"
 OUT_DIR="${OUT_DIR:-${REPO_ROOT}/dist/releases}"
@@ -112,6 +120,59 @@ for path in sorted(matches, key=lambda item: len(item.parts), reverse=True):
 PY
 }
 
+write_release_version() {
+  if [[ -z "${RELEASE_VERSION}" ]]; then
+    RELEASE_VERSION="$(python3 - "${STAGE_ROOT}/hyops/__init__.py" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(r'^__version__ = "([^"]+)"$', text, flags=re.MULTILINE)
+if not match:
+    raise SystemExit("release source version was not found")
+print(match.group(1))
+PY
+)"
+    return 0
+  fi
+
+  python3 - "${STAGE_ROOT}" "${RELEASE_VERSION}" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root = Path(sys.argv[1])
+version = sys.argv[2]
+
+init_path = root / "hyops" / "__init__.py"
+init_text = init_path.read_text(encoding="utf-8")
+init_text, count = re.subn(
+    r'^__version__ = "[^"]+"$',
+    f'__version__ = "{version}"',
+    init_text,
+    count=1,
+    flags=re.MULTILINE,
+)
+if count != 1:
+    raise SystemExit("unable to set runtime release version")
+init_path.write_text(init_text, encoding="utf-8")
+
+project_path = root / "pyproject.toml"
+project_text = project_path.read_text(encoding="utf-8")
+project_text, count = re.subn(
+    r'^version = "[^"]+"$',
+    f'version = "{version}"',
+    project_text,
+    count=1,
+    flags=re.MULTILINE,
+)
+if count != 1:
+    raise SystemExit("unable to set Python package release version")
+project_path.write_text(project_text, encoding="utf-8")
+PY
+}
+
 write_release_metadata() {
   local commit_ref="unknown"
   local branch_ref="unknown"
@@ -125,6 +186,7 @@ write_release_metadata() {
 
   cat >"${STAGE_ROOT}/pkg/release-metadata.env" <<EOF
 HYOPS_RELEASE_LABEL=${RELEASE_LABEL}
+HYOPS_RELEASE_VERSION=${RELEASE_VERSION}
 HYOPS_RELEASE_BUILD_UTC=${build_utc}
 HYOPS_RELEASE_SOURCE_COMMIT=${commit_ref}
 HYOPS_RELEASE_SOURCE_BRANCH=${branch_ref}
@@ -167,6 +229,7 @@ warn_if_temp_space_is_low
 copy_manifest_paths
 prune_stage
 chmod 0755 "${STAGE_ROOT}/install.sh" 2>/dev/null || true
+write_release_version
 build_wheelhouse
 prune_stage
 write_release_metadata

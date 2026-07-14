@@ -93,11 +93,12 @@ jobs:
         shell: bash
         run: |
           export HYOPS_RELEASE_LABEL="${GITHUB_SHA::12}"
+          export HYOPS_RELEASE_VERSION="0.0.${GITHUB_RUN_NUMBER}"
           bash pkg/build_release.sh
           TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
           bash pkg/build_macos_pkg.sh \
             --archive "${TARBALL}" \
-            --version "0.0.${GITHUB_RUN_NUMBER}" \
+            --version "${HYOPS_RELEASE_VERSION}" \
             --output "dist/releases/hybridops-core-${HYOPS_RELEASE_LABEL}-macos-${{ matrix.architecture }}.pkg"
 
       - name: Inspect macOS package

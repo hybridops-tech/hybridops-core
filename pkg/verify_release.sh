@@ -80,8 +80,18 @@ if [[ "${#extracted_roots[@]}" -ne 1 ]]; then
 fi
 
 RELEASE_ROOT="${extracted_roots[0]}"
+RELEASE_METADATA="${RELEASE_ROOT}/pkg/release-metadata.env"
 if [[ ! -f "${RELEASE_ROOT}/pkg/release-files.sha256" ]]; then
   echo "ERR: release checksum manifest missing from extracted bundle" >&2
+  exit 3
+fi
+if [[ ! -f "${RELEASE_METADATA}" ]]; then
+  echo "ERR: release metadata missing from extracted bundle" >&2
+  exit 3
+fi
+EXPECTED_VERSION="$(sed -n 's/^HYOPS_RELEASE_VERSION=//p' "${RELEASE_METADATA}")"
+if [[ -z "${EXPECTED_VERSION}" ]]; then
+  echo "ERR: release version missing from release metadata" >&2
   exit 3
 fi
 if find "${RELEASE_ROOT}" -path "*/${VENDORED_COLLECTIONS_REL}" -print -quit | grep -q .; then
@@ -111,6 +121,11 @@ if [[ ! -x "${INSTALLED_HYOPS}" ]]; then
 fi
 if [[ ! -d "${INSTALLED_APP}" ]]; then
   echo "ERR: installed app payload missing: ${INSTALLED_APP}" >&2
+  exit 3
+fi
+INSTALLED_VERSION="$(env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" --version)"
+if [[ "${INSTALLED_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+  echo "ERR: installed version ${INSTALLED_VERSION} does not match release version ${EXPECTED_VERSION}" >&2
   exit 3
 fi
 
