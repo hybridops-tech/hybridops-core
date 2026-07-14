@@ -47,7 +47,7 @@ def _exit_code_from_system_exit(exc: SystemExit) -> int:
 
 
 def add_tfc_subparser(sp: argparse._SubParsersAction) -> None:
-    p = sp.add_parser("tfc", help="Terraform Cloud helper commands.")
+    p = sp.add_parser("tfc", help=argparse.SUPPRESS)
     ssp = p.add_subparsers(dest="tfc_cmd", required=True)
 
     q = ssp.add_parser(

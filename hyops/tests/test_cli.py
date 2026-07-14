@@ -37,6 +37,19 @@ class CliRoutingTests(unittest.TestCase):
         for command in ("apply", "blueprint", "module", "state"):
             self.assertIn(command, result.stdout)
 
+    def test_top_level_help_omits_backend_maintenance_commands(self) -> None:
+        result = run_cli("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for command in ("terragrunt", "tfc", "stacks"):
+            self.assertNotIn(command, result.stdout)
+
+    def test_backend_maintenance_command_help_remains_available(self) -> None:
+        for command in ("terragrunt", "tfc", "stacks"):
+            with self.subTest(command=command):
+                result = run_cli(command, "--help")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"hyops {command}", result.stdout)
+
     def test_no_command_prints_help_and_returns_usage_error(self) -> None:
         result = run_cli()
         self.assertEqual(result.returncode, 2)

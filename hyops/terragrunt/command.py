@@ -31,7 +31,7 @@ def _exit_code_from_system_exit(exc: SystemExit) -> int:
 
 
 def add_terragrunt_subparser(sp: argparse._SubParsersAction) -> None:
-    p = sp.add_parser("terragrunt", help="Terragrunt helper tools.")
+    p = sp.add_parser("terragrunt", help=argparse.SUPPRESS)
     ssp = p.add_subparsers(dest="terragrunt_cmd", required=True)
 
     q = ssp.add_parser(
@@ -63,4 +63,3 @@ def run_validate_proxmox_sdn_vnets(ns) -> int:
 
 
 __all__ = ["add_terragrunt_subparser", "run_validate_proxmox_sdn_vnets"]
-
