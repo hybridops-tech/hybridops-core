@@ -86,6 +86,8 @@ grep -Fq 'https://docs.hybridops.tech/' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 grep -Fq 'https://github.com/hybridops-tech/hybridops-core' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'https://github.com/hybridops-tech/hybridops-core/discussions' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 grep -Fq 'https://github.com/hybridops-tech/hybridops-core/blob/main/CONTRIBUTING.md' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 grep -Fq 'https://github.com/sponsors/hybridops-tech' \
