@@ -45,6 +45,7 @@ Each shipped blueprint directory contains a `blueprint.yml` contract and a local
 | [`gcp/linux-desktop@v1`](gcp/linux-desktop@v1) | Ubuntu desktop VM with XFCE and XRDP. |
 | [`gcp/windows-desktop@v1`](gcp/windows-desktop@v1) | Windows Server VM with scoped RDP access. |
 | [`gcp/eve-ng@v1`](gcp/eve-ng@v1) | Private nested-virtualization-capable EVE-NG host on GCP. |
+| [`gcp/gns3@v1`](gcp/gns3@v1) | Private nested-virtualization-capable GNS3 server on GCP. |
 
 ### Networking
 

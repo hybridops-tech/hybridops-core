@@ -1,6 +1,7 @@
 # Changelog
 
 - Unreleased
+  - added a private GCP GNS3 teaching blueprint with IAP desktop-client access
   - added an idempotent zero-image GNS3 starter-lab module and blueprint stage
   - added structured GNS3 health checks with an optional disposable VPCS lifecycle
   - added private desktop-client TCP access for the Proxmox GNS3 blueprint

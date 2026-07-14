@@ -189,6 +189,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             "remote_port": int(raw_access.get("remote_port") or 80),
             "local_port": int(raw_access.get("local_port") or 0),
             "path": str(raw_access.get("path") or "/").strip() or "/",
+            "open_browser": bool(raw_access.get("open_browser", True)),
             "ssh_user": str(raw_access.get("ssh_user") or "").strip(),
             "ssh_key_file": str(raw_access.get("ssh_key_file") or "").strip(),
             "native_console_mode": str(
