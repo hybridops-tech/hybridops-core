@@ -4,9 +4,9 @@ Build a dedicated GNS3 server on Proxmox from a verified Ubuntu 22.04
 template. The blueprint provisions the VM and configures the authenticated
 GNS3 API through the provider-neutral Linux module.
 
-The API listens on the VM loopback interface. A desktop-client access command
-will provide the private tunnel in a separate change; the server is not exposed
-to the local network by this blueprint.
+The API listens on the VM loopback interface. The access command opens a private
+SSH tunnel for the GNS3 desktop client; the server is not exposed to the local
+network by this blueprint.
 
 ## Execution chain
 
@@ -42,6 +42,24 @@ hyops blueprint deploy \
   --ref onprem/gns3@v1 \
   --execute
 ```
+
+## Connect a desktop client
+
+```bash
+hyops blueprint access \
+  --env gns3-lab \
+  --ref onprem/gns3@v1
+```
+
+Keep the command running and configure the GNS3 desktop client to use host
+`127.0.0.1`, port `3080` and protocol `HTTP`. Retrieve the generated password
+from the environment vault when configuring the client:
+
+```bash
+hyops secrets show --env gns3-lab GNS3_SERVER_PASSWORD
+```
+
+Press Ctrl-C in the access terminal to close the tunnel.
 
 ## Default VM
 

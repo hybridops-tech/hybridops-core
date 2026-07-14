@@ -37,6 +37,13 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(server_step["inputs"]["gns3_server_port"], 3080)
         self.assertTrue(server_step["inputs"]["gns3_server_require_kvm"])
 
+    def test_desktop_client_access_uses_private_tcp_forward(self) -> None:
+        access = self.blueprint["access"]
+        self.assertEqual(access["type"], "ssh-tcp-forward")
+        self.assertEqual(access["state_ref"], "platform/onprem/platform-vm#gns3_vm")
+        self.assertEqual(access["remote_port"], 3080)
+        self.assertEqual(access["local_port"], 3080)
+
     def test_template_is_retained_during_blueprint_destroy(self) -> None:
         template_step = self.blueprint["steps"][0]
         self.assertTrue(template_step["retain_on_destroy"])

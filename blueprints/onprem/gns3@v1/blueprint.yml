@@ -14,6 +14,14 @@ policy:
   evidence_required: true
   ipam_authority: "none"
 
+access:
+  type: "ssh-tcp-forward"
+  state_ref: "platform/onprem/platform-vm#gns3_vm"
+  remote_port: 3080
+  local_port: 3080
+  ssh_user: "opsadmin"
+  ssh_key_file: "~/.ssh/id_ed25519"
+
 steps:
   - id: template_image_jammy
     module_ref: "core/onprem/template-image"
