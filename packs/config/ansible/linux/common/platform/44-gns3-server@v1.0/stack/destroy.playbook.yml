@@ -1,0 +1,47 @@
+---
+- name: Destroy platform/linux/gns3-server
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Stop GNS3 server
+      ansible.builtin.systemd:
+        name: gns3server
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove GNS3 server packages
+      ansible.builtin.apt:
+        name:
+          - gns3-server
+        state: absent
+        purge: true
+      failed_when: false
+      when: ansible_os_family == "Debian"
+
+    - name: Remove GNS3 service and configuration
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/gns3server.service
+        - /etc/gns3
+      failed_when: false
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.gns3': 'absent'
+          } | to_json }}

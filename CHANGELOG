@@ -1,6 +1,7 @@
 # Changelog
 
 - Unreleased
+  - added a provider-neutral GNS3 server module backed by hybridops.app 0.1.8
   - linked README scenario entries directly to their reference scenario pages
   - added README coverage for every shipped blueprint directory
   - refreshed the blueprint catalogue so all 26 shipped blueprints are visible from the index
