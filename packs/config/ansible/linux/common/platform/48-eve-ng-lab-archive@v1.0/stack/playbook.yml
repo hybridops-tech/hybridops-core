@@ -26,11 +26,15 @@
             or (_hyops_runtime_root | length > 0)
         fail_msg: "HYOPS_RUNTIME_ROOT is required when eveng_lab_archive_path is empty"
 
+    - name: Resolve controller archive path
+      ansible.builtin.set_fact:
+        _hyops_archive_resolved_path: "{{ _hyops_archive_path }}"
+
     - name: Export or restore EVE-NG labs
       ansible.builtin.include_role:
         name: "{{ eveng_lab_archive_role_fqcn }}"
       vars:
-        eveng_lab_archive_path: "{{ _hyops_archive_path }}"
+        eveng_lab_archive_resolved_path: "{{ _hyops_archive_resolved_path }}"
 
   post_tasks:
     - name: Write HyOps outputs
