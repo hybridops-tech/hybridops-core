@@ -16,7 +16,13 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(self.blueprint["policy"]["ipam_authority"], "none")
         self.assertEqual(
             [step["id"] for step in self.blueprint["steps"]],
-            ["template_image_jammy", "gns3_vm", "gns3_server", "gns3_healthcheck"],
+            [
+                "template_image_jammy",
+                "gns3_vm",
+                "gns3_server",
+                "gns3_starter_lab",
+                "gns3_healthcheck",
+            ],
         )
 
         vm_step = self.blueprint["steps"][1]
@@ -53,9 +59,20 @@ class OnPremGNS3BlueprintTest(TestCase):
         )
 
     def test_healthcheck_runs_disposable_vpcs_lifecycle(self) -> None:
-        health_step = self.blueprint["steps"][3]
-        self.assertEqual(health_step["requires"], ["gns3_server"])
+        health_step = self.blueprint["steps"][4]
+        self.assertEqual(health_step["requires"], ["gns3_starter_lab"])
         self.assertEqual(
             health_step["module_ref"], "platform/linux/gns3-healthcheck"
         )
         self.assertTrue(health_step["inputs"]["gns3_healthcheck_deep"])
+
+    def test_starter_lab_uses_builtin_topology(self) -> None:
+        starter_step = self.blueprint["steps"][3]
+        self.assertEqual(starter_step["requires"], ["gns3_server"])
+        self.assertEqual(
+            starter_step["module_ref"], "platform/linux/gns3-starter-lab"
+        )
+        self.assertEqual(
+            starter_step["inputs"]["gns3_starter_lab_project_name"],
+            "HybridOps Starter Lab",
+        )
