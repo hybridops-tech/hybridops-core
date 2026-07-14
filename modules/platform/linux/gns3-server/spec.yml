@@ -1,0 +1,69 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/gns3-server"
+
+metadata:
+  title: "Linux GNS3 Server"
+  description: "Install and configure an authenticated GNS3 server on an existing Ubuntu host."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env:
+      - "GNS3_SERVER_PASSWORD"
+    required_env_destroy: []
+    load_vault_env: true
+
+    gns3_server_role_fqcn: "hybridops.app.gns3_server"
+    gns3_server_bind_address: "0.0.0.0"
+    gns3_server_port: 3080
+    gns3_server_username: "gns3"
+    gns3_server_password_env: "GNS3_SERVER_PASSWORD"
+    gns3_server_allowed_interfaces:
+      - "virbr0"
+    gns3_server_enable_kvm: true
+    gns3_server_require_kvm: false
+    gns3_server_install_emulators: true
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/44-gns3-server@v1.0"
+
+outputs:
+  publish:
+    - gns3_url
+    - gns3_api_port
+    - cap.lab.gns3
+
+probes: []
+constraints: []

@@ -1,0 +1,4 @@
+# Minimal GNS3 server example for an existing Ubuntu host.
+# GNS3_SERVER_PASSWORD is supplied through the environment vault.
+
+target_host: "10.10.0.42"
