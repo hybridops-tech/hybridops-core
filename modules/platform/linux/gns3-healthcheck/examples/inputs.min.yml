@@ -4,4 +4,3 @@ inventory_vm_groups:
     - "gns3-01"
 target_user: "opsadmin"
 gns3_healthcheck_deep: true
-

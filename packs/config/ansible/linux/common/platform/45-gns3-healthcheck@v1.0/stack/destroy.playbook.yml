@@ -20,4 +20,3 @@
             'gns3_health_version': '',
             'gns3_health_deep_check': 'not-run'
           } | to_json }}
-
