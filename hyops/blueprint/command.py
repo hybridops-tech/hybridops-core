@@ -902,8 +902,12 @@ def run_access(ns) -> int:
                 "--project", project, "--zone", zone,
                 f"--local-host-port=127.0.0.1:{port}",
             ]
+        open_browser = bool(access.get("open_browser", True))
         print("opening private GCP IAP access")
-        print(f"local URL: {url}")
+        if open_browser:
+            print(f"local URL: {url}")
+        else:
+            print(f"local endpoint: 127.0.0.1:{port}")
         _print_guest_network_guidance(access)
         if bool(getattr(ns, "native_consoles", False)):
             print(_native_console_status(console_ports))
@@ -915,7 +919,7 @@ def run_access(ns) -> int:
         if proc.poll() is not None:
             _stop_process(iap_proc)
             return OPERATOR_ERROR
-        if not bool(getattr(ns, "no_browser", False)):
+        if open_browser and not bool(getattr(ns, "no_browser", False)):
             open_operator_url(url)
         try:
             rc = int(proc.wait())
