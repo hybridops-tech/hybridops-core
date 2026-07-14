@@ -66,8 +66,9 @@ is supplied. Local unsigned packages are intended for acceptance testing;
 public distribution requires the normal Apple signing and notarisation process.
 
 The package installs Core for the signed-in macOS user and places `hyops` in
-`/usr/local/bin`. To remove the installed software while retaining runtime
-environments, logs and vault data:
+`/usr/local/bin`. Package installation output is retained at
+`/Library/Logs/HybridOps/core-install.log`. To remove the installed software
+while retaining runtime environments, logs and vault data:
 
 ```bash
 sudo /usr/local/share/hybridops-core/uninstall-macos.sh

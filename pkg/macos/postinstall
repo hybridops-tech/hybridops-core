@@ -1,7 +1,18 @@
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+log_dir="/Library/Logs/HybridOps"
+log_file="${log_dir}/core-install.log"
+/bin/mkdir -p "${log_dir}"
+/usr/bin/touch "${log_file}"
+/bin/chmod 0755 "${log_dir}"
+/bin/chmod 0644 "${log_file}"
+exec > >(/usr/bin/tee -a "${log_file}") 2>&1
+
+echo "HybridOps.Core package installation started at $(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "Install log: ${log_file}"
+
+script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 archive="${script_dir}/release.tar.gz"
 checksum="${archive}.sha256"
 
@@ -44,15 +55,21 @@ trap cleanup EXIT HUP INT TERM
 
 (
   cd "${script_dir}"
-  /usr/bin/shasum -a 256 -c "$(basename -- "${checksum}")"
+  /usr/bin/shasum -a 256 -c "$(basename "${checksum}")"
 )
 /usr/bin/tar -xzf "${archive}" -C "${work_dir}"
-source_root=$(/usr/bin/find "${work_dir}" -mindepth 1 -maxdepth 2 -type f -name install.sh -print | /usr/bin/head -n 1)
+source_root=""
+for candidate in "${work_dir}"/install.sh "${work_dir}"/*/install.sh; do
+  if [ -f "${candidate}" ]; then
+    source_root="${candidate}"
+    break
+  fi
+done
 if [ -z "${source_root}" ]; then
   echo "HybridOps.Core installer was not found in the package payload." >&2
   exit 1
 fi
-source_root=$(dirname -- "${source_root}")
+source_root=$(dirname "${source_root}")
 
 /usr/bin/sudo -H -u "${console_user}" \
   /usr/bin/env HOME="${console_home}" PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
@@ -80,5 +97,6 @@ printf '%s\n' "${console_home}" > /usr/local/share/hybridops-core/installed-home
 /usr/local/bin/hyops --help >/dev/null
 echo "HybridOps.Core installed for ${console_user}."
 echo "Next: hyops setup gcp  # or: azure, proxmox"
+echo "HybridOps.Core package installation completed."
 
 exit 0

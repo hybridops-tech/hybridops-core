@@ -90,7 +90,7 @@ install -m 0755 "${SCRIPT_DIR}/macos/postinstall" "${SCRIPTS_DIR}/postinstall"
 install -m 0644 "${ARCHIVE}" "${SCRIPTS_DIR}/release.tar.gz"
 install -m 0644 "${SCRIPT_DIR}/macos/resources/welcome.html" "${RESOURCES_DIR}/welcome.html"
 install -m 0644 "${SCRIPT_DIR}/macos/resources/conclusion.html" "${RESOURCES_DIR}/conclusion.html"
-install -m 0644 "${REPO_ROOT}/LICENSE" "${RESOURCES_DIR}/LICENSE.txt"
+install -m 0644 "${SCRIPT_DIR}/macos/resources/license.html" "${RESOURCES_DIR}/license.html"
 (
   cd "${SCRIPTS_DIR}"
   shasum -a 256 release.tar.gz > release.tar.gz.sha256
@@ -116,7 +116,7 @@ root = tree.getroot()
 entries = (
     ("title", None, "HybridOps.Core"),
     ("welcome", "welcome.html", None),
-    ("license", "LICENSE.txt", None),
+    ("license", "license.html", None),
     ("conclusion", "conclusion.html", None),
 )
 for index, (tag, filename, text) in enumerate(entries):

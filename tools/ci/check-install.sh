@@ -69,10 +69,16 @@ grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${HYOPS_REPO_ROOT}/install-w
 grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 
 bash -n "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
-sh -n "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+bash -n "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 sh -n "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
 grep -Fq -- '--no-system-link --no-setup-all' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq '/Library/Logs/HybridOps' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+if grep -Eq '(-mindepth|-maxdepth)' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"; then
+  echo "ERR: macOS postinstall uses GNU find options" >&2
+  exit 1
+fi
+test -s "${HYOPS_REPO_ROOT}/pkg/macos/resources/license.html"
 grep -Fq 'Runtime environments, logs and vault data were retained.' \
   "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
 grep -Fq 'tech.hybridops.core' "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
