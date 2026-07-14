@@ -74,6 +74,8 @@ sh -n "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
 grep -Fq -- '--no-system-link --no-setup-all' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq '/Library/Logs/HybridOps' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq '[1/4] Verifying the release package' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq 'Window → Installer Log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
 if grep -Eq '(-mindepth|-maxdepth)' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"; then
   echo "ERR: macOS postinstall uses GNU find options" >&2
   exit 1

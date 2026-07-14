@@ -47,6 +47,7 @@ if [ ! -f "${archive}" ] || [ ! -f "${checksum}" ]; then
   exit 1
 fi
 
+echo "[1/4] Verifying the release package"
 work_dir=$(/usr/bin/mktemp -d /private/tmp/hybridops-core.pkg.XXXXXX)
 cleanup() {
   /bin/rm -rf "${work_dir}"
@@ -71,6 +72,7 @@ if [ -z "${source_root}" ]; then
 fi
 source_root=$(dirname "${source_root}")
 
+echo "[2/4] Installing HybridOps.Core for ${console_user}"
 /usr/bin/sudo -H -u "${console_user}" \
   /usr/bin/env HOME="${console_home}" PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   /bin/bash "${source_root}/install.sh" --force --no-system-link --no-setup-all
@@ -81,6 +83,7 @@ if [ ! -x "${user_command}" ]; then
   exit 1
 fi
 
+echo "[3/4] Registering the hyops command"
 /bin/mkdir -p /usr/local/bin /usr/local/share/hybridops-core
 {
   echo '#!/bin/sh'
@@ -94,6 +97,7 @@ printf '%s\n' "${console_home}" > /usr/local/share/hybridops-core/installed-home
   /usr/local/share/hybridops-core/installed-user \
   /usr/local/share/hybridops-core/installed-home
 
+echo "[4/4] Verifying the installed command"
 /usr/local/bin/hyops --help >/dev/null
 echo "HybridOps.Core installed for ${console_user}."
 echo "Next: hyops setup gcp  # or: azure, proxmox"
