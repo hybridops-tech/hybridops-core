@@ -1,3 +1,4 @@
+import io
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
@@ -104,3 +105,25 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(rc, 2)
         self.assertEqual(inputs_file.call_count, 1)
         self.assertEqual(command.call_count, 1)
+
+    def test_non_interactive_destroy_requires_explicit_yes(self):
+        paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        ns = _namespace()
+        ns.yes = False
+        stdout = io.StringIO()
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch("hyops.blueprint.command.sys.stdin", io.StringIO()),
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+            patch("hyops.blueprint.command.run_step_module_command") as command,
+        ):
+            rc = run_destroy(ns)
+
+        self.assertEqual(rc, 2)
+        self.assertIn("requires --yes", stdout.getvalue())
+        command.assert_not_called()

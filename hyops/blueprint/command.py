@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.browser import open_operator_url
 from hyops.runtime.evidence import new_run_id
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
+from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import read_module_state, split_module_state_ref
 from hyops.runtime.paths import resolve_runtime_paths
@@ -662,6 +664,90 @@ def _print_guest_network_guidance(access: dict[str, Any]) -> None:
     print(f"guest setup: connect a node interface to {guest_network} and use DHCP")
 
 
+def _state_age(updated_at: Any) -> str:
+    raw = str(updated_at or "").strip()
+    if not raw:
+        return "unknown"
+    try:
+        recorded = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if recorded.tzinfo is None:
+            recorded = recorded.replace(tzinfo=timezone.utc)
+        seconds = max(0, int((datetime.now(timezone.utc) - recorded).total_seconds()))
+    except ValueError:
+        return "unknown"
+    minutes = seconds // 60
+    hours, remaining_minutes = divmod(minutes, 60)
+    days, remaining_hours = divmod(hours, 24)
+    if days:
+        return f"{days}d {remaining_hours}h"
+    if hours:
+        return f"{hours}h {remaining_minutes}m"
+    return f"{minutes}m"
+
+
+def _offer_access_close_destroy(
+    ns,
+    payload: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    project_id: str = "",
+) -> int:
+    access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+    if not bool(access.get("offer_destroy_on_close", False)):
+        return 0
+
+    env_name = str(getattr(ns, "env", None) or "default").strip() or "default"
+    print()
+    print(f"environment: {env_name}")
+    if project_id:
+        print(f"GCP project: {project_id}")
+        validated, enabled, _detail = diagnose_project_billing(project_id)
+        if validated:
+            print(f"billing: {'enabled' if enabled else 'disabled'}")
+        else:
+            print("billing: unable to verify")
+        print(
+            "trial, credit and spend details: "
+            f"https://console.cloud.google.com/billing?project={project_id}"
+        )
+    print(f"resource state age: {_state_age(state.get('updated_at'))}")
+    print("billable resources may remain active after access closes")
+
+    destroy_command = (
+        f"hyops blueprint destroy --env {env_name} "
+        f"--ref {payload.get('blueprint_ref', '')} --execute"
+    )
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print(f"destroy when finished: {destroy_command}")
+        return 0
+
+    try:
+        answer = input("Destroy this environment now? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        print(f"environment retained; destroy when finished: {destroy_command}")
+        return 0
+    if answer not in {"y", "yes"}:
+        print(f"environment retained; destroy when finished: {destroy_command}")
+        return 0
+
+    confirmation = f"destroy {env_name}"
+    try:
+        typed = input(f'Type "{confirmation}" to confirm: ').strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        print("destroy cancelled")
+        return 0
+    if typed != confirmation:
+        print("destroy cancelled; confirmation did not match")
+        return 0
+
+    destroy_ns = argparse.Namespace(**vars(ns))
+    destroy_ns.execute = True
+    destroy_ns.yes = True
+    return run_destroy(destroy_ns)
+
+
 def _access_known_hosts_file(paths, state_ref: str, state: dict[str, Any]) -> Path:
     run_id = str(state.get("run_id") or "current").strip() or "current"
     scope = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{state_ref}-{run_id}").strip("._")
@@ -815,7 +901,7 @@ def run_access(ns) -> int:
             except KeyboardInterrupt:
                 _stop_process(proc)
                 print("access closed")
-                return 0
+                return _offer_access_close_destroy(ns, payload, state)
 
         vm_id = str(vm.get("vm_id") or "").strip()
         match = re.fullmatch(r"projects/([^/]+)/zones/([^/]+)/instances/([^/]+)", vm_id)
@@ -914,7 +1000,12 @@ def run_access(ns) -> int:
             _stop_process(proc)
             _stop_process(iap_proc)
             print("access closed")
-            return 0
+            return _offer_access_close_destroy(
+                ns,
+                payload,
+                state,
+                project_id=project,
+            )
     except Exception as exc:
         if "iap_proc" in locals():
             _stop_process(iap_proc)
@@ -1351,10 +1442,8 @@ def run_destroy(ns) -> int:
                 print("ERR: blueprint destroy cancelled by operator")
                 return OPERATOR_ERROR
         else:
-            print(
-                "WARN: non-interactive session detected; proceeding without prompt "
-                "(use --yes to silence)."
-            )
+            print("ERR: non-interactive blueprint destroy requires --yes")
+            return OPERATOR_ERROR
 
     fail_fast = bool(payload["policy"].get("fail_fast", True))
     step_results: list[dict[str, Any]] = []

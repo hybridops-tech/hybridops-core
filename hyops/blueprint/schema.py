@@ -199,6 +199,10 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             "guest_dhcp_range": str(
                 raw_access.get("guest_dhcp_range") or ""
             ).strip(),
+            "offer_destroy_on_close": bool_field(
+                raw_access.get("offer_destroy_on_close"),
+                "access.offer_destroy_on_close",
+            ),
         }
         if not 1 <= access["remote_port"] <= 65535:
             raise ValueError("access.remote_port must be between 1 and 65535")
