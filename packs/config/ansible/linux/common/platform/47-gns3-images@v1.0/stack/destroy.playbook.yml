@@ -1,0 +1,22 @@
+---
+- name: Destroy platform/linux/gns3-images
+  hosts: targets
+  become: false
+  gather_facts: false
+
+  tasks: []
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.gns3.images': 'retained',
+            'gns3_images_requested_count': 0,
+            'gns3_images_installed_count': 0,
+            'gns3_images_template_names': []
+          } | to_json }}

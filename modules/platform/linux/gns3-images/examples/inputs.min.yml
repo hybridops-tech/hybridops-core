@@ -1,0 +1,14 @@
+inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+inventory_vm_groups:
+  targets:
+    - "gns3-01"
+target_user: "opsadmin"
+gns3_images_items:
+  - name: "Alpine Linux 3.24"
+    url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-virt-3.24.1-x86_64.iso"
+    filename: "alpine-virt-3.24.1-x86_64.iso"
+    checksum: "sha256:e73a6241bd5f3c5c2d4d38c02cc52c378c0415a7c888bd292066bf36e0f41a39"
+    disk_type: "cdrom"
+    template:
+      ram: 512
+      adapters: 2

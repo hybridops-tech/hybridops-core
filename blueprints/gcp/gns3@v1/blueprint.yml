@@ -116,13 +116,46 @@ steps:
       gns3_server_require_kvm: true
       gns3_server_install_emulators: true
 
+  - id: gcp_gns3_images
+    module_ref: "platform/linux/gns3-images"
+    state_instance: "gcp_gns3_images"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_gns3_server
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      gns3_images_items:
+        - name: "Alpine Linux 3.24"
+          url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-virt-3.24.1-x86_64.iso"
+          filename: "alpine-virt-3.24.1-x86_64.iso"
+          checksum: "sha256:e73a6241bd5f3c5c2d4d38c02cc52c378c0415a7c888bd292066bf36e0f41a39"
+          disk_type: "cdrom"
+          template:
+            ram: 512
+            adapters: 2
+
   - id: gcp_gns3_starter_lab
     module_ref: "platform/linux/gns3-starter-lab"
     state_instance: "gcp_gns3_starter_lab"
     action: "deploy"
     phase: "operations"
     requires:
-      - gcp_gns3_server
+      - gcp_gns3_images
     with_deps: false
     skip_if_state_ok: false
     contracts:

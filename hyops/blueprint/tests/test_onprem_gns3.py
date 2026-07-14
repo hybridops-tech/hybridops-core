@@ -20,6 +20,7 @@ class OnPremGNS3BlueprintTest(TestCase):
                 "template_image_jammy",
                 "gns3_vm",
                 "gns3_server",
+                "gns3_images",
                 "gns3_starter_lab",
                 "gns3_healthcheck",
             ],
@@ -59,7 +60,7 @@ class OnPremGNS3BlueprintTest(TestCase):
         )
 
     def test_healthcheck_runs_disposable_vpcs_lifecycle(self) -> None:
-        health_step = self.blueprint["steps"][4]
+        health_step = self.blueprint["steps"][5]
         self.assertEqual(health_step["requires"], ["gns3_starter_lab"])
         self.assertEqual(
             health_step["module_ref"], "platform/linux/gns3-healthcheck"
@@ -67,8 +68,8 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertTrue(health_step["inputs"]["gns3_healthcheck_deep"])
 
     def test_starter_lab_uses_builtin_topology(self) -> None:
-        starter_step = self.blueprint["steps"][3]
-        self.assertEqual(starter_step["requires"], ["gns3_server"])
+        starter_step = self.blueprint["steps"][4]
+        self.assertEqual(starter_step["requires"], ["gns3_images"])
         self.assertEqual(
             starter_step["module_ref"], "platform/linux/gns3-starter-lab"
         )
@@ -76,3 +77,10 @@ class OnPremGNS3BlueprintTest(TestCase):
             starter_step["inputs"]["gns3_starter_lab_project_name"],
             "HybridOps Starter Lab",
         )
+
+    def test_images_are_verified_before_starter_lab(self) -> None:
+        image_step = self.blueprint["steps"][3]
+        self.assertEqual(image_step["requires"], ["gns3_server"])
+        image = image_step["inputs"]["gns3_images_items"][0]
+        self.assertEqual(image["disk_type"], "cdrom")
+        self.assertRegex(image["checksum"], r"^sha256:[0-9a-f]{64}$")
