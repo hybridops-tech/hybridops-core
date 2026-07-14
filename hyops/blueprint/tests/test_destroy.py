@@ -1,8 +1,16 @@
+import io
+import hashlib
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
-from hyops.blueprint.command import run_destroy
+from hyops.blueprint.command import (
+    _run_archive_before_destroy,
+    _select_archive_destroy_mode,
+    run_destroy,
+)
 
 
 def _payload():
@@ -36,6 +44,8 @@ def _namespace():
         root=None,
         env="test",
         file=None,
+        archive_before_destroy=False,
+        skip_archive=False,
     )
 
 
@@ -104,3 +114,93 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(rc, 2)
         self.assertEqual(inputs_file.call_count, 1)
         self.assertEqual(command.call_count, 1)
+
+    def test_non_interactive_archive_choice_must_be_explicit(self):
+        ns = _namespace()
+        payload = {"archive_before_destroy": {"module_ref": "platform/test/archive"}}
+
+        with self.assertRaisesRegex(ValueError, "select --archive-before-destroy"):
+            _select_archive_destroy_mode(ns, payload, "test")
+
+    def test_archive_flag_requires_blueprint_lifecycle(self):
+        ns = _namespace()
+        ns.archive_before_destroy = True
+
+        with self.assertRaisesRegex(ValueError, "does not declare"):
+            _select_archive_destroy_mode(ns, _payload(), "test")
+
+    def test_verified_archive_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "labs.tar.gz"
+            archive_path.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            payload = {
+                "archive_before_destroy": {
+                    "module_ref": "platform/test/archive",
+                    "state_instance": "lab_archive",
+                    "inputs": {},
+                }
+            }
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive_path),
+                    "eveng_lab_archive_sha256": checksum,
+                }
+            }
+
+            with (
+                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch("hyops.blueprint.command.read_module_state", return_value=state),
+            ):
+                rc = _run_archive_before_destroy(_namespace(), payload, paths)
+
+        self.assertEqual(rc, 0)
+
+    def test_failed_archive_stops_before_resource_destroy(self):
+        paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        payload = _payload()
+        payload["archive_before_destroy"] = {
+            "module_ref": "platform/test/archive",
+            "state_instance": "lab_archive",
+            "inputs": {"archive_action": "export"},
+        }
+        ns = _namespace()
+        ns.archive_before_destroy = True
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+            patch("hyops.blueprint.command.run_step_module_command", return_value=2) as command,
+        ):
+            rc = run_destroy(ns)
+
+        self.assertEqual(rc, 2)
+        command.assert_called_once()
+        self.assertEqual(command.call_args.args[0]["id"], "archive_before_destroy")
+
+    def test_non_interactive_destroy_requires_explicit_yes(self):
+        paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        ns = _namespace()
+        ns.yes = False
+        stdout = io.StringIO()
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch("hyops.blueprint.command.sys.stdin", io.StringIO()),
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+            patch("hyops.blueprint.command.run_step_module_command") as command,
+        ):
+            rc = run_destroy(ns)
+
+        self.assertEqual(rc, 2)
+        self.assertIn("requires --yes", stdout.getvalue())
+        command.assert_not_called()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import hashlib
 import ipaddress
 import json
 import os
@@ -13,6 +14,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.browser import open_operator_url
 from hyops.runtime.evidence import new_run_id
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
+from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import read_module_state, split_module_state_ref
 from hyops.runtime.paths import resolve_runtime_paths
@@ -364,6 +367,17 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Proceed without interactive confirmation.",
     )
+    archive_choice = d.add_mutually_exclusive_group()
+    archive_choice.add_argument(
+        "--archive-before-destroy",
+        action="store_true",
+        help="Export and verify declared lab data before teardown.",
+    )
+    archive_choice.add_argument(
+        "--skip-archive",
+        action="store_true",
+        help="Destroy without exporting declared lab data.",
+    )
     d.set_defaults(_handler=run_destroy)
 
     b = ssp.add_parser(
@@ -662,6 +676,71 @@ def _print_guest_network_guidance(access: dict[str, Any]) -> None:
     print(f"guest setup: connect a node interface to {guest_network} and use DHCP")
 
 
+def _state_age(updated_at: Any) -> str:
+    raw = str(updated_at or "").strip()
+    if not raw:
+        return "unknown"
+    try:
+        recorded = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if recorded.tzinfo is None:
+            recorded = recorded.replace(tzinfo=timezone.utc)
+        seconds = max(0, int((datetime.now(timezone.utc) - recorded).total_seconds()))
+    except ValueError:
+        return "unknown"
+    minutes = seconds // 60
+    hours, remaining_minutes = divmod(minutes, 60)
+    days, remaining_hours = divmod(hours, 24)
+    if days:
+        return f"{days}d {remaining_hours}h"
+    if hours:
+        return f"{hours}h {remaining_minutes}m"
+    return f"{minutes}m"
+
+
+def _offer_access_close_destroy(
+    ns,
+    payload: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    project_id: str = "",
+) -> int:
+    access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+    if not bool(access.get("offer_destroy_on_close", False)):
+        return 0
+
+    env_name = str(getattr(ns, "env", None) or "default").strip() or "default"
+    print()
+    print(f"environment: {env_name}")
+    if project_id:
+        print(f"GCP project: {project_id}")
+        validated, enabled, _detail = diagnose_project_billing(project_id)
+        if validated:
+            print(f"billing: {'enabled' if enabled else 'disabled'}")
+        else:
+            print("billing: unable to verify")
+        print(
+            "trial, credit and spend details: "
+            f"https://console.cloud.google.com/billing?project={project_id}"
+        )
+    print(f"resource state age: {_state_age(state.get('updated_at'))}")
+    print("billable resources may remain active after access closes")
+
+    destroy_command = (
+        f"hyops blueprint destroy --env {env_name} "
+        f"--ref {payload.get('blueprint_ref', '')} --execute"
+    )
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print(f"destroy when finished: {destroy_command}")
+        return 0
+
+    destroy_ns = argparse.Namespace(**vars(ns))
+    destroy_ns.execute = True
+    destroy_ns.yes = False
+    destroy_ns.archive_before_destroy = False
+    destroy_ns.skip_archive = False
+    return run_destroy(destroy_ns)
+
+
 def _access_known_hosts_file(paths, state_ref: str, state: dict[str, Any]) -> Path:
     run_id = str(state.get("run_id") or "current").strip() or "current"
     scope = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{state_ref}-{run_id}").strip("._")
@@ -826,7 +905,7 @@ def run_access(ns) -> int:
             except KeyboardInterrupt:
                 _stop_process(proc)
                 print("access closed")
-                return 0
+                return _offer_access_close_destroy(ns, payload, state)
 
         vm_id = str(vm.get("vm_id") or "").strip()
         match = re.fullmatch(r"projects/([^/]+)/zones/([^/]+)/instances/([^/]+)", vm_id)
@@ -929,7 +1008,12 @@ def run_access(ns) -> int:
             _stop_process(proc)
             _stop_process(iap_proc)
             print("access closed")
-            return 0
+            return _offer_access_close_destroy(
+                ns,
+                payload,
+                state,
+                project_id=project,
+            )
     except Exception as exc:
         if "iap_proc" in locals():
             _stop_process(iap_proc)
@@ -1284,6 +1368,103 @@ def run_deploy(ns) -> int:
     return 0 if not required_failures else OPERATOR_ERROR
 
 
+def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> str:
+    archive = payload.get("archive_before_destroy")
+    if not isinstance(archive, dict) or not archive:
+        if bool(getattr(ns, "archive_before_destroy", False)) or bool(
+            getattr(ns, "skip_archive", False)
+        ):
+            raise ValueError("this blueprint does not declare a lab archive lifecycle")
+        return "none"
+
+    if bool(getattr(ns, "archive_before_destroy", False)):
+        return "archive"
+    if bool(getattr(ns, "skip_archive", False)):
+        return "skip"
+
+    if bool(getattr(ns, "yes", False)) or not (
+        sys.stdin.isatty() and sys.stdout.isatty()
+    ):
+        raise ValueError(
+            "this blueprint protects lab data; select --archive-before-destroy "
+            "or --skip-archive"
+        )
+
+    print("lab data:")
+    print("  1. Keep the environment running")
+    print("  2. Export labs, verify the archive, then destroy")
+    print("  3. Destroy without exporting labs")
+    try:
+        answer = input("Choose [1-3]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return "keep"
+    if answer == "1" or not answer:
+        return "keep"
+    if answer == "2":
+        return "archive"
+    if answer == "3":
+        return "skip"
+    print("destroy cancelled; expected 1, 2, or 3")
+    return "keep"
+
+
+def _confirm_archive_destroy(env_name: str) -> bool:
+    confirmation = f"destroy {env_name}"
+    try:
+        typed = input(f'Type "{confirmation}" to confirm: ').strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return typed == confirmation
+
+
+def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
+    archive = payload["archive_before_destroy"]
+    archive_step = {
+        "id": "archive_before_destroy",
+        "module_ref": archive["module_ref"],
+        "state_instance": archive["state_instance"],
+        "action": "deploy",
+        "phase": "operations",
+        "with_deps": False,
+        "inputs": archive.get("inputs") or {},
+    }
+    print("exporting lab data before teardown")
+    rc = run_step_module_command(archive_step, payload, ns, paths)
+    if rc != 0:
+        print("ERR: lab export failed; no resources were destroyed")
+        return int(rc)
+
+    try:
+        state = read_module_state(
+            paths.state_dir,
+            archive["module_ref"],
+            state_instance=archive["state_instance"],
+        )
+        outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
+        archive_path = Path(
+            str(outputs.get("eveng_lab_archive_path") or "")
+        ).expanduser()
+        expected = str(outputs.get("eveng_lab_archive_sha256") or "").strip().lower()
+        if not archive_path.is_file() or not expected:
+            raise ValueError("lab export did not publish a verifiable archive")
+        digest = hashlib.sha256()
+        with archive_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except (OSError, ValueError) as exc:
+        print(f"ERR: {exc}; no resources were destroyed")
+        return OPERATOR_ERROR
+    actual = digest.hexdigest()
+    if actual != expected:
+        print("ERR: lab archive checksum verification failed; no resources were destroyed")
+        return OPERATOR_ERROR
+    print(f"lab archive: {archive_path}")
+    print(f"sha256: {actual}")
+    return 0
+
+
 def run_destroy(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
@@ -1338,12 +1519,12 @@ def run_destroy(ns) -> int:
         return OPERATOR_ERROR
 
     by_id = {step["id"]: step for step in payload["steps"]}
+    env_name = (
+        str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip()
+        or "default"
+    )
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
-        env_name = (
-            str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip()
-            or "default"
-        )
         print(f"WARN: blueprint destroy will tear down resources in env={env_name}.")
         print("steps (reverse order):")
         for step_id in destroy_order:
@@ -1356,7 +1537,22 @@ def run_destroy(ns) -> int:
                 f"(state={status} ref={state_ref})"
             )
 
-        if sys.stdin.isatty() and sys.stdout.isatty():
+    try:
+        archive_mode = _select_archive_destroy_mode(ns, payload, env_name)
+    except ValueError as exc:
+        print(f"ERR: {exc}")
+        return OPERATOR_ERROR
+
+    if archive_mode == "keep":
+        print("environment retained")
+        return 0
+
+    if not bool(getattr(ns, "yes", False)) and not json_mode:
+        if payload.get("archive_before_destroy"):
+            if not _confirm_archive_destroy(env_name):
+                print("destroy cancelled; confirmation did not match")
+                return CANCELLED
+        elif sys.stdin.isatty() and sys.stdout.isatty():
             try:
                 answer = input("Proceed with blueprint destroy? [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
@@ -1366,10 +1562,13 @@ def run_destroy(ns) -> int:
                 print("ERR: blueprint destroy cancelled by operator")
                 return OPERATOR_ERROR
         else:
-            print(
-                "WARN: non-interactive session detected; proceeding without prompt "
-                "(use --yes to silence)."
-            )
+            print("ERR: non-interactive blueprint destroy requires --yes")
+            return OPERATOR_ERROR
+
+    if archive_mode == "archive":
+        archive_rc = _run_archive_before_destroy(ns, payload, paths)
+        if archive_rc != 0:
+            return archive_rc
 
     fail_fast = bool(payload["policy"].get("fail_fast", True))
     step_results: list[dict[str, Any]] = []
@@ -1625,7 +1824,15 @@ def run_rebuild(ns) -> int:
 
     write_record("running", None, None)
     child_args = dict(vars(ns))
-    child_args.update({"yes": True, "json": False, "execute": True})
+    child_args.update(
+        {
+            "yes": True,
+            "json": False,
+            "execute": True,
+            "archive_before_destroy": False,
+            "skip_archive": True,
+        }
+    )
     print("rebuild_phase=destroy status=running")
     destroy_rc = int(run_destroy(argparse.Namespace(**child_args)))
     if destroy_rc != 0:

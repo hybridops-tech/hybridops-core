@@ -29,4 +29,3 @@
             'gns3_health_version': gns3_healthcheck_results.version,
             'gns3_health_deep_check': gns3_healthcheck_results.deep_check
           } | to_json }}
-

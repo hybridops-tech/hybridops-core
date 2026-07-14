@@ -80,6 +80,17 @@ hyops blueprint deploy \
   --execute
 ```
 
+Open the private UI:
+
+```bash
+hyops blueprint access --env dev --ref onprem/eve-ng@v1
+```
+
+When access closes, HybridOps offers to keep the environment, export its lab
+definitions before teardown, or destroy without an export. Direct interactive
+destroy uses the same choices. Automation must pass either
+`--archive-before-destroy` or `--skip-archive` with `--yes`.
+
 ## Default Shape
 
 The shipped blueprint provisions one VM:
