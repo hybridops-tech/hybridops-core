@@ -173,12 +173,13 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         if access_type not in {
             "direct-http",
             "ssh-forward",
+            "ssh-tcp-forward",
             "gcp-iap-http",
             "gcp-iap-ssh-forward",
         }:
             raise ValueError(
-                "access.type must be direct-http, ssh-forward, gcp-iap-http, "
-                "or gcp-iap-ssh-forward"
+                "access.type must be direct-http, ssh-forward, ssh-tcp-forward, "
+                "gcp-iap-http, or gcp-iap-ssh-forward"
             )
         access = {
             "type": access_type,
@@ -186,6 +187,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 raw_access.get("state_ref"), "access.state_ref"
             ),
             "remote_port": int(raw_access.get("remote_port") or 80),
+            "local_port": int(raw_access.get("local_port") or 0),
             "path": str(raw_access.get("path") or "/").strip() or "/",
             "ssh_user": str(raw_access.get("ssh_user") or "").strip(),
             "ssh_key_file": str(raw_access.get("ssh_key_file") or "").strip(),
@@ -206,7 +208,13 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         }
         if not 1 <= access["remote_port"] <= 65535:
             raise ValueError("access.remote_port must be between 1 and 65535")
-        if access_type in {"ssh-forward", "gcp-iap-ssh-forward"}:
+        if access["local_port"] and not 1 <= access["local_port"] <= 65535:
+            raise ValueError("access.local_port must be between 1 and 65535")
+        if access_type in {
+            "ssh-forward",
+            "ssh-tcp-forward",
+            "gcp-iap-ssh-forward",
+        }:
             if not access["ssh_user"]:
                 raise ValueError(
                     "access.ssh_user is required for SSH-forward access"

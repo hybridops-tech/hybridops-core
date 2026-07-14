@@ -600,7 +600,7 @@ def _require_local_ports_available(ports: list[int]) -> None:
             sockets.append(sock)
     except OSError as exc:
         raise ValueError(
-            f"native console port {port} is unavailable on localhost: {exc}"
+            f"local port {port} is unavailable on localhost: {exc}"
         ) from exc
     finally:
         for sock in sockets:
@@ -800,7 +800,7 @@ def run_access(ns) -> int:
         remote_port = int(access.get("remote_port") or 80)
         path = str(access.get("path") or "/")
 
-        if access_type in {"direct-http", "ssh-forward"}:
+        if access_type in {"direct-http", "ssh-forward", "ssh-tcp-forward"}:
             host = _extract_access_host(outputs)
             if not host:
                 raise ValueError(f"VM state does not contain a usable IPv4 address: {state_ref}")
@@ -865,7 +865,12 @@ def run_access(ns) -> int:
                 if console_ports:
                     _require_local_ports_available(console_ports)
 
-            port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
+            requested_port = int(getattr(ns, "local_port", 0) or 0) or int(
+                access.get("local_port") or 0
+            )
+            port = _available_local_port(requested_port)
+            if requested_port:
+                _require_local_ports_available([port])
             url = f"http://127.0.0.1:{port}{path}"
             argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
             argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{remote_port}"])
@@ -875,8 +880,12 @@ def run_access(ns) -> int:
                 )
             argv.append(ssh_target)
 
-            print("opening private Proxmox EVE-NG access")
-            print(f"local URL: {url}")
+            if access_type == "ssh-tcp-forward":
+                print("opening private TCP access")
+                print(f"local endpoint: 127.0.0.1:{port}")
+            else:
+                print("opening private Proxmox EVE-NG access")
+                print(f"local URL: {url}")
             _print_guest_network_guidance(access)
             if bool(getattr(ns, "native_consoles", False)):
                 print(_native_console_status(console_ports))
@@ -887,7 +896,9 @@ def run_access(ns) -> int:
             time.sleep(2)
             if proc.poll() is not None:
                 return OPERATOR_ERROR
-            if not bool(getattr(ns, "no_browser", False)):
+            if access_type != "ssh-tcp-forward" and not bool(
+                getattr(ns, "no_browser", False)
+            ):
                 open_operator_url(url)
             try:
                 return int(proc.wait())

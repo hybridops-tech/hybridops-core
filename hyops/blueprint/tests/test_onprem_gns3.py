@@ -16,7 +16,7 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(self.blueprint["policy"]["ipam_authority"], "none")
         self.assertEqual(
             [step["id"] for step in self.blueprint["steps"]],
-            ["template_image_jammy", "gns3_vm", "gns3_server"],
+            ["template_image_jammy", "gns3_vm", "gns3_server", "gns3_healthcheck"],
         )
 
         vm_step = self.blueprint["steps"][1]
@@ -37,6 +37,13 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(server_step["inputs"]["gns3_server_port"], 3080)
         self.assertTrue(server_step["inputs"]["gns3_server_require_kvm"])
 
+    def test_desktop_client_access_uses_private_tcp_forward(self) -> None:
+        access = self.blueprint["access"]
+        self.assertEqual(access["type"], "ssh-tcp-forward")
+        self.assertEqual(access["state_ref"], "platform/onprem/platform-vm#gns3_vm")
+        self.assertEqual(access["remote_port"], 3080)
+        self.assertEqual(access["local_port"], 3080)
+
     def test_template_is_retained_during_blueprint_destroy(self) -> None:
         template_step = self.blueprint["steps"][0]
         self.assertTrue(template_step["retain_on_destroy"])
@@ -44,3 +51,11 @@ class OnPremGNS3BlueprintTest(TestCase):
             template_step["inputs"]["template_key"],
             "ubuntu-22.04",
         )
+
+    def test_healthcheck_runs_disposable_vpcs_lifecycle(self) -> None:
+        health_step = self.blueprint["steps"][3]
+        self.assertEqual(health_step["requires"], ["gns3_server"])
+        self.assertEqual(
+            health_step["module_ref"], "platform/linux/gns3-healthcheck"
+        )
+        self.assertTrue(health_step["inputs"]["gns3_healthcheck_deep"])

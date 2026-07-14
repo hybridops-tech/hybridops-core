@@ -1,6 +1,8 @@
 # Changelog
 
 - Unreleased
+  - added structured GNS3 health checks with an optional disposable VPCS lifecycle
+  - added private desktop-client TCP access for the Proxmox GNS3 blueprint
   - added a standalone Proxmox GNS3 blueprint with a private authenticated API
   - added a provider-neutral GNS3 server module backed by hybridops.app 0.1.8
   - linked README scenario entries directly to their reference scenario pages
