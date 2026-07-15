@@ -40,6 +40,8 @@ jobs:
         run: |
           TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
           bash pkg/verify_release.sh "${TARBALL}"
+          WINDOWS_ZIP="${TARBALL%.tar.gz}-windows.zip"
+          test -f "${WINDOWS_ZIP}"
 
       - name: Publish GitHub release assets
         env:
@@ -48,7 +50,11 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          assets=(dist/releases/*.tar.gz dist/releases/*.tar.gz.sha256)
+          assets=(
+            dist/releases/*.tar.gz
+            dist/releases/*.tar.gz.sha256
+            dist/releases/*-windows.zip
+          )
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
           else
