@@ -1,0 +1,202 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "gcp/gns3@v1"
+mode: "hybrid"
+
+metadata:
+  title: "GCP GNS3 Teaching Lab"
+  description: "Provision a private nested-virtualization-capable GNS3 server on Google Cloud."
+  outcome: "An authenticated GNS3 server and zero-image starter lab are ready through private IAP access."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+access:
+  type: "gcp-iap-ssh-forward"
+  state_ref: "platform/gcp/platform-vm#gcp_gns3_vm"
+  remote_port: 3080
+  local_port: 3080
+  open_browser: false
+  ssh_user: "opsadmin"
+  ssh_key_file: "~/.ssh/id_ed25519"
+
+steps:
+  - id: gcp_gns3_network
+    module_ref: "platform/gcp/lab-network"
+    execution_profile: "gcp-local@v1.0"
+    state_instance: "gcp_gns3_network"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "gns3-lab"
+      subnetwork_cidr: "10.80.60.0/24"
+
+  - id: gcp_gns3_vm
+    module_ref: "platform/gcp/platform-vm"
+    execution_profile: "gcp-local@v1.0"
+    state_instance: "gcp_gns3_vm"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - gcp_gns3_network
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "gns3-lab"
+      network_state_ref: "platform/gcp/lab-network#gcp_gns3_network"
+      subnetwork_output_key: "subnetwork_name"
+      zone: ""
+      zone_from_init_region: true
+      machine_type: "n2-standard-8"
+      boot_disk_size_gb: 128
+      boot_disk_type: "pd-standard"
+      source_image_project: "ubuntu-os-cloud"
+      source_image_family: "ubuntu-2204-lts"
+      assign_public_ip: false
+      enable_nested_virtualization: true
+      ssh_username: "opsadmin"
+      ssh_keys_from_init: true
+      post_apply_ssh_readiness:
+        enabled: true
+        required: true
+        target_user: "opsadmin"
+        connectivity_wait_s: 90
+      tags:
+        - "platform"
+        - "gcp"
+        - "gns3"
+        - "lab"
+        - "allow-iap-ssh"
+      labels:
+        role: "gns3"
+        workload: "network-lab"
+      vms:
+        gns3-01:
+          role: "gns3"
+
+  - id: gcp_gns3_server
+    module_ref: "platform/linux/gns3-server"
+    state_instance: "gcp_gns3_server"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_gns3_vm
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      gns3_server_bind_address: "127.0.0.1"
+      gns3_server_port: 3080
+      gns3_server_enable_kvm: true
+      gns3_server_require_kvm: true
+      gns3_server_install_emulators: true
+
+  - id: gcp_gns3_images
+    module_ref: "platform/linux/gns3-images"
+    state_instance: "gcp_gns3_images"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_gns3_server
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      gns3_images_items:
+        - name: "Alpine Linux 3.24"
+          url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-virt-3.24.1-x86_64.iso"
+          filename: "alpine-virt-3.24.1-x86_64.iso"
+          checksum: "sha256:e73a6241bd5f3c5c2d4d38c02cc52c378c0415a7c888bd292066bf36e0f41a39"
+          disk_type: "cdrom"
+          template:
+            ram: 512
+            adapters: 2
+
+  - id: gcp_gns3_starter_lab
+    module_ref: "platform/linux/gns3-starter-lab"
+    state_instance: "gcp_gns3_starter_lab"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_gns3_images
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      gns3_starter_lab_project_name: "HybridOps Starter Lab"
+
+  - id: gcp_gns3_healthcheck
+    module_ref: "platform/linux/gns3-healthcheck"
+    state_instance: "gcp_gns3_healthcheck"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_gns3_starter_lab
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      gns3_healthcheck_require_kvm: true
+      gns3_healthcheck_require_local_compute: true
+      gns3_healthcheck_deep: true

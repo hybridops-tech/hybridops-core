@@ -1,0 +1,164 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "onprem/gns3@v1"
+mode: "hybrid"
+
+metadata:
+  title: "On-Prem GNS3 Platform Stack"
+  description: "Build a verified Jammy template, provision a standalone GNS3 VM on Proxmox, and configure an authenticated GNS3 server."
+  outcome: "A private GNS3 server is ready for a remote desktop client."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+access:
+  type: "ssh-tcp-forward"
+  state_ref: "platform/onprem/platform-vm#gns3_vm"
+  remote_port: 3080
+  local_port: 3080
+  ssh_user: "opsadmin"
+  ssh_key_file: "~/.ssh/id_ed25519"
+
+steps:
+  - id: template_image_jammy
+    module_ref: "core/onprem/template-image"
+    state_instance: "template_image_ubuntu_22_04"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    retain_on_destroy: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      template_key: "ubuntu-22.04"
+      post_build_smoke:
+        enabled: true
+        required: true
+
+  - id: gns3_vm
+    module_ref: "platform/onprem/platform-vm"
+    state_instance: "gns3_vm"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: true
+    requires:
+      - template_image_jammy
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      require_ipam: false
+      template_state_ref: "core/onprem/template-image#template_image_ubuntu_22_04"
+      template_key: "ubuntu-22.04"
+      cpu_cores: 4
+      cpu_type: "host"
+      memory_mb: 16384
+      disk_size_gb: 128
+      ssh_username: "opsadmin"
+      vms:
+        gns3-01:
+          role: "gns3"
+          interfaces:
+            - bridge: "vmbr0"
+              ipv4:
+                address: "dhcp"
+
+  - id: gns3_server
+    module_ref: "platform/linux/gns3-server"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gns3_vm
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      become: true
+      become_user: "root"
+      gns3_server_bind_address: "127.0.0.1"
+      gns3_server_port: 3080
+      gns3_server_enable_kvm: true
+      gns3_server_require_kvm: true
+      gns3_server_install_emulators: true
+
+  - id: gns3_images
+    module_ref: "platform/linux/gns3-images"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gns3_server
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      become: true
+      become_user: "root"
+      gns3_images_items:
+        - name: "Alpine Linux 3.24"
+          url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-virt-3.24.1-x86_64.iso"
+          filename: "alpine-virt-3.24.1-x86_64.iso"
+          checksum: "sha256:e73a6241bd5f3c5c2d4d38c02cc52c378c0415a7c888bd292066bf36e0f41a39"
+          disk_type: "cdrom"
+          template:
+            ram: 512
+            adapters: 2
+
+  - id: gns3_starter_lab
+    module_ref: "platform/linux/gns3-starter-lab"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gns3_images
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      become: true
+      become_user: "root"
+      gns3_starter_lab_project_name: "HybridOps Starter Lab"
+
+  - id: gns3_healthcheck
+    module_ref: "platform/linux/gns3-healthcheck"
+    action: "deploy"
+    phase: "operations"
+    with_deps: false
+    requires:
+      - gns3_starter_lab
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+      inventory_vm_groups:
+        targets:
+          - "gns3-01"
+      target_user: "opsadmin"
+      ssh_proxy_jump_auto: true
+      ssh_proxy_jump_user: "root"
+      become: true
+      become_user: "root"
+      gns3_healthcheck_require_kvm: true
+      gns3_healthcheck_require_local_compute: true
+      gns3_healthcheck_deep: true

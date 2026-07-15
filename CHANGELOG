@@ -1,9 +1,16 @@
 # Changelog
 
 - Unreleased
+  - added checksum-verified GNS3 image installation and template registration
+  - added a private GCP GNS3 teaching blueprint with IAP desktop-client access
+  - added an idempotent zero-image GNS3 starter-lab module and blueprint stage
+  - added structured GNS3 health checks with an optional disposable VPCS lifecycle
+  - added private desktop-client TCP access for the Proxmox GNS3 blueprint
+  - added a standalone Proxmox GNS3 blueprint with a private authenticated API
+  - added a provider-neutral GNS3 server module backed by hybridops.app 0.1.8
   - linked README scenario entries directly to their reference scenario pages
   - added README coverage for every shipped blueprint directory
-  - refreshed the blueprint catalogue so all 26 shipped blueprints are visible from the index
+  - refreshed the blueprint catalogue so all 27 shipped blueprints are visible from the index
   - clarified the README metrics as 52 public decision records and 8 supported surfaces
 
 - v0.1.2 - 2026-03-20

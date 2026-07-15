@@ -1,0 +1,32 @@
+---
+- name: platform/linux/gns3-starter-lab
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_gns3_starter_password: >-
+      {{ lookup('env', gns3_starter_lab_password_env | default('GNS3_SERVER_PASSWORD')) }}
+
+  tasks:
+    - name: Create or retain GNS3 starter lab
+      ansible.builtin.include_role:
+        name: "{{ gns3_starter_lab_role_fqcn }}"
+      vars:
+        gns3_starter_lab_password: "{{ _hyops_gns3_starter_password }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.gns3.starter': 'ready',
+            'gns3_starter_project_name': gns3_starter_lab_results.project_name,
+            'gns3_starter_project_id': gns3_starter_lab_results.project_id,
+            'gns3_starter_node_count': gns3_starter_lab_results.node_count,
+            'gns3_starter_link_count': gns3_starter_lab_results.link_count
+          } | to_json }}

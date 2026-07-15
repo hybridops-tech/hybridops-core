@@ -35,6 +35,7 @@ Each shipped blueprint directory contains a `blueprint.yml` contract and a local
 | [`onprem/rke2@v1`](onprem/rke2@v1) | On-prem RKE2 cluster with exported kubeconfig. |
 | [`onprem/rke2-workloads@v1`](onprem/rke2-workloads@v1) | RKE2 plus Argo CD root app and GSM bootstrap secret. |
 | [`onprem/eve-ng@v1`](onprem/eve-ng@v1) | Proxmox-hosted EVE-NG training and network simulation platform. |
+| [`onprem/gns3@v1`](onprem/gns3@v1) | Private GNS3 server on a Proxmox-hosted Ubuntu VM. |
 
 ### GCP
 
@@ -44,6 +45,7 @@ Each shipped blueprint directory contains a `blueprint.yml` contract and a local
 | [`gcp/linux-desktop@v1`](gcp/linux-desktop@v1) | Ubuntu desktop VM with XFCE and XRDP. |
 | [`gcp/windows-desktop@v1`](gcp/windows-desktop@v1) | Windows Server VM with scoped RDP access. |
 | [`gcp/eve-ng@v1`](gcp/eve-ng@v1) | Private nested-virtualization-capable EVE-NG host on GCP. |
+| [`gcp/gns3@v1`](gcp/gns3@v1) | Private nested-virtualization-capable GNS3 server on GCP. |
 
 ### Networking
 

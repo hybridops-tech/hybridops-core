@@ -1,0 +1,51 @@
+---
+- name: platform/linux/gns3-server (configure)
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    gns3_server_role_fqcn: >-
+      {{ gns3_server_role_fqcn | default('hybridops.app.gns3_server') }}
+    _hyops_gns3_bind_address: "{{ gns3_server_bind_address | default('0.0.0.0') }}"
+    _hyops_gns3_port: "{{ gns3_server_port | default(3080) | int }}"
+    _hyops_gns3_username: "{{ gns3_server_username | default('gns3') }}"
+    _hyops_gns3_password: >-
+      {{ lookup('env', gns3_server_password_env | default('GNS3_SERVER_PASSWORD')) }}
+    _hyops_gns3_allowed_interfaces: >-
+      {{ gns3_server_allowed_interfaces | default(['virbr0']) }}
+    _hyops_gns3_enable_kvm: "{{ gns3_server_enable_kvm | default(true) | bool }}"
+    _hyops_gns3_require_kvm: "{{ gns3_server_require_kvm | default(false) | bool }}"
+    _hyops_gns3_install_emulators: >-
+      {{ gns3_server_install_emulators | default(true) | bool }}
+
+  tasks:
+    - name: Install and configure GNS3 server
+      ansible.builtin.include_role:
+        name: "{{ gns3_server_role_fqcn }}"
+      vars:
+        gns3_server_bind_address: "{{ _hyops_gns3_bind_address }}"
+        gns3_server_port: "{{ _hyops_gns3_port }}"
+        gns3_server_username: "{{ _hyops_gns3_username }}"
+        gns3_server_password: "{{ _hyops_gns3_password }}"
+        gns3_server_allowed_interfaces: "{{ _hyops_gns3_allowed_interfaces }}"
+        gns3_server_enable_kvm: "{{ _hyops_gns3_enable_kvm }}"
+        gns3_server_require_kvm: "{{ _hyops_gns3_require_kvm }}"
+        gns3_server_install_emulators: "{{ _hyops_gns3_install_emulators }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'gns3_url': ('http://' ~ (
+              hostvars[inventory_hostname].hyops_resolved_host
+              | default(hostvars[inventory_hostname].hyops_private_host | default(hostvars[inventory_hostname].ansible_host | default('')))
+            ) ~ ':' ~ (_hyops_gns3_port | string) ~ '/'),
+            'gns3_api_port': _hyops_gns3_port,
+            'cap.lab.gns3': 'ready'
+          } | to_json }}

@@ -173,12 +173,13 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         if access_type not in {
             "direct-http",
             "ssh-forward",
+            "ssh-tcp-forward",
             "gcp-iap-http",
             "gcp-iap-ssh-forward",
         }:
             raise ValueError(
-                "access.type must be direct-http, ssh-forward, gcp-iap-http, "
-                "or gcp-iap-ssh-forward"
+                "access.type must be direct-http, ssh-forward, ssh-tcp-forward, "
+                "gcp-iap-http, or gcp-iap-ssh-forward"
             )
         access = {
             "type": access_type,
@@ -186,7 +187,9 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 raw_access.get("state_ref"), "access.state_ref"
             ),
             "remote_port": int(raw_access.get("remote_port") or 80),
+            "local_port": int(raw_access.get("local_port") or 0),
             "path": str(raw_access.get("path") or "/").strip() or "/",
+            "open_browser": bool(raw_access.get("open_browser", True)),
             "ssh_user": str(raw_access.get("ssh_user") or "").strip(),
             "ssh_key_file": str(raw_access.get("ssh_key_file") or "").strip(),
             "native_console_mode": str(
@@ -199,10 +202,20 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             "guest_dhcp_range": str(
                 raw_access.get("guest_dhcp_range") or ""
             ).strip(),
+            "offer_destroy_on_close": bool_field(
+                raw_access.get("offer_destroy_on_close"),
+                "access.offer_destroy_on_close",
+            ),
         }
         if not 1 <= access["remote_port"] <= 65535:
             raise ValueError("access.remote_port must be between 1 and 65535")
-        if access_type in {"ssh-forward", "gcp-iap-ssh-forward"}:
+        if access["local_port"] and not 1 <= access["local_port"] <= 65535:
+            raise ValueError("access.local_port must be between 1 and 65535")
+        if access_type in {
+            "ssh-forward",
+            "ssh-tcp-forward",
+            "gcp-iap-ssh-forward",
+        }:
             if not access["ssh_user"]:
                 raise ValueError(
                     "access.ssh_user is required for SSH-forward access"
@@ -225,6 +238,34 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 "access guest network guidance requires guest_network_label, "
                 "guest_gateway, and guest_dhcp_range"
             )
+
+    archive_before_destroy: dict[str, Any] = {}
+    if spec.get("archive_before_destroy") is not None:
+        raw_archive = as_mapping(
+            spec.get("archive_before_destroy"), "archive_before_destroy"
+        )
+        allowed = {"module_ref", "state_instance", "inputs"}
+        unknown = sorted(str(key) for key in raw_archive if str(key) not in allowed)
+        if unknown:
+            raise ValueError(
+                "archive_before_destroy has unknown keys: " + ", ".join(unknown)
+            )
+        archive_inputs = raw_archive.get("inputs")
+        if archive_inputs is not None:
+            archive_inputs = as_mapping(
+                archive_inputs, "archive_before_destroy.inputs"
+            )
+        archive_before_destroy = {
+            "module_ref": module_ref_field(
+                raw_archive.get("module_ref"),
+                "archive_before_destroy.module_ref",
+            ),
+            "state_instance": as_non_empty_string(
+                raw_archive.get("state_instance"),
+                "archive_before_destroy.state_instance",
+            ),
+            "inputs": archive_inputs if isinstance(archive_inputs, dict) else {},
+        }
 
     raw_steps = spec.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
@@ -391,6 +432,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         "metadata": metadata if isinstance(metadata, dict) else {},
         "policy": policy,
         "access": access,
+        "archive_before_destroy": archive_before_destroy,
         "steps": steps,
         "order": order,
     }

@@ -1,0 +1,23 @@
+---
+- name: Destroy platform/linux/gns3-starter-lab
+  hosts: targets
+  become: false
+  gather_facts: false
+
+  tasks: []
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.gns3.starter': 'not-run',
+            'gns3_starter_project_name': '',
+            'gns3_starter_project_id': '',
+            'gns3_starter_node_count': 0,
+            'gns3_starter_link_count': 0
+          } | to_json }}
