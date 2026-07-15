@@ -89,7 +89,9 @@ jobs:
             --archive "${TARBALL}" \
             --version "${HYOPS_RELEASE_LABEL}" \
             --output "${PKG}"
-          shasum -a 256 "${PKG}" >"${PKG}.sha256"
+          PKG_DIR="$(dirname "${PKG}")"
+          PKG_NAME="$(basename "${PKG}")"
+          (cd "${PKG_DIR}" && shasum -a 256 "${PKG_NAME}" >"${PKG_NAME}.sha256")
 
       - name: Verify macOS package
         shell: bash
@@ -98,7 +100,9 @@ jobs:
           EXPANDED="${RUNNER_TEMP}/hybridops-core-pkg"
           test "$(uname -m)" = "${{ matrix.architecture }}"
           test "$(stat -f '%z' "${PKG}")" -gt 1000000
-          shasum -a 256 -c "${PKG}.sha256"
+          PKG_DIR="$(dirname "${PKG}")"
+          PKG_NAME="$(basename "${PKG}")"
+          (cd "${PKG_DIR}" && shasum -a 256 -c "${PKG_NAME}.sha256")
           pkgutil --expand "${PKG}" "${EXPANDED}"
           test -f "${EXPANDED}/Distribution"
           grep -Fq "<title>HybridOps.Core</title>" "${EXPANDED}/Distribution"
