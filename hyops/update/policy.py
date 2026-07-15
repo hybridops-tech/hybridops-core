@@ -21,7 +21,7 @@ from hyops.update.checker import DEFAULT_INTERVAL_SECONDS, _version_tuple
 
 
 DEFAULT_POLICY_URL = (
-    "https://raw.githubusercontent.com/hybridops-tech/hybridops-core/main/support-policy.json"
+    "https://raw.githubusercontent.com/hybridops-tech/hybridops-core/main/pkg/support-policy.json"
 )
 
 
