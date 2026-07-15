@@ -7,9 +7,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+
+import requests
 
 from hyops.runtime.exitcodes import OK
 from hyops.update.checker import UpdateStatus, check_for_update
+from hyops.update.installer import install_release
 
 
 def add_update_subparser(sp: argparse._SubParsersAction) -> None:
@@ -20,6 +24,10 @@ def add_update_subparser(sp: argparse._SubParsersAction) -> None:
     check.add_argument("--json", action="store_true", help="Print machine-readable output.")
     check.add_argument("--root", help="Runtime root used for the update-check cache.")
     check.set_defaults(_handler=run_check)
+    install = commands.add_parser("install", help="Install the current Core release.")
+    install.add_argument("--yes", action="store_true", help="Install without confirmation.")
+    install.add_argument("--root", help="Runtime root used for release checks.")
+    install.set_defaults(_handler=run_install)
 
 
 def _message(status: UpdateStatus) -> str:
@@ -48,3 +56,27 @@ def run_check(ns: argparse.Namespace) -> int:
     else:
         print(_message(status))
     return OK
+
+
+def run_install(ns: argparse.Namespace) -> int:
+    status = check_for_update(root=ns.root, use_cache=False, timeout=10.0)
+    if status.state == "current":
+        print(f"HybridOps.Core {status.installed} is current.")
+        return OK
+    if status.state not in {"update_available", "unsupported"} or not status.latest:
+        print("ERR: a current release could not be resolved.", file=sys.stderr)
+        return 2
+    if not status.release_url:
+        print("ERR: the release download location is unavailable.", file=sys.stderr)
+        return 2
+    if not ns.yes:
+        answer = input(f"Install HybridOps.Core {status.latest}? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Update cancelled.")
+            return 2
+    try:
+        result = install_release(status.latest, status.release_url)
+    except (OSError, ValueError, requests.RequestException) as exc:
+        print(f"ERR: update failed: {exc}", file=sys.stderr)
+        return 2
+    return result

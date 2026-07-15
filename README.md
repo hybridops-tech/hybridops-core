@@ -78,12 +78,15 @@ Check the installed release when required:
 
 ```bash
 hyops update check
+hyops update install
 ```
 
 Core also performs a cached, non-blocking release check during interactive use.
 Set `HYOPS_UPDATE_CHECK=0` for offline or controlled environments. Release
-checks do not collect command or environment data, install updates, or prevent
-destroy and recovery operations.
+checks do not collect command or environment data. The published support policy
+can require an update before a new deployment or other mutating operation after
+its stated grace period. Updates require explicit confirmation. Destroy,
+recovery, access and inspection commands remain available.
 
 ## Execution model
 

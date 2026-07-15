@@ -152,6 +152,25 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 2
 
+    from hyops.update.policy import command_requires_supported_release, support_decision
+
+    if command_requires_supported_release(ns):
+        decision = support_decision(root=getattr(ns, "root", None))
+        if decision.blocked:
+            print(
+                f"ERR: HybridOps.Core {decision.installed} is no longer supported for "
+                f"this operation (minimum {decision.minimum}).",
+                file=sys.stderr,
+            )
+            print("Run: hyops update install", file=sys.stderr)
+            return 2
+        if decision.state == "grace":
+            print(
+                f"WARN: Core {decision.installed} requires an update by "
+                f"{decision.enforce_after} (minimum {decision.minimum}).",
+                file=sys.stderr,
+            )
+
     try:
         if ns.cmd == "preflight":
             paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))

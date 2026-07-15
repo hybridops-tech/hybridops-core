@@ -8,6 +8,7 @@ include:
   - LICENSE
   - README
   - CHANGELOG
+  - support-policy.json
   - bin/
   - hyops/
   - modules/
