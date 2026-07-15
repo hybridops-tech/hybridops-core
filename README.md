@@ -47,10 +47,16 @@ The full reference scenario library is published at **[docs.hybridops.tech/refer
 
 ## Quick start
 
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install .
-```
+Install the release package for your workstation:
+
+| Platform | Installation |
+|---|---|
+| Linux | Extract the versioned archive and run `./install.sh` |
+| macOS | Open the package for Apple silicon or Intel |
+| Windows 11 | Extract the Windows ZIP and run `install-windows.cmd` |
+
+See the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/)
+for downloads, verification, and workstation setup.
 
 Initialise a target environment:
 
