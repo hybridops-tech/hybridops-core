@@ -64,6 +64,8 @@ jobs:
           path: |
             dist/releases/*.tar.gz
             dist/releases/*.tar.gz.sha256
+            dist/releases/*-windows.zip
+            dist/releases/*-windows.zip.sha256
 
   build-macos-package:
     needs: quality

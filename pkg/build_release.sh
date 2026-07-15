@@ -38,6 +38,7 @@ SHA256_PATH="${TARBALL_PATH}.sha256"
 WINDOWS_INSTALLER_PATH="${OUT_DIR}/install-windows.cmd"
 WINDOWS_HELPER_PATH="${REPO_ROOT}/tools/install/windows/install-windows-wsl.sh"
 WINDOWS_BUNDLE_PATH="${OUT_DIR}/${PACKAGE_ROOT}-windows.zip"
+WINDOWS_BUNDLE_SHA256_PATH="${WINDOWS_BUNDLE_PATH}.sha256"
 BUILD_WHEELHOUSE="${HYOPS_RELEASE_BUILD_WHEELHOUSE:-true}"
 
 WORK_DIR="$(mktemp -d)"
@@ -292,6 +293,10 @@ with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(source.iterdir()):
         archive.write(path, arcname=path.name)
 PY
+(
+  cd "${OUT_DIR}"
+  sha256sum "$(basename "${WINDOWS_BUNDLE_PATH}")" >"$(basename "${WINDOWS_BUNDLE_SHA256_PATH}")"
+)
 
 echo "Built bundle:"
 echo "  ${TARBALL_PATH}"
@@ -301,3 +306,5 @@ echo "Windows bootstrap:"
 echo "  ${WINDOWS_INSTALLER_PATH}"
 echo "Windows bundle:"
 echo "  ${WINDOWS_BUNDLE_PATH}"
+echo "Windows bundle checksum:"
+echo "  ${WINDOWS_BUNDLE_SHA256_PATH}"
