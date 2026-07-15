@@ -15,7 +15,7 @@
     <td align="center"><strong>79</strong><br><sub>runtime modules</sub></td>
     <td align="center"><strong>28</strong><br><sub>reference blueprints</sub></td>
     <td align="center"><strong>52</strong><br><sub>public decision records</sub></td>
-    <td align="center"><strong>8</strong><br><sub>supported surfaces</sub></td>
+    <td align="center"><strong>8</strong><br><sub>supported targets</sub></td>
   </tr>
 </table>
 
@@ -35,9 +35,13 @@ operation produces a structured run record. It adds:
 
 Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) resolves the contract, selects a driver, executes it, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments, evaluate required preflight checks before execution, and surface explicit confirmation when rerun or destructive risk is detected.
 
-## Validation
+## Reference scenarios
 
-HybridOps is validated through recorded reference scenarios rather than isolated examples. The public scenario library covers source-of-truth operations, Kubernetes platform foundations, hybrid WAN extension, secret delivery, and disaster recovery workflows.
+HybridOps is exercised through complete reference scenarios rather than isolated
+configuration examples. Each scenario connects architecture, operating
+procedures, and run records across a tested platform path. The library includes
+source-of-truth operations, Kubernetes platform foundations, hybrid WAN
+extension, secret delivery, and disaster recovery.
 
 Representative scenarios:
 
@@ -89,12 +93,12 @@ hyops update check
 hyops update install
 ```
 
-Core also performs a cached, non-blocking release check during interactive use.
-Set `HYOPS_UPDATE_CHECK=0` for offline or controlled environments. Release
-checks do not collect command or environment data. The published support policy
-can require an update before a new deployment or other mutating operation after
-its stated grace period. Updates require explicit confirmation. Destroy,
-recovery, access and inspection commands remain available.
+Core performs a cached, non-blocking release check during interactive use. The
+check does not collect command or environment data and can be disabled with
+`HYOPS_UPDATE_CHECK=0`. The published support policy can pause new mutating
+operations when an installed release is no longer supported;
+updates remain explicit, while destroy, recovery, access, and inspection stay
+available.
 
 ## Execution model
 
@@ -103,7 +107,7 @@ flowchart LR
     spec["ModuleSpec / spec.yml<br/>intent contract"]
     cli["hyops apply<br/>merge and validate"]
     driver["Driver<br/>execute in workdir"]
-    record["Run record<br/>redacted evidence"]
+    record["Run record<br/>redacted output"]
     profile["Profile<br/>policy and defaults"]
     pack["Pack<br/>tool assets"]
 
@@ -114,7 +118,7 @@ flowchart LR
     driver --> record
 ```
 
-This boundary keeps intent, policy, implementation, and execution evidence separate: module specs define intent, profiles carry policy, packs carry implementation assets, and drivers produce reviewable run records.
+This boundary keeps intent, policy, implementation, and execution records separate: module specs define intent, profiles carry policy, packs carry implementation assets, and drivers produce reviewable run records.
 
 Blueprints sequence modules into repeatable deployments with explicit ordering, required preflight evaluation before execution, and confirmation prompts when rerun or destructive risk is detected.
 
