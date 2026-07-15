@@ -74,6 +74,17 @@ hyops blueprint deploy --env dev --ref onprem/rke2@v1 --execute
 
 The runtime root defaults to `~/.hybridops`. Override with `--root <path>` or `$HYOPS_RUNTIME_ROOT`.
 
+Check the installed release when required:
+
+```bash
+hyops update check
+```
+
+Core also performs a cached, non-blocking release check during interactive use.
+Set `HYOPS_UPDATE_CHECK=0` for offline or controlled environments. Release
+checks do not collect command or environment data, install updates, or prevent
+destroy and recovery operations.
+
 ## Execution model
 
 ```mermaid
