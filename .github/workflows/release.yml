@@ -120,6 +120,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v7
+
       - name: Collect release assets
         uses: actions/download-artifact@v8
         with:
