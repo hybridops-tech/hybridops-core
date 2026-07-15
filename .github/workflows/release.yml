@@ -144,6 +144,32 @@ jobs:
           done
           (cd dist/releases && sha256sum -c ./*.sha256)
 
+      - name: Create latest-release aliases
+        shell: bash
+        run: |
+          set -euo pipefail
+          label="${GITHUB_REF_NAME#v}"
+          base="dist/releases/hybridops-core-${label}"
+          cp "${base}.tar.gz" dist/releases/hybridops-core-linux.tar.gz
+          cp "${base}-windows.zip" dist/releases/hybridops-core-windows.zip
+          cp "${base}-macos-arm64.pkg" dist/releases/hybridops-core-macos-arm64.pkg
+          cp "${base}-macos-x86_64.pkg" dist/releases/hybridops-core-macos-x86_64.pkg
+          (
+            cd dist/releases
+            for asset in \
+              hybridops-core-linux.tar.gz \
+              hybridops-core-windows.zip \
+              hybridops-core-macos-arm64.pkg \
+              hybridops-core-macos-x86_64.pkg; do
+              sha256sum "${asset}" >"${asset}.sha256"
+            done
+            sha256sum -c \
+              hybridops-core-linux.tar.gz.sha256 \
+              hybridops-core-windows.zip.sha256 \
+              hybridops-core-macos-arm64.pkg.sha256 \
+              hybridops-core-macos-x86_64.pkg.sha256
+          )
+
       - name: Publish GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}
