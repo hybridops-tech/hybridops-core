@@ -27,6 +27,7 @@ from hyops.test.command import add_test_subparser
 from hyops.terragrunt.command import add_terragrunt_subparser
 from hyops.tfc.command import add_tfc_subparser
 from hyops.vault.command import add_vault_subparser
+from hyops.update.command import add_update_subparser
 
 from hyops.drivers.builtin.register import register_all as register_builtin_drivers
 from hyops.drivers.plugins import register_plugins as register_driver_plugins
@@ -109,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_runner_subparser(sp)
     add_setup_subparser(sp)
     add_state_subparser(sp)
+    add_update_subparser(sp)
     add_secrets_subparser(sp)
     add_inventory_subparser(sp)
     try:
@@ -158,7 +160,12 @@ def main(argv: list[str] | None = None) -> int:
             with PythonCommandEvidence(evidence_dir, command="preflight", argv=argv) as evidence:
                 evidence.exit_code = int(ns._handler(ns))
                 return evidence.exit_code
-        return int(ns._handler(ns))
+        result = int(ns._handler(ns))
+        if result == 0:
+            from hyops.update.checker import maybe_print_update_notice
+
+            maybe_print_update_notice(ns.cmd)
+        return result
     except KeyboardInterrupt:
         print("Cancelled by user.", file=sys.stderr)
         return CANCELLED
