@@ -68,6 +68,123 @@ test -s "${HYOPS_REPO_ROOT}/assets/windows/hybridops.ico"
 grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${HYOPS_REPO_ROOT}/install-windows.cmd"
 
+bash -n "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
+bash -n "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+bash -n "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
+bash -n "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+sh -n "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
+grep -Fq -- '--no-system-link --no-setup-all' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq 'Python 3.11 or newer' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
+grep -Fq 'macOS 13 or newer' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
+grep -Fq 'hybridops-core/discussions' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
+grep -Fq 'HYOPS_RELEASE_VERSION=' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+grep -Fq 'does not match release version' "${HYOPS_REPO_ROOT}/pkg/verify_release.sh"
+grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq '/Library/Logs/HybridOps' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq '[1/4] Verifying the release package' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
+grep -Fq 'Window → Installer Log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
+grep -Fq 'font-family: -apple-system' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
+grep -Fq 'src="hybridops.svg"' "${HYOPS_REPO_ROOT}/pkg/macos/resources/welcome.html"
+grep -Fq 'src="hybridops.svg"' "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+test -s "${HYOPS_REPO_ROOT}/pkg/macos/resources/hybridops.svg"
+grep -Fq 'resources/hybridops.svg' "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
+grep -Fq 'Open installation log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'file:///System/Applications/Utilities/Terminal.app' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'file:///Library/Logs/HybridOps/core-install.log' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'https://docs.hybridops.tech/' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'https://github.com/hybridops-tech/hybridops-core' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'https://github.com/hybridops-tech/hybridops-core/discussions' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'https://github.com/hybridops-tech/hybridops-core/blob/main/CONTRIBUTING.md' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'https://github.com/sponsors/hybridops-tech' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+grep -Fq 'Sponsor the project</a>' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
+if grep -RqE '—|–' "${HYOPS_REPO_ROOT}/pkg/macos/resources"; then
+  echo "ERR: macOS Installer resources use decorative dash characters" >&2
+  exit 1
+fi
+if grep -Rq '<code>' "${HYOPS_REPO_ROOT}/pkg/macos/resources"; then
+  echo "ERR: macOS Installer resources use inconsistent code typography" >&2
+  exit 1
+fi
+python3 - "${HYOPS_REPO_ROOT}/pkg/macos/postinstall" <<'PY'
+from pathlib import Path
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+created = script.index('work_dir=$(/usr/bin/mktemp -d')
+traversable = script.index('/bin/chmod 0755 "${work_dir}"')
+user_install = script.index('/usr/bin/sudo -H -u "${console_user}"')
+assert created < traversable < user_install
+PY
+if grep -Eq '(-mindepth|-maxdepth)' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"; then
+  echo "ERR: macOS postinstall uses GNU find options" >&2
+  exit 1
+fi
+test -s "${HYOPS_REPO_ROOT}/pkg/macos/resources/license.html"
+grep -Fq 'Runtime environments, logs and vault data were retained.' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
+grep -Fq 'tech.hybridops.core' "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
+
+MACOS_PKG_TEST_DIR="${WORK_DIR}/macos-pkg"
+MACOS_PKG_FAKE_BIN="${MACOS_PKG_TEST_DIR}/bin"
+MACOS_PKG_ARCHIVE="${MACOS_PKG_TEST_DIR}/hybridops-core-test.tar.gz"
+MACOS_PKG_OUTPUT="${MACOS_PKG_TEST_DIR}/hybridops-core-test.pkg"
+mkdir -p "${MACOS_PKG_FAKE_BIN}"
+printf 'package fixture\n' >"${MACOS_PKG_ARCHIVE}"
+cat >"${MACOS_PKG_FAKE_BIN}/uname" <<'EOF'
+#!/usr/bin/env bash
+echo Darwin
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/pkgbuild" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+root=""
+scripts=""
+output="${!#}"
+while [[ "$#" -gt 1 ]]; do
+  case "$1" in
+    --root) root="$2"; shift 2 ;;
+    --scripts) scripts="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+test -x "${root}/usr/local/share/hybridops-core/uninstall-macos.sh"
+test -x "${scripts}/postinstall"
+test -s "${scripts}/release.tar.gz"
+test -s "${scripts}/release.tar.gz.sha256"
+: >"${output}"
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/productbuild" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *" --synthesize "* ]]; then
+  cat >"${!#}" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1"><options customize="never"/></installer-gui-script>
+XML
+  exit 0
+fi
+: >"${!#}"
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/pkgutil" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod 0755 "${MACOS_PKG_FAKE_BIN}"/*
+PATH="${MACOS_PKG_FAKE_BIN}:${PATH}" \
+  bash "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh" \
+    --archive "${MACOS_PKG_ARCHIVE}" \
+    --version 0.1.0 \
+    --output "${MACOS_PKG_OUTPUT}" >/dev/null
+test -f "${MACOS_PKG_OUTPUT}"
+
 latest_evidence_dir() {
   python3 - "$1" <<'PY'
 import sys

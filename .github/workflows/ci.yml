@@ -64,3 +64,70 @@ jobs:
           path: |
             dist/releases/*.tar.gz
             dist/releases/*.tar.gz.sha256
+
+  build-macos-package:
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build macOS package
+        shell: bash
+        run: |
+          export HYOPS_RELEASE_LABEL="${GITHUB_SHA::12}"
+          export HYOPS_RELEASE_VERSION="0.0.${GITHUB_RUN_NUMBER}"
+          bash pkg/build_release.sh
+          TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
+          bash pkg/build_macos_pkg.sh \
+            --archive "${TARBALL}" \
+            --version "${HYOPS_RELEASE_VERSION}" \
+            --output "dist/releases/hybridops-core-${HYOPS_RELEASE_LABEL}-macos-${{ matrix.architecture }}.pkg"
+
+      - name: Inspect macOS package
+        shell: bash
+        run: |
+          PKG="$(ls -1 dist/releases/hybridops-core-*-macos-${{ matrix.architecture }}.pkg | head -n 1)"
+          EXPANDED="${RUNNER_TEMP}/hybridops-core-pkg"
+          test "$(uname -m)" = "${{ matrix.architecture }}"
+          test "$(stat -f '%z' "${PKG}")" -gt 1000000
+          pkgutil --expand "${PKG}" "${EXPANDED}"
+          test -f "${EXPANDED}/Distribution"
+          python3 - "${EXPANDED}/Distribution" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          assert root.findtext("title") == "HybridOps.Core"
+          PY
+
+      - name: Install macOS package
+        shell: bash
+        run: |
+          PKG="$(ls -1 dist/releases/hybridops-core-*-macos-${{ matrix.architecture }}.pkg | head -n 1)"
+          sudo installer -pkg "${PKG}" -target /
+          /usr/local/bin/hyops --help >/dev/null
+          sudo /usr/local/share/hybridops-core/uninstall-macos.sh
+
+      - name: Upload macOS package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hybridops-core-macos-package-${{ matrix.architecture }}
+          path: dist/releases/*-macos-${{ matrix.architecture }}.pkg

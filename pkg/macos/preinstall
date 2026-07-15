@@ -1,0 +1,37 @@
+#!/bin/bash
+set -euo pipefail
+
+support_url="https://github.com/hybridops-tech/hybridops-core/discussions"
+
+macos_major=$(/usr/bin/sw_vers -productVersion | /usr/bin/cut -d. -f1)
+if [ "${macos_major}" -lt 13 ]; then
+  echo "HybridOps.Core supports macOS 13 or newer." >&2
+  echo "Support: ${support_url}" >&2
+  exit 1
+fi
+
+python_path=""
+found_version=""
+for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+  if [ -x "${candidate}" ]; then
+    found_version=$("${candidate}" --version 2>&1 || true)
+    if "${candidate}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
+      python_path="${candidate}"
+      break
+    fi
+  fi
+done
+
+if [ -z "${python_path}" ]; then
+  if [ -n "${found_version}" ]; then
+    echo "HybridOps.Core requires Python 3.11 or newer; found ${found_version}." >&2
+  else
+    echo "HybridOps.Core requires Python 3.11 or newer." >&2
+  fi
+  echo "Install a current Python release, then run this package again." >&2
+  echo "Python downloads: https://www.python.org/downloads/macos/" >&2
+  echo "Support: ${support_url}" >&2
+  exit 1
+fi
+
+exit 0
