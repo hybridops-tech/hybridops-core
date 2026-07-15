@@ -15,7 +15,7 @@ jobs:
   quality:
     uses: ./.github/workflows/quality.yml
 
-  publish-bundle:
+  build-bundle:
     needs: quality
     runs-on: ubuntu-latest
 
@@ -42,6 +42,107 @@ jobs:
           bash pkg/verify_release.sh "${TARBALL}"
           WINDOWS_ZIP="${TARBALL%.tar.gz}-windows.zip"
           test -f "${WINDOWS_ZIP}"
+          test -f "${WINDOWS_ZIP}.sha256"
+
+      - name: Stage release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-bundle
+          path: |
+            dist/releases/*.tar.gz
+            dist/releases/*.tar.gz.sha256
+            dist/releases/*-windows.zip
+            dist/releases/*-windows.zip.sha256
+
+  build-macos-package:
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build macOS package
+        shell: bash
+        run: |
+          export HYOPS_RELEASE_LABEL="${GITHUB_REF_NAME#v}"
+          bash pkg/build_release.sh
+          TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
+          PKG="dist/releases/hybridops-core-${HYOPS_RELEASE_LABEL}-macos-${{ matrix.architecture }}.pkg"
+          bash pkg/build_macos_pkg.sh \
+            --archive "${TARBALL}" \
+            --version "${HYOPS_RELEASE_LABEL}" \
+            --output "${PKG}"
+          shasum -a 256 "${PKG}" >"${PKG}.sha256"
+
+      - name: Verify macOS package
+        shell: bash
+        run: |
+          PKG="dist/releases/hybridops-core-${GITHUB_REF_NAME#v}-macos-${{ matrix.architecture }}.pkg"
+          EXPANDED="${RUNNER_TEMP}/hybridops-core-pkg"
+          test "$(uname -m)" = "${{ matrix.architecture }}"
+          test "$(stat -f '%z' "${PKG}")" -gt 1000000
+          shasum -a 256 -c "${PKG}.sha256"
+          pkgutil --expand "${PKG}" "${EXPANDED}"
+          test -f "${EXPANDED}/Distribution"
+          grep -Fq "<title>HybridOps.Core</title>" "${EXPANDED}/Distribution"
+
+      - name: Stage macOS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-package-${{ matrix.architecture }}
+          path: |
+            dist/releases/*-macos-${{ matrix.architecture }}.pkg
+            dist/releases/*-macos-${{ matrix.architecture }}.pkg.sha256
+
+  publish-release:
+    needs: [build-bundle, build-macos-package]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Collect release assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: "release-*"
+          path: dist/releases
+          merge-multiple: true
+
+      - name: Verify release asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          label="${GITHUB_REF_NAME#v}"
+          base="dist/releases/hybridops-core-${label}"
+          assets=(
+            "${base}.tar.gz"
+            "${base}.tar.gz.sha256"
+            "${base}-windows.zip"
+            "${base}-windows.zip.sha256"
+            "${base}-macos-arm64.pkg"
+            "${base}-macos-arm64.pkg.sha256"
+            "${base}-macos-x86_64.pkg"
+            "${base}-macos-x86_64.pkg.sha256"
+          )
+          for asset in "${assets[@]}"; do
+            test -s "${asset}"
+          done
+          (cd dist/releases && sha256sum -c ./*.sha256)
 
       - name: Publish GitHub release assets
         env:
@@ -54,6 +155,9 @@ jobs:
             dist/releases/*.tar.gz
             dist/releases/*.tar.gz.sha256
             dist/releases/*-windows.zip
+            dist/releases/*-windows.zip.sha256
+            dist/releases/*-macos-*.pkg
+            dist/releases/*-macos-*.pkg.sha256
           )
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
