@@ -18,6 +18,13 @@ def _timestamp(value: str) -> float:
 
 
 class UpdatePolicyTests(unittest.TestCase):
+    def test_default_policy_uses_packaging_metadata_path(self) -> None:
+        self.assertEqual(
+            policy.DEFAULT_POLICY_URL,
+            "https://raw.githubusercontent.com/hybridops-tech/hybridops-core/main/"
+            "pkg/support-policy.json",
+        )
+
     def _response(self, minimum: str, enforce_after: str) -> Mock:
         response = Mock()
         response.json.return_value = {
