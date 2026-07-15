@@ -258,6 +258,7 @@ mkdir -p "${WINDOWS_STAGE}"
 cp "${TARBALL_PATH}" "${SHA256_PATH}" "${WINDOWS_INSTALLER_PATH}" "${WINDOWS_HELPER_PATH}" \
   "${WINDOWS_LAUNCHER_PATH}" "${REPO_ROOT}/assets/windows/hybridops.ico" \
   "${WINDOWS_STAGE}/"
+cp "${REPO_ROOT}/LICENSE" "${WINDOWS_STAGE}/LICENSE.txt"
 cat >"${WINDOWS_STAGE}/README-WINDOWS.txt" <<EOF
 HybridOps.Core for Windows 11 (WSL2)
 
