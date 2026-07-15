@@ -25,7 +25,9 @@
 
 HybridOps Core is the automation runtime behind a hybrid infrastructure platform that runs across **Proxmox, Hetzner, GCP, AWS, Azure, Kubernetes, Cloudflare, and local** targets.
 
-It acts as a contract-driven execution layer above tools such as **Terraform, Terragrunt, Ansible, and Packer**. It adds:
+It keeps module intent stable while drivers run versioned implementation packs,
+profiles apply environment policy, preflight checks readiness, and each
+operation produces a structured run record. It adds:
 
 - **controlled execution:** how modules and blueprints are resolved and run
 - **governance and preflight validation:** checks before an operation proceeds, including blueprint-level preflight before deploy execution
