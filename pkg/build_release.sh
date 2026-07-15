@@ -36,7 +36,9 @@ PACKAGE_ROOT="hybridops-core-${RELEASE_LABEL}"
 TARBALL_PATH="${OUT_DIR}/${PACKAGE_ROOT}.tar.gz"
 SHA256_PATH="${TARBALL_PATH}.sha256"
 WINDOWS_INSTALLER_PATH="${OUT_DIR}/install-windows.cmd"
+WINDOWS_INSTALLER_SOURCE="${REPO_ROOT}/tools/install/windows/install-windows.cmd"
 WINDOWS_HELPER_PATH="${REPO_ROOT}/tools/install/windows/install-windows-wsl.sh"
+WINDOWS_LAUNCHER_PATH="${REPO_ROOT}/tools/install/windows/open-hybridops.cmd"
 WINDOWS_BUNDLE_PATH="${OUT_DIR}/${PACKAGE_ROOT}-windows.zip"
 WINDOWS_BUNDLE_SHA256_PATH="${WINDOWS_BUNDLE_PATH}.sha256"
 BUILD_WHEELHOUSE="${HYOPS_RELEASE_BUILD_WHEELHOUSE:-true}"
@@ -249,12 +251,12 @@ target = Path(sys.argv[2])
 target.write_text(f"{sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n", encoding="utf-8")
 PY
 )
-cp "${REPO_ROOT}/install-windows.cmd" "${WINDOWS_INSTALLER_PATH}"
+cp "${WINDOWS_INSTALLER_SOURCE}" "${WINDOWS_INSTALLER_PATH}"
 
 WINDOWS_STAGE="${WORK_DIR}/${PACKAGE_ROOT}-windows"
 mkdir -p "${WINDOWS_STAGE}"
 cp "${TARBALL_PATH}" "${SHA256_PATH}" "${WINDOWS_INSTALLER_PATH}" "${WINDOWS_HELPER_PATH}" \
-  "${REPO_ROOT}/open-hybridops.cmd" "${REPO_ROOT}/assets/windows/hybridops.ico" \
+  "${WINDOWS_LAUNCHER_PATH}" "${REPO_ROOT}/assets/windows/hybridops.ico" \
   "${WINDOWS_STAGE}/"
 cat >"${WINDOWS_STAGE}/README-WINDOWS.txt" <<EOF
 HybridOps.Core for Windows 11 (WSL2)
