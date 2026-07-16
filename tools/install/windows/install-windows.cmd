@@ -293,7 +293,16 @@ set "CREATE_SHORTCUT="
 set "SHORTCUT_CREATED=false"
 set /p "CREATE_SHORTCUT=Create a HybridOps.Core desktop shortcut? [y/N]: "
 if /I "!CREATE_SHORTCUT!"=="y" (
-  powershell.exe -NoProfile -Command "$iconDir = Join-Path $env:LOCALAPPDATA 'HybridOps'; New-Item -ItemType Directory -Force -Path $iconDir | Out-Null; $iconPath = Join-Path $iconDir 'hybridops.ico'; Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico' -Destination $iconPath; $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HybridOps.Core.lnk'); $shortcut.TargetPath = $env:ComSpec; $shortcut.Arguments = '/d /c "title HybridOps.Core & echo Starting HybridOps.Core... & wsl.exe -d %DISTRO% --cd ~ -- bash -l"'; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $iconPath + ',0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save()"
+  set "LAUNCHER_DIR=%LOCALAPPDATA%\HybridOps"
+  set "LAUNCHER=!LAUNCHER_DIR!\Open HybridOps.cmd"
+  if not exist "!LAUNCHER_DIR!" mkdir "!LAUNCHER_DIR!"
+  >"!LAUNCHER!" (
+    echo @echo off
+    echo title HybridOps.Core
+    echo echo Starting HybridOps.Core...
+    echo wsl.exe -d %DISTRO% --cd ~ -- bash -l
+  )
+  powershell.exe -NoProfile -Command "$iconDir = Join-Path $env:LOCALAPPDATA 'HybridOps'; $iconPath = Join-Path $iconDir 'hybridops.ico'; $launcherPath = Join-Path $iconDir 'Open HybridOps.cmd'; Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico' -Destination $iconPath; $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HybridOps.Core.lnk'); $shortcut.TargetPath = $launcherPath; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $iconPath + ',0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save()"
   if errorlevel 1 (
     echo WARN: unable to create the HybridOps.Core desktop shortcut.
   ) else (

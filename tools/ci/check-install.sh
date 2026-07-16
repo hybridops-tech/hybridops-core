@@ -67,7 +67,8 @@ if grep -Fq 'start "Ubuntu 24.04 account setup"' "${WINDOWS_INSTALLER}"; then
   exit 1
 fi
 grep -Fq "CreateShortcut([Environment]::GetFolderPath('Desktop')" "${WINDOWS_INSTALLER}"
-grep -Fq '$shortcut.TargetPath = $env:ComSpec' "${WINDOWS_INSTALLER}"
+grep -Fq '$shortcut.TargetPath = $launcherPath' "${WINDOWS_INSTALLER}"
+grep -Fq 'set "LAUNCHER=!LAUNCHER_DIR!\Open HybridOps.cmd"' "${WINDOWS_INSTALLER}"
 grep -Fq 'echo Starting HybridOps.Core...' "${WINDOWS_INSTALLER}"
 grep -Fq -- "wsl.exe -d %DISTRO% --cd ~ -- bash -l" "${WINDOWS_INSTALLER}"
 grep -Fq "LOCALAPPDATA 'HybridOps'" "${WINDOWS_INSTALLER}"
