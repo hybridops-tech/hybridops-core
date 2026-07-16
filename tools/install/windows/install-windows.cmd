@@ -6,6 +6,8 @@ rem maintainer: HybridOps.Tech
 
 set "DISTRO=Ubuntu-24.04"
 set "PAYLOAD_DIR=%~dp0payload"
+set "HYOPS_USER_DIR=%LOCALAPPDATA%\HybridOps"
+set "WSL_SETUP_MARKER=%HYOPS_USER_DIR%\wsl-setup.pending"
 set "FORCE=false"
 if /I "%~1"=="--force" set "FORCE=true"
 if /I "%~1"=="/force" set "FORCE=true"
@@ -44,6 +46,8 @@ if errorlevel 1 (
     pause >nul
     exit /b 0
   )
+  if not exist "%HYOPS_USER_DIR%" mkdir "%HYOPS_USER_DIR%"
+  >"%WSL_SETUP_MARKER%" echo pending
   fltmc >nul 2>&1
   if not errorlevel 1 (
     echo Installing WSL in this administrator window...
@@ -53,6 +57,7 @@ if errorlevel 1 (
     powershell.exe -NoProfile -Command "$process = Start-Process -FilePath 'wsl.exe' -Verb RunAs -Wait -PassThru -ArgumentList '--install','-d','%DISTRO%','--no-launch'; exit $process.ExitCode"
   )
   if errorlevel 1 (
+    del /q "%WSL_SETUP_MARKER%" >nul 2>&1
     echo WSL installation was cancelled or failed.
     echo Press any key to close this window.
     pause >nul
@@ -112,6 +117,8 @@ if errorlevel 1 (
     pause >nul
     exit /b 0
   )
+  if not exist "%HYOPS_USER_DIR%" mkdir "%HYOPS_USER_DIR%"
+  >"%WSL_SETUP_MARKER%" echo pending
   fltmc >nul 2>&1
   if not errorlevel 1 (
     echo Installing %DISTRO% in this administrator window...
@@ -120,6 +127,7 @@ if errorlevel 1 (
     powershell.exe -NoProfile -Command "$process = Start-Process -FilePath 'wsl.exe' -Verb RunAs -Wait -PassThru -ArgumentList '--install','-d','%DISTRO%','--no-launch'; exit $process.ExitCode"
   )
   if errorlevel 1 (
+    del /q "%WSL_SETUP_MARKER%" >nul 2>&1
     echo %DISTRO% installation was cancelled or failed.
     echo Press any key to close this window.
     pause >nul
@@ -293,7 +301,7 @@ set "CREATE_SHORTCUT="
 set "SHORTCUT_CREATED=false"
 set /p "CREATE_SHORTCUT=Create a HybridOps.Core desktop shortcut? [y/N]: "
 if /I "!CREATE_SHORTCUT!"=="y" (
-  set "LAUNCHER_DIR=%LOCALAPPDATA%\HybridOps"
+  set "LAUNCHER_DIR=%HYOPS_USER_DIR%"
   set "LAUNCHER=!LAUNCHER_DIR!\Open HybridOps.cmd"
   if not exist "!LAUNCHER_DIR!" mkdir "!LAUNCHER_DIR!"
   >"!LAUNCHER!" (
@@ -309,6 +317,11 @@ if /I "!CREATE_SHORTCUT!"=="y" (
     set "SHORTCUT_CREATED=true"
     echo Desktop shortcut created: HybridOps.Core
   )
+)
+
+if exist "%WSL_SETUP_MARKER%" (
+  powershell.exe -NoProfile -Command "Get-Process -Name 'wslsettings' -ErrorAction SilentlyContinue | ForEach-Object { [void]$_.CloseMainWindow() }"
+  del /q "%WSL_SETUP_MARKER%" >nul 2>&1
 )
 
 echo.
