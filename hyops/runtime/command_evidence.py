@@ -9,7 +9,7 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
-from typing import IO, Mapping, Sequence
+from typing import Callable, IO, Mapping, Sequence
 
 from hyops.runtime.evidence import init_evidence_dir, new_run_id
 from hyops.runtime.redact import redact_text
@@ -62,6 +62,7 @@ def run_streamed(
     command: str,
     stream_output: bool = True,
     announce: bool = True,
+    line_callback: Callable[[str], None] | None = None,
 ) -> int:
     started_at = _utc_now()
     output_path = evidence_dir / "output.log"
@@ -80,6 +81,8 @@ def run_streamed(
         assert process.stdout is not None
         for raw_line in process.stdout:
             safe_line = redact_text(raw_line)
+            if line_callback is not None:
+                line_callback(safe_line.rstrip("\r\n"))
             if stream_output:
                 sys.stdout.write(safe_line)
                 sys.stdout.flush()

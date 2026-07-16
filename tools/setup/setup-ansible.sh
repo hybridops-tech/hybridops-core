@@ -33,6 +33,10 @@ USAGE
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "ERR: missing command: $1" >&2; exit 2; }; }
 
+progress() {
+  echo "[hyops-progress] $1"
+}
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
@@ -363,10 +367,12 @@ install_set() {
 export HYOPS_RELEASE_ROOT="${RELEASE_ROOT}"
 
 # Shared/common set (compatible across most workflows)
+progress "Installing shared runtime dependencies"
 install_set "common" "common" "" "${REQ_FILE}" "${RUNTIME_ROOT}/state/ansible"
 
 # Module-specific sets are installed into isolated paths to avoid Galaxy dependency conflicts.
 # These paths are added automatically at runtime by the Ansible driver when the module runs.
+progress "Installing workload dependencies"
 install_set "platform/postgresql-ha" "module" "platform/postgresql-ha" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__postgresql-ha"
@@ -387,4 +393,5 @@ install_set "platform/onprem/rke2-cluster" "module" "platform/onprem/rke2-cluste
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.rke2-cluster.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__onprem__rke2-cluster"
 
+progress "Verifying runtime dependencies"
 echo "[setup] ansible deps ready"

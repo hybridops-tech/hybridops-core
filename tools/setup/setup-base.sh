@@ -82,6 +82,10 @@ filter_pipx_output() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+progress() {
+  echo "[hyops-progress] $1"
+}
+
 run_quiet_timeout() {
   local seconds="$1"
   shift
@@ -558,15 +562,20 @@ ensure_vault_pass_deps() {
 main() {
   toolchain__load
   print_header
+  progress "Preparing system packages"
   ensure_foundation
   ensure_python
+  progress "Installing automation runtime"
   ensure_ansible
+  progress "Installing infrastructure runtime"
   ensure_terraform
   ensure_terragrunt
   ensure_packer
   ensure_kubectl
+  progress "Installing supporting components"
   ensure_gh
   ensure_vault_pass_deps
+  progress "Verifying base setup"
   echo "[setup] base installed (pinned)"
 }
 

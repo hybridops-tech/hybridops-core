@@ -5,6 +5,10 @@
 
 set -euo pipefail
 
+progress() {
+  echo "[hyops-progress] $1"
+}
+
 if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
   exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/setup-cloud-gcp-macos.sh" "$@"
 fi
@@ -16,6 +20,7 @@ command -v gcloud >/dev/null 2>&1 && have_gcloud=true
 command -v gke-gcloud-auth-plugin >/dev/null 2>&1 && have_gke_auth_plugin=true
 
 if [[ "${have_gcloud}" == true && "${have_gke_auth_plugin}" == true ]]; then
+  progress "Verifying cloud setup"
   echo "[setup] gcloud present"
   echo "[setup] gke-gcloud-auth-plugin present"
   exit 0
@@ -29,6 +34,7 @@ RELEASE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=/dev/null
 source "${RELEASE_ROOT}/tools/setup/lib/toolchain_lock.sh"
 
+progress "Preparing cloud packages"
 apt-get update -y
 apt-get install -y ca-certificates curl gnupg
 
@@ -45,6 +51,7 @@ EOF
 
 apt-get update -y
 
+progress "Installing cloud integration"
 if [[ "${have_gcloud}" != true ]]; then
   gcloud_ver="$(toolchain_get GCLOUD_CLI_VERSION)"
   if [[ -n "${gcloud_ver}" ]]; then
@@ -67,5 +74,6 @@ fi
 command -v gcloud >/dev/null 2>&1 || { echo "ERR: gcloud install failed"; exit 1; }
 command -v gke-gcloud-auth-plugin >/dev/null 2>&1 || { echo "ERR: gke-gcloud-auth-plugin install failed"; exit 1; }
 
+progress "Verifying cloud setup"
 echo "[setup] gcloud installed"
 echo "[setup] gke-gcloud-auth-plugin installed"
