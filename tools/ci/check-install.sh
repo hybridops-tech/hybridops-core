@@ -56,8 +56,12 @@ if env -u WSL_DISTRO_NAME -u WSL_INTEROP \
 fi
 
 WINDOWS_INSTALLER="${HYOPS_REPO_ROOT}/tools/install/windows/install-windows.cmd"
-grep -Fq 'start "Ubuntu 24.04 account setup" wsl.exe -d %DISTRO%' "${WINDOWS_INSTALLER}"
-grep -Fq ':wait_for_ubuntu_user' "${WINDOWS_INSTALLER}"
+grep -Fq 'wsl.exe -d %DISTRO% -- bash -lc "true"' "${WINDOWS_INSTALLER}"
+grep -Fq 'If prompted, create the Ubuntu username and password here.' "${WINDOWS_INSTALLER}"
+if grep -Fq 'start "Ubuntu 24.04 account setup"' "${WINDOWS_INSTALLER}"; then
+  echo "ERR: Windows installer opens a separate Ubuntu account window" >&2
+  exit 1
+fi
 grep -Fq "CreateShortcut([Environment]::GetFolderPath('Desktop')" "${WINDOWS_INSTALLER}"
 grep -Fq -- "-d %DISTRO% --cd ~" "${WINDOWS_INSTALLER}"
 grep -Fq "LOCALAPPDATA 'HybridOps'" "${WINDOWS_INSTALLER}"
@@ -66,8 +70,12 @@ grep -Fq 'set "ARCHIVE=%PAYLOAD_DIR%\hybridops-core.tar.gz"' "${WINDOWS_INSTALLE
 grep -Fq 'set "HELPER=%PAYLOAD_DIR%\install-wsl.sh"' "${WINDOWS_INSTALLER}"
 grep -Fq "Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico'" "${WINDOWS_INSTALLER}"
 grep -Fq 'Create a HybridOps.Core desktop shortcut? [y/N]:' "${WINDOWS_INSTALLER}"
+grep -Fq 'Windows must restart before %DISTRO% can finish registration.' "${WINDOWS_INSTALLER}"
+grep -Fq 'set /p "RESTART_NOW=Restart Windows now? [y/N]: "' "${WINDOWS_INSTALLER}"
 grep -Fq 'Install HybridOps.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
 grep -Fq 'WINDOWS_PAYLOAD_STAGE' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+grep -Fq 'line.strip() == "---"' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+grep -Fq 'line.startswith("# ")' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
 if grep -Fq 'open-hybridops.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"; then
   echo "ERR: Windows bundle exposes a launcher before installation" >&2
   exit 1
@@ -76,6 +84,14 @@ grep -Fq 'assets/windows/hybridops.ico' "${HYOPS_REPO_ROOT}/pkg/build_release.sh
 test -s "${HYOPS_REPO_ROOT}/assets/windows/hybridops.ico"
 grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${WINDOWS_INSTALLER}"
 grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${WINDOWS_INSTALLER}"
+grep -Fq 'Support: https://github.com/hybridops-tech/hybridops-core/discussions' \
+  "${HYOPS_REPO_ROOT}/tools/install/lib/installer.sh"
+grep -Fq 'Sponsor: https://github.com/sponsors/hybridops-tech' \
+  "${HYOPS_REPO_ROOT}/tools/install/lib/installer.sh"
+if grep -Eq 'echo "(Project|Discuss):' "${HYOPS_REPO_ROOT}/tools/install/lib/installer.sh"; then
+  echo "ERR: installer completion output contains a redundant project link" >&2
+  exit 1
+fi
 
 bash -n "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
 bash -n "${HYOPS_REPO_ROOT}/pkg/build_release.sh"

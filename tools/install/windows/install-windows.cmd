@@ -128,49 +128,44 @@ if errorlevel 1 (
   )
   powershell.exe -NoProfile -Command "$names = @(wsl.exe --list --quiet) | ForEach-Object { ($_ -replace [char]0, '').Trim() }; if ($names -contains '%DISTRO%') { exit 0 } else { exit 1 }"
   if errorlevel 1 (
-    echo %DISTRO% did not register successfully.
-    echo Restart Windows, then run Install HybridOps.cmd again.
+    echo.
+    echo Windows must restart before %DISTRO% can finish registration.
+    set "RESTART_NOW="
+    set /p "RESTART_NOW=Restart Windows now? [y/N]: "
+    if /I "!RESTART_NOW!"=="y" (
+      echo Windows will restart in 15 seconds. Save any open work.
+      shutdown.exe /r /t 15 /c "Complete HybridOps.Core WSL setup"
+      if errorlevel 1 (
+        echo Windows could not schedule the restart. Restart manually before continuing.
+        echo Press any key to close this window.
+        pause >nul
+        exit /b 2
+      )
+      exit /b 10
+    )
+    echo Restart Windows later, then run Install HybridOps.cmd again.
     echo Press any key to close this window.
     pause >nul
-    exit /b 2
+    exit /b 10
   )
   echo %DISTRO% is installed.
 )
 
 echo Provisioning %DISTRO%...
-echo Create the Ubuntu username and password when prompted.
-start "Ubuntu 24.04 account setup" wsl.exe -d %DISTRO%
+echo If prompted, create the Ubuntu username and password here.
+wsl.exe -d %DISTRO% -- bash -lc "true"
 if errorlevel 1 (
-  echo %DISTRO% is installed but could not be started.
-  echo Open %DISTRO% from the Start menu and complete its username prompt.
-  echo Then run Install HybridOps.cmd again.
+  echo %DISTRO% account setup did not complete.
   echo Press any key to close this window.
   pause >nul
   exit /b 2
 )
 
 set "WSL_USER="
-set /a "ACCOUNT_WAIT=0"
-timeout /t 1 /nobreak >nul
-:wait_for_ubuntu_user
 for /f "tokens=1 delims=:" %%U in ('wsl.exe -d %DISTRO% -u root -- getent passwd 1000 2^>nul') do set "WSL_USER=%%U"
-if defined WSL_USER goto ubuntu_user_ready
-set /a "ACCOUNT_WAIT+=1"
-if !ACCOUNT_WAIT! GEQ 600 goto ubuntu_user_timeout
-timeout /t 1 /nobreak >nul
-goto wait_for_ubuntu_user
-
-:ubuntu_user_timeout
-echo Ubuntu account setup did not complete within 10 minutes.
-echo Complete the username prompt, then run this installer again.
-echo Press any key to close this window.
-pause >nul
-exit /b 2
-
-:ubuntu_user_ready
 if not defined WSL_USER (
   echo Unable to identify the Ubuntu user account.
-  echo Open %DISTRO% once, complete its username prompt, then run this installer again.
+  echo Run Install HybridOps.cmd again to retry account setup.
   echo Press any key to close this window.
   pause >nul
   exit /b 2

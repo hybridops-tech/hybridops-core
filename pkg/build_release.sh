@@ -260,7 +260,30 @@ cp "${REPO_ROOT}/assets/windows/hybridops.ico" "${WINDOWS_PAYLOAD_STAGE}/hybrido
   cd "${WINDOWS_PAYLOAD_STAGE}"
   sha256sum hybridops-core.tar.gz >hybridops-core.tar.gz.sha256
 )
-cp "${REPO_ROOT}/LICENSE" "${WINDOWS_STAGE}/LICENSE.txt"
+python3 - "${REPO_ROOT}/LICENSE" "${WINDOWS_STAGE}/LICENSE.txt" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+lines = []
+for line in source.splitlines():
+    if line.strip() == "---":
+        continue
+    if line.startswith("# "):
+        line = line[2:]
+    line = line.replace("**", "").replace("`", "")
+    if line.startswith("- Attribution — "):
+        line = "Attribution: " + line.removeprefix("- Attribution — ")
+    elif line.startswith("  "):
+        line = line[2:]
+    if not line and lines and not lines[-1]:
+        continue
+    lines.append(line)
+
+while lines and not lines[-1]:
+    lines.pop()
+Path(sys.argv[2]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
 cat >"${WINDOWS_STAGE}/README.txt" <<EOF
 HybridOps.Core for Windows 11 (WSL2)
 

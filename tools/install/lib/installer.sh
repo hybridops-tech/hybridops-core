@@ -157,7 +157,6 @@ _hyops_install_run_transaction() {
     echo "Run:"
     echo "  ${WRAPPER} --help"
   fi
-  echo "Project: https://github.com/hybridops-tech/hybridops-core"
-  echo "Discuss: https://github.com/hybridops-tech/hybridops-core/discussions"
+  echo "Support: https://github.com/hybridops-tech/hybridops-core/discussions"
   echo "Sponsor: https://github.com/sponsors/hybridops-tech"
 }
