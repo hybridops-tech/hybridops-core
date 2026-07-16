@@ -56,8 +56,12 @@ if env -u WSL_DISTRO_NAME -u WSL_INTEROP \
 fi
 
 WINDOWS_INSTALLER="${HYOPS_REPO_ROOT}/tools/install/windows/install-windows.cmd"
-grep -Fq 'wsl.exe -d %DISTRO% -- bash -lc "true"' "${WINDOWS_INSTALLER}"
-grep -Fq 'If prompted, create the Ubuntu username and password here.' "${WINDOWS_INSTALLER}"
+grep -Fq 'set /p "NEW_WSL_USER=Ubuntu username: "' "${WINDOWS_INSTALLER}"
+grep -Fq -- "-cmatch '^[a-z_][a-z0-9_-]{0,31}$'" "${WINDOWS_INSTALLER}"
+grep -Fq -- 'useradd --create-home --shell /bin/bash --uid 1000' "${WINDOWS_INSTALLER}"
+grep -Fq -- 'passwd !NEW_WSL_USER!' "${WINDOWS_INSTALLER}"
+grep -Fq -- 'usermod --append --groups sudo' "${WINDOWS_INSTALLER}"
+grep -Fq "default=!NEW_WSL_USER!" "${WINDOWS_INSTALLER}"
 if grep -Fq 'start "Ubuntu 24.04 account setup"' "${WINDOWS_INSTALLER}"; then
   echo "ERR: Windows installer opens a separate Ubuntu account window" >&2
   exit 1

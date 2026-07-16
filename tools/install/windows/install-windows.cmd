@@ -58,7 +58,6 @@ if errorlevel 1 (
     pause >nul
     exit /b 2
   )
-  echo WSL setup finished.
   set "RESTART_NOW="
   set /p "RESTART_NOW=Restart Windows now to complete WSL setup? [y/N]: "
   if /I "!RESTART_NOW!"=="y" (
@@ -152,23 +151,52 @@ if errorlevel 1 (
 )
 
 echo Provisioning %DISTRO%...
-echo If prompted, create the Ubuntu username and password here.
-wsl.exe -d %DISTRO% -- bash -lc "true"
-if errorlevel 1 (
-  echo %DISTRO% account setup did not complete.
-  echo Press any key to close this window.
-  pause >nul
-  exit /b 2
-)
-
 set "WSL_USER="
 for /f "tokens=1 delims=:" %%U in ('wsl.exe -d %DISTRO% -u root -- getent passwd 1000 2^>nul') do set "WSL_USER=%%U"
 if not defined WSL_USER (
-  echo Unable to identify the Ubuntu user account.
-  echo Run Install HybridOps.cmd again to retry account setup.
-  echo Press any key to close this window.
-  pause >nul
-  exit /b 2
+  echo Create the Ubuntu account used by HybridOps.
+  set "NEW_WSL_USER="
+  set /p "NEW_WSL_USER=Ubuntu username: "
+  set "HYOPS_NEW_WSL_USER=!NEW_WSL_USER!"
+  powershell.exe -NoProfile -Command "if ($env:HYOPS_NEW_WSL_USER -cmatch '^[a-z_][a-z0-9_-]{0,31}$') { exit 0 } else { exit 1 }"
+  if errorlevel 1 (
+    echo Use 1 to 32 lowercase letters, numbers, underscores or hyphens.
+    echo The first character must be a letter or underscore.
+    echo Press any key to close this window.
+    pause >nul
+    exit /b 2
+  )
+  wsl.exe -d %DISTRO% -u root -- useradd --create-home --shell /bin/bash --uid 1000 !NEW_WSL_USER!
+  if errorlevel 1 (
+    echo Unable to create the Ubuntu account.
+    echo Press any key to close this window.
+    pause >nul
+    exit /b 2
+  )
+  echo Create and confirm the Ubuntu password.
+  wsl.exe -d %DISTRO% -u root -- passwd !NEW_WSL_USER!
+  if errorlevel 1 (
+    wsl.exe -d %DISTRO% -u root -- userdel --remove !NEW_WSL_USER! >nul 2>&1
+    echo Ubuntu password setup did not complete. The incomplete account was removed.
+    echo Press any key to close this window.
+    pause >nul
+    exit /b 2
+  )
+  wsl.exe -d %DISTRO% -u root -- usermod --append --groups sudo !NEW_WSL_USER!
+  if errorlevel 1 (
+    echo Unable to grant administrative access to the Ubuntu account.
+    echo Press any key to close this window.
+    pause >nul
+    exit /b 2
+  )
+  wsl.exe -d %DISTRO% -u root -- bash -lc "printf '[user]\ndefault=!NEW_WSL_USER!\n' > /etc/wsl.conf"
+  if errorlevel 1 (
+    echo Unable to set the default Ubuntu account.
+    echo Press any key to close this window.
+    pause >nul
+    exit /b 2
+  )
+  set "WSL_USER=!NEW_WSL_USER!"
 )
 if /I "!WSL_USER!"=="root" (
   echo Ubuntu returned an invalid default user.
@@ -177,7 +205,7 @@ if /I "!WSL_USER!"=="root" (
   exit /b 2
 )
 
-echo Ubuntu account created. Finalizing WSL setup...
+echo Ubuntu account ready. Finalizing WSL setup...
 wsl.exe --terminate %DISTRO% >nul 2>&1
 echo Starting Ubuntu as !WSL_USER!...
 set "WSL_UID="
