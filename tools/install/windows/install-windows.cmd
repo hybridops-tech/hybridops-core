@@ -5,6 +5,7 @@ rem purpose: Install HybridOps.Core into Ubuntu 24.04 on Windows WSL2.
 rem maintainer: HybridOps.Tech
 
 set "DISTRO=Ubuntu-24.04"
+set "PAYLOAD_DIR=%~dp0payload"
 set "FORCE=false"
 if /I "%~1"=="--force" set "FORCE=true"
 if /I "%~1"=="/force" set "FORCE=true"
@@ -71,30 +72,23 @@ if errorlevel 1 (
     )
     exit /b 10
   )
-  echo Restart Windows later, then run install-windows.cmd again.
+  echo Restart Windows later, then run Install HybridOps.cmd again.
   echo Press any key to close this window.
   pause >nul
   exit /b 10
 )
 
-set "ARCHIVE="
-set "ARCHIVE_COUNT=0"
-for %%F in ("%~dp0hybridops-core-*.tar.gz") do (
-  if exist "%%~fF" (
-    set /a ARCHIVE_COUNT+=1
-    set "ARCHIVE=%%~fF"
-  )
-)
-if not "%ARCHIVE_COUNT%"=="1" (
-  echo Place this installer beside exactly one HybridOps.Core .tar.gz archive.
+set "ARCHIVE=%PAYLOAD_DIR%\hybridops-core.tar.gz"
+if not exist "%ARCHIVE%" (
+  echo The HybridOps.Core installation payload is missing.
   echo Press any key to close this window.
   pause >nul
   exit /b 2
 )
 
-set "HELPER=%~dp0install-windows-wsl.sh"
+set "HELPER=%PAYLOAD_DIR%\install-wsl.sh"
 if not exist "%HELPER%" (
-  echo Missing Windows WSL helper: %HELPER%
+  echo The HybridOps.Core WSL installation helper is missing.
   echo Press any key to close this window.
   pause >nul
   exit /b 2
@@ -135,7 +129,7 @@ if errorlevel 1 (
   powershell.exe -NoProfile -Command "$names = @(wsl.exe --list --quiet) | ForEach-Object { ($_ -replace [char]0, '').Trim() }; if ($names -contains '%DISTRO%') { exit 0 } else { exit 1 }"
   if errorlevel 1 (
     echo %DISTRO% did not register successfully.
-    echo Restart Windows, then run install-windows.cmd again.
+    echo Restart Windows, then run Install HybridOps.cmd again.
     echo Press any key to close this window.
     pause >nul
     exit /b 2
@@ -149,7 +143,7 @@ start "Ubuntu 24.04 account setup" wsl.exe -d %DISTRO%
 if errorlevel 1 (
   echo %DISTRO% is installed but could not be started.
   echo Open %DISTRO% from the Start menu and complete its username prompt.
-  echo Then run install-windows.cmd again.
+  echo Then run Install HybridOps.cmd again.
   echo Press any key to close this window.
   pause >nul
   exit /b 2
@@ -273,19 +267,25 @@ if errorlevel 1 (
 
 echo.
 set "CREATE_SHORTCUT="
+set "SHORTCUT_CREATED=false"
 set /p "CREATE_SHORTCUT=Create a HybridOps.Core desktop shortcut? [y/N]: "
 if /I "!CREATE_SHORTCUT!"=="y" (
-  powershell.exe -NoProfile -Command "$iconDir = Join-Path $env:LOCALAPPDATA 'HybridOps'; New-Item -ItemType Directory -Force -Path $iconDir | Out-Null; $iconPath = Join-Path $iconDir 'hybridops.ico'; Copy-Item -Force -LiteralPath '%~dp0hybridops.ico' -Destination $iconPath; $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HybridOps.Core.lnk'); $shortcut.TargetPath = $env:SystemRoot + '\System32\wsl.exe'; $shortcut.Arguments = '-d %DISTRO% --cd ~'; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $iconPath + ',0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save()"
+  powershell.exe -NoProfile -Command "$iconDir = Join-Path $env:LOCALAPPDATA 'HybridOps'; New-Item -ItemType Directory -Force -Path $iconDir | Out-Null; $iconPath = Join-Path $iconDir 'hybridops.ico'; Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico' -Destination $iconPath; $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HybridOps.Core.lnk'); $shortcut.TargetPath = $env:SystemRoot + '\System32\wsl.exe'; $shortcut.Arguments = '-d %DISTRO% --cd ~'; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $iconPath + ',0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save()"
   if errorlevel 1 (
     echo WARN: unable to create the HybridOps.Core desktop shortcut.
   ) else (
+    set "SHORTCUT_CREATED=true"
     echo Desktop shortcut created: HybridOps.Core
   )
 )
 
 echo.
 echo HybridOps.Core installation completed.
-echo Run open-hybridops.cmd from this folder, then enter: hyops --help
+if "!SHORTCUT_CREATED!"=="true" (
+  echo Open HybridOps.Core from the desktop shortcut, then run: hyops --help
+) else (
+  echo Open Ubuntu 24.04 from the Windows Start menu, then run: hyops --help
+)
 echo Press any key to close this window.
 pause >nul
 exit /b 0

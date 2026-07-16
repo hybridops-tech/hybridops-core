@@ -61,9 +61,17 @@ grep -Fq ':wait_for_ubuntu_user' "${WINDOWS_INSTALLER}"
 grep -Fq "CreateShortcut([Environment]::GetFolderPath('Desktop')" "${WINDOWS_INSTALLER}"
 grep -Fq -- "-d %DISTRO% --cd ~" "${WINDOWS_INSTALLER}"
 grep -Fq "LOCALAPPDATA 'HybridOps'" "${WINDOWS_INSTALLER}"
-grep -Fq "Copy-Item -Force -LiteralPath '%~dp0hybridops.ico'" "${WINDOWS_INSTALLER}"
+grep -Fq 'set "PAYLOAD_DIR=%~dp0payload"' "${WINDOWS_INSTALLER}"
+grep -Fq 'set "ARCHIVE=%PAYLOAD_DIR%\hybridops-core.tar.gz"' "${WINDOWS_INSTALLER}"
+grep -Fq 'set "HELPER=%PAYLOAD_DIR%\install-wsl.sh"' "${WINDOWS_INSTALLER}"
+grep -Fq "Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico'" "${WINDOWS_INSTALLER}"
 grep -Fq 'Create a HybridOps.Core desktop shortcut? [y/N]:' "${WINDOWS_INSTALLER}"
-grep -Fq 'open-hybridops.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+grep -Fq 'Install HybridOps.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+grep -Fq 'WINDOWS_PAYLOAD_STAGE' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+if grep -Fq 'open-hybridops.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"; then
+  echo "ERR: Windows bundle exposes a launcher before installation" >&2
+  exit 1
+fi
 grep -Fq 'assets/windows/hybridops.ico' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
 test -s "${HYOPS_REPO_ROOT}/assets/windows/hybridops.ico"
 grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${WINDOWS_INSTALLER}"
