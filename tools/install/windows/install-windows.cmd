@@ -181,6 +181,9 @@ if not defined WSL_USER (
     pause >nul
     exit /b 2
   )
+  if exist "%WSL_SETUP_MARKER%" (
+    powershell.exe -NoProfile -Command "Get-Process -Name 'wslsettings' -ErrorAction SilentlyContinue | ForEach-Object { [void]$_.CloseMainWindow() }"
+  )
   echo Create and confirm the Ubuntu password.
   wsl.exe -d %DISTRO% -u root -- passwd !NEW_WSL_USER!
   if errorlevel 1 (
