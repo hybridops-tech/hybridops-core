@@ -104,6 +104,119 @@ def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _step_presentation(
+    step: dict[str, Any],
+    *,
+    state_dir: Path,
+    progress_after: int,
+) -> tuple[str, str, str]:
+    presentation = step.get("presentation")
+    if not isinstance(presentation, dict):
+        presentation = {}
+
+    label = str(presentation.get("label") or step["id"]).strip()
+    details: list[str] = []
+    success = str(presentation.get("success") or "").strip()
+    if success:
+        details.append(success)
+
+    try:
+        state = read_module_state(state_dir, step_state_ref(step))
+    except (FileNotFoundError, OSError, ValueError):
+        state = {}
+    outputs = state.get("outputs")
+    if not isinstance(outputs, dict):
+        outputs = {}
+
+    image_count = outputs.get("eveng_images_requested_count")
+    if isinstance(image_count, int) and image_count >= 0:
+        details.append(f"{image_count} images")
+
+    health_status = str(outputs.get("eveng_health_status") or "").strip().lower()
+    if health_status and health_status not in details:
+        details.append(health_status)
+
+    details.append(f"overall {progress_after}%")
+
+    items = presentation.get("items")
+    item_line = ""
+    if isinstance(items, list) and items:
+        item_values = [str(item).strip() for item in items if str(item).strip()]
+        if item_values:
+            items_label = str(presentation.get("items_label") or "includes").strip()
+            item_line = f"  {items_label}: {', '.join(item_values)}"
+
+    return label, ", ".join(details), item_line
+
+
+def _step_display_label(step: dict[str, Any]) -> str:
+    presentation = step.get("presentation")
+    if isinstance(presentation, dict):
+        label = str(presentation.get("label") or "").strip()
+        if label:
+            return label
+
+    step_id = str(step.get("id") or "").strip()
+    words = [word for word in re.split(r"[_-]+", step_id) if word]
+    names = {
+        "api": "API",
+        "cloudsql": "Cloud SQL",
+        "config": "configuration",
+        "day2": "Day 2",
+        "dns": "DNS",
+        "dr": "DR",
+        "gcp": "GCP",
+        "gke": "GKE",
+        "gitops": "GitOps",
+        "gns3": "GNS3",
+        "gsm": "GSM",
+        "ha": "HA",
+        "healthcheck": "health checks",
+        "iap": "IAP",
+        "ip": "IP",
+        "ipam": "IPAM",
+        "kvm": "KVM",
+        "netbox": "NetBox",
+        "onprem": "on-premises",
+        "ops": "operations",
+        "pg": "PostgreSQL",
+        "pgcore": "PostgreSQL core",
+        "postgres": "PostgreSQL",
+        "postgresql": "PostgreSQL",
+        "powerdns": "PowerDNS",
+        "repo": "repository",
+        "rke2": "RKE2",
+        "rocky9": "Rocky Linux 9",
+        "sdn": "SDN",
+        "sql": "SQL",
+        "vm": "VM",
+        "vms": "VMs",
+        "vpn": "VPN",
+        "vyos": "VyOS",
+        "wan": "WAN",
+    }
+    rendered = [names.get(word.lower(), word.capitalize()) for word in words]
+
+    for index in range(len(rendered) - 1):
+        if rendered[index] == "Eve" and rendered[index + 1] == "Ng":
+            rendered[index : index + 2] = ["EVE-NG"]
+            break
+    for index in range(len(rendered) - 2):
+        if rendered[index : index + 3] == ["Ubuntu", "22", "04"]:
+            rendered[index : index + 3] = ["Ubuntu 22.04"]
+            break
+    return " ".join(rendered) or step_id
+
+
+def _destroy_preview_label(step: dict[str, Any], state_status: str) -> str:
+    label = _step_display_label(step)
+    if bool(step.get("retain_on_destroy", False)):
+        return f"{label} (retained)"
+    if state_status in {"absent", "destroyed", "missing"}:
+        return f"{label} (already absent)"
+    return label
+
+
 def _emit_plan(payload: dict[str, Any], *, json_mode: bool) -> None:
     if json_mode:
         print(
@@ -1337,8 +1450,11 @@ def run_deploy(ns) -> int:
         step = by_id[step_id]
         progress_before = int(((step_position - 1) * 100) / total_steps) if total_steps else 0
         progress_after = int((step_position * 100) / total_steps) if total_steps else 100
-        running_label = f"{step_id}  stage {step_position}/{total_steps}"
+        display_label = _step_display_label(step)
+        running_label = f"{display_label}  stage {step_position}/{total_steps}"
+        completed_label = display_label
         completed_detail = f"overall {progress_after}%"
+        item_line = ""
         base = {
             "id": step_id,
             "module_ref": step["module_ref"],
@@ -1372,16 +1488,23 @@ def run_deploy(ns) -> int:
             else:
                 verify_state_on_skip = bool(step.get("verify_state_on_skip", False))
                 if not verify_state_on_skip:
+                    skip_label, skip_detail, skip_item_line = _step_presentation(
+                        step,
+                        state_dir=paths.state_dir,
+                        progress_after=progress_after,
+                    )
                     result = dict(base)
                     result.update({"status": "skipped", "reason": "state-ok", "rc": 0})
                     step_results.append(result)
                     progress.finish(
                         step_id,
-                        step_id,
+                        skip_label,
                         "skipped",
                         plain=f"step={step_id} status=skipped reason=state-ok",
-                        detail=f"state-ok, {completed_detail}",
+                        detail=f"existing, {skip_detail}",
                     )
+                    if skip_item_line and progress.enabled:
+                        print(skip_item_line)
                     continue
 
                 try:
@@ -1394,16 +1517,25 @@ def run_deploy(ns) -> int:
                     detail = "state-ok"
                     if skip_detail:
                         detail = f"state-ok ({skip_detail})"
+                    presentation_label, presentation_detail, skip_item_line = (
+                        _step_presentation(
+                            step,
+                            state_dir=paths.state_dir,
+                            progress_after=progress_after,
+                        )
+                    )
                     result = dict(base)
                     result.update({"status": "skipped", "reason": detail, "rc": 0})
                     step_results.append(result)
                     progress.finish(
                         step_id,
-                        step_id,
+                        presentation_label,
                         "skipped",
                         plain=f"step={step_id} status=skipped reason={detail}",
-                        detail=f"{detail}, {completed_detail}",
+                        detail=f"existing, {presentation_detail}",
                     )
+                    if skip_item_line and progress.enabled:
+                        print(skip_item_line)
                     continue
 
                 if skip_status == "error":
@@ -1481,16 +1613,23 @@ def run_deploy(ns) -> int:
                 os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
 
         if rc == 0:
+            completed_label, completed_detail, item_line = _step_presentation(
+                step,
+                state_dir=paths.state_dir,
+                progress_after=progress_after,
+            )
             result = dict(base)
             result.update({"status": "ok", "rc": 0})
             step_results.append(result)
             progress.finish(
                 step_id,
-                step_id,
+                completed_label,
                 "ok",
                 plain=f"step={step_id} status=ok progress={progress_after}%",
                 detail=completed_detail,
             )
+            if item_line and progress.enabled:
+                print(item_line)
             continue
 
         result = dict(base)
@@ -1601,6 +1740,17 @@ def run_deploy(ns) -> int:
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
     else:
+        ready_message = str(
+            (payload.get("metadata") or {}).get("ready_message") or ""
+        ).strip()
+        if final_status == "ok" and ready_message and progress.enabled:
+            print()
+            progress.finish(
+                "blueprint-ready",
+                ready_message,
+                "ok",
+                plain=f"blueprint={payload['blueprint_ref']} status=ready",
+            )
         print(
             f"blueprint={payload['blueprint_ref']} mode={payload['mode']} "
             f"status={final_status} steps={len(step_results)}"
@@ -1775,7 +1925,12 @@ def run_destroy(ns) -> int:
             for step_id in destroy_order:
                 step = next(s for s in payload["steps"] if s["id"] == step_id)
                 action = "retain" if bool(step.get("retain_on_destroy", False)) else "destroy"
-                print(f"  - {step_id}: {action} {step['module_ref']}")
+                print(f"  - {_step_display_label(step)}: {action}")
+                if os.getenv("HYOPS_VERBOSE"):
+                    print(
+                        f"    id={step_id} module={step['module_ref']} "
+                        f"ref={step_state_ref(step)}"
+                    )
         return 0
 
     json_mode = bool(getattr(ns, "json", False))
@@ -1804,17 +1959,18 @@ def run_destroy(ns) -> int:
     )
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
-        print(f"WARN: blueprint destroy will tear down resources in env={env_name}.")
-        print("steps (reverse order):")
+        print(f"WARN: destroy resources in env={env_name}.")
+        print("resources:")
         for step_id in destroy_order:
             step = by_id[step_id]
             state_ref = step_state_ref(step)
             status = module_state_status(paths.state_dir, state_ref) or "missing"
-            action = "retain" if bool(step.get("retain_on_destroy", False)) else "destroy"
-            print(
-                f"  - {step_id}: {action} {step['module_ref']} "
-                f"(state={status} ref={state_ref})"
-            )
+            print(f"  - {_destroy_preview_label(step, status)}")
+            if os.getenv("HYOPS_VERBOSE"):
+                print(
+                    f"    id={step_id} module={step['module_ref']} "
+                    f"state={status} ref={state_ref}"
+                )
 
     try:
         archive_mode = _select_archive_destroy_mode(ns, payload, env_name)

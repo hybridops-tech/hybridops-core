@@ -343,6 +343,44 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             norm_token = normalize_state_instance(token)
             state_instance = norm_token or ""
 
+        presentation: dict[str, Any] = {}
+        raw_presentation = step.get("presentation")
+        if raw_presentation is not None:
+            presentation_map = as_mapping(
+                raw_presentation,
+                f"steps[{idx}].presentation",
+            )
+            allowed = {"label", "success", "items_label", "items"}
+            unknown = sorted(
+                str(key)
+                for key in presentation_map.keys()
+                if str(key) not in allowed
+            )
+            if unknown:
+                raise ValueError(
+                    f"steps[{idx}].presentation has unknown keys: "
+                    f"{', '.join(unknown)}"
+                )
+            for key in ("label", "success", "items_label"):
+                if presentation_map.get(key) is not None:
+                    presentation[key] = as_non_empty_string(
+                        presentation_map.get(key),
+                        f"steps[{idx}].presentation.{key}",
+                    )
+            raw_items = presentation_map.get("items")
+            if raw_items is not None:
+                if not isinstance(raw_items, list):
+                    raise ValueError(
+                        f"steps[{idx}].presentation.items must be a list"
+                    )
+                presentation["items"] = [
+                    as_non_empty_string(
+                        item,
+                        f"steps[{idx}].presentation.items[{item_idx}]",
+                    )
+                    for item_idx, item in enumerate(raw_items, start=1)
+                ]
+
         contracts: dict[str, Any] = {
             "addressing_mode": "static",
             "requires_module_state_ok": [],
@@ -421,6 +459,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 "inputs": inputs if isinstance(inputs, dict) else None,
                 "inputs_file": str(inputs_file).strip() if isinstance(inputs_file, str) else "",
                 "state_instance": state_instance,
+                "presentation": presentation,
                 "contracts": contracts,
             }
         )

@@ -8,6 +8,7 @@ metadata:
   title: "GCP EVE-NG Host"
   description: "Provision a single nested-virtualization-capable GCP VM and configure EVE-NG over IAP."
   outcome: "A private EVE-NG host exists in GCP and is configured for governed training and network simulation use."
+  ready_message: "EVE-NG network emulation lab ready"
 
 policy:
   fail_fast: true
@@ -49,6 +50,9 @@ archive_before_destroy:
 steps:
   - id: gcp_eve_ng_network
     module_ref: "platform/gcp/lab-network"
+    presentation:
+      label: "Private network"
+      success: "ready"
     execution_profile: "gcp-local@v1.0"
     state_instance: "gcp_eve_ng_network"
     action: "deploy"
@@ -65,6 +69,9 @@ steps:
 
   - id: gcp_eve_ng_vm
     module_ref: "platform/gcp/platform-vm"
+    presentation:
+      label: "EVE-NG host"
+      success: "ready"
     execution_profile: "gcp-local@v1.0"
     state_instance: "gcp_eve_ng_vm"
     action: "deploy"
@@ -112,6 +119,9 @@ steps:
 
   - id: gcp_eve_ng_config
     module_ref: "platform/linux/eve-ng"
+    presentation:
+      label: "Guest networking"
+      success: "configured"
     state_instance: "gcp_eve_ng_config"
     action: "deploy"
     phase: "operations"
@@ -136,6 +146,15 @@ steps:
 
   - id: gcp_eve_ng_images
     module_ref: "platform/linux/eve-ng-images"
+    presentation:
+      label: "Lab images"
+      success: "ready"
+      items_label: "images"
+      items:
+        - "Alpine Linux"
+        - "NETem"
+        - "Tiny Core Linux"
+        - "Ubuntu Server"
     state_instance: "gcp_eve_ng_images"
     action: "deploy"
     phase: "operations"
@@ -202,6 +221,14 @@ steps:
 
   - id: gcp_eve_ng_healthcheck
     module_ref: "platform/linux/eve-ng-healthcheck"
+    presentation:
+      label: "EVE-NG health checks"
+      items_label: "checks"
+      items:
+        - "services"
+        - "database"
+        - "API"
+        - "KVM"
     state_instance: "gcp_eve_ng_healthcheck"
     action: "deploy"
     phase: "operations"

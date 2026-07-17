@@ -8,6 +8,7 @@ metadata:
   title: "On-Prem EVE-NG Platform Stack"
   description: "Build a Jammy template image (if needed), provision a standalone EVE-NG VM on the Proxmox uplink, then configure EVE-NG."
   outcome: "EVE-NG is installed and reachable."
+  ready_message: "EVE-NG network emulation lab ready"
 
 policy:
   fail_fast: true
@@ -51,6 +52,9 @@ archive_before_destroy:
 steps:
   - id: template_image_jammy
     module_ref: "core/onprem/template-image"
+    presentation:
+      label: "Ubuntu template"
+      success: "ready"
     state_instance: "template_image_ubuntu_22_04"
     action: "deploy"
     phase: "bootstrap"
@@ -66,6 +70,9 @@ steps:
 
   - id: eve_ng_vm
     module_ref: "platform/onprem/platform-vm"
+    presentation:
+      label: "EVE-NG host"
+      success: "ready"
     state_instance: "eve_ng_vm"
     action: "deploy"
     phase: "bootstrap"
@@ -92,6 +99,9 @@ steps:
 
   - id: eve_ng_config
     module_ref: "platform/linux/eve-ng"
+    presentation:
+      label: "Guest networking"
+      success: "configured"
     action: "deploy"
     phase: "operations"
     with_deps: false
@@ -114,6 +124,15 @@ steps:
 
   - id: eve_ng_images
     module_ref: "platform/linux/eve-ng-images"
+    presentation:
+      label: "Lab images"
+      success: "ready"
+      items_label: "images"
+      items:
+        - "Alpine Linux"
+        - "NETem"
+        - "Tiny Core Linux"
+        - "Ubuntu Server"
     state_instance: "eve_ng_images"
     action: "deploy"
     phase: "operations"
@@ -153,6 +172,14 @@ steps:
 
   - id: eve_ng_healthcheck
     module_ref: "platform/linux/eve-ng-healthcheck"
+    presentation:
+      label: "EVE-NG health checks"
+      items_label: "checks"
+      items:
+        - "services"
+        - "database"
+        - "API"
+        - "KVM"
     state_instance: "eve_ng_healthcheck"
     action: "deploy"
     phase: "operations"
