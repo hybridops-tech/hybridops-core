@@ -50,4 +50,15 @@ args=()
 if [[ "${force_install}" == "true" ]]; then
   args+=(--force)
 fi
+
+launcher_rc="${HOME}/.hybridops/config/windows-shell.rc"
+mkdir -p "$(dirname -- "${launcher_rc}")"
+cat >"${launcher_rc}" <<'EOF'
+if [[ -f "${HOME}/.bashrc" ]]; then
+  source "${HOME}/.bashrc"
+fi
+PS1='hyops:\w\$ '
+EOF
+chmod 0600 "${launcher_rc}"
+
 exec ./install.sh "${args[@]}"
