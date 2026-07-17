@@ -4,11 +4,64 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
 from hyops.runtime.coerce import as_argv
 from .proc import run_capture_with_policy
+
+
+_GCP_CAPACITY_MARKERS = (
+    "does not have enough resources available",
+    "zone_resource_pool_exhausted",
+    "resource pool exhausted",
+)
+
+
+def translate_gcp_capacity_error(
+    *,
+    command_name: str,
+    stdout: str,
+    stderr: str,
+    env: dict[str, str],
+) -> str:
+    """Return operator guidance for a GCP zonal capacity failure."""
+    if command_name != "apply":
+        return ""
+
+    combined = f"{stderr}\n{stdout}"
+    lowered = combined.lower()
+    if not any(marker in lowered for marker in _GCP_CAPACITY_MARKERS):
+        return ""
+
+    zone_match = re.search(r"/zones/([a-z0-9-]+)", combined, flags=re.IGNORECASE)
+    if zone_match is None:
+        zone_match = re.search(
+            r"\b(?:in|the)\s+(?:the\s+)?([a-z]+-[a-z0-9]+-[a-z])\s+zone\b",
+            combined,
+            flags=re.IGNORECASE,
+        )
+    zone = str(zone_match.group(1) if zone_match else "").strip()
+
+    machine_match = re.search(
+        r"\b([a-z][a-z0-9-]+)\s+VM instance is currently unavailable\b",
+        combined,
+        flags=re.IGNORECASE,
+    )
+    machine_type = str(machine_match.group(1) if machine_match else "").strip()
+
+    location = f" in {zone}" if zone else ""
+    request = f" for {machine_type}" if machine_type else ""
+    env_name = str(env.get("HYOPS_ENV") or "").strip() or "<env>"
+    init_command = f"hyops init gcp --env {shlex.quote(env_name)} --force"
+
+    return (
+        f"GCP compute capacity is temporarily unavailable{location}{request}. "
+        "The requested VM was not created.\n"
+        f"hint: run `{init_command}`, choose a different compute location, "
+        "then run the blueprint deploy command again."
+    )
 
 
 def resolve_terragrunt_config(profile: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +173,14 @@ def run_terragrunt_operation(
         stream=True,
     )
     if r_exec.rc != 0:
+        capacity_error = translate_gcp_capacity_error(
+            command_name=command_name,
+            stdout=str(r_exec.stdout or ""),
+            stderr=str(r_exec.stderr or ""),
+            env=env,
+        )
+        if capacity_error:
+            return {}, capacity_error
         return {}, exec_error
 
     outputs: dict[str, Any] = {}
