@@ -7,11 +7,30 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 from typing import Any
 
 from hyops.runtime.module_state import module_state_path, read_module_state
+
+
+def _valid_local_terraform_state(
+    state_root: Path,
+    module_ref: str,
+    state_instance: str | None,
+) -> tuple[bool, Path]:
+    identity = str(module_ref or "").strip()
+    instance = str(state_instance or "").strip()
+    if instance:
+        identity = f"{identity}#{instance}"
+    module_id = identity.replace("/", "__").replace("#", "__")
+    state_path = Path(state_root) / "terraform" / f"{module_id}.tfstate"
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, state_path
+    return isinstance(payload, dict) and isinstance(payload.get("version"), int), state_path
 
 
 def build_backend_binding(
@@ -160,6 +179,18 @@ def check_backend_binding_drift(
     try:
         prior = read_module_state(state_root, module_ref, state_instance=state_instance)
     except Exception as exc:
+        current_mode = str(current_binding.get("mode") or "").strip().lower()
+        local_state_ok, local_state_path = _valid_local_terraform_state(
+            state_root,
+            module_ref,
+            state_instance,
+        )
+        if current_mode == "local" and local_state_ok:
+            return "", (
+                "backend binding guard found an unreadable HybridOps module-state summary, "
+                f"but the local Terraform state is valid at {local_state_path}. "
+                "The next successful apply will rebuild the summary."
+            )
         return (
             f"backend binding guard failed to read module state: {state_path} ({exc})",
             "",
