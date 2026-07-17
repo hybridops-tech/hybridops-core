@@ -8,7 +8,7 @@ hyops_install_copy_payload() {
   echo "[install] copying payload"
   mkdir -p "${APP_DIR}"
   cp -a "${SRC_ROOT}/." "${APP_DIR}/"
-  echo "[install] hardening shipped blueprint payload"
+  echo "[install] hardening blueprint payload"
   hyops_install_set_blueprint_payload_read_only "${APP_DIR}"
 }
 
