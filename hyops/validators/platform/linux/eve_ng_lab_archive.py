@@ -82,6 +82,52 @@ def validate(inputs: dict[str, Any]) -> None:
             )
     if not isinstance(data.get("eveng_lab_archive_overwrite"), bool):
         raise ValueError("inputs.eveng_lab_archive_overwrite must be a boolean")
+    include_node_state = data.get("eveng_lab_archive_include_node_state")
+    restore_node_state = data.get("eveng_lab_archive_restore_node_state")
+    if not isinstance(include_node_state, bool):
+        raise ValueError(
+            "inputs.eveng_lab_archive_include_node_state must be a boolean"
+        )
+    if not isinstance(restore_node_state, bool):
+        raise ValueError(
+            "inputs.eveng_lab_archive_restore_node_state must be a boolean"
+        )
+    node_state_root = require_non_empty_str(
+        data.get("eveng_lab_archive_node_state_root"),
+        "inputs.eveng_lab_archive_node_state_root",
+    )
+    if not node_state_root.startswith("/"):
+        raise ValueError(
+            "inputs.eveng_lab_archive_node_state_root must be an absolute path"
+        )
+    require_non_empty_str(
+        data.get("eveng_lab_archive_qemu_img"),
+        "inputs.eveng_lab_archive_qemu_img",
+    )
+    if action == "export" and include_node_state and data.get(
+        "eveng_lab_archive_folders"
+    ):
+        raise ValueError(
+            "inputs.eveng_lab_archive_folders must be empty when node state is included"
+        )
+    if action == "restore" and restore_node_state:
+        node_state_path = require_non_empty_str(
+            data.get("eveng_lab_archive_node_state_path"),
+            "inputs.eveng_lab_archive_node_state_path",
+        )
+        if not node_state_path.startswith("/"):
+            raise ValueError(
+                "inputs.eveng_lab_archive_node_state_path must be an absolute path"
+            )
+        node_state_checksum = require_non_empty_str(
+            data.get("eveng_lab_archive_node_state_expected_sha256"),
+            "inputs.eveng_lab_archive_node_state_expected_sha256",
+        )
+        if not _SHA256_RE.fullmatch(node_state_checksum):
+            raise ValueError(
+                "inputs.eveng_lab_archive_node_state_expected_sha256 must contain "
+                "64 hexadecimal characters"
+            )
     if data.get("required_env_destroy") is not None:
         require_str_list(data.get("required_env_destroy"), "inputs.required_env_destroy")
     normalize_required_env(data.get("required_env"), "inputs.required_env")

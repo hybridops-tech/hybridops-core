@@ -44,6 +44,7 @@ archive_before_destroy:
     ssh_private_key_file: "~/.ssh/id_ed25519"
     ssh_access_mode: "gcp-iap"
     eveng_lab_archive_action: "export"
+    eveng_lab_archive_include_node_state: true
 
 steps:
   - id: gcp_eve_ng_network

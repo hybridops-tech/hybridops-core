@@ -1066,7 +1066,7 @@ def run_access(ns) -> int:
 def _verified_lab_archive(
     payload: dict[str, Any],
     paths,
-) -> tuple[Path, str] | None:
+) -> tuple[Path, str, Path | None, str] | None:
     lifecycle = payload.get("archive_before_destroy")
     if not isinstance(lifecycle, dict) or not lifecycle:
         return None
@@ -1093,14 +1093,38 @@ def _verified_lab_archive(
             digest.update(chunk)
     if digest.hexdigest() != expected:
         raise ValueError(f"lab archive checksum verification failed: {archive_path}")
-    return archive_path.resolve(), expected
+
+    node_archive: Path | None = None
+    node_checksum = ""
+    if bool(outputs.get("eveng_lab_archive_node_state_included", False)):
+        candidate = Path(
+            str(outputs.get("eveng_lab_archive_node_state_archive_path") or "")
+        ).expanduser()
+        candidate_checksum = str(
+            outputs.get("eveng_lab_archive_node_state_sha256") or ""
+        ).strip().lower()
+        if not candidate.is_file() or not re.fullmatch(
+            r"[0-9a-f]{64}", candidate_checksum
+        ):
+            raise ValueError("node-state archive is missing or unverifiable")
+        node_digest = hashlib.sha256()
+        with candidate.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                node_digest.update(chunk)
+        if node_digest.hexdigest() != candidate_checksum:
+            raise ValueError(
+                f"node-state archive checksum verification failed: {candidate}"
+            )
+        node_archive = candidate.resolve()
+        node_checksum = candidate_checksum
+    return archive_path.resolve(), expected, node_archive, node_checksum
 
 
 def _select_lab_restore_mode(
     ns,
     payload: dict[str, Any],
     paths,
-) -> tuple[str, tuple[Path, str] | None]:
+) -> tuple[str, tuple[Path, str, Path | None, str] | None]:
     lifecycle = payload.get("archive_before_destroy")
     requested = bool(getattr(ns, "restore_labs", False))
     skipped = bool(getattr(ns, "skip_lab_restore", False))
@@ -1126,6 +1150,8 @@ def _select_lab_restore_mode(
         return "skip", archive
 
     print(f"lab archive available: {archive[0]}")
+    if archive[2] is not None:
+        print(f"stopped node state available: {archive[2]}")
     try:
         answer = input("Restore archived labs? [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -1138,10 +1164,10 @@ def _run_lab_restore(
     ns,
     payload: dict[str, Any],
     paths,
-    archive: tuple[Path, str],
+    archive: tuple[Path, str, Path | None, str],
 ) -> int:
     lifecycle = payload["archive_before_destroy"]
-    archive_path, checksum = archive
+    archive_path, checksum, node_archive_path, node_checksum = archive
     restore_inputs = dict(lifecycle.get("inputs") or {})
     restore_inputs.update(
         {
@@ -1153,6 +1179,14 @@ def _run_lab_restore(
             ),
         }
     )
+    if node_archive_path is not None:
+        restore_inputs.update(
+            {
+                "eveng_lab_archive_restore_node_state": True,
+                "eveng_lab_archive_node_state_path": str(node_archive_path),
+                "eveng_lab_archive_node_state_expected_sha256": node_checksum,
+            }
+        )
     restore_step = {
         "id": "restore_archived_labs",
         "module_ref": lifecycle["module_ref"],
@@ -1681,6 +1715,31 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         return OPERATOR_ERROR
     print(f"lab archive: {archive_path}")
     print(f"sha256: {actual}")
+    if bool(outputs.get("eveng_lab_archive_node_state_included", False)):
+        node_archive_path = Path(
+            str(outputs.get("eveng_lab_archive_node_state_archive_path") or "")
+        ).expanduser()
+        node_expected = str(
+            outputs.get("eveng_lab_archive_node_state_sha256") or ""
+        ).strip().lower()
+        if not node_archive_path.is_file() or not re.fullmatch(
+            r"[0-9a-f]{64}", node_expected
+        ):
+            print("ERR: node-state archive is missing; no resources were destroyed")
+            return OPERATOR_ERROR
+        node_digest = hashlib.sha256()
+        with node_archive_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                node_digest.update(chunk)
+        node_actual = node_digest.hexdigest()
+        if node_actual != node_expected:
+            print(
+                "ERR: node-state archive checksum verification failed; "
+                "no resources were destroyed"
+            )
+            return OPERATOR_ERROR
+        print(f"stopped node state: {node_archive_path}")
+        print(f"sha256: {node_actual}")
     return 0
 
 

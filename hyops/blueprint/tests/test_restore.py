@@ -62,7 +62,7 @@ class BlueprintLabRestoreTest(TestCase):
                 )
 
         self.assertEqual(mode, "restore")
-        self.assertEqual(selected, (archive.resolve(), checksum))
+        self.assertEqual(selected, (archive.resolve(), checksum, None, ""))
 
     def test_explicit_restore_requires_an_archive(self):
         paths = SimpleNamespace(state_dir=Path("/tmp/state"))
@@ -98,7 +98,7 @@ class BlueprintLabRestoreTest(TestCase):
                 )
 
     def test_restore_reuses_target_contract_and_protects_existing_labs(self):
-        archive = (Path("/tmp/labs.tar.gz"), "b" * 64)
+        archive = (Path("/tmp/labs.tar.gz"), "b" * 64, None, "")
         with patch(
             "hyops.blueprint.command.run_step_module_command",
             return_value=0,
@@ -124,3 +124,32 @@ class BlueprintLabRestoreTest(TestCase):
         )
         self.assertFalse(step["inputs"]["eveng_lab_archive_overwrite"])
 
+    def test_restore_includes_verified_node_state(self):
+        archive = (
+            Path("/tmp/labs.tar.gz"),
+            "b" * 64,
+            Path("/tmp/labs.tar.gz.node-state.tar.gz"),
+            "c" * 64,
+        )
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=0,
+        ) as command:
+            rc = _run_lab_restore(
+                _namespace(restore_labs=True),
+                _payload(),
+                SimpleNamespace(),
+                archive,
+            )
+
+        self.assertEqual(rc, 0)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertTrue(inputs["eveng_lab_archive_restore_node_state"])
+        self.assertEqual(
+            inputs["eveng_lab_archive_node_state_path"],
+            "/tmp/labs.tar.gz.node-state.tar.gz",
+        )
+        self.assertEqual(
+            inputs["eveng_lab_archive_node_state_expected_sha256"],
+            "c" * 64,
+        )

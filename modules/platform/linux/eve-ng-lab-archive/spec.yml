@@ -50,6 +50,12 @@ inputs:
     eveng_lab_archive_expected_sha256: ""
     eveng_lab_archive_overwrite: false
     eveng_lab_archive_remote_dir: "/tmp/hyops-eveng-lab-archive"
+    eveng_lab_archive_include_node_state: false
+    eveng_lab_archive_restore_node_state: false
+    eveng_lab_archive_node_state_root: "/opt/unetlab/tmp"
+    eveng_lab_archive_node_state_path: ""
+    eveng_lab_archive_node_state_expected_sha256: ""
+    eveng_lab_archive_qemu_img: "/opt/qemu/bin/qemu-img"
 
 execution:
   driver: "config/ansible"
@@ -66,6 +72,10 @@ outputs:
     - eveng_lab_archive_sha256
     - eveng_lab_archive_created_at
     - eveng_lab_archive_folders
+    - eveng_lab_archive_node_state_included
+    - eveng_lab_archive_node_state_archive_path
+    - eveng_lab_archive_node_state_sha256
+    - eveng_lab_archive_node_state_files
 
 probes: []
 constraints: []
