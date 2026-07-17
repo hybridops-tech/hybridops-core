@@ -37,6 +37,7 @@ TARBALL_PATH="${OUT_DIR}/${PACKAGE_ROOT}.tar.gz"
 SHA256_PATH="${TARBALL_PATH}.sha256"
 WINDOWS_INSTALLER_SOURCE="${REPO_ROOT}/tools/install/windows/install-windows.cmd"
 WINDOWS_HELPER_PATH="${REPO_ROOT}/tools/install/windows/install-windows-wsl.sh"
+WINDOWS_LAUNCHER_SOURCE="${REPO_ROOT}/tools/install/windows/launcher.cmd"
 WINDOWS_BUNDLE_PATH="${OUT_DIR}/${PACKAGE_ROOT}-windows.zip"
 WINDOWS_BUNDLE_SHA256_PATH="${WINDOWS_BUNDLE_PATH}.sha256"
 BUILD_WHEELHOUSE="${HYOPS_RELEASE_BUILD_WHEELHOUSE:-true}"
@@ -255,6 +256,7 @@ mkdir -p "${WINDOWS_PAYLOAD_STAGE}"
 cp "${WINDOWS_INSTALLER_SOURCE}" "${WINDOWS_STAGE}/Install HybridOps.cmd"
 cp "${TARBALL_PATH}" "${WINDOWS_PAYLOAD_STAGE}/hybridops-core.tar.gz"
 cp "${WINDOWS_HELPER_PATH}" "${WINDOWS_PAYLOAD_STAGE}/install-wsl.sh"
+cp "${WINDOWS_LAUNCHER_SOURCE}" "${WINDOWS_PAYLOAD_STAGE}/launcher.cmd"
 cp "${REPO_ROOT}/assets/windows/hybridops.ico" "${WINDOWS_PAYLOAD_STAGE}/hybridops.ico"
 (
   cd "${WINDOWS_PAYLOAD_STAGE}"
@@ -334,6 +336,7 @@ expected = {
     "payload/hybridops-core.tar.gz.sha256",
     "payload/hybridops.ico",
     "payload/install-wsl.sh",
+    "payload/launcher.cmd",
 }
 with zipfile.ZipFile(Path(sys.argv[1])) as archive:
     actual = set(archive.namelist())
