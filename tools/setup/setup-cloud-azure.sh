@@ -5,11 +5,19 @@
 
 set -euo pipefail
 
+progress() {
+  echo "[hyops-progress] $1"
+}
+
 if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
   exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/setup-cloud-azure-macos.sh" "$@"
 fi
 
-command -v az >/dev/null 2>&1 && { echo "[setup] azure-cli present"; exit 0; }
+command -v az >/dev/null 2>&1 && {
+  progress "Verifying cloud setup"
+  echo "[setup] azure-cli present"
+  exit 0
+}
 
 [[ "${EUID}" -eq 0 ]] || { echo "ERR: requires root (use: hyops setup cloud-azure --sudo)"; exit 2; }
 
@@ -19,6 +27,7 @@ RELEASE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=/dev/null
 source "${RELEASE_ROOT}/tools/setup/lib/toolchain_lock.sh"
 
+progress "Preparing cloud packages"
 apt-get update -y
 apt-get install -y ca-certificates curl gnupg lsb-release
 
@@ -36,6 +45,7 @@ EOF
 
 apt-get update -y
 
+progress "Installing cloud integration"
 az_ver="$(toolchain_get AZ_CLI_VERSION)"
 if [[ -n "${az_ver}" ]]; then
   apt-get install -y "azure-cli=${az_ver}" || {
@@ -47,6 +57,7 @@ else
   apt-get install -y azure-cli
 fi
 
+progress "Verifying cloud setup"
 command -v az >/dev/null 2>&1 || { echo "ERR: az install failed"; exit 1; }
 
 echo "[setup] azure-cli installed"

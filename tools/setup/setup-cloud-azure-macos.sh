@@ -2,6 +2,11 @@
 # purpose: Install Azure CLI prerequisites on macOS with Homebrew.
 set -euo pipefail
 
+progress() {
+  echo "[hyops-progress] $1"
+}
+
+progress "Checking Homebrew"
 if [[ "${EUID}" -eq 0 ]]; then
   echo "ERR: Homebrew setup must run as your macOS user (omit --sudo)" >&2
   exit 2
@@ -12,6 +17,8 @@ command -v brew >/dev/null 2>&1 || {
   exit 2
 }
 
+progress "Installing Azure support"
 brew install azure-cli
+progress "Verifying Azure support"
 command -v az >/dev/null 2>&1 || { echo "ERR: Azure CLI install failed" >&2; exit 1; }
 echo "[setup] Azure CLI installed"

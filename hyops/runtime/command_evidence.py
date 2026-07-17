@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import platform
+import signal
 import subprocess
 import sys
 from typing import Callable, IO, Mapping, Sequence
@@ -42,7 +43,11 @@ def write_result(
         "started_at": started_at,
         "finished_at": _utc_now(),
         "exit_code": int(exit_code),
-        "status": "ok" if int(exit_code) == 0 else "failed",
+        "status": (
+            "ok"
+            if int(exit_code) == 0
+            else ("cancelled" if int(exit_code) == 130 else "failed")
+        ),
         "platform": {
             "system": platform.system(),
             "machine": platform.machine(),
@@ -79,16 +84,30 @@ def run_streamed(
             bufsize=1,
         )
         assert process.stdout is not None
-        for raw_line in process.stdout:
-            safe_line = redact_text(raw_line)
-            if line_callback is not None:
-                line_callback(safe_line.rstrip("\r\n"))
-            if stream_output:
-                sys.stdout.write(safe_line)
-                sys.stdout.flush()
-            output.write(safe_line)
-            output.flush()
-        exit_code = int(process.wait())
+        try:
+            for raw_line in process.stdout:
+                safe_line = redact_text(raw_line)
+                if line_callback is not None:
+                    line_callback(safe_line.rstrip("\r\n"))
+                if stream_output:
+                    sys.stdout.write(safe_line)
+                    sys.stdout.flush()
+                output.write(safe_line)
+                output.flush()
+            exit_code = int(process.wait())
+        except KeyboardInterrupt:
+            if process.poll() is None:
+                try:
+                    process.send_signal(signal.SIGINT)
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+            exit_code = 130
     write_result(
         evidence_dir,
         command=command,

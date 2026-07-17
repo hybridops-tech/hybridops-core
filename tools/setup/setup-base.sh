@@ -9,7 +9,7 @@ if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
   exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/setup-base-macos.sh" "$@"
 fi
 
-[[ "${EUID}" -eq 0 ]] || { echo "ERR: requires root (use: hyops setup base --sudo)"; exit 2; }
+[[ "${EUID}" -eq 0 ]] || { echo "ERR: requires root (run: hyops setup base)"; exit 2; }
 
 export PATH="/usr/local/bin:/usr/local/sbin:${PATH}"
 
@@ -546,24 +546,30 @@ ensure_vault_pass_deps() {
   ensure_foundation
   case "${PKG_MANAGER}" in
     apt)
-      if pkg_install_optional pass pinentry-curses; then
-        return 0
-      fi
+      pkg_install pass pinentry-curses
       ;;
     dnf|yum)
-      if pkg_install_optional pass pinentry; then
-        return 0
-      fi
+      pkg_install pass pinentry
       ;;
   esac
-  echo "[setup] pass/pinentry unavailable from configured package repositories; skipping"
+  have pass || {
+    echo "ERR: pass was installed but is not available on PATH" >&2
+    exit 1
+  }
+  if ! have pinentry && ! have pinentry-curses && ! have pinentry-tty; then
+    echo "ERR: pinentry was installed but is not available on PATH" >&2
+    exit 1
+  fi
 }
 
 main() {
   toolchain__load
   print_header
-  progress "Preparing system packages"
+  progress "Refreshing package information"
+  pkg_update_once
+  progress "Installing system utilities"
   ensure_foundation
+  progress "Installing Python runtime"
   ensure_python
   progress "Installing automation runtime"
   ensure_ansible

@@ -33,6 +33,7 @@ class ProgressDisplay:
     """Render stable plain output or concise interactive status lines."""
 
     enabled: bool = field(default_factory=concise_enabled)
+    show_elapsed: bool = True
     _started: dict[str, float] = field(default_factory=dict)
     _labels: dict[str, str] = field(default_factory=dict)
     _stops: dict[str, threading.Event] = field(default_factory=dict)
@@ -44,18 +45,16 @@ class ProgressDisplay:
         while not stopped.wait(0.2):
             started = self._started.get(key, time.monotonic())
             current_label = self._labels.get(key, label)
-            print(
-                f"\r\033[2K{frames[frame]} {current_label}  {_elapsed(started)}",
-                end="",
-                flush=True,
-            )
+            elapsed = f"  {_elapsed(started)}" if self.show_elapsed else ""
+            print(f"\r\033[2K{frames[frame]} {current_label}{elapsed}", end="", flush=True)
             frame = (frame + 1) % len(frames)
 
     def start(self, key: str, label: str, *, plain: str) -> None:
         self._started[key] = time.monotonic()
         self._labels[key] = label
         if self.enabled:
-            print(f"| {label}  0s", end="", flush=True)
+            elapsed = "  0s" if self.show_elapsed else ""
+            print(f"| {label}{elapsed}", end="", flush=True)
             stopped = threading.Event()
             thread = threading.Thread(
                 target=self._animate,
@@ -102,7 +101,7 @@ class ProgressDisplay:
             "cancelled": "!",
             "failed-optional": "!",
         }.get(status, "✗")
-        suffix = f"  {_elapsed(started)}"
+        suffix = f"  {_elapsed(started)}" if self.show_elapsed else ""
         if detail:
             suffix += f"  {detail}"
         print(f"\r\033[2K{symbol} {label}{suffix}", flush=True)
