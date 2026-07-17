@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import time
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -87,6 +88,26 @@ class ProgressDisplayTests(unittest.TestCase):
                 "Base tools: Preparing system packages",
             )
             display.finish("base", "Base tools", "ok", plain="ignored")
+
+    def test_tracked_percentage_advances_without_crossing_boundary(self) -> None:
+        display = ProgressDisplay(enabled=True, show_elapsed=False)
+        display._started["galaxy"] = time.monotonic()
+        display._labels["galaxy"] = "Galaxy dependencies  43%"
+        display.track_percent(
+            "galaxy",
+            "Galaxy dependencies",
+            current=43,
+            ceiling=45,
+            interval_s=1,
+        )
+        tracked = display._percent_tracks["galaxy"]
+        first_tick = float(tracked["last_advance"]) + 1.1
+
+        display._advance_tracked_percent("galaxy", now=first_tick)
+        display._advance_tracked_percent("galaxy", now=first_tick + 1.1)
+        display._advance_tracked_percent("galaxy", now=first_tick + 2.2)
+
+        self.assertEqual(display._labels["galaxy"], "Galaxy dependencies  45%")
 
 
 if __name__ == "__main__":
