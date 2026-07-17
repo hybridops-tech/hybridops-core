@@ -51,5 +51,13 @@
             'eveng_lab_archive_manifest_path': eveng_lab_archive_results.manifest_path | default(''),
             'eveng_lab_archive_sha256': eveng_lab_archive_results.sha256,
             'eveng_lab_archive_created_at': eveng_lab_archive_results.created_at | default(''),
-            'eveng_lab_archive_folders': eveng_lab_archive_results.folders
+            'eveng_lab_archive_folders': eveng_lab_archive_results.folders,
+            'eveng_lab_archive_node_state_included':
+              eveng_lab_archive_results.node_state_included | default(false),
+            'eveng_lab_archive_node_state_archive_path':
+              eveng_lab_archive_results.node_state_archive_path | default(''),
+            'eveng_lab_archive_node_state_sha256':
+              eveng_lab_archive_results.node_state_sha256 | default(''),
+            'eveng_lab_archive_node_state_files':
+              eveng_lab_archive_results.node_state_files | default(0)
           } | to_json }}

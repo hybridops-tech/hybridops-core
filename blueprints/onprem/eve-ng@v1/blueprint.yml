@@ -46,6 +46,7 @@ archive_before_destroy:
     become: true
     become_user: "root"
     eveng_lab_archive_action: "export"
+    eveng_lab_archive_include_node_state: true
 
 steps:
   - id: template_image_jammy

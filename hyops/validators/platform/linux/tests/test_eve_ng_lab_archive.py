@@ -53,6 +53,27 @@ class EveNgLabArchiveValidatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(inputs)
 
+    def test_node_state_export_requires_complete_lab_tree(self) -> None:
+        inputs = valid_inputs()
+        inputs["eveng_lab_archive_include_node_state"] = True
+        inputs["eveng_lab_archive_folders"] = ["student"]
+        with self.assertRaisesRegex(ValueError, "must be empty"):
+            validate(inputs)
+
+    def test_node_state_restore_requires_companion_checksum(self) -> None:
+        inputs = valid_inputs()
+        inputs.update(
+            {
+                "eveng_lab_archive_action": "restore",
+                "eveng_lab_archive_path": "/tmp/labs.tar.gz",
+                "eveng_lab_archive_expected_sha256": "a" * 64,
+                "eveng_lab_archive_restore_node_state": True,
+                "eveng_lab_archive_node_state_path": "/tmp/nodes.tar.gz",
+            }
+        )
+        with self.assertRaises(ValueError):
+            validate(inputs)
+
 
 if __name__ == "__main__":
     unittest.main()
