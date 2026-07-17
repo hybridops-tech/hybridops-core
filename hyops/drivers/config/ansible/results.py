@@ -45,6 +45,15 @@ def ansible_error_hint(
             "Use the module maintenance path for in-place reconciliation, or clean hosts before bootstrap."
         )
 
+    if (
+        module_ref.strip().lower() == "platform/linux/eve-ng-lab-archive"
+        and "qemu nodes are running" in tail
+    ):
+        return (
+            "EVE-NG nodes are still running. Stop all active lab nodes in the "
+            "EVE-NG UI, then repeat the archive operation. No resources were destroyed."
+        )
+
     return ""
 
 
