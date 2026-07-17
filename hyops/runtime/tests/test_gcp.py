@@ -37,6 +37,27 @@ class ProjectBillingTest(TestCase):
 
 
 class GcpVmZoneResolutionTest(TestCase):
+    def test_uses_initialized_zone(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_root = root / "state"
+            write_marker(
+                root / "meta",
+                "gcp",
+                {
+                    "status": "ready",
+                    "context": {
+                        "region": "europe-west2",
+                        "zone": "europe-west2-b",
+                    },
+                },
+            )
+            inputs = {"zone": "", "zone_from_init_region": True}
+
+            resolve_gcp_vm_zone_from_init(inputs, state_root=state_root)
+
+        self.assertEqual(inputs["zone"], "europe-west2-b")
+
     def test_derives_zone_from_initialized_region(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

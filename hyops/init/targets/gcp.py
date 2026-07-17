@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import tempfile
 from pathlib import Path
@@ -48,9 +49,10 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
             "Notes:\n"
             "  - Shared flags live on `hyops init` (e.g. --root, --out-dir, --config, --dry-run).\n"
             "  - Required steady-state config keys: GCP_PROJECT_ID, GCP_REGION.\n"
-            "  - With --with-cli-login, HybridOps can derive them from gcloud defaults or prompt interactively.\n"
+            "  - Optional: GCP_ZONE (selected interactively for zonal workloads).\n"
+            "  - With --with-cli-login, HybridOps can discover them or prompt interactively.\n"
             "  - Optional: GCP_BILLING_ACCOUNT_ID (used by org/gcp/project-factory when creating new projects).\n"
-            "  - Optional: GCP_TERRAFORM_SA_EMAIL (recommended for steady-state; can be derived from project-factory state).\n"
+            "  - Optional: GCP_RUNTIME_SA_EMAIL (delegated runtime identity; can be derived from project-factory state).\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -59,22 +61,48 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
 
     p.add_argument("--project-id", default=None, help="Override GCP project id.")
     p.add_argument("--region", default=None, help="Override GCP region.")
+    p.add_argument("--zone", default=None, help="Override GCP zone.")
     p.add_argument(
         "--billing-account-id",
         default=None,
         help="Override GCP billing account id (used by org/gcp/project-factory).",
     )
     p.add_argument(
-        "--terraform-sa-email",
+        "--runtime-sa-email",
+        dest="runtime_sa_email",
         default=None,
-        help="Override Terraform runtime service account email (impersonation target).",
+        help="Override the delegated GCP runtime identity email.",
+    )
+    p.add_argument(
+        "--terraform-sa-email",
+        dest="runtime_sa_email",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument(
+        "--quota-project-id",
+        dest="quota_project_id",
+        default=None,
+        help="Override the GCP quota project id.",
     )
     p.add_argument(
         "--adc-quota-project-id",
+        dest="quota_project_id",
         default=None,
-        help="Override ADC quota project id (application-default set-quota-project).",
+        help=argparse.SUPPRESS,
     )
-    p.add_argument("--tfvars-out", default=None, help="Override credentials tfvars output path.")
+    p.add_argument(
+        "--credentials-out",
+        dest="credentials_out",
+        default=None,
+        help="Override the protected runtime-credentials output path.",
+    )
+    p.add_argument(
+        "--tfvars-out",
+        dest="credentials_out",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     p.add_argument("--ssh-public-key", default=None, help="Override or persist a non-secret SSH public key into GCP init readiness.")
     p.add_argument(
         "--with-eso-sa",
@@ -189,6 +217,13 @@ def run(ns) -> int:
         region = str(cfg.get("GCP_REGION") or "").strip()
         region_source = "config"
 
+    zone = (
+        getattr(ns, "zone", None)
+        or os.environ.get("GCP_ZONE")
+        or cfg.get("GCP_ZONE")
+        or ""
+    ).strip()
+
     billing_account_id = ""
     billing_account_source = ""
     if getattr(ns, "billing_account_id", None):
@@ -201,7 +236,10 @@ def run(ns) -> int:
         billing_account_id = normalize_billing_account_id(str(cfg.get("GCP_BILLING_ACCOUNT_ID") or "").strip())
         billing_account_source = "config"
     terraform_sa_email = (
-        getattr(ns, "terraform_sa_email", None)
+        getattr(ns, "runtime_sa_email", None)
+        or getattr(ns, "terraform_sa_email", None)
+        or os.environ.get("GCP_RUNTIME_SA_EMAIL")
+        or cfg.get("GCP_RUNTIME_SA_EMAIL")
         or os.environ.get("GCP_TERRAFORM_SA_EMAIL")
         or cfg.get("GCP_TERRAFORM_SA_EMAIL")
         or ""
@@ -209,7 +247,10 @@ def run(ns) -> int:
     terraform_sa_email_explicit = bool(terraform_sa_email)
     adc_quota_project_id = (
         (
-            getattr(ns, "adc_quota_project_id", None)
+            getattr(ns, "quota_project_id", None)
+            or getattr(ns, "adc_quota_project_id", None)
+            or os.environ.get("GCP_QUOTA_PROJECT_ID")
+            or cfg.get("GCP_QUOTA_PROJECT_ID")
             or os.environ.get("GCP_ADC_QUOTA_PROJECT_ID")
             or cfg.get("GCP_ADC_QUOTA_PROJECT_ID")
             or ""
@@ -224,7 +265,10 @@ def run(ns) -> int:
     ).strip()
 
     tfvars_out_raw = (
-        getattr(ns, "tfvars_out", None)
+        getattr(ns, "credentials_out", None)
+        or getattr(ns, "tfvars_out", None)
+        or (os.environ.get("GCP_CREDENTIALS_OUT") or "").strip()
+        or (cfg.get("GCP_CREDENTIALS_OUT") or "").strip()
         or (os.environ.get("GCP_TFVARS_OUT") or "").strip()
         or (cfg.get("GCP_TFVARS_OUT") or "").strip()
         or str(paths.credentials_dir / "gcp.credentials.tfvars")
@@ -240,6 +284,7 @@ def run(ns) -> int:
             {
                 "GCP_PROJECT_ID": project_id,
                 "GCP_REGION": region,
+                "GCP_ZONE": zone,
                 "GCP_BILLING_ACCOUNT_ID": billing_account_id,
             },
         )
@@ -264,7 +309,9 @@ def run(ns) -> int:
             "inputs": {
                 "project_id": project_id,
                 "region": region,
+                "zone": zone,
                 "billing_account_id": billing_account_id,
+                "runtime_sa_email": terraform_sa_email,
                 "terraform_sa_email": terraform_sa_email,
                 "adc_quota_project_id": adc_quota_project_id,
                 "ssh_public_key_present": bool(ssh_public_key),
@@ -273,7 +320,7 @@ def run(ns) -> int:
     )
 
     if getattr(ns, "dry_run", False):
-        print("dry-run: would validate gcloud + adc (and impersonation when configured), then write tfvars + readiness")
+        print("dry-run: would validate GCP identity, billing and runtime credentials, then write readiness state")
         print(f"run record: {evidence_dir}")
         return OK
 
@@ -281,8 +328,10 @@ def run(ns) -> int:
         print("ERR: interactive gcp init must not run in CI (use --non-interactive)")
         return OPERATOR_ERROR
 
-    if not _cmd_ok(["gcloud", "--version"], evidence_dir, "gcloud_version"):
-        print("ERR: gcloud not available; install with: hyops setup cloud-gcp --sudo")
+    if shutil.which("gcloud") is None or not _cmd_ok(
+        ["gcloud", "--version"], evidence_dir, "gcloud_version"
+    ):
+        print("ERR: GCP support is not installed; run: hyops setup gcp")
         print(f"run record: {evidence_dir}")
         return OPERATOR_ERROR
 
@@ -320,17 +369,14 @@ def run(ns) -> int:
                 )
 
             if not active_account:
-                print("ERR: gcloud auth is required (no active account).")
-                print("hint: set GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON key, or activate explicitly:")
-                print("  gcloud auth activate-service-account --key-file <path> --quiet")
+                print("ERR: no active GCP identity is available for non-interactive initialization.")
+                print("hint: provide GOOGLE_APPLICATION_CREDENTIALS and re-run.")
                 print(f"run record: {evidence_dir}")
                 return OPERATOR_ERROR
         else:
             if not bool(getattr(ns, "with_cli_login", False)):
-                print("ERR: gcloud auth is required (no active account).")
-                print("Option A: run `gcloud auth login` (workstations) then re-run: hyops init gcp")
-                print("Option B: run `gcloud auth activate-service-account --key-file <path>` (CI/runners)")
-                print("Option C: re-run with: hyops init gcp --with-cli-login")
+                print("ERR: no active GCP identity was found.")
+                print("Re-run with: hyops init gcp --with-cli-login")
                 print(f"run record: {evidence_dir}")
                 return OPERATOR_ERROR
 
@@ -339,15 +385,15 @@ def run(ns) -> int:
                 print(f"run record: {evidence_dir}")
                 return OPERATOR_ERROR
 
-            print("starting interactive gcloud login; follow the prompts shown below.")
+            print("starting GCP sign-in; follow the prompts shown below.")
             r = run_capture_interactive(
-                ["gcloud", "auth", "login", "--no-launch-browser"],
+                ["gcloud", "auth", "login", "--no-launch-browser", "--brief"],
                 evidence_dir=evidence_dir,
-                label="gcloud_auth_login",
+                label="gcp_sign_in",
                 redact=True,
             )
             if r.rc != 0:
-                print("ERR: gcloud auth login failed; see run record")
+                print("ERR: GCP sign-in failed; see run record")
                 print(f"run record: {evidence_dir}")
                 return TARGET_EXEC_FAILURE
 
@@ -355,48 +401,44 @@ def run(ns) -> int:
                 _cmd_stdout(
                     ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
                     evidence_dir,
-                    "gcloud_auth_list_after_login",
+                    "gcp_identity_check_after_sign_in",
                 )
             )
             if not active_account:
-                print("ERR: gcloud auth login did not yield an active account")
+                print("ERR: GCP sign-in did not yield an active account")
                 print(f"run record: {evidence_dir}")
                 return TARGET_EXEC_FAILURE
 
     # Make the active identity explicit when interactive flows are allowed.
     if (not non_interactive) and bool(getattr(ns, "with_cli_login", False)) and active_account:
-        env_name = str(getattr(ns, "env", "") or "").strip()
-        print(f"gcp identity: account={active_account}")
-        if env_name:
-            print(f"target env: {env_name}")
         if _require_tty():
-            try:
-                answer = input("continue with this gcloud identity? [y/N]: ")
-            except EOFError:
-                answer = ""
-            if str(answer or "").strip().lower() not in ("y", "yes"):
-                print("cancelled. switch identity and re-run.")
-                print("suggested:")
-                print("  gcloud auth revoke --all")
-                print("  gcloud auth login")
-                return OPERATOR_ERROR
+            active_account, identity_rc = _confirm_gcp_identity_interactive(
+                active_account=active_account,
+                env_name=str(getattr(ns, "env", "") or "").strip(),
+                evidence_dir=evidence_dir,
+            )
+            if identity_rc != OK:
+                print(f"run record: {evidence_dir}")
+                return identity_rc
 
     if not _shell_ok(
         "gcloud auth application-default print-access-token >/dev/null",
         evidence_dir,
-        "adc_token_check",
+        "gcp_credentials_check",
     ):
         if getattr(ns, "non_interactive", False):
-            print("ERR: ADC not available; run gcloud auth application-default login or provide ADC in CI")
+            print("ERR: GCP application credentials are not available for non-interactive initialization")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         if not bool(getattr(ns, "with_cli_login", False)):
-            print("ERR: ADC not available.")
-            print("Run: gcloud auth application-default login")
-            print("Then re-run: hyops init gcp")
+            print("ERR: GCP application credentials are not available.")
+            print("Re-run with: hyops init gcp --with-cli-login")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
-        if not _run_interactive_adc_login(evidence_dir, reason="ADC is required for GCP bootstrap and Terraform authentication."):
+        if not _run_interactive_adc_login(
+            evidence_dir,
+            reason="GCP application credentials are required for initialization.",
+        ):
             return TARGET_EXEC_FAILURE
 
     # Ensure the operator account holds roles/orgpolicy.policyAdmin on the org.
@@ -455,14 +497,6 @@ def run(ns) -> int:
             if region:
                 region_source = "prompt"
 
-    if (not billing_account_id) and not non_interactive and bool(getattr(ns, "with_cli_login", False)):
-        if not _require_tty():
-            print("ERR: interactive billing-account discovery requires a TTY")
-            print(f"run record: {evidence_dir}")
-            return OPERATOR_ERROR
-        billing_accounts = _discover_open_billing_accounts(evidence_dir)
-        billing_account_id, billing_account_source = _select_billing_account_interactive(billing_accounts)
-
     if (
         not non_interactive
         and bool(getattr(ns, "with_cli_login", False))
@@ -491,6 +525,7 @@ def run(ns) -> int:
             {
                 "GCP_PROJECT_ID": project_id,
                 "GCP_REGION": region,
+                "GCP_ZONE": zone,
                 "GCP_BILLING_ACCOUNT_ID": billing_account_id,
             },
         )
@@ -500,8 +535,7 @@ def run(ns) -> int:
             f"ERR: required config missing in {config_path} "
             f"(GCP_PROJECT_ID, GCP_REGION)"
         )
-        print("hint: set them in gcp.conf, run `gcloud config set project ...` and `gcloud config set compute/region ...`,")
-        print("hint: or re-run with --with-cli-login and answer the prompts.")
+        print("hint: re-run `hyops init gcp --with-cli-login` and answer the prompts.")
         print(f"run record: {evidence_dir}")
         return OPERATOR_ERROR
 
@@ -518,27 +552,60 @@ def run(ns) -> int:
     project_bootstrap_pending = False
     if not project_access_validated:
         replacement_project_id = ""
-        if not non_interactive and bool(getattr(ns, "with_cli_login", False)) and _require_tty():
+        if (
+            str(project_id_source or "").strip().lower() != "prompt"
+            and not non_interactive
+            and bool(getattr(ns, "with_cli_login", False))
+            and _require_tty()
+        ):
             print(
-                "WARN: configured GCP project is not accessible to the active account "
-                f"({active_account or 'unknown'}): {project_id}"
+                f"WARN: GCP project '{project_id}' is not accessible to the selected identity "
+                f"({active_account or 'unknown'})."
             )
-            print(_format_project_access_hint(project_id, project_access[1]))
-            try:
-                replacement_project_id = str(
-                    input("Replacement GCP project id (leave blank to abort): ") or ""
-                ).strip()
-            except EOFError:
-                replacement_project_id = ""
-            except KeyboardInterrupt:
-                print()
+            print("Select an accessible project, enter a new project id, or press Enter to stop.")
+            replacement_project_id, _ = _select_gcp_project_interactive(
+                _discover_gcp_projects(evidence_dir),
+                allow_blank=True,
+            )
+            if not replacement_project_id:
+                print("cancelled. no GCP project was changed.")
+                print(f"run record: {evidence_dir}")
                 return OPERATOR_ERROR
+        elif (
+            str(project_id_source or "").strip().lower() == "prompt"
+            and not non_interactive
+            and bool(getattr(ns, "with_cli_login", False))
+            and _require_tty()
+        ):
+            print(
+                f"GCP project '{project_id}' is not currently accessible; "
+                "it can be created if the id is available."
+            )
         if replacement_project_id:
             project_id = replacement_project_id
             project_id_source = "prompt"
             _upsert_kv_file(config_path, {"GCP_PROJECT_ID": project_id})
             project_access = _diagnose_gcp_project_access(project_id, evidence_dir)
             project_access_validated = bool(project_access[0])
+
+        if (
+            not project_access_validated
+            and not billing_account_id
+            and not non_interactive
+            and bool(getattr(ns, "with_cli_login", False))
+            and _require_tty()
+        ):
+            billing_accounts = _discover_open_billing_accounts(evidence_dir)
+            billing_account_id, billing_account_source = _select_billing_account_interactive(
+                billing_accounts
+            )
+            if not billing_account_id:
+                if billing_accounts:
+                    print("ERR: a billing account must be selected to create this GCP project.")
+                    print("Re-run and select one of the available billing accounts:")
+                print("  hyops init gcp --with-cli-login")
+                print(f"run record: {evidence_dir}")
+                return OPERATOR_ERROR
 
         if (
             not project_access_validated
@@ -549,8 +616,8 @@ def run(ns) -> int:
         ):
             try:
                 answer = input(
-                    f"project '{project_id}' does not exist. "
-                    f"Create it now under billing account {billing_account_id}? [y/N]: "
+                    f"project '{project_id}' is not accessible. "
+                    f"Attempt to create it under billing account {billing_account_id}? [y/N]: "
                 )
             except (EOFError, KeyboardInterrupt):
                 print()
@@ -574,15 +641,17 @@ def run(ns) -> int:
                 "so org/gcp/project-factory can create or adopt it."
             )
             if project_access[1]:
-                print(f"detail: {project_access[1]}")
+                print("provider detail is available in the run record.")
             print(
                 "hint: in bootstrap mode, only org/gcp/project-factory should run. "
                 "After project creation, rerun: hyops init gcp --env <env> --force "
                 f"--project-id {project_id} --region {region}"
             )
         if not project_access_validated and not project_bootstrap_pending:
-            print(f"ERR: cannot access configured GCP project: {project_id}")
+            print(f"ERR: GCP project '{project_id}' is not accessible to the selected identity.")
             print(_format_project_access_hint(project_id, project_access[1]))
+            if not billing_account_id:
+                print("hint: no accessible billing account was selected, so this project cannot be created by HybridOps.")
             print(
                 "hint: if this env should move to a new project, re-run:\n"
                 "  hyops init gcp --env <env> --with-cli-login --force --project-id <new-project-id> --region <region>"
@@ -596,20 +665,20 @@ def run(ns) -> int:
             if _run_interactive_adc_login(
                 evidence_dir,
                 reason=(
-                    "ADC is present but does not currently have the billing-account permission "
+                    "GCP application credentials do not currently have the billing-account permission "
                     "needed for project bootstrap."
                 ),
             ):
                 billing_ok, billing_detail, refresh_recommended = diagnose_billing_association_permission(billing_account_id)
         if not billing_ok:
             print(
-                "ERR: current ADC cannot associate new projects with the configured billing account "
+                "ERR: the selected GCP identity cannot associate new projects with the billing account "
                 f"billingAccounts/{normalize_billing_account_id(billing_account_id)}"
             )
             if billing_detail:
-                print(f"detail: {billing_detail}")
+                print("provider detail is available in the run record.")
             print(
-                "hint: ensure the active ADC principal has billing.resourceAssociations.create "
+                "hint: ensure the selected identity can associate projects "
                 "on the selected billing account, then re-run init."
             )
             print(f"run record: {evidence_dir}")
@@ -622,15 +691,67 @@ def run(ns) -> int:
         if not billing_validated:
             print(f"ERR: could not validate billing for GCP project {project_id}")
             if billing_detail:
-                print(f"detail: {billing_detail}")
-            print("hint: confirm the active gcloud identity can view project billing, then re-run init.")
+                print("provider detail is available in the run record.")
+            print("hint: confirm the selected GCP identity can view project billing, then re-run init.")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         if not billing_enabled:
             print(f"ERR: billing is not enabled for GCP project {project_id}")
-            print("hint: enable billing in Google Cloud, then re-run init before deploying resources.")
+            print("Link an open billing account or reopen the linked account:")
+            print("  https://console.cloud.google.com/billing")
+            print("Then run GCP initialization again.")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
+
+        if not _cmd_ok(
+            [
+                "gcloud",
+                "services",
+                "enable",
+                "compute.googleapis.com",
+                "--project",
+                project_id,
+                "--quiet",
+            ],
+            evidence_dir,
+            "gcp_compute_api_enable",
+        ):
+            print(f"ERR: Compute Engine could not be prepared for GCP project {project_id}")
+            print("provider detail is available in the run record.")
+            print(f"run record: {evidence_dir}")
+            return OPERATOR_ERROR
+
+        available_zones = _discover_gcp_zones(
+            project_id=project_id,
+            region=region,
+            evidence_dir=evidence_dir,
+        )
+        if zone and zone not in available_zones:
+            if not zone.startswith(f"{region}-"):
+                print(f"ERR: GCP zone {zone} does not belong to region {region}")
+                print(f"run record: {evidence_dir}")
+                return OPERATOR_ERROR
+            print(f"ERR: GCP zone {zone} is not available in project {project_id}")
+            print(f"run record: {evidence_dir}")
+            return OPERATOR_ERROR
+        if (
+            not non_interactive
+            and bool(getattr(ns, "with_cli_login", False))
+            and _require_tty()
+        ):
+            zone = _select_gcp_zone_interactive(
+                available_zones,
+                region=region,
+                default=zone,
+            )
+        elif not zone and available_zones:
+            zone = available_zones[0]
+        if not zone:
+            print(f"ERR: no available GCP zone was found in region {region}")
+            print("hint: choose another region and re-run initialization.")
+            print(f"run record: {evidence_dir}")
+            return OPERATOR_ERROR
+        _upsert_kv_file(config_path, {"GCP_ZONE": zone})
 
     if adc_quota_project_id:
         run_capture(
@@ -644,19 +765,19 @@ def run(ns) -> int:
     auth_mode = "direct-adc"
     if not terraform_sa_email:
         if non_interactive:
-            print("ERR: GCP_TERRAFORM_SA_EMAIL is required in --non-interactive mode")
-            print("hint: set it in <root>/config/gcp.conf or export GCP_TERRAFORM_SA_EMAIL, then re-run.")
+            print("ERR: GCP_RUNTIME_SA_EMAIL is required in --non-interactive mode")
+            print("hint: set it in <root>/config/gcp.conf or export GCP_RUNTIME_SA_EMAIL, then re-run.")
             print("hint: if you're bootstrapping a new project, run org/gcp/project-factory first, then re-run init.")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         # Bootstrap-friendly mode: allow running without an impersonation target.
-        print("note: no Terraform service account is configured; using validated direct ADC.")
+        print("runtime identity: using validated GCP application credentials.")
         if project_bootstrap_pending:
             print("hint: after running org/gcp/project-factory, re-run: hyops init gcp --env <env> --force")
         else:
             print(
                 "hint: service-account impersonation is optional for this existing project; "
-                "configure GCP_TERRAFORM_SA_EMAIL later if your operating policy requires it."
+                "configure GCP_RUNTIME_SA_EMAIL later if your operating policy requires it."
             )
     else:
         imp_ok = _adc_impersonation_ok(
@@ -703,9 +824,9 @@ def run(ns) -> int:
                     label="adc_impersonation_check_after_adc_login",
                 )
         if not imp_ok:
-            print("ERR: ADC impersonation validation failed; see run record")
-            print("hint: the ADC principal must have roles/iam.serviceAccountTokenCreator on the target service account.")
-            print("hint: if ADC is stale, run: gcloud auth application-default login")
+            print("ERR: GCP runtime identity validation failed; see run record")
+            print("hint: the selected identity needs Service Account Token Creator on the runtime identity.")
+            print("hint: re-run with --with-cli-login to refresh GCP application credentials.")
             print("hint: ensure iamcredentials.googleapis.com is enabled in the target project.")
             print(f"run record: {evidence_dir}")
             return TARGET_EXEC_FAILURE
@@ -768,7 +889,8 @@ def run(ns) -> int:
             eso_sa_email = f"{eso_sa_name}@{project_id}.iam.gserviceaccount.com"
 
     if tfvars_out.exists() and not getattr(ns, "force", False):
-        print(f"ERR: credentials file already exists (use --force to overwrite): {tfvars_out}")
+        print("ERR: GCP runtime credentials already exist; use --force to replace them")
+        print(f"run record: {evidence_dir}")
         return OPERATOR_ERROR
 
     try:
@@ -784,7 +906,7 @@ def run(ns) -> int:
         tfvars_out.write_text(payload, encoding="utf-8")
         os.chmod(tfvars_out, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
-        print("ERR: failed to write gcp tfvars output")
+        print("ERR: failed to write GCP runtime credentials")
         return WRITE_FAILURE
 
     try:
@@ -797,14 +919,16 @@ def run(ns) -> int:
                 "run_id": run_id,
                 "paths": {
                     "config": str(config_path),
-                    "credentials": str(tfvars_out),
+                "credentials": str(tfvars_out),
                     "evidence_dir": str(evidence_dir),
                 },
                 "context": {
                     "auth_mode": auth_mode,
                     "project_id": project_id,
                     "region": region,
+                    "zone": zone,
                     "billing_account_id": billing_account_id,
+                    "runtime_sa_email": terraform_sa_email,
                     "terraform_sa_email": terraform_sa_email,
                     "impersonation_validated": bool(impersonation_validated),
                     "project_access_validated": bool(project_access_validated),
@@ -823,7 +947,7 @@ def run(ns) -> int:
     print(f"target={target} status=ready run_id={run_id}")
     print(f"run record: {evidence_dir}")
     print(f"readiness: {paths.meta_dir / f'{target}.ready.json'}")
-    print(f"credentials: {tfvars_out}")
+    print("credentials: ready")
     if not ssh_public_key:
         print("WARN: no SSH public key discovered for GCP runtime.")
         print("hint: re-run with --ssh-public-key, set GCP_SSH_PUBLIC_KEY in config/env, or ensure ~/.ssh/id_ed25519.pub exists.")
@@ -875,7 +999,7 @@ def _create_gcp_project(
         evidence_dir,
         "gcp_billing_link",
     ):
-        print(f"WARN: failed to link billing account to '{project_id}'; Terraform may fail without billing enabled")
+        print(f"WARN: failed to link billing account to '{project_id}'; deployment cannot proceed without billing")
 
     apis = [
         "cloudresourcemanager.googleapis.com",
@@ -1070,15 +1194,22 @@ def _run_interactive_adc_login(evidence_dir: Path, *, reason: str) -> bool:
         print(f"run record: {evidence_dir}")
         return False
     print(f"WARN: {reason}")
-    print("starting interactive ADC login; follow the prompts shown below.")
+    print("starting GCP credential sign-in; follow the prompts shown below.")
     r = run_capture_interactive(
-        ["gcloud", "auth", "application-default", "login", "--no-launch-browser"],
+        [
+            "gcloud",
+            "auth",
+            "application-default",
+            "login",
+            "--no-launch-browser",
+            "--disable-quota-project",
+        ],
         evidence_dir=evidence_dir,
-        label="adc_login",
+        label="gcp_credential_sign_in",
         redact=True,
     )
     if r.rc != 0:
-        print("ERR: ADC login failed; see run record")
+        print("ERR: GCP credential sign-in failed; see run record")
         print(f"run record: {evidence_dir}")
         return False
     return True
@@ -1188,7 +1319,7 @@ def _bootstrap_impersonation_grant(
     if not active_account or not project_id or not terraform_sa_email:
         return False
     member = f"user:{active_account}"
-    print("note: attempting bootstrap impersonation setup for the derived Terraform service account.")
+    print("runtime identity: preparing delegated access for project bootstrap.")
     enable = run_capture(
         [
             "gcloud",
@@ -1276,7 +1407,7 @@ def _ensure_terraform_sa_project_roles(
             redact=True,
         )
         if r.rc == 0:
-            print(f"terraform-sa-setup: ensured {api} is enabled")
+            print(f"runtime-identity setup: ensured {api} is enabled")
         else:
             print(
                 f"WARN: could not enable {api} on {project_id}; "
@@ -1310,7 +1441,7 @@ def _ensure_terraform_sa_project_roles(
             redact=True,
         )
         if r.rc == 0:
-            print(f"terraform-sa-setup: ensured iam.disableServiceAccountKeyCreation is not enforced on {project_id}")
+            print(f"runtime-identity setup: ensured the service-account key policy on {project_id}")
         else:
             print(
                 f"WARN: could not lift iam.disableServiceAccountKeyCreation on {project_id}; "
@@ -1341,7 +1472,7 @@ def _ensure_terraform_sa_project_roles(
             redact=True,
         )
         if r.rc == 0:
-            print(f"terraform-sa-setup: ensured {role} on {terraform_sa_email}")
+            print(f"runtime-identity setup: ensured {role}")
         else:
             print(
                 f"WARN: could not ensure {role} on {terraform_sa_email} for project {project_id}; "
@@ -1355,15 +1486,16 @@ def _write_config_template(path: Path) -> None:
         "# GCP init configuration (non-secret)\n"
         "GCP_PROJECT_ID=\n"
         "GCP_REGION=\n"
+        "GCP_ZONE=\n"
         "# Optional: billing account id for org/gcp/project-factory when creating new projects.\n"
         "GCP_BILLING_ACCOUNT_ID=\n"
-        "# Optional (recommended): Terraform runtime SA email (impersonation target).\n"
+        "# Optional: delegated GCP runtime identity email.\n"
         "# If omitted, HybridOps can derive it from org/gcp/project-factory state after apply.\n"
-        "GCP_TERRAFORM_SA_EMAIL=\n"
-        "GCP_ADC_QUOTA_PROJECT_ID=\n"
+        "GCP_RUNTIME_SA_EMAIL=\n"
+        "GCP_QUOTA_PROJECT_ID=\n"
         "# Optional non-secret public key persisted into gcp.ready.json for GCE runner/VM bootstrap.\n"
         "GCP_SSH_PUBLIC_KEY=\n"
-        "GCP_TFVARS_OUT=\n"
+        "GCP_CREDENTIALS_OUT=\n"
     )
     path.write_text(content, encoding="utf-8")
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
@@ -1375,11 +1507,12 @@ def _ensure_gcp_config_keys(path: Path) -> bool:
     for key in (
         "GCP_PROJECT_ID",
         "GCP_REGION",
+        "GCP_ZONE",
         "GCP_BILLING_ACCOUNT_ID",
-        "GCP_TERRAFORM_SA_EMAIL",
-        "GCP_ADC_QUOTA_PROJECT_ID",
+        "GCP_RUNTIME_SA_EMAIL",
+        "GCP_QUOTA_PROJECT_ID",
         "GCP_SSH_PUBLIC_KEY",
-        "GCP_TFVARS_OUT",
+        "GCP_CREDENTIALS_OUT",
     ):
         if key not in existing:
             missing[key] = ""
@@ -1486,8 +1619,12 @@ def _discover_gcp_projects(evidence_dir: Path) -> list[dict[str, str]]:
     return sorted(projects, key=lambda item: (item["name"].casefold(), item["id"]))
 
 
-def _select_gcp_project_interactive(projects: list[dict[str, str]]) -> tuple[str, str]:
-    if len(projects) == 1:
+def _select_gcp_project_interactive(
+    projects: list[dict[str, str]],
+    *,
+    allow_blank: bool = False,
+) -> tuple[str, str]:
+    if len(projects) == 1 and not allow_blank:
         project_id = projects[0]["id"]
         name = projects[0]["name"]
         suffix = f" ({project_id})" if name else ""
@@ -1501,10 +1638,14 @@ def _select_gcp_project_interactive(projects: list[dict[str, str]]) -> tuple[str
             name = item["name"]
             suffix = f" ({project_id})" if name else ""
             print(f"  {idx}. {name or project_id}{suffix}")
-        prompt = "GCP project [number, project id, or unique name]: "
+        prompt = (
+            "GCP project [number, project id, unique name, or Enter to stop]: "
+            if allow_blank
+            else "GCP project [number, project id, or unique name]: "
+        )
     else:
-        print("note: no active GCP projects were auto-discovered from gcloud.")
-        prompt = "GCP project id: "
+        print("note: no active GCP projects were found for this identity.")
+        prompt = "GCP project id (or Enter to stop): " if allow_blank else "GCP project id: "
 
     while True:
         try:
@@ -1515,6 +1656,8 @@ def _select_gcp_project_interactive(projects: list[dict[str, str]]) -> tuple[str
             print()
             return "", ""
         if not answer:
+            if allow_blank:
+                return "", ""
             print("a GCP project is required; enter a number, project id, or unique name.")
             continue
         if not projects:
@@ -1556,25 +1699,33 @@ def _select_billing_account_interactive(accounts: list[dict[str, str]]) -> tuple
             label = str(item.get("display_name") or "").strip()
             suffix = f" ({acc_id})" if label else ""
             print(f"  {idx}. {label or acc_id}{suffix}")
-        prompt = "Billing account [number, id, or blank to skip]: "
+        prompt = "Billing account [number or id]: "
     else:
-        print("note: no open billing accounts were auto-discovered from gcloud.")
-        prompt = "Billing account id (blank to skip): "
+        print("ERR: no open billing account was found for this GCP identity.")
+        print("Create a Google Cloud billing account before continuing:")
+        print("  https://console.cloud.google.com/billing/create")
+        print("Eligible new customers can activate the Google Cloud Free Trial during signup:")
+        print("  https://cloud.google.com/free")
+        return "", ""
 
-    try:
-        answer = str(input(prompt) or "").strip()
-    except EOFError:
-        return "", ""
-    except KeyboardInterrupt:
-        print()
-        return "", ""
-    if not answer:
-        return "", ""
-    if answer.isdigit():
-        idx = int(answer)
-        if 1 <= idx <= len(accounts):
-            return str(accounts[idx - 1].get("id") or "").strip(), "prompt"
-    return answer, "prompt"
+    while True:
+        try:
+            answer = str(input(prompt) or "").strip()
+        except EOFError:
+            return "", ""
+        except KeyboardInterrupt:
+            print()
+            return "", ""
+        if not answer:
+            print("a billing account is required to create this GCP project.")
+            continue
+        if answer.isdigit():
+            idx = int(answer)
+            if 1 <= idx <= len(accounts):
+                return str(accounts[idx - 1].get("id") or "").strip(), "prompt"
+            print(f"enter a number from 1 to {len(accounts)}, or a billing account id.")
+            continue
+        return answer, "prompt"
 
 
 def _review_detected_gcp_defaults_interactive(
@@ -1609,16 +1760,16 @@ def _review_detected_gcp_defaults_interactive(
 
     region = _prompt_gcp_region(default=region)
 
-    billing_prompt_default = billing_account_id or ""
-    try:
-        billing_ans = str(input(f"Billing account id [{billing_prompt_default}]: ") or "").strip()
-    except EOFError:
-        billing_ans = ""
-    except KeyboardInterrupt:
-        print()
-        return project_id, region, billing_account_id
-    if billing_ans:
-        billing_account_id = billing_ans
+    if billing_account_id:
+        try:
+            billing_ans = str(input(f"Billing account id [{billing_account_id}]: ") or "").strip()
+        except EOFError:
+            billing_ans = ""
+        except KeyboardInterrupt:
+            print()
+            return project_id, region, billing_account_id
+        if billing_ans:
+            billing_account_id = billing_ans
 
     return project_id, region, billing_account_id
 
@@ -1644,6 +1795,78 @@ def _prompt_gcp_region(*, default: str = "") -> str:
         return region
 
 
+def _discover_gcp_zones(
+    *,
+    project_id: str,
+    region: str,
+    evidence_dir: Path,
+) -> list[str]:
+    result = run_capture(
+        [
+            "gcloud",
+            "compute",
+            "zones",
+            "list",
+            "--project",
+            project_id,
+            "--format=value(name,region.basename(),status)",
+        ],
+        evidence_dir=evidence_dir,
+        label="gcp_zones_list",
+        redact=True,
+        progress=False,
+    )
+    if result.rc != 0:
+        return []
+
+    zones: list[str] = []
+    for raw_line in result.stdout.splitlines():
+        fields = raw_line.split()
+        if len(fields) < 3:
+            continue
+        name, zone_region, status = fields[0], fields[1], fields[2]
+        if zone_region == region and status.upper() == "UP":
+            zones.append(name)
+    return sorted(set(zones))
+
+
+def _select_gcp_zone_interactive(
+    zones: list[str],
+    *,
+    region: str,
+    default: str = "",
+) -> str:
+    if not zones:
+        return ""
+    selected_default = default if default in zones else zones[0]
+    print(f"available GCP zones in {region}:")
+    for index, zone in enumerate(zones, start=1):
+        suffix = " (current)" if zone == selected_default else ""
+        print(f"  {index}. {zone}{suffix}")
+
+    while True:
+        try:
+            answer = str(
+                input(f"GCP zone [{selected_default}]: ") or ""
+            ).strip()
+        except EOFError:
+            return selected_default
+        except KeyboardInterrupt:
+            print()
+            return selected_default
+        if not answer:
+            return selected_default
+        if answer.isdigit():
+            index = int(answer)
+            if 1 <= index <= len(zones):
+                return zones[index - 1]
+            print(f"enter a number from 1 to {len(zones)}, or a listed zone.")
+            continue
+        if answer in zones:
+            return answer
+        print(f"enter a zone listed for {region}.")
+
+
 
 
 def _diagnose_gcp_project_access(project_id: str, evidence_dir: Path) -> tuple[bool, str]:
@@ -1655,6 +1878,7 @@ def _diagnose_gcp_project_access(project_id: str, evidence_dir: Path) -> tuple[b
         evidence_dir=evidence_dir,
         label="gcloud_project_access_check",
         redact=True,
+        progress=False,
     )
     if r.rc == 0 and _first_nonempty_line(r.stdout) == project_id:
         return True, ""
@@ -1663,29 +1887,108 @@ def _diagnose_gcp_project_access(project_id: str, evidence_dir: Path) -> tuple[b
 
 
 def _format_project_access_hint(project_id: str, detail: str) -> str:
-    base = (
+    return (
         f"hint: project '{project_id}' may belong to another Google account or organization, "
         "or your current identity may no longer have IAM access."
     )
-    if detail:
-        return f"{base}\ndetail: {detail}"
-    return base
 
 
 def _cmd_ok(argv: list[str], evidence_dir: Path, label: str) -> bool:
-    r = run_capture(argv, evidence_dir=evidence_dir, label=label, redact=True)
+    try:
+        r = run_capture(
+            argv,
+            evidence_dir=evidence_dir,
+            label=label,
+            redact=True,
+            progress=False,
+        )
+    except OSError:
+        return False
     return r.rc == 0
 
 
+def _confirm_gcp_identity_interactive(
+    *,
+    active_account: str,
+    env_name: str,
+    evidence_dir: Path,
+) -> tuple[str, int]:
+    account = str(active_account or "").strip()
+    while account:
+        print(f"gcp identity: account={account}")
+        if env_name:
+            print(f"target env: {env_name}")
+        try:
+            answer = input("continue with this GCP identity? [y/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            answer = ""
+        if str(answer or "").strip().lower() in ("y", "yes"):
+            return account, OK
+
+        try:
+            switch = input("sign in with a different GCP account now? [y/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            switch = ""
+        if str(switch or "").strip().lower() not in ("y", "yes"):
+            print("cancelled. no Google Cloud identity was changed.")
+            return "", OPERATOR_ERROR
+
+        print("starting GCP sign-in; follow the prompts shown below.")
+        result = run_capture_interactive(
+            [
+                "gcloud",
+                "auth",
+                "login",
+                "--no-launch-browser",
+                "--brief",
+                "--force",
+                "--update-adc",
+            ],
+            evidence_dir=evidence_dir,
+            label="gcp_identity_switch",
+            redact=True,
+        )
+        if result.rc != 0:
+            print("ERR: GCP sign-in failed; see run record")
+            return "", TARGET_EXEC_FAILURE
+
+        account = _first_nonempty_line(
+            _cmd_stdout(
+                ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+                evidence_dir,
+                "gcp_identity_check_after_switch",
+            )
+        )
+        if not account:
+            print("ERR: GCP sign-in did not yield an active account")
+            return "", TARGET_EXEC_FAILURE
+
+    return "", OPERATOR_ERROR
+
+
 def _cmd_stdout(argv: list[str], evidence_dir: Path, label: str) -> str:
-    r = run_capture(argv, evidence_dir=evidence_dir, label=label, redact=True)
+    r = run_capture(
+        argv,
+        evidence_dir=evidence_dir,
+        label=label,
+        redact=True,
+        progress=False,
+    )
     if r.rc != 0:
         return ""
     return (r.stdout or "").strip()
 
 
 def _shell_ok(cmd: str, evidence_dir: Path, label: str) -> bool:
-    r = run_capture(["/bin/bash", "-lc", cmd], evidence_dir=evidence_dir, label=label, redact=True)
+    r = run_capture(
+        ["/bin/bash", "-lc", cmd],
+        evidence_dir=evidence_dir,
+        label=label,
+        redact=True,
+        progress=False,
+    )
     return r.rc == 0
 
 
