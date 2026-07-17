@@ -79,6 +79,12 @@ grep -Fq 'test -e \"${HOME}/.hybridops/core\"' "${WINDOWS_INSTALLER}"
 grep -Fq 'Existing HybridOps.Core installation found.' "${WINDOWS_INSTALLER}"
 grep -Fq 'set "FORCE=true"' "${WINDOWS_INSTALLER}"
 grep -Fq "Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico'" "${WINDOWS_INSTALLER}"
+grep -Fq "Test-Path -LiteralPath" "${WINDOWS_INSTALLER}"
+grep -Fq "set \"SHORTCUT_EXISTS=true\"" "${WINDOWS_INSTALLER}"
+if grep -Fq "Desktop shortcut updated:" "${WINDOWS_INSTALLER}"; then
+  echo "ERR: Windows update announces routine shortcut refresh" >&2
+  exit 1
+fi
 grep -Fq 'Create a HybridOps.Core desktop shortcut? [y/N]:' "${WINDOWS_INSTALLER}"
 grep -Fq 'set "WSL_SETUP_MARKER=%HYOPS_USER_DIR%\wsl-setup.pending"' "${WINDOWS_INSTALLER}"
 grep -Fq "Get-Process -Name 'wslsettings'" "${WINDOWS_INSTALLER}"
