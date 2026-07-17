@@ -149,6 +149,22 @@ else
   unset HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST || true
 fi
 
+if [[ "${FORCE}" == "true" ]]; then
+  progress "Refreshing Galaxy metadata"
+  python3 - "${GALAXY_CACHE_DIR}" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+cache_dir = Path(sys.argv[1])
+for entry in cache_dir.iterdir():
+    if entry.is_dir() and not entry.is_symlink():
+        shutil.rmtree(entry)
+    else:
+        entry.unlink()
+PY
+fi
+
 sha256_file() {
   python3 - "$1" <<'PY'
 import hashlib, sys
