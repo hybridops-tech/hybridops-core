@@ -1848,7 +1848,8 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "with_deps": False,
         "inputs": archive.get("inputs") or {},
     }
-    print("exporting lab data before teardown")
+    print("preparing lab archive; active nodes will be stopped and saved state verified")
+    print("this may take several minutes, depending on lab size")
     progress = ProgressDisplay(
         enabled=bool(
             sys.stdout
