@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,7 +51,7 @@ class BlueprintRebuildTests(unittest.TestCase):
             "hyops.blueprint.command._resolve_and_validate", return_value=_payload()
         ), patch("builtins.print") as output:
             self.assertEqual(run_rebuild(_namespace(tmp, execute=False)), 0)
-            output.assert_any_call("  - network (retained)")
+            output.assert_any_call("  - Network (retained)")
 
     def test_plan_only_does_not_execute(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch(
@@ -88,6 +89,21 @@ class BlueprintRebuildTests(unittest.TestCase):
         ) as deploy:
             self.assertEqual(run_rebuild(_namespace(tmp, execute=True)), 0)
             deploy.assert_called_once()
+
+    def test_execute_omits_order_lists_in_default_output(self) -> None:
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "hyops.blueprint.command._resolve_and_validate", return_value=_payload()
+        ), patch(
+            "hyops.blueprint.command.new_run_id", return_value="rebuild-test"
+        ), patch("hyops.blueprint.command.run_destroy", return_value=0), patch(
+            "hyops.blueprint.command.run_deploy", return_value=0
+        ), patch("sys.stdout", output):
+            self.assertEqual(run_rebuild(_namespace(tmp, execute=True)), 0)
+
+        rendered = output.getvalue()
+        self.assertNotIn("destroy_order:", rendered)
+        self.assertNotIn("deploy_order:", rendered)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import read_module_state, split_module_state_ref
 from hyops.runtime.paths import resolve_runtime_paths
-from hyops.runtime.progress import ProgressDisplay
+from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
@@ -315,7 +315,7 @@ def _collect_deploy_risk_signals(payload: dict[str, Any], paths) -> list[dict[st
             )
             continue
 
-        if not status:
+        if not status or status in {"absent", "destroyed", "missing"}:
             continue
         if bool(step.get("skip_if_state_ok", False)) and status == "ok":
             # This step should self-skip and does not need confirmation noise.
@@ -344,16 +344,22 @@ def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
         return 0
 
     env_name = str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip() or "default"
-    print(
-        f"WARN: blueprint deploy may update or replace existing resources in env={env_name}."
-    )
-    print("impact_signals:")
+    count = len(signals)
+    noun = "step" if count == 1 else "steps"
+    print(f"WARN: deploy may change {count} active blueprint {noun} in env={env_name}.")
+    print("steps:")
     for item in signals:
-        print(
-            "  - "
-            f"{item['id']}: {item['action']} {item['module_ref']} "
-            f"(state={item['state_status']} ref={item['state_ref']})"
+        step = next(
+            candidate
+            for candidate in payload.get("steps", [])
+            if str(candidate.get("id") or "") == item["id"]
         )
+        print(f"  - {_step_display_label(step)} (state={item['state_status']})")
+        if verbose_enabled():
+            print(
+                f"    id={item['id']} action={item['action']} "
+                f"module={item['module_ref']} ref={item['state_ref']}"
+            )
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print("WARN: non-interactive session detected; proceeding without prompt (use --yes to silence).")
@@ -2205,14 +2211,16 @@ def run_rebuild(ns) -> int:
         f"blueprint={payload['blueprint_ref']} mode={payload['mode']} "
         f"rebuild_steps={len(payload['order'])}"
     )
-    print("destroy_order:")
-    for step_id in destroy_order:
-        step = next(s for s in payload["steps"] if s["id"] == step_id)
-        suffix = " (retained)" if bool(step.get("retain_on_destroy", False)) else ""
-        print(f"  - {step_id}{suffix}")
-    print("deploy_order:")
-    for step_id in payload["order"]:
-        print(f"  - {step_id}")
+    if not bool(getattr(ns, "execute", False)) or verbose_enabled():
+        print("destroy_order:")
+        for step_id in destroy_order:
+            step = next(s for s in payload["steps"] if s["id"] == step_id)
+            suffix = " (retained)" if bool(step.get("retain_on_destroy", False)) else ""
+            print(f"  - {_step_display_label(step)}{suffix}")
+        print("deploy_order:")
+        for step_id in payload["order"]:
+            step = next(s for s in payload["steps"] if s["id"] == step_id)
+            print(f"  - {_step_display_label(step)}")
 
     if not bool(getattr(ns, "execute", False)):
         return 0
