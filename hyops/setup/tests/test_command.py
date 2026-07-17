@@ -260,6 +260,32 @@ class SetupCommandTests(unittest.TestCase):
             )
         self.assertEqual(rc, 0)
 
+    def test_verbose_setup_omits_percentage_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as runtime, patch(
+            "hyops.setup.command.run_streamed", return_value=0
+        ), patch(
+            "hyops.setup.command.command_evidence_dir",
+            return_value=Path(runtime) / "run-record",
+        ):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                rc = main(
+                    [
+                        "setup",
+                        "galaxy",
+                        "--root",
+                        str(REPO_ROOT),
+                        "--runtime-root",
+                        runtime,
+                        "--verbose",
+                    ]
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertIn("setup=galaxy status=running", output.getvalue())
+        self.assertIn("setup=galaxy status=ok", output.getvalue())
+        self.assertNotIn("progress=", output.getvalue())
+
     def test_individual_base_setup_elevates_automatically_on_linux(self) -> None:
         with tempfile.TemporaryDirectory() as runtime, patch(
             "hyops.setup.command.run_streamed", return_value=0
