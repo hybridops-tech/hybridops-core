@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +24,44 @@ class _ImmediateTimer:
 
 
 class CapturedProcessProgressTests(unittest.TestCase):
+    def test_missing_command_returns_standard_result_and_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            result = proc.run_capture(
+                ["hyops-command-that-does-not-exist"],
+                evidence_dir=evidence_dir,
+                label="missing_command",
+            )
+
+            record = json.loads(
+                (evidence_dir / "missing_command.result.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(result.rc, 127)
+        self.assertEqual(record["rc"], 127)
+        self.assertEqual(result.stderr, "command not found: hyops-command-that-does-not-exist\n")
+
+    def test_missing_interactive_command_returns_standard_result(self) -> None:
+        result = proc.run_interactive(["hyops-command-that-does-not-exist"])
+
+        self.assertEqual(result.rc, 127)
+
+    def test_missing_streamed_command_returns_standard_result_and_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            result = proc.run_capture_stream(
+                ["hyops-command-that-does-not-exist"],
+                evidence_dir=evidence_dir,
+                label="missing_stream_command",
+            )
+
+            error_text = (evidence_dir / "missing_stream_command.stderr.txt").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(result.rc, 127)
+        self.assertIn("command not found", error_text)
+
     def test_quick_capture_does_not_start_progress_outside_tty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             proc, "concise_enabled", return_value=False
@@ -53,6 +92,22 @@ class CapturedProcessProgressTests(unittest.TestCase):
         self.assertEqual(result.rc, 0)
         display.start.assert_called_once()
         display.finish.assert_called_once()
+
+    def test_probe_can_disable_delayed_progress(self) -> None:
+        with patch.object(proc, "concise_enabled", return_value=True), patch.object(
+            proc.threading, "Timer"
+        ) as timer:
+            result = proc._run_with_delayed_progress(
+                ["bash", "-lc", "exit 0"],
+                label="credentials_check",
+                cwd=None,
+                env=None,
+                timeout_s=None,
+                progress=False,
+            )
+
+        self.assertEqual(result.rc, 0)
+        timer.assert_not_called()
 
 
 if __name__ == "__main__":

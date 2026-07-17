@@ -7,12 +7,14 @@ maintainer: HybridOps.Tech
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from hyops.runtime.exitcodes import OK, INTERNAL_ERROR, OPERATOR_ERROR
+from hyops.runtime.exitcodes import CANCELLED, OK, INTERNAL_ERROR, OPERATOR_ERROR
 from hyops.runtime.command_evidence import PythonCommandEvidence, command_evidence_dir, run_streamed
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
@@ -23,6 +25,7 @@ TARGET_STEPS = {
     "gcp": ("base", "cloud-gcp", "galaxy"),
     "azure": ("base", "cloud-azure", "galaxy"),
     "proxmox": ("base", "galaxy"),
+    "all": ("base", "cloud-azure", "cloud-gcp", "galaxy"),
 }
 
 SETUP_LABELS = {
@@ -33,8 +36,73 @@ SETUP_LABELS = {
     "all": "All setup components",
 }
 
-TARGET_LABELS = {"gcp": "GCP", "azure": "Azure", "proxmox": "Proxmox"}
+SETUP_PHASE_COUNTS = {
+    "base": 7,
+    "cloud-gcp": 3,
+    "cloud-azure": 3,
+    "galaxy": 3,
+}
+
+TARGET_LABELS = {
+    "gcp": "GCP",
+    "azure": "Azure",
+    "proxmox": "Proxmox",
+    "all": "All components",
+}
+
+READINESS_TARGETS = ("all", "base", "gcp", "azure", "proxmox")
+READINESS_GROUPS = {
+    "base-runtime": (
+        ("python3", ("python3",)),
+        ("ssh", ("ssh",)),
+        ("scp", ("scp",)),
+        ("ansible-vault", ("ansible-vault",)),
+        ("ansible-galaxy", ("ansible-galaxy",)),
+        ("terraform", ("terraform",)),
+        ("terragrunt", ("terragrunt",)),
+        ("packer", ("packer",)),
+        ("kubectl", ("kubectl",)),
+    ),
+    "vault-support": (
+        ("gpg", ("gpg",)),
+        ("pass", ("pass",)),
+        (
+            "pinentry",
+            (
+                "pinentry",
+                "pinentry-mac",
+                "pinentry-curses",
+                "pinentry-tty",
+                "pinentry-gtk-2",
+            ),
+        ),
+    ),
+    "gcp-support": (
+        ("gcloud", ("gcloud",)),
+        ("gke-gcloud-auth-plugin", ("gke-gcloud-auth-plugin",)),
+    ),
+    "azure-support": (("az", ("az",)),),
+}
+READINESS_GROUPS_BY_TARGET = {
+    "base": ("base-runtime", "vault-support"),
+    "gcp": ("base-runtime", "vault-support", "gcp-support", "galaxy-dependencies"),
+    "azure": ("base-runtime", "vault-support", "azure-support", "galaxy-dependencies"),
+    "proxmox": ("base-runtime", "vault-support", "galaxy-dependencies"),
+    "all": (
+        "base-runtime",
+        "vault-support",
+        "gcp-support",
+        "azure-support",
+        "galaxy-dependencies",
+    ),
+}
 PROGRESS_PREFIX = "[hyops-progress] "
+
+
+def _setup_phase_count(step: str) -> int:
+    if step == "base" and os.uname().sysname == "Darwin":
+        return 5
+    return SETUP_PHASE_COUNTS.get(step, 1)
 
 
 def _update_setup_progress(
@@ -42,11 +110,21 @@ def _update_setup_progress(
     step: str,
     base_label: str,
     line: str,
+    *,
+    completed_phases: int = 0,
+    total_phases: int = 1,
+    phase_positions: dict[str, int] | None = None,
 ) -> None:
     if line.startswith(PROGRESS_PREFIX):
         phase = line[len(PROGRESS_PREFIX) :].strip()
         if phase:
-            progress.update(step, f"{base_label}: {phase}")
+            position = 1
+            if phase_positions is not None:
+                position = phase_positions.get(step, 0) + 1
+                phase_positions[step] = position
+            started = completed_phases + max(0.5, position - 0.5)
+            percent = min(99, int((started * 100) / max(1, total_phases)))
+            progress.update(step, f"{base_label}: {phase}  {percent}%")
 
 
 def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
@@ -142,7 +220,19 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     _add(ssp, "cloud-azure", "Install Azure CLI prerequisites.", parents=[common])
     _add(ssp, "cloud-gcp", "Install GCP SDK prerequisites.", parents=[common])
     _add(ssp, "all", "Run base + ansible + cloud installers.", parents=[common])
-    _add(ssp, "check", "Check presence of common tools (no installs).", parents=[common])
+    check = _add(
+        ssp,
+        "check",
+        "Check readiness for one setup target (no installs).",
+        parents=[common],
+    )
+    check.add_argument(
+        "target",
+        nargs="?",
+        choices=READINESS_TARGETS,
+        default="all",
+        help="Readiness target (default: all).",
+    )
 
     # Compatibility aliases and complete target setup commands.
     _add(ssp, "ansible", "Compatibility alias for: galaxy.", parents=[common])
@@ -161,9 +251,10 @@ def _add(
     help_text: str,
     *,
     parents: list[argparse.ArgumentParser] | None = None,
-) -> None:
+) -> argparse.ArgumentParser:
     q = sp.add_parser(name, help=help_text, parents=parents or [])
     q.set_defaults(_setup_action=name)
+    return q
 
 
 def _find_core_root(ns_root: str | None) -> Path | None:
@@ -242,50 +333,45 @@ def _setup_argv(
     return argv
 
 
-def _run_check() -> int:
-    checks: list[tuple[str, list[str]]] = [
-        ("python3", ["python3"]),
-        ("ssh", ["ssh"]),
-        ("scp", ["scp"]),
-        ("ansible-vault", ["ansible-vault"]),
-        ("ansible-galaxy", ["ansible-galaxy"]),
-        ("terraform", ["terraform"]),
-        ("packer", ["packer"]),
-        ("kubectl", ["kubectl"]),
-        ("gh", ["gh"]),
-        ("az", ["az"]),
-        ("gcloud", ["gcloud"]),
-        ("gpg", ["gpg"]),
-        ("pass", ["pass"]),
-        # Different distros provide different pinentry flavors.
-        (
-            "pinentry",
-            [
-                "pinentry",
-                "pinentry-mac",
-                "pinentry-curses",
-                "pinentry-tty",
-                "pinentry-gtk-2",
-            ],
-        ),
-    ]
-    ok = True
+def _missing_commands(
+    checks: tuple[tuple[str, tuple[str, ...]], ...],
+) -> list[str]:
+    missing: list[str] = []
     for label, candidates in checks:
-        found = ""
-        for cand in candidates:
-            rc = subprocess.call(
-                ["/usr/bin/env", "bash", "-lc", f"command -v {cand} >/dev/null 2>&1"]
-            )
-            if rc == 0:
-                found = cand
-                break
-        if found:
-            suffix = f" ({found})" if found != label else ""
-            print(f"installed {label}{suffix}")
+        if not any(shutil.which(candidate) for candidate in candidates):
+            missing.append(label)
+    return missing
+
+
+def _galaxy_readiness(runtime_root: Path) -> list[str]:
+    marker = runtime_root / "state" / "ansible" / ".installed.json"
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+        collections_dir = Path(str(payload["collections_dir"])).expanduser()
+    except (OSError, ValueError, KeyError, TypeError):
+        return ["run: hyops setup galaxy"]
+    if not collections_dir.is_dir():
+        return ["run: hyops setup galaxy"]
+    return []
+
+
+def _run_check(target: str, runtime_root: Path) -> int:
+    print(f"setup target: {target}")
+    ready = True
+    for group in READINESS_GROUPS_BY_TARGET[target]:
+        if group == "galaxy-dependencies":
+            missing = _galaxy_readiness(runtime_root)
         else:
-            print(f"missing   {label}")
-            ok = False
-    return OK if ok else 2
+            missing = _missing_commands(READINESS_GROUPS[group])
+
+        if missing:
+            print(f"missing {group}: {', '.join(missing)}")
+            ready = False
+        else:
+            print(f"ok      {group}")
+
+    print(f"status={'ready' if ready else 'not-ready'}")
+    return OK if ready else OPERATOR_ERROR
 
 
 def run(ns) -> int:
@@ -315,7 +401,7 @@ def run(ns) -> int:
             command="setup check",
             argv=sys.argv[1:],
         ) as evidence:
-            evidence.exit_code = _run_check()
+            evidence.exit_code = _run_check(ns.target, evidence_paths.root)
             return evidence.exit_code
 
     if canonical_action in ("galaxy", "all", *TARGET_STEPS):
@@ -368,10 +454,13 @@ def run(ns) -> int:
 
         evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
         ensure_layout(evidence_paths)
-        progress = ProgressDisplay()
+        progress = ProgressDisplay(show_elapsed=False)
         print(f"Setup target: {TARGET_LABELS[canonical_action]}")
         if progress.enabled:
             print("First-time setup may take several minutes.")
+        total_phases = sum(_setup_phase_count(step) for step in steps)
+        completed_phases = 0
+        phase_positions: dict[str, int] = {}
         requires_sudo = os.uname().sysname != "Darwin" and any(
             step != "galaxy" for step in steps
         )
@@ -380,7 +469,7 @@ def run(ns) -> int:
             if subprocess.call(["sudo", "-v"]) != 0:
                 print("ERR: administrator authentication failed")
                 return OPERATOR_ERROR
-        for step in steps:
+        for step_index, step in enumerate(steps, start=1):
             step_script = (
                 core_root / "tools" / "setup" / str(_script_for(step))
             ).resolve()
@@ -397,6 +486,8 @@ def run(ns) -> int:
                 elevate=step != "galaxy" and os.uname().sysname != "Darwin",
             )
             label = SETUP_LABELS[step]
+            running_percent = (completed_phases * 100) // max(1, total_phases)
+            running_label = f"{label}  {step_index}/{len(steps)}  {running_percent}%"
             evidence_dir = command_evidence_dir(
                 evidence_paths.logs_dir,
                 "setup",
@@ -404,8 +495,11 @@ def run(ns) -> int:
             )
             progress.start(
                 step,
-                label,
-                plain=f"setup={canonical_action} stage={step} status=running",
+                running_label,
+                plain=(
+                    f"setup={canonical_action} stage={step} status=running "
+                    f"progress={running_percent}%"
+                ),
             )
             rc = run_streamed(
                 argv,
@@ -414,25 +508,42 @@ def run(ns) -> int:
                 command=f"setup {canonical_action} {step}",
                 stream_output=verbose_enabled(),
                 announce=False,
-                line_callback=lambda line, step=step, label=label: _update_setup_progress(
-                    progress, step, label, line
+                line_callback=lambda line, step=step, label=label, completed_phases=completed_phases: _update_setup_progress(
+                    progress,
+                    step,
+                    label,
+                    line,
+                    completed_phases=completed_phases,
+                    total_phases=total_phases,
+                    phase_positions=phase_positions,
                 ),
             )
             if rc != 0:
+                confirmed = completed_phases + max(0, phase_positions.get(step, 1) - 1)
+                failed_percent = min(99, (confirmed * 100) // max(1, total_phases))
                 progress.finish(
                     step,
-                    label,
-                    "failed",
-                    plain=f"setup={canonical_action} stage={step} status=failed",
+                    f"{label}  {step_index}/{len(steps)}  {failed_percent}%",
+                    "cancelled" if rc == CANCELLED else "failed",
+                    plain=(
+                        f"setup={canonical_action} stage={step} "
+                        f"status={'cancelled' if rc == CANCELLED else 'failed'} "
+                        f"progress={failed_percent}%"
+                    ),
                 )
                 print(f"run record: {evidence_dir}")
                 print(f"rerun: hyops setup {canonical_action} --verbose")
                 return rc
+            completed_phases += _setup_phase_count(step)
+            completed_percent = (completed_phases * 100) // max(1, total_phases)
             progress.finish(
                 step,
-                label,
+                f"{label}  {step_index}/{len(steps)}  {completed_percent}%",
                 "ok",
-                plain=f"setup={canonical_action} stage={step} status=ok",
+                plain=(
+                    f"setup={canonical_action} stage={step} status=ok "
+                    f"progress={completed_percent}%"
+                ),
             )
         print(f"setup={canonical_action} status=ok")
         print(f"run records: {evidence_paths.logs_dir / 'setup' / canonical_action}")
@@ -455,6 +566,22 @@ def run(ns) -> int:
         if (env_arg or "").strip():
             env["HYOPS_ENV"] = str(env_arg).strip()
 
+    auto_elevate = (
+        os.uname().sysname != "Darwin"
+        and canonical_action in ("base", "cloud-gcp", "cloud-azure", "all")
+    )
+    elevate = sudo or auto_elevate
+    if (
+        elevate
+        and os.uname().sysname != "Darwin"
+        and sys.stdin.isatty()
+        and sys.stdout.isatty()
+    ):
+        print("Administrator access is required for system setup.")
+        if subprocess.call(["sudo", "-v"]) != 0:
+            print("ERR: administrator authentication failed")
+            return OPERATOR_ERROR
+
     argv = _setup_argv(
         canonical_action,
         script,
@@ -462,16 +589,22 @@ def run(ns) -> int:
         force=force,
         hybridops_source=hybridops_source,
         hybridops_git_manifest=hybridops_git_manifest,
-        elevate=sudo,
+        elevate=elevate,
     )
     evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
     ensure_layout(evidence_paths)
     evidence_dir = command_evidence_dir(evidence_paths.logs_dir, "setup", canonical_action)
     label = SETUP_LABELS.get(canonical_action, canonical_action)
-    progress = ProgressDisplay()
+    progress = ProgressDisplay(show_elapsed=False)
     if progress.enabled:
         print("First-time setup may take several minutes.")
-    progress.start(canonical_action, label, plain=f"setup={canonical_action} status=running")
+    total_phases = _setup_phase_count(canonical_action)
+    phase_positions: dict[str, int] = {}
+    progress.start(
+        canonical_action,
+        f"{label}  0%",
+        plain=f"setup={canonical_action} status=running progress=0%",
+    )
     rc = run_streamed(
         argv,
         env=env,
@@ -480,17 +613,33 @@ def run(ns) -> int:
         stream_output=verbose_enabled(),
         announce=False,
         line_callback=lambda line: _update_setup_progress(
-            progress, canonical_action, label, line
+            progress,
+            canonical_action,
+            label,
+            line,
+            total_phases=total_phases,
+            phase_positions=phase_positions,
         ),
     )
     if rc == 0:
-        progress.finish(canonical_action, label, "ok", plain=f"setup={canonical_action} status=ok")
-    else:
         progress.finish(
             canonical_action,
-            label,
-            "failed",
-            plain=f"setup={canonical_action} status=failed",
+            f"{label}  100%",
+            "ok",
+            plain=f"setup={canonical_action} status=ok progress=100%",
+        )
+    else:
+        completed = max(0, phase_positions.get(canonical_action, 1) - 1)
+        failed_percent = min(99, (completed * 100) // max(1, total_phases))
+        progress.finish(
+            canonical_action,
+            f"{label}  {failed_percent}%",
+            "cancelled" if rc == CANCELLED else "failed",
+            plain=(
+                f"setup={canonical_action} "
+                f"status={'cancelled' if rc == CANCELLED else 'failed'} "
+                f"progress={failed_percent}%"
+            ),
         )
     print(f"run record: {evidence_dir}")
     if rc != 0:

@@ -31,6 +31,26 @@ class ProcResult:
     stderr: str
 
 
+def _start_error_result(
+    argv: Sequence[str], cwd: str | None, start: float, error: OSError
+) -> ProcResult:
+    command = str(argv[0]) if argv else "command"
+    if isinstance(error, FileNotFoundError):
+        rc = 127
+        stderr = f"command not found: {command}\n"
+    else:
+        rc = 126
+        stderr = f"unable to start command '{command}': {error}\n"
+    return ProcResult(
+        argv=list(argv),
+        cwd=cwd,
+        rc=rc,
+        duration_ms=int((time.time() - start) * 1000),
+        stdout="",
+        stderr=stderr,
+    )
+
+
 def run(
     argv: Sequence[str],
     cwd: str | None = None,
@@ -38,15 +58,18 @@ def run(
     timeout_s: int | None = None,
 ) -> ProcResult:
     start = time.time()
-    p = subprocess.run(
-        list(argv),
-        cwd=cwd,
-        env=dict(env) if env else None,
-        text=True,
-        capture_output=True,
-        timeout=timeout_s,
-        check=False,
-    )
+    try:
+        p = subprocess.run(
+            list(argv),
+            cwd=cwd,
+            env=dict(env) if env else None,
+            text=True,
+            capture_output=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except OSError as error:
+        return _start_error_result(argv, cwd, start, error)
     dur = int((time.time() - start) * 1000)
     return ProcResult(
         argv=list(argv),
@@ -90,6 +113,7 @@ def run_capture(
     env: Mapping[str, str] | None = None,
     timeout_s: int | None = None,
     redact: bool = True,
+    progress: bool = True,
 ) -> ProcResult:
     r = _run_with_delayed_progress(
         argv,
@@ -97,6 +121,7 @@ def run_capture(
         cwd=cwd,
         env=env,
         timeout_s=timeout_s,
+        progress=progress,
     )
 
     out = r.stdout
@@ -123,10 +148,15 @@ def _run_with_delayed_progress(
     cwd: str | None,
     env: Mapping[str, str] | None,
     timeout_s: int | None,
+    progress: bool = True,
 ) -> ProcResult:
     """Show progress for a captured command only when it outlasts a quick probe."""
 
-    enabled = concise_enabled() and str(os.getenv("HYOPS_PROGRESS_CHILD") or "").strip() != "1"
+    enabled = (
+        progress
+        and concise_enabled()
+        and str(os.getenv("HYOPS_PROGRESS_CHILD") or "").strip() != "1"
+    )
     if not enabled:
         return run(argv, cwd=cwd, env=env, timeout_s=timeout_s)
 
@@ -179,14 +209,17 @@ def run_interactive(
     timeout_s: int | None = None,
 ) -> ProcResult:
     start = time.time()
-    p = subprocess.run(
-        list(argv),
-        cwd=cwd,
-        env=dict(env) if env else None,
-        text=True,
-        timeout=timeout_s,
-        check=False,
-    )
+    try:
+        p = subprocess.run(
+            list(argv),
+            cwd=cwd,
+            env=dict(env) if env else None,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except OSError as error:
+        return _start_error_result(argv, cwd, start, error)
     dur = int((time.time() - start) * 1000)
     return ProcResult(
         argv=list(argv),
@@ -291,15 +324,29 @@ def run_capture_stream(
             except Exception:
                 pass
 
-    p = subprocess.Popen(
-        list(argv),
-        cwd=cwd,
-        env=dict(env) if env else None,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        bufsize=1,
-    )
+    try:
+        p = subprocess.Popen(
+            list(argv),
+            cwd=cwd,
+            env=dict(env) if env else None,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+        )
+    except OSError as error:
+        result = _start_error_result(argv, cwd, start, error)
+        message = redact_text(result.stderr) if redact else result.stderr
+        err_path.write_text(message, encoding="utf-8")
+        if tee_f:
+            try:
+                tee_f.write(message)
+                tee_f.write(f"[hyops] {label} end rc={result.rc}\n")
+                tee_f.close()
+            except Exception:
+                pass
+        _write_result_envelope(evidence_dir, label, result, redact=redact)
+        return result
     if stream_progress.enabled:
         stream_progress.start(
             label,

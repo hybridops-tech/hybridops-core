@@ -2,6 +2,11 @@
 # purpose: Install Google Cloud CLI prerequisites on macOS with Homebrew.
 set -euo pipefail
 
+progress() {
+  echo "[hyops-progress] $1"
+}
+
+progress "Checking Homebrew"
 if [[ "${EUID}" -eq 0 ]]; then
   echo "ERR: Homebrew setup must run as your macOS user (omit --sudo)" >&2
   exit 2
@@ -12,8 +17,10 @@ command -v brew >/dev/null 2>&1 || {
   exit 2
 }
 
+progress "Installing Google Cloud support"
 brew install --cask google-cloud-sdk
 
+progress "Verifying Google Cloud support"
 command -v gcloud >/dev/null 2>&1 || {
   echo "ERR: gcloud was installed but is not on PATH; start a new shell and retry" >&2
   exit 2

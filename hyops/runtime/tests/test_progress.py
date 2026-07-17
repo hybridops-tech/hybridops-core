@@ -52,6 +52,24 @@ class ProgressDisplayTests(unittest.TestCase):
         ):
             self.assertFalse(concise_enabled())
 
+    def test_tty_can_show_stage_percentage_without_elapsed_time(self) -> None:
+        output = _Stream(True)
+        display = ProgressDisplay(enabled=True, show_elapsed=False)
+        with redirect_stdout(output), patch.object(display, "_animate"):
+            display.start("network", "Network  overall 0%", plain="ignored")
+            display.finish(
+                "network",
+                "Network",
+                "ok",
+                plain="ignored",
+                detail="overall 20%",
+            )
+
+        self.assertEqual(
+            output.getvalue(),
+            "| Network  overall 0%\r\x1b[2K✓ Network  overall 20%\n",
+        )
+
     def test_tty_label_can_be_updated(self) -> None:
         output = _Stream(True)
         display = ProgressDisplay(enabled=True)
