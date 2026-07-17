@@ -8,6 +8,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from hyops.runtime.terminal import colour_enabled, style
+
 
 def verbose_enabled() -> bool:
     return str(os.getenv("HYOPS_VERBOSE") or "").strip().lower() in {
@@ -46,7 +48,12 @@ class ProgressDisplay:
             started = self._started.get(key, time.monotonic())
             current_label = self._labels.get(key, label)
             elapsed = f"  {_elapsed(started)}" if self.show_elapsed else ""
-            print(f"\r\033[2K{frames[frame]} {current_label}{elapsed}", end="", flush=True)
+            symbol = style(
+                frames[frame],
+                "active",
+                enabled=colour_enabled(),
+            )
+            print(f"\r\033[2K{symbol} {current_label}{elapsed}", end="", flush=True)
             frame = (frame + 1) % len(frames)
 
     def start(self, key: str, label: str, *, plain: str) -> None:
@@ -54,7 +61,8 @@ class ProgressDisplay:
         self._labels[key] = label
         if self.enabled:
             elapsed = "  0s" if self.show_elapsed else ""
-            print(f"| {label}{elapsed}", end="", flush=True)
+            symbol = style("|", "active", enabled=colour_enabled())
+            print(f"{symbol} {label}{elapsed}", end="", flush=True)
             stopped = threading.Event()
             thread = threading.Thread(
                 target=self._animate,
@@ -101,6 +109,14 @@ class ProgressDisplay:
             "cancelled": "!",
             "failed-optional": "!",
         }.get(status, "✗")
+        tone = {
+            "ok": "success",
+            "skipped": "warning",
+            "retained": "warning",
+            "cancelled": "warning",
+            "failed-optional": "warning",
+        }.get(status, "error")
+        symbol = style(symbol, tone, enabled=colour_enabled())
         suffix = f"  {_elapsed(started)}" if self.show_elapsed else ""
         if detail:
             suffix += f"  {detail}"
