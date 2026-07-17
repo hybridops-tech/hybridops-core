@@ -1368,9 +1368,14 @@ def resolve_gcp_vm_zone_from_init(inputs: dict[str, Any], *, state_root: Path | 
     region = str(context.get("region") or "").strip()
     if not region:
         return
+    initialized_zone = str(context.get("zone") or "").strip()
+    if initialized_zone and not initialized_zone.startswith(f"{region}-"):
+        raise ValueError(
+            f"initialized GCP zone {initialized_zone!r} does not belong to region {region!r}"
+        )
     zone = str(inputs.get("zone") or "").strip()
     if not zone:
-        inputs["zone"] = f"{region}-a"
+        inputs["zone"] = initialized_zone or f"{region}-a"
     elif not zone.startswith(f"{region}-"):
         raise ValueError(f"inputs.zone={zone!r} does not belong to initialized GCP region {region!r}")
 
