@@ -299,7 +299,7 @@ Complete that prompt. Control returns to the installer automatically.
 If Windows features require a reboot, the bootstrap asks before scheduling it.
 The default answer is No.
 
-For replacement of an existing installation, run Install HybridOps.cmd --force.
+Run Install HybridOps.cmd again to update an existing installation.
 
 The bootstrap verifies the included release archive, prepares Ubuntu 24.04 on
 WSL2, and starts the HybridOps.Core installer.
