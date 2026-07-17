@@ -57,7 +57,7 @@ cat >"${launcher_rc}" <<'EOF'
 if [[ -f "${HOME}/.bashrc" ]]; then
   source "${HOME}/.bashrc"
 fi
-PS1='hyops:\w\$ '
+PS1='\[\033[36m\]hyops\[\033[0m\]:\[\033[34m\]\w\[\033[0m\]\$ '
 EOF
 chmod 0600 "${launcher_rc}"
 
