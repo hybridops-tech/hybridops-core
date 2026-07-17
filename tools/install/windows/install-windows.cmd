@@ -310,7 +310,14 @@ if errorlevel 1 (
 echo.
 set "CREATE_SHORTCUT="
 set "SHORTCUT_CREATED=false"
-set /p "CREATE_SHORTCUT=Create a HybridOps.Core desktop shortcut? [y/N]: "
+set "SHORTCUT_EXISTS=false"
+powershell.exe -NoProfile -Command "$path = Join-Path ([Environment]::GetFolderPath('Desktop')) 'HybridOps.Core.lnk'; if (Test-Path -LiteralPath $path) { exit 0 }; exit 1"
+if not errorlevel 1 (
+  set "SHORTCUT_EXISTS=true"
+  set "CREATE_SHORTCUT=y"
+) else (
+  set /p "CREATE_SHORTCUT=Create a HybridOps.Core desktop shortcut? [y/N]: "
+)
 if /I "!CREATE_SHORTCUT!"=="y" (
   set "LAUNCHER_DIR=%HYOPS_USER_DIR%"
   set "LAUNCHER=!LAUNCHER_DIR!\Open HybridOps.cmd"
@@ -326,7 +333,9 @@ if /I "!CREATE_SHORTCUT!"=="y" (
     echo WARN: unable to create the HybridOps.Core desktop shortcut.
   ) else (
     set "SHORTCUT_CREATED=true"
-    echo Desktop shortcut created: HybridOps.Core
+    if not "!SHORTCUT_EXISTS!"=="true" (
+      echo Desktop shortcut created: HybridOps.Core
+    )
   )
 )
 
