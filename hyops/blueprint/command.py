@@ -29,6 +29,7 @@ from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.progress import ProgressDisplay
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
+from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
 
 from .contracts import (
     enforce_step_contracts,
@@ -478,7 +479,7 @@ def run_preflight(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
     except Exception as exc:
-        print(f"ERR: blueprint preflight failed: {exc}")
+        print(f"ERR: blueprint preflight failed: {format_runtime_storage_error(exc)}")
         return OPERATOR_ERROR
 
     try:
@@ -489,13 +490,14 @@ def run_preflight(ns) -> int:
         )
         paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
         ensure_layout(paths)
+        require_runtime_writable(paths.root)
         _enforce_runtime_blueprint_file_scope(
             ns,
             paths,
             command_label="hyops blueprint preflight",
         )
     except Exception as exc:
-        print(f"ERR: blueprint preflight failed: {exc}")
+        print(f"ERR: blueprint preflight failed: {format_runtime_storage_error(exc)}")
         return OPERATOR_ERROR
 
     step_results, required_failures, optional_failures = compute_preflight(payload, ns, paths)
@@ -1025,7 +1027,7 @@ def run_deploy(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
     except Exception as exc:
-        print(f"ERR: blueprint deploy failed: {exc}")
+        print(f"ERR: blueprint deploy failed: {format_runtime_storage_error(exc)}")
         return OPERATOR_ERROR
 
     if not bool(getattr(ns, "execute", False)):
@@ -1061,13 +1063,14 @@ def run_deploy(ns) -> int:
         )
         paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
         ensure_layout(paths)
+        require_runtime_writable(paths.root)
         _enforce_runtime_blueprint_file_scope(
             ns,
             paths,
             command_label="hyops blueprint deploy",
         )
     except Exception as exc:
-        print(f"ERR: blueprint deploy failed: {exc}")
+        print(f"ERR: blueprint deploy failed: {format_runtime_storage_error(exc)}")
         return OPERATOR_ERROR
 
     preflight_summary: dict[str, Any] | None = None
@@ -1280,7 +1283,7 @@ def run_deploy(ns) -> int:
             err = "cancelled by user"
         except Exception as exc:
             rc = OPERATOR_ERROR
-            err = str(exc)
+            err = format_runtime_storage_error(exc)
         else:
             err = ""
         finally:
@@ -1509,13 +1512,14 @@ def run_destroy(ns) -> int:
         )
         paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
         ensure_layout(paths)
+        require_runtime_writable(paths.root)
         _enforce_runtime_blueprint_file_scope(
             ns,
             paths,
             command_label="hyops blueprint destroy",
         )
     except Exception as exc:
-        print(f"ERR: blueprint destroy failed: {exc}")
+        print(f"ERR: blueprint destroy failed: {format_runtime_storage_error(exc)}")
         return OPERATOR_ERROR
 
     by_id = {step["id"]: step for step in payload["steps"]}
@@ -1649,7 +1653,7 @@ def run_destroy(ns) -> int:
             err = "cancelled by user"
         except Exception as exc:
             rc = OPERATOR_ERROR
-            err = str(exc)
+            err = format_runtime_storage_error(exc)
         else:
             err = ""
         finally:
