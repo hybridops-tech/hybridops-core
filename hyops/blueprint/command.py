@@ -1302,6 +1302,8 @@ def _run_lab_restore(
             "eveng_lab_archive_action": "restore",
             "eveng_lab_archive_path": str(archive_path),
             "eveng_lab_archive_expected_sha256": checksum,
+            "eveng_lab_archive_include_node_state": False,
+            "eveng_lab_archive_stop_running_nodes": False,
             "eveng_lab_archive_overwrite": bool(
                 getattr(ns, "overwrite_labs", False)
             ),
