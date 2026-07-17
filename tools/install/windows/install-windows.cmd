@@ -15,10 +15,8 @@ if /I "%~1"=="/force" set "FORCE=true"
 echo.
 echo HybridOps.Core for Windows
 echo --------------------------
-echo HybridOps runs inside Ubuntu 24.04 on Windows Subsystem for Linux 2.
-echo This bootstrap prepares that environment, verifies the release package,
-echo and starts the HybridOps.Core installer.
-echo No Windows component will be changed without your confirmation.
+echo This installer prepares Ubuntu 24.04 on Windows Subsystem for Linux 2,
+echo verifies the release package and installs HybridOps.Core.
 echo.
 echo [1/4] Checking Windows prerequisites...
 
