@@ -99,6 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Stream tool output to terminal while also writing run records.",
     )
+    p.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable terminal status colours.",
+    )
     sp = p.add_subparsers(dest="cmd", required=False, metavar="COMMAND")
 
     add_init_subparser(sp)
@@ -139,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
     ns = parser.parse_args(argv)
+
+    if getattr(ns, "no_color", False):
+        os.environ["NO_COLOR"] = "1"
+
+    from hyops.runtime.terminal import configure_status_streams
+
+    configure_status_streams()
 
     if getattr(ns, "version", False):
         from hyops import __version__

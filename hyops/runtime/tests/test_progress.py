@@ -35,7 +35,9 @@ class ProgressDisplayTests(unittest.TestCase):
     def test_tty_uses_concise_status(self) -> None:
         output = _Stream(True)
         display = ProgressDisplay(enabled=True)
-        with redirect_stdout(output), patch(
+        with redirect_stdout(output), patch.dict(
+            os.environ, {"NO_COLOR": "1"}
+        ), patch(
             "hyops.runtime.progress.time.monotonic", side_effect=[10.0, 15.0]
         ), patch.object(display, "_animate"):
             display.start("network", "Network", plain="ignored")
@@ -55,7 +57,9 @@ class ProgressDisplayTests(unittest.TestCase):
     def test_tty_can_show_stage_percentage_without_elapsed_time(self) -> None:
         output = _Stream(True)
         display = ProgressDisplay(enabled=True, show_elapsed=False)
-        with redirect_stdout(output), patch.object(display, "_animate"):
+        with redirect_stdout(output), patch.dict(
+            os.environ, {"NO_COLOR": "1"}
+        ), patch.object(display, "_animate"):
             display.start("network", "Network  overall 0%", plain="ignored")
             display.finish(
                 "network",
