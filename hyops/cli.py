@@ -187,6 +187,13 @@ def main(argv: list[str] | None = None) -> int:
         if ns.cmd == "preflight":
             paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
             ensure_layout(paths)
+            from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
+
+            try:
+                require_runtime_writable(paths.root)
+            except Exception as exc:
+                print(f"ERR: {format_runtime_storage_error(exc)}", file=sys.stderr)
+                return 2
             evidence_dir = command_evidence_dir(paths.logs_dir, "preflight")
             with PythonCommandEvidence(evidence_dir, command="preflight", argv=argv) as evidence:
                 evidence.exit_code = int(ns._handler(ns))

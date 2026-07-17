@@ -26,8 +26,15 @@ def write_json_atomic(path: Path, obj: Any, mode: int = 0o600) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(tmp, mode)
         os.replace(tmp, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         try:
             os.unlink(tmp)
@@ -45,8 +52,15 @@ def write_text_atomic(path: Path, text: str, mode: int = 0o600) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(tmp, mode)
         os.replace(tmp, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         try:
             os.unlink(tmp)

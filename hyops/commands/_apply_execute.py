@@ -29,6 +29,7 @@ from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.module_state import write_module_state
 from hyops.runtime.progress import ProgressDisplay
 from hyops.runtime.stamp import stamp_runtime
+from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
 
 
 def run_single(
@@ -50,6 +51,12 @@ def run_single(
     command_name = str(command_name or "apply").strip().lower()
     if command_name not in ("apply", "deploy", "plan", "validate", "destroy", "import"):
         command_name = "apply"
+
+    try:
+        require_runtime_writable(paths.root)
+    except Exception as exc:
+        print(f"error: {format_runtime_storage_error(exc)}", file=sys.stderr)
+        return 1
 
     run_label = "apply" if command_name == "deploy" else command_name
     run_id = new_run_id(run_label)
@@ -369,8 +376,9 @@ def run_single(
         print("error: cancelled by user", file=sys.stderr)
         return CANCELLED
     except Exception as exc:
-        persist_status_error_state(str(exc))
-        print(f"error: {exc}", file=sys.stderr)
+        error_detail = format_runtime_storage_error(exc)
+        persist_status_error_state(error_detail)
+        print(f"error: {error_detail}", file=sys.stderr)
         if not child_progress:
             progress.finish(
                 module_ref,

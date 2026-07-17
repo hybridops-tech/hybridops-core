@@ -20,6 +20,7 @@ from hyops.runtime.module_state import normalize_state_instance
 from hyops.runtime.refs import module_id_from_ref, normalize_module_ref
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_input_path, resolve_module_root
+from hyops.runtime.storage import check_runtime_writable
 from hyops.runtime.vault import VaultAuth, has_password_source, read_env
 from hyops.drivers.registry import REGISTRY
 from hyops.preflight.checks import CheckResult, which, file_exists
@@ -190,6 +191,14 @@ def run(ns) -> int:
     results.append(CheckResult(name="runtime:root", ok=file_exists(paths.root), detail=str(paths.root)))
     results.append(CheckResult(name="runtime:meta", ok=file_exists(paths.meta_dir), detail=str(paths.meta_dir)))
     results.append(CheckResult(name="runtime:vault", ok=file_exists(paths.vault_dir), detail=str(paths.vault_dir)))
+    runtime_writable, runtime_writable_detail = check_runtime_writable(paths.root)
+    results.append(
+        CheckResult(
+            name="runtime:writable",
+            ok=runtime_writable,
+            detail=runtime_writable_detail,
+        )
+    )
 
     vault_path = Path(ns.vault_file).expanduser() if ns.vault_file else (paths.root / "vault" / "bootstrap.vault.env")
     auth = VaultAuth(password_file=ns.vault_password_file, password_command=ns.vault_password_command)
@@ -271,6 +280,8 @@ def run(ns) -> int:
                 ok = False
             if r.name == "vault:decrypt" and vault_path.exists() and not r.ok:
                 ok = False
+            if r.name == "runtime:writable" and not r.ok:
+                ok = False
             if r.name.startswith("module:") and not r.ok:
                 ok = False
 
@@ -279,6 +290,8 @@ def run(ns) -> int:
     else:
         # Prioritise readiness/config, then secrets, then deps.
         if any(r.name.startswith("readiness:") and not r.ok for r in results):
+            code = CONFIG_INVALID
+        elif any(r.name == "runtime:writable" and not r.ok for r in results):
             code = CONFIG_INVALID
         elif any(r.name == "vault:decrypt" and not r.ok for r in results):
             code = SECRETS_FAILED
