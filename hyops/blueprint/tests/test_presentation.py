@@ -1,10 +1,14 @@
 """Tests for concise blueprint step presentation."""
 
+import io
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 from hyops.blueprint.command import (
+    _collect_deploy_risk_signals,
+    _confirm_deploy_if_needed,
     _destroy_preview_label,
     _step_display_label,
     _step_presentation,
@@ -13,6 +17,58 @@ from hyops.runtime.module_state import write_module_state
 
 
 class BlueprintPresentationTest(TestCase):
+    def test_destroyed_steps_do_not_trigger_deploy_risk_warning(self):
+        step = {
+            "id": "network",
+            "module_ref": "platform/gcp/lab-network",
+            "state_instance": "network",
+            "action": "deploy",
+        }
+        payload = {"steps": [step]}
+        paths = type("Paths", (), {"state_dir": Path("/tmp/state")})()
+
+        with patch(
+            "hyops.blueprint.command.module_state_status",
+            return_value="destroyed",
+        ):
+            self.assertEqual(_collect_deploy_risk_signals(payload, paths), [])
+
+    def test_active_deploy_warning_is_concise_by_default(self):
+        step = {
+            "id": "gcp_eve_ng_network",
+            "module_ref": "platform/gcp/lab-network",
+            "state_instance": "gcp_eve_ng_network",
+            "action": "deploy",
+            "presentation": {"label": "Private lab network"},
+        }
+        payload = {"steps": [step]}
+        paths = type(
+            "Paths",
+            (),
+            {"state_dir": Path("/tmp/state"), "root": Path("/tmp/demo-lab")},
+        )()
+        ns = type("Namespace", (), {"yes": False, "json": False, "env": "demo-lab"})()
+        output = io.StringIO()
+
+        with (
+            patch(
+                "hyops.blueprint.command.module_state_status",
+                return_value="ok",
+            ),
+            patch("hyops.blueprint.command.sys.stdin", io.StringIO()),
+            patch("hyops.blueprint.command.sys.stdout", output),
+        ):
+            self.assertEqual(_confirm_deploy_if_needed(ns, payload, paths), 0)
+
+        rendered = output.getvalue()
+        self.assertIn(
+            "WARN: deploy may change 1 active blueprint step in env=demo-lab.",
+            rendered,
+        )
+        self.assertIn("  - Private lab network (state=ok)", rendered)
+        self.assertNotIn("platform/gcp/lab-network", rendered)
+        self.assertNotIn("gcp_eve_ng_network", rendered)
+
     def test_destroy_preview_uses_readable_label(self):
         step = {
             "id": "gcp_eve_ng_healthcheck",
