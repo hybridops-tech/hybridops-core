@@ -166,6 +166,14 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
     if metadata is not None:
         as_mapping(metadata, "metadata")
     policy = validate_policy(spec.get("policy"))
+    raw_recoverable = spec.get("recoverable_secrets") or []
+    if not isinstance(raw_recoverable, list):
+        raise ValueError("recoverable_secrets must be a list")
+    recoverable_secrets: list[str] = []
+    for idx, value in enumerate(raw_recoverable, start=1):
+        name = as_non_empty_string(value, f"recoverable_secrets[{idx}]")
+        if name not in recoverable_secrets:
+            recoverable_secrets.append(name)
     access: dict[str, Any] = {}
     if spec.get("access") is not None:
         raw_access = as_mapping(spec.get("access"), "access")
@@ -431,6 +439,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         "mode": mode,
         "metadata": metadata if isinstance(metadata, dict) else {},
         "policy": policy,
+        "recoverable_secrets": recoverable_secrets,
         "access": access,
         "archive_before_destroy": archive_before_destroy,
         "steps": steps,

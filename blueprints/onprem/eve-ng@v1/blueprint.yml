@@ -14,6 +14,10 @@ policy:
   evidence_required: true
   ipam_authority: "none"
 
+recoverable_secrets:
+  - "EVENG_ROOT_PASSWORD"
+  - "EVENG_ADMIN_PASSWORD"
+
 access:
   type: "ssh-forward"
   state_ref: "platform/onprem/platform-vm#eve_ng_vm"
