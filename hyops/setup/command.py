@@ -124,7 +124,26 @@ def _update_setup_progress(
                 phase_positions[step] = position
             started = completed_phases + max(0.5, position - 0.5)
             percent = min(99, int((started * 100) / max(1, total_phases)))
-            progress.update(step, f"{base_label}: {phase}  {percent}%")
+            label = f"{base_label}: {phase}"
+            progress.update(step, f"{label}  {percent}%")
+            next_boundary = min(
+                99,
+                max(
+                    percent,
+                    int(
+                        (completed_phases + max(1, position))
+                        * 100
+                        / max(1, total_phases)
+                    )
+                    - 1,
+                ),
+            )
+            progress.track_percent(
+                step,
+                label,
+                current=percent,
+                ceiling=next_boundary,
+            )
 
 
 def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
