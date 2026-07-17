@@ -84,6 +84,7 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError("inputs.eveng_lab_archive_overwrite must be a boolean")
     include_node_state = data.get("eveng_lab_archive_include_node_state")
     restore_node_state = data.get("eveng_lab_archive_restore_node_state")
+    stop_running_nodes = data.get("eveng_lab_archive_stop_running_nodes")
     if not isinstance(include_node_state, bool):
         raise ValueError(
             "inputs.eveng_lab_archive_include_node_state must be a boolean"
@@ -91,6 +92,15 @@ def validate(inputs: dict[str, Any]) -> None:
     if not isinstance(restore_node_state, bool):
         raise ValueError(
             "inputs.eveng_lab_archive_restore_node_state must be a boolean"
+        )
+    if not isinstance(stop_running_nodes, bool):
+        raise ValueError(
+            "inputs.eveng_lab_archive_stop_running_nodes must be a boolean"
+        )
+    if stop_running_nodes and (action != "export" or not include_node_state):
+        raise ValueError(
+            "inputs.eveng_lab_archive_stop_running_nodes requires an export "
+            "that includes node state"
         )
     node_state_root = require_non_empty_str(
         data.get("eveng_lab_archive_node_state_root"),

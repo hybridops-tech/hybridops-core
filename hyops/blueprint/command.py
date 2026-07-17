@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from hyops.drivers.iac.terragrunt.contracts import get_contract
-from hyops.runtime.browser import open_operator_url
+from hyops.runtime.browser import is_windows_wsl, open_operator_url
 from hyops.runtime.evidence import new_run_id
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.gcp import diagnose_project_billing
@@ -774,6 +774,13 @@ def _native_console_status(ports: list[int]) -> str:
     return "native consoles: no active QEMU nodes; web access remains available"
 
 
+def _print_native_console_client_guidance() -> None:
+    if not is_windows_wsl():
+        return
+    print("Windows native consoles require the EVE-NG Windows Client Pack.")
+    print("HTML5 consoles remain available without it.")
+
+
 def _extract_access_host(outputs: dict[str, Any]) -> str:
     def valid_ipv4(value: Any) -> str:
         token = str(value or "").strip().split("/", 1)[0]
@@ -1049,6 +1056,7 @@ def run_access(ns) -> int:
                 print(f"local URL: {url}")
             _print_guest_network_guidance(access)
             if bool(getattr(ns, "native_consoles", False)):
+                _print_native_console_client_guidance()
                 print(_native_console_status(console_ports))
                 if not console_ports:
                     print("native console setup: start a QEMU node, then rerun access with --native-consoles")
@@ -1150,6 +1158,7 @@ def run_access(ns) -> int:
             print(f"local endpoint: 127.0.0.1:{port}")
         _print_guest_network_guidance(access)
         if bool(getattr(ns, "native_consoles", False)):
+            _print_native_console_client_guidance()
             print(_native_console_status(console_ports))
             if not console_ports:
                 print("native console setup: start a QEMU node, then rerun access with --native-consoles")
@@ -1840,7 +1849,36 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "inputs": archive.get("inputs") or {},
     }
     print("exporting lab data before teardown")
-    rc = run_step_module_command(archive_step, payload, ns, paths)
+    progress = ProgressDisplay(
+        enabled=bool(
+            sys.stdout
+            and sys.stdout.isatty()
+            and not bool(getattr(ns, "json", False))
+            and not os.getenv("HYOPS_VERBOSE")
+        ),
+        show_elapsed=False,
+    )
+    progress.start(
+        archive_step["id"],
+        "Lab archive",
+        plain="lab_archive status=running",
+    )
+    previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
+    if not os.getenv("HYOPS_VERBOSE"):
+        os.environ["HYOPS_PROGRESS_CHILD"] = "1"
+    try:
+        rc = run_step_module_command(archive_step, payload, ns, paths)
+    finally:
+        if previous_child is None:
+            os.environ.pop("HYOPS_PROGRESS_CHILD", None)
+        else:
+            os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+    progress.finish(
+        archive_step["id"],
+        "Lab archive",
+        "ok" if rc == 0 else "failed",
+        plain=f"lab_archive status={'ok' if rc == 0 else 'failed'}",
+    )
     if rc != 0:
         print("ERR: lab export failed; no resources were destroyed")
         return int(rc)

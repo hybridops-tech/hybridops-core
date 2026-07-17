@@ -16,6 +16,7 @@ from hyops.blueprint.command import (
     _native_console_status,
     _offer_access_close_destroy,
     _parse_eve_qemu_console_ports,
+    _print_native_console_client_guidance,
     _require_local_ports_available,
     _ssh_access_error,
     _wait_for_local_port,
@@ -93,6 +94,28 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
             _native_console_status([]),
             "native consoles: no active QEMU nodes; web access remains available",
         )
+
+    def test_windows_native_console_guidance_names_host_requirement(self) -> None:
+        stdout = io.StringIO()
+        with (
+            patch("hyops.blueprint.command.is_windows_wsl", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+        ):
+            _print_native_console_client_guidance()
+
+        message = stdout.getvalue()
+        self.assertIn("EVE-NG Windows Client Pack", message)
+        self.assertIn("HTML5 consoles remain available", message)
+
+    def test_native_console_guidance_is_quiet_outside_wsl(self) -> None:
+        stdout = io.StringIO()
+        with (
+            patch("hyops.blueprint.command.is_windows_wsl", return_value=False),
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+        ):
+            _print_native_console_client_guidance()
+
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_rejects_local_console_port_conflict(self) -> None:
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
