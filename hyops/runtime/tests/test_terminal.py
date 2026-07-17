@@ -43,6 +43,28 @@ class TerminalStatusTests(unittest.TestCase):
     def test_non_tty_disables_terminal_colours(self) -> None:
         self.assertFalse(colour_enabled(_Stream(False)))
 
+    def test_tty_run_record_path_is_cyan(self) -> None:
+        rendered = decorate_status_text(
+            "run record: /home/user/.hybridops/logs/apply-123\n",
+            enabled=True,
+        )
+
+        self.assertEqual(
+            rendered,
+            "run record: \033[36m/home/user/.hybridops/logs/apply-123\033[0m\n",
+        )
+
+    def test_plain_run_record_path_is_unchanged(self) -> None:
+        rendered = decorate_status_text(
+            "run records: /home/user/.hybridops/logs/setup/gcp\n",
+            enabled=False,
+        )
+
+        self.assertEqual(
+            rendered,
+            "run records: /home/user/.hybridops/logs/setup/gcp\n",
+        )
+
     def test_run_record_remains_plain(self) -> None:
         terminal = _Stream(True)
         record = io.StringIO()
@@ -50,14 +72,24 @@ class TerminalStatusTests(unittest.TestCase):
 
         with patch.dict(os.environ, {"TERM": "xterm"}):
             os.environ.pop("NO_COLOR", None)
-            tee.write("ok      runtime:root\nERR: failed\n")
+            tee.write(
+                "ok      runtime:root\n"
+                "ERR: failed\n"
+                "run record: /home/user/.hybridops/logs/apply-123\n"
+            )
 
         self.assertIn("\033[32m", terminal.getvalue())
         self.assertIn("\033[31m", terminal.getvalue())
+        self.assertIn(
+            "\033[36m/home/user/.hybridops/logs/apply-123\033[0m",
+            terminal.getvalue(),
+        )
         self.assertNotIn("\033[", record.getvalue())
         self.assertEqual(
             record.getvalue(),
-            "ok      runtime:root\nERR: failed\n",
+            "ok      runtime:root\n"
+            "ERR: failed\n"
+            "run record: /home/user/.hybridops/logs/apply-123\n",
         )
 
 

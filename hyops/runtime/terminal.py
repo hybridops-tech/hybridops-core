@@ -84,6 +84,11 @@ def decorate_status_text(text: str, *, enabled: bool) -> str:
         lambda match: style(match.group(1), "error"),
         decorated,
     )
+    decorated = re.sub(
+        r"(?m)^(run records?: )(.+)$",
+        lambda match: f"{match.group(1)}{style(match.group(2), 'active')}",
+        decorated,
+    )
     return decorated
 
 
