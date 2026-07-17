@@ -281,6 +281,14 @@ if not "!WSL_HELPER:~0,1!"=="/" (
   exit /b 2
 )
 
+wsl.exe -d %DISTRO% -u !WSL_USER! -- bash -lc "test -e \"${HOME}/.hybridops/core\""
+if not errorlevel 1 (
+  echo.
+  echo Existing HybridOps.Core installation found.
+  echo The installed Core files will be updated.
+  set "FORCE=true"
+)
+
 echo.
 echo [4/4] Installing HybridOps.Core in %DISTRO%...
 wsl.exe -d %DISTRO% -u !WSL_USER! -- bash "%WSL_HELPER%" "%WSL_ARCHIVE%" "%FORCE%"
