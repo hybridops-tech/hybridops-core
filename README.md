@@ -59,7 +59,7 @@ Install the release package for your workstation:
 |---|---|
 | Linux | Extract the versioned archive and run `./install.sh` |
 | macOS | Open the package for Apple silicon or Intel |
-| Windows 11 | Extract the Windows ZIP and run `install-windows.cmd` |
+| Windows 11 | Extract the Windows ZIP and run `Install HybridOps.cmd` |
 
 See the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/)
 for downloads, verification, and workstation setup.

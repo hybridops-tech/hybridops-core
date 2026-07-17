@@ -34,6 +34,19 @@ SETUP_LABELS = {
 }
 
 TARGET_LABELS = {"gcp": "GCP", "azure": "Azure", "proxmox": "Proxmox"}
+PROGRESS_PREFIX = "[hyops-progress] "
+
+
+def _update_setup_progress(
+    progress: ProgressDisplay,
+    step: str,
+    base_label: str,
+    line: str,
+) -> None:
+    if line.startswith(PROGRESS_PREFIX):
+        phase = line[len(PROGRESS_PREFIX) :].strip()
+        if phase:
+            progress.update(step, f"{base_label}: {phase}")
 
 
 def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
@@ -357,6 +370,8 @@ def run(ns) -> int:
         ensure_layout(evidence_paths)
         progress = ProgressDisplay()
         print(f"Setup target: {TARGET_LABELS[canonical_action]}")
+        if progress.enabled:
+            print("First-time setup may take several minutes.")
         requires_sudo = os.uname().sysname != "Darwin" and any(
             step != "galaxy" for step in steps
         )
@@ -399,6 +414,9 @@ def run(ns) -> int:
                 command=f"setup {canonical_action} {step}",
                 stream_output=verbose_enabled(),
                 announce=False,
+                line_callback=lambda line, step=step, label=label: _update_setup_progress(
+                    progress, step, label, line
+                ),
             )
             if rc != 0:
                 progress.finish(
@@ -451,6 +469,8 @@ def run(ns) -> int:
     evidence_dir = command_evidence_dir(evidence_paths.logs_dir, "setup", canonical_action)
     label = SETUP_LABELS.get(canonical_action, canonical_action)
     progress = ProgressDisplay()
+    if progress.enabled:
+        print("First-time setup may take several minutes.")
     progress.start(canonical_action, label, plain=f"setup={canonical_action} status=running")
     rc = run_streamed(
         argv,
@@ -459,6 +479,9 @@ def run(ns) -> int:
         command=f"setup {canonical_action}",
         stream_output=verbose_enabled(),
         announce=False,
+        line_callback=lambda line: _update_setup_progress(
+            progress, canonical_action, label, line
+        ),
     )
     if rc == 0:
         progress.finish(canonical_action, label, "ok", plain=f"setup={canonical_action} status=ok")

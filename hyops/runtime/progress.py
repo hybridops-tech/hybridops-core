@@ -34,6 +34,7 @@ class ProgressDisplay:
 
     enabled: bool = field(default_factory=concise_enabled)
     _started: dict[str, float] = field(default_factory=dict)
+    _labels: dict[str, str] = field(default_factory=dict)
     _stops: dict[str, threading.Event] = field(default_factory=dict)
     _threads: dict[str, threading.Thread] = field(default_factory=dict)
 
@@ -42,8 +43,9 @@ class ProgressDisplay:
         frame = 0
         while not stopped.wait(0.2):
             started = self._started.get(key, time.monotonic())
+            current_label = self._labels.get(key, label)
             print(
-                f"\r\033[2K{frames[frame]} {label}  {_elapsed(started)}",
+                f"\r\033[2K{frames[frame]} {current_label}  {_elapsed(started)}",
                 end="",
                 flush=True,
             )
@@ -51,6 +53,7 @@ class ProgressDisplay:
 
     def start(self, key: str, label: str, *, plain: str) -> None:
         self._started[key] = time.monotonic()
+        self._labels[key] = label
         if self.enabled:
             print(f"| {label}  0s", end="", flush=True)
             stopped = threading.Event()
@@ -65,6 +68,11 @@ class ProgressDisplay:
         else:
             print(plain, flush=True)
 
+    def update(self, key: str, label: str) -> None:
+        """Update an active interactive label without adding terminal output."""
+        if self.enabled and key in self._started:
+            self._labels[key] = label
+
     def finish(
         self,
         key: str,
@@ -75,6 +83,7 @@ class ProgressDisplay:
         detail: str = "",
     ) -> None:
         started = self._started.pop(key, None)
+        self._labels.pop(key, None)
         if started is None:
             started = time.monotonic()
         if not self.enabled:

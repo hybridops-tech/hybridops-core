@@ -52,6 +52,20 @@ class ProgressDisplayTests(unittest.TestCase):
         ):
             self.assertFalse(concise_enabled())
 
+    def test_tty_label_can_be_updated(self) -> None:
+        output = _Stream(True)
+        display = ProgressDisplay(enabled=True)
+        with redirect_stdout(output), patch(
+            "hyops.runtime.progress.time.monotonic", side_effect=[10.0, 15.0]
+        ), patch.object(display, "_animate"):
+            display.start("base", "Base tools", plain="ignored")
+            display.update("base", "Base tools: Preparing system packages")
+            self.assertEqual(
+                display._labels["base"],
+                "Base tools: Preparing system packages",
+            )
+            display.finish("base", "Base tools", "ok", plain="ignored")
+
 
 if __name__ == "__main__":
     unittest.main()

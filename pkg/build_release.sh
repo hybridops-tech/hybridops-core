@@ -35,10 +35,8 @@ OUT_DIR="${OUT_DIR:-${REPO_ROOT}/dist/releases}"
 PACKAGE_ROOT="hybridops-core-${RELEASE_LABEL}"
 TARBALL_PATH="${OUT_DIR}/${PACKAGE_ROOT}.tar.gz"
 SHA256_PATH="${TARBALL_PATH}.sha256"
-WINDOWS_INSTALLER_PATH="${OUT_DIR}/install-windows.cmd"
 WINDOWS_INSTALLER_SOURCE="${REPO_ROOT}/tools/install/windows/install-windows.cmd"
 WINDOWS_HELPER_PATH="${REPO_ROOT}/tools/install/windows/install-windows-wsl.sh"
-WINDOWS_LAUNCHER_PATH="${REPO_ROOT}/tools/install/windows/open-hybridops.cmd"
 WINDOWS_BUNDLE_PATH="${OUT_DIR}/${PACKAGE_ROOT}-windows.zip"
 WINDOWS_BUNDLE_SHA256_PATH="${WINDOWS_BUNDLE_PATH}.sha256"
 BUILD_WHEELHOUSE="${HYOPS_RELEASE_BUILD_WHEELHOUSE:-true}"
@@ -251,22 +249,49 @@ target = Path(sys.argv[2])
 target.write_text(f"{sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n", encoding="utf-8")
 PY
 )
-cp "${WINDOWS_INSTALLER_SOURCE}" "${WINDOWS_INSTALLER_PATH}"
-
 WINDOWS_STAGE="${WORK_DIR}/${PACKAGE_ROOT}-windows"
-mkdir -p "${WINDOWS_STAGE}"
-cp "${TARBALL_PATH}" "${SHA256_PATH}" "${WINDOWS_INSTALLER_PATH}" "${WINDOWS_HELPER_PATH}" \
-  "${WINDOWS_LAUNCHER_PATH}" "${REPO_ROOT}/assets/windows/hybridops.ico" \
-  "${WINDOWS_STAGE}/"
-cp "${REPO_ROOT}/LICENSE" "${WINDOWS_STAGE}/LICENSE.txt"
-cat >"${WINDOWS_STAGE}/README-WINDOWS.txt" <<EOF
+WINDOWS_PAYLOAD_STAGE="${WINDOWS_STAGE}/payload"
+mkdir -p "${WINDOWS_PAYLOAD_STAGE}"
+cp "${WINDOWS_INSTALLER_SOURCE}" "${WINDOWS_STAGE}/Install HybridOps.cmd"
+cp "${TARBALL_PATH}" "${WINDOWS_PAYLOAD_STAGE}/hybridops-core.tar.gz"
+cp "${WINDOWS_HELPER_PATH}" "${WINDOWS_PAYLOAD_STAGE}/install-wsl.sh"
+cp "${REPO_ROOT}/assets/windows/hybridops.ico" "${WINDOWS_PAYLOAD_STAGE}/hybridops.ico"
+(
+  cd "${WINDOWS_PAYLOAD_STAGE}"
+  sha256sum hybridops-core.tar.gz >hybridops-core.tar.gz.sha256
+)
+python3 - "${REPO_ROOT}/LICENSE" "${WINDOWS_STAGE}/LICENSE.txt" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+lines = []
+for line in source.splitlines():
+    if line.strip() == "---":
+        continue
+    if line.startswith("# "):
+        line = line[2:]
+    line = line.replace("**", "").replace("`", "")
+    if line.startswith("- Attribution — "):
+        line = "Attribution: " + line.removeprefix("- Attribution — ")
+    elif line.startswith("  "):
+        line = line[2:]
+    if not line and lines and not lines[-1]:
+        continue
+    lines.append(line)
+
+while lines and not lines[-1]:
+    lines.pop()
+Path(sys.argv[2]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+cat >"${WINDOWS_STAGE}/README.txt" <<EOF
 HybridOps.Core for Windows 11 (WSL2)
 
 1. Extract every file from this ZIP archive.
-2. Run install-windows.cmd.
+2. Run Install HybridOps.cmd.
 
-After installation, run open-hybridops.cmd to open HybridOps.Core. The
-installer can also create an optional desktop shortcut.
+After a successful installation, use the optional HybridOps.Core desktop
+shortcut or open Ubuntu 24.04 from the Windows Start menu.
 
 The first Ubuntu launch may ask you to create a Linux username and password.
 Complete that prompt. Control returns to the installer automatically.
@@ -274,7 +299,7 @@ Complete that prompt. Control returns to the installer automatically.
 If Windows features require a reboot, the bootstrap asks before scheduling it.
 The default answer is No.
 
-For replacement of an existing installation, run install-windows.cmd --force.
+For replacement of an existing installation, run Install HybridOps.cmd --force.
 
 The bootstrap verifies the included release archive, prepares Ubuntu 24.04 on
 WSL2, and starts the HybridOps.Core installer.
@@ -293,8 +318,29 @@ import zipfile
 source = Path(sys.argv[1])
 target = Path(sys.argv[2])
 with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-    for path in sorted(source.iterdir()):
-        archive.write(path, arcname=path.name)
+    for path in sorted(item for item in source.rglob("*") if item.is_file()):
+        archive.write(path, arcname=path.relative_to(source))
+PY
+python3 - "${WINDOWS_BUNDLE_PATH}" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+expected = {
+    "Install HybridOps.cmd",
+    "LICENSE.txt",
+    "README.txt",
+    "payload/hybridops-core.tar.gz",
+    "payload/hybridops-core.tar.gz.sha256",
+    "payload/hybridops.ico",
+    "payload/install-wsl.sh",
+}
+with zipfile.ZipFile(Path(sys.argv[1])) as archive:
+    actual = set(archive.namelist())
+if actual != expected:
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    raise SystemExit(f"invalid Windows bundle layout: missing={missing}, unexpected={unexpected}")
 PY
 (
   cd "${OUT_DIR}"
@@ -305,8 +351,6 @@ echo "Built bundle:"
 echo "  ${TARBALL_PATH}"
 echo "Checksum:"
 echo "  ${SHA256_PATH}"
-echo "Windows bootstrap:"
-echo "  ${WINDOWS_INSTALLER_PATH}"
 echo "Windows bundle:"
 echo "  ${WINDOWS_BUNDLE_PATH}"
 echo "Windows bundle checksum:"
