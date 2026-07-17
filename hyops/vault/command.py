@@ -29,6 +29,15 @@ def add_vault_subparser(sp: argparse._SubParsersAction) -> None:
     _add(ssp, "bootstrap", "Interactive bootstrap (stores password in pass).")
     _add(ssp, "reset", "Remove stored entry.")
     _add(ssp, "password", "Emit vault password for automation (hidden on interactive terminals).")
+    recover = _add(
+        ssp,
+        "recover",
+        "Replace an inaccessible HybridOps vault key and recover an environment.",
+    )
+    recover.add_argument("--env", required=True, help="Environment to recover.")
+    recover.add_argument("--ref", required=True, help="Blueprint whose required secrets will be regenerated.")
+    recover.add_argument("--blueprints-root", default="blueprints", help=argparse.SUPPRESS)
+    recover.add_argument("--modules-root", default="modules", help=argparse.SUPPRESS)
 
     p.set_defaults(_handler=_dispatch)
 
@@ -93,6 +102,11 @@ def _dispatch(ns) -> int:
         return INTERNAL_ERROR
 
     action = ns._vault_action
+
+    if action == "recover":
+        from .recovery import run_recover
+
+        return run_recover(ns, script)
 
     args = [str(script)]
     if action == "status":
