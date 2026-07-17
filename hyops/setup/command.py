@@ -456,8 +456,6 @@ def run(ns) -> int:
         ensure_layout(evidence_paths)
         progress = ProgressDisplay(show_elapsed=False)
         print(f"Setup target: {TARGET_LABELS[canonical_action]}")
-        if progress.enabled:
-            print("First-time setup may take several minutes.")
         total_phases = sum(_setup_phase_count(step) for step in steps)
         completed_phases = 0
         phase_positions: dict[str, int] = {}
@@ -596,8 +594,6 @@ def run(ns) -> int:
     evidence_dir = command_evidence_dir(evidence_paths.logs_dir, "setup", canonical_action)
     label = SETUP_LABELS.get(canonical_action, canonical_action)
     progress = ProgressDisplay(show_elapsed=False)
-    if progress.enabled:
-        print("First-time setup may take several minutes.")
     total_phases = _setup_phase_count(canonical_action)
     phase_positions: dict[str, int] = {}
     progress.start(
