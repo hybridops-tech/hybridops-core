@@ -343,7 +343,8 @@ PREFLIGHT_ARGV_EVIDENCE="$(latest_evidence_dir "${USER_HOME}/.hybridops/logs/pre
 grep -Fq 'token=***REDACTED***' "${PREFLIGHT_ARGV_EVIDENCE}/result.json"
 
 FAKE_SETUP_ROOT="${WORK_DIR}/fake-setup-core"
-mkdir -p "${FAKE_SETUP_ROOT}/tools/setup"
+FAKE_SETUP_BIN="${WORK_DIR}/fake-setup-bin"
+mkdir -p "${FAKE_SETUP_ROOT}/tools/setup" "${FAKE_SETUP_BIN}"
 cat >"${FAKE_SETUP_ROOT}/tools/setup/setup-base.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "token=evidence-test-secret"
@@ -351,8 +352,18 @@ echo "expected setup failure"
 exit 7
 EOF
 chmod 0755 "${FAKE_SETUP_ROOT}/tools/setup/setup-base.sh"
+cat >"${FAKE_SETUP_BIN}/sudo" <<'EOF'
+#!/usr/bin/env bash
+while [[ "${1:-}" == "-H" || "${1:-}" == "-E" ]]; do
+  shift
+done
+exec "$@"
+EOF
+chmod 0755 "${FAKE_SETUP_BIN}/sudo"
 set +e
-env -u PYTHONPATH HOME="${USER_HOME}" "${USER_HOME}/.local/bin/hyops" setup base --root "${FAKE_SETUP_ROOT}" >"${WORK_DIR}/setup-failure.out" 2>&1
+env -u PYTHONPATH HOME="${USER_HOME}" PATH="${FAKE_SETUP_BIN}:${PATH}" \
+  "${USER_HOME}/.local/bin/hyops" setup base --root "${FAKE_SETUP_ROOT}" \
+  >"${WORK_DIR}/setup-failure.out" 2>&1
 SETUP_RC=$?
 set -e
 [[ "${SETUP_RC}" -eq 7 ]]
