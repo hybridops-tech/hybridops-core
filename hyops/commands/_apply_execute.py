@@ -467,7 +467,7 @@ def run_single(
                     "resolved_inputs_file": str(resolved_inputs_file) if resolved_inputs_file else "",
                 },
             )
-            if rerun_inputs_file is not None:
+            if rerun_inputs_file is not None and not child_progress:
                 print(f"rerun_inputs: {rerun_inputs_file}")
         except Exception as exc:
             print(f"ERR: failed to persist module state: {exc}", file=sys.stderr)

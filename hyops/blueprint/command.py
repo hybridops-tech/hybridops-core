@@ -9,6 +9,7 @@ import ipaddress
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -78,6 +79,29 @@ def _emit(payload: dict[str, Any], *, json_mode: bool) -> None:
 
     print(f"blueprint={payload.get('blueprint_ref','')} mode={payload.get('mode','')} status=ok")
     print(f"path={payload.get('path','')}")
+
+
+def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
+    env_name = str(getattr(ns, "env", "") or "").strip()
+    if env_name:
+        selection = ["--env", env_name]
+    else:
+        selection = ["--root", str(getattr(ns, "root", "") or "")]
+
+    blueprint_file = str(getattr(ns, "file", "") or "").strip()
+    if blueprint_file:
+        selector = ["--file", blueprint_file]
+    else:
+        selector = ["--ref", str(payload["blueprint_ref"])]
+
+    return {
+        "resume": shlex.join(
+            ["hyops", "blueprint", "deploy", *selection, *selector, "--execute"]
+        ),
+        "destroy": shlex.join(
+            ["hyops", "blueprint", "destroy", *selection, *selector, "--execute"]
+        ),
+    }
 
 
 def _emit_plan(payload: dict[str, Any], *, json_mode: bool) -> None:
@@ -1146,11 +1170,17 @@ def run_deploy(ns) -> int:
             and sys.stdout.isatty()
             and not json_mode
             and not os.getenv("HYOPS_VERBOSE")
-        )
+        ),
+        show_elapsed=False,
     )
 
-    for step_id in payload["order"]:
+    total_steps = len(payload["order"])
+    for step_position, step_id in enumerate(payload["order"], start=1):
         step = by_id[step_id]
+        progress_before = int(((step_position - 1) * 100) / total_steps) if total_steps else 0
+        progress_after = int((step_position * 100) / total_steps) if total_steps else 100
+        running_label = f"{step_id}  stage {step_position}/{total_steps}"
+        completed_detail = f"overall {progress_after}%"
         base = {
             "id": step_id,
             "module_ref": step["module_ref"],
@@ -1192,7 +1222,7 @@ def run_deploy(ns) -> int:
                         step_id,
                         "skipped",
                         plain=f"step={step_id} status=skipped reason=state-ok",
-                        detail="state-ok",
+                        detail=f"state-ok, {completed_detail}",
                     )
                     continue
 
@@ -1214,7 +1244,7 @@ def run_deploy(ns) -> int:
                         step_id,
                         "skipped",
                         plain=f"step={step_id} status=skipped reason={detail}",
-                        detail=detail,
+                        detail=f"{detail}, {completed_detail}",
                     )
                     continue
 
@@ -1267,7 +1297,7 @@ def run_deploy(ns) -> int:
 
         progress.start(
             step_id,
-            step_id,
+            running_label,
             plain=(
                 f"step={step_id} status=running action={step['action']} "
                 f"module={step['module_ref']}"
@@ -1296,7 +1326,13 @@ def run_deploy(ns) -> int:
             result = dict(base)
             result.update({"status": "ok", "rc": 0})
             step_results.append(result)
-            progress.finish(step_id, step_id, "ok", plain=f"step={step_id} status=ok")
+            progress.finish(
+                step_id,
+                step_id,
+                "ok",
+                plain=f"step={step_id} status=ok progress={progress_after}%",
+                detail=completed_detail,
+            )
             continue
 
         result = dict(base)
@@ -1310,6 +1346,7 @@ def run_deploy(ns) -> int:
                 step_id,
                 "cancelled",
                 plain=f"step={step_id} status=cancelled rc={rc}",
+                detail=f"overall {progress_before}%",
             )
             break
         if step["optional"]:
@@ -1321,6 +1358,7 @@ def run_deploy(ns) -> int:
                 step_id,
                 "failed-optional",
                 plain=f"step={step_id} status=failed-optional rc={rc}",
+                detail=completed_detail,
             )
             continue
 
@@ -1332,7 +1370,7 @@ def run_deploy(ns) -> int:
             step_id,
             "failed",
             plain=f"step={step_id} status=failed rc={rc} reason={failure_detail}",
-            detail=failure_detail,
+            detail=f"{failure_detail}, overall {progress_before}%",
         )
         if fail_fast:
             break
@@ -1353,6 +1391,8 @@ def run_deploy(ns) -> int:
     }
     if preflight_summary is not None:
         output["preflight"] = preflight_summary
+    if cancelled:
+        output["next_actions"] = _cancelled_deploy_actions(ns, payload)
 
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
@@ -1365,6 +1405,12 @@ def run_deploy(ns) -> int:
             print(f"required_failures: {', '.join(required_failures)}")
         if optional_failures:
             print(f"optional_failures: {', '.join(optional_failures)}")
+        if cancelled:
+            print("deployment cancelled; completed resources were retained.")
+            print("resume:")
+            print(f"  {output['next_actions']['resume']}")
+            print("remove:")
+            print(f"  {output['next_actions']['destroy']}")
 
     if cancelled:
         return CANCELLED
@@ -1585,11 +1631,17 @@ def run_destroy(ns) -> int:
             and sys.stdout.isatty()
             and not json_mode
             and not os.getenv("HYOPS_VERBOSE")
-        )
+        ),
+        show_elapsed=False,
     )
 
-    for step_id in destroy_order:
+    total_steps = len(destroy_order)
+    for step_position, step_id in enumerate(destroy_order, start=1):
         step = by_id[step_id]
+        progress_before = int(((step_position - 1) * 100) / total_steps) if total_steps else 0
+        progress_after = int((step_position * 100) / total_steps) if total_steps else 100
+        running_label = f"{step_id}  stage {step_position}/{total_steps}"
+        completed_detail = f"overall {progress_after}%"
         # Override action to destroy regardless of what the blueprint step declares.
         destroy_step = dict(step)
         destroy_step["action"] = "destroy"
@@ -1607,7 +1659,16 @@ def run_destroy(ns) -> int:
             result = dict(base)
             result.update({"status": "retained", "reason": "retain_on_destroy", "rc": 0})
             step_results.append(result)
-            print(f"step={step_id} status=retained reason=retain_on_destroy")
+            progress.finish(
+                step_id,
+                step_id,
+                "retained",
+                plain=(
+                    f"step={step_id} status=retained reason=retain_on_destroy "
+                    f"progress={progress_after}%"
+                ),
+                detail=f"retain_on_destroy, {completed_detail}",
+            )
             continue
 
         state_status = module_state_status(paths.state_dir, state_ref)
@@ -1621,7 +1682,7 @@ def run_destroy(ns) -> int:
                 step_id,
                 "skipped",
                 plain=f"step={step_id} status=skipped reason={reason}",
-                detail=reason,
+                detail=f"{reason}, {completed_detail}",
             )
             continue
 
@@ -1637,7 +1698,7 @@ def run_destroy(ns) -> int:
 
         progress.start(
             step_id,
-            step_id,
+            running_label,
             plain=(
                 f"step={step_id} status=running action=destroy "
                 f"module={step['module_ref']}"
@@ -1666,7 +1727,13 @@ def run_destroy(ns) -> int:
             result = dict(base)
             result.update({"status": "ok", "rc": 0})
             step_results.append(result)
-            progress.finish(step_id, step_id, "ok", plain=f"step={step_id} status=ok")
+            progress.finish(
+                step_id,
+                step_id,
+                "ok",
+                plain=f"step={step_id} status=ok progress={progress_after}%",
+                detail=completed_detail,
+            )
             continue
 
         result = dict(base)
@@ -1680,6 +1747,7 @@ def run_destroy(ns) -> int:
                 step_id,
                 "cancelled",
                 plain=f"step={step_id} status=cancelled rc={rc}",
+                detail=f"overall {progress_before}%",
             )
             break
         if step["optional"]:
@@ -1691,6 +1759,7 @@ def run_destroy(ns) -> int:
                 step_id,
                 "failed-optional",
                 plain=f"step={step_id} status=failed-optional rc={rc}",
+                detail=completed_detail,
             )
             continue
 
@@ -1702,7 +1771,7 @@ def run_destroy(ns) -> int:
             step_id,
             "failed",
             plain=f"step={step_id} status=failed rc={rc} reason={failure_detail}",
-            detail=failure_detail,
+            detail=f"{failure_detail}, overall {progress_before}%",
         )
         if fail_fast:
             break
