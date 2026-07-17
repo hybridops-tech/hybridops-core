@@ -8,7 +8,7 @@
     {
       "name": "hybridops.helper",
       "repo": "git@github.com:hybridops-tech/ansible-collection-helper.git",
-      "ref": "1d28487f2f420f83896f5fdea6870d8f1800361f"
+      "ref": "85dbfddceecab888850b72dc2918e55a54c9793e"
     },
     {
       "name": "hybridops.app",
