@@ -13,6 +13,10 @@ class GcpEveNgBlueprintTest(TestCase):
         validated = validate_blueprint(load_blueprint(path), path)
 
         self.assertTrue(validated["access"]["offer_destroy_on_close"])
+        self.assertEqual(
+            validated["metadata"]["ready_message"],
+            "EVE-NG network emulation lab ready",
+        )
 
         self.assertEqual(
             validated["order"],
@@ -41,5 +45,13 @@ class GcpEveNgBlueprintTest(TestCase):
             len(by_id["gcp_eve_ng_images"]["inputs"]["eveng_images_list"]), 4
         )
         self.assertEqual(
+            by_id["gcp_eve_ng_images"]["presentation"]["items"],
+            ["Alpine Linux", "NETem", "Tiny Core Linux", "Ubuntu Server"],
+        )
+        self.assertEqual(
             by_id["gcp_eve_ng_healthcheck"]["requires"], ["gcp_eve_ng_images"]
+        )
+        self.assertEqual(
+            by_id["gcp_eve_ng_healthcheck"]["presentation"]["label"],
+            "EVE-NG health checks",
         )
