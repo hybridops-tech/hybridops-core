@@ -91,6 +91,20 @@ definitions before teardown, or destroy without an export. Direct interactive
 destroy uses the same choices. Automation must pass either
 `--archive-before-destroy` or `--skip-archive` with `--yes`.
 
+After redeployment, an interactive deploy offers to restore a verified archive.
+For non-interactive recovery:
+
+```bash
+hyops blueprint deploy \
+  --env dev \
+  --ref onprem/eve-ng@v1 \
+  --execute \
+  --restore-labs
+```
+
+The archive checksum is verified before restoration. Existing lab definitions
+are protected unless `--overwrite-labs` is also supplied.
+
 ## Default Shape
 
 The shipped blueprint provisions one VM:

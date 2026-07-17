@@ -15,3 +15,6 @@ artifacts/eveng/labs/eve-ng-labs.tar.gz
 Restore requires the archive path and its recorded SHA-256 checksum. Existing
 lab content is protected unless `eveng_lab_archive_overwrite` is enabled.
 
+EVE-NG blueprints use this contract directly. After a protected teardown, run
+the same blueprint deployment with `--restore-labs` to restore the latest
+verified archive for that environment.

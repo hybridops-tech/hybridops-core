@@ -367,6 +367,22 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Proceed without interactive confirmation when rerun/destructive risk signals are detected.",
     )
+    restore_choice = t.add_mutually_exclusive_group()
+    restore_choice.add_argument(
+        "--restore-labs",
+        action="store_true",
+        help="Restore the latest verified lab archive declared by the blueprint.",
+    )
+    restore_choice.add_argument(
+        "--skip-lab-restore",
+        action="store_true",
+        help="Deploy without restoring an available lab archive.",
+    )
+    t.add_argument(
+        "--overwrite-labs",
+        action="store_true",
+        help="Allow --restore-labs to replace existing lab definitions.",
+    )
     t.set_defaults(_handler=run_deploy)
 
     d = ssp.add_parser(
@@ -1047,6 +1063,114 @@ def run_access(ns) -> int:
         return OPERATOR_ERROR
 
 
+def _verified_lab_archive(
+    payload: dict[str, Any],
+    paths,
+) -> tuple[Path, str] | None:
+    lifecycle = payload.get("archive_before_destroy")
+    if not isinstance(lifecycle, dict) or not lifecycle:
+        return None
+
+    try:
+        state = read_module_state(
+            paths.state_dir,
+            lifecycle["module_ref"],
+            state_instance=lifecycle["state_instance"],
+        )
+    except FileNotFoundError:
+        return None
+    outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
+    archive_path = Path(
+        str(outputs.get("eveng_lab_archive_path") or "")
+    ).expanduser()
+    expected = str(outputs.get("eveng_lab_archive_sha256") or "").strip().lower()
+    if not archive_path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return None
+
+    digest = hashlib.sha256()
+    with archive_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        raise ValueError(f"lab archive checksum verification failed: {archive_path}")
+    return archive_path.resolve(), expected
+
+
+def _select_lab_restore_mode(
+    ns,
+    payload: dict[str, Any],
+    paths,
+) -> tuple[str, tuple[Path, str] | None]:
+    lifecycle = payload.get("archive_before_destroy")
+    requested = bool(getattr(ns, "restore_labs", False))
+    skipped = bool(getattr(ns, "skip_lab_restore", False))
+    overwrite = bool(getattr(ns, "overwrite_labs", False))
+
+    if overwrite and not requested:
+        raise ValueError("--overwrite-labs requires --restore-labs")
+    if (requested or skipped) and not isinstance(lifecycle, dict):
+        raise ValueError("this blueprint does not declare a lab archive lifecycle")
+
+    archive = _verified_lab_archive(payload, paths)
+    if archive is None:
+        if requested:
+            raise ValueError("no verified lab archive is available for this environment")
+        return "none", None
+    if requested:
+        return "restore", archive
+    if skipped:
+        return "skip", archive
+    if bool(getattr(ns, "yes", False)) or bool(getattr(ns, "json", False)):
+        return "skip", archive
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return "skip", archive
+
+    print(f"lab archive available: {archive[0]}")
+    try:
+        answer = input("Restore archived labs? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return "skip", archive
+    return ("restore" if answer in {"y", "yes"} else "skip"), archive
+
+
+def _run_lab_restore(
+    ns,
+    payload: dict[str, Any],
+    paths,
+    archive: tuple[Path, str],
+) -> int:
+    lifecycle = payload["archive_before_destroy"]
+    archive_path, checksum = archive
+    restore_inputs = dict(lifecycle.get("inputs") or {})
+    restore_inputs.update(
+        {
+            "eveng_lab_archive_action": "restore",
+            "eveng_lab_archive_path": str(archive_path),
+            "eveng_lab_archive_expected_sha256": checksum,
+            "eveng_lab_archive_overwrite": bool(
+                getattr(ns, "overwrite_labs", False)
+            ),
+        }
+    )
+    restore_step = {
+        "id": "restore_archived_labs",
+        "module_ref": lifecycle["module_ref"],
+        "state_instance": lifecycle["state_instance"],
+        "action": "deploy",
+        "phase": "operations",
+        "with_deps": False,
+        "inputs": restore_inputs,
+    }
+    print(f"restoring lab archive: {archive_path}")
+    rc = int(run_step_module_command(restore_step, payload, ns, paths))
+    if rc != 0:
+        print("ERR: lab restore failed; deployed resources were retained")
+        return rc
+    print("lab restore: ok")
+    return 0
+
+
 def run_deploy(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
@@ -1374,6 +1498,52 @@ def run_deploy(ns) -> int:
         )
         if fail_fast:
             break
+
+    if not required_failures and not cancelled:
+        try:
+            restore_mode, lab_archive = _select_lab_restore_mode(
+                ns,
+                payload,
+                paths,
+            )
+        except (OSError, ValueError) as exc:
+            required_failures.append("restore_archived_labs")
+            step_results.append(
+                {
+                    "id": "restore_archived_labs",
+                    "module_ref": str(
+                        (payload.get("archive_before_destroy") or {}).get(
+                            "module_ref", ""
+                        )
+                    ),
+                    "action": "deploy",
+                    "phase": "operations",
+                    "optional": False,
+                    "status": "failed",
+                    "rc": OPERATOR_ERROR,
+                    "reason": str(exc),
+                }
+            )
+            print(f"ERR: lab restore preparation failed: {exc}")
+        else:
+            if restore_mode == "restore" and lab_archive is not None:
+                restore_rc = _run_lab_restore(ns, payload, paths, lab_archive)
+                restore_status = "ok" if restore_rc == 0 else "failed"
+                step_results.append(
+                    {
+                        "id": "restore_archived_labs",
+                        "module_ref": payload["archive_before_destroy"]["module_ref"],
+                        "action": "deploy",
+                        "phase": "operations",
+                        "optional": False,
+                        "status": restore_status,
+                        "rc": restore_rc,
+                    }
+                )
+                if restore_rc != 0:
+                    required_failures.append("restore_archived_labs")
+            elif restore_mode == "skip" and lab_archive is not None:
+                print("lab archive retained; deploy again with --restore-labs to restore it")
 
     final_status = "ok" if not required_failures else "failed"
     if cancelled:

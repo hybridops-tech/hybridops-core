@@ -115,6 +115,21 @@ hyops blueprint deploy \
   --execute
 ```
 
+When a verified lab archive exists for the environment, an interactive deploy
+offers to restore it after the host is ready. For non-interactive recovery:
+
+```bash
+hyops blueprint deploy \
+  --env dev \
+  --ref gcp/eve-ng@v1 \
+  --execute \
+  --restore-labs
+```
+
+The restore verifies the recorded checksum and protects existing lab
+definitions. Add `--overwrite-labs` only when replacing existing definitions
+is intentional.
+
 Rebuild the blueprint-managed resources:
 
 ```bash
