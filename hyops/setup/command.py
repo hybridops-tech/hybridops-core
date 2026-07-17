@@ -593,20 +593,25 @@ def run(ns) -> int:
     ensure_layout(evidence_paths)
     evidence_dir = command_evidence_dir(evidence_paths.logs_dir, "setup", canonical_action)
     label = SETUP_LABELS.get(canonical_action, canonical_action)
+    stream_verbose = verbose_enabled()
     progress = ProgressDisplay(show_elapsed=False)
     total_phases = _setup_phase_count(canonical_action)
     phase_positions: dict[str, int] = {}
     progress.start(
         canonical_action,
         f"{label}  0%",
-        plain=f"setup={canonical_action} status=running progress=0%",
+        plain=(
+            f"setup={canonical_action} status=running"
+            if stream_verbose
+            else f"setup={canonical_action} status=running progress=0%"
+        ),
     )
     rc = run_streamed(
         argv,
         env=env,
         evidence_dir=evidence_dir,
         command=f"setup {canonical_action}",
-        stream_output=verbose_enabled(),
+        stream_output=stream_verbose,
         announce=False,
         line_callback=lambda line: _update_setup_progress(
             progress,
@@ -622,7 +627,11 @@ def run(ns) -> int:
             canonical_action,
             f"{label}  100%",
             "ok",
-            plain=f"setup={canonical_action} status=ok progress=100%",
+            plain=(
+                f"setup={canonical_action} status=ok"
+                if stream_verbose
+                else f"setup={canonical_action} status=ok progress=100%"
+            ),
         )
     else:
         completed = max(0, phase_positions.get(canonical_action, 1) - 1)
@@ -632,9 +641,16 @@ def run(ns) -> int:
             f"{label}  {failed_percent}%",
             "cancelled" if rc == CANCELLED else "failed",
             plain=(
-                f"setup={canonical_action} "
-                f"status={'cancelled' if rc == CANCELLED else 'failed'} "
-                f"progress={failed_percent}%"
+                (
+                    f"setup={canonical_action} "
+                    f"status={'cancelled' if rc == CANCELLED else 'failed'}"
+                )
+                if stream_verbose
+                else (
+                    f"setup={canonical_action} "
+                    f"status={'cancelled' if rc == CANCELLED else 'failed'} "
+                    f"progress={failed_percent}%"
+                )
             ),
         )
     print(f"run record: {evidence_dir}")
