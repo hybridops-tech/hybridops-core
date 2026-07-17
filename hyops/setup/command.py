@@ -40,7 +40,7 @@ SETUP_PHASE_COUNTS = {
     "base": 7,
     "cloud-gcp": 3,
     "cloud-azure": 3,
-    "galaxy": 3,
+    "galaxy": 8,
 }
 
 TARGET_LABELS = {

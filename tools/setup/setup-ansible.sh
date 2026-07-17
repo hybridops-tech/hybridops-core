@@ -369,26 +369,31 @@ export HYOPS_RELEASE_ROOT="${RELEASE_ROOT}"
 # Shared/common set (compatible across most workflows)
 progress "Installing shared runtime dependencies"
 install_set "common" "common" "" "${REQ_FILE}" "${RUNTIME_ROOT}/state/ansible"
+progress "Shared runtime dependencies ready"
 
 # Module-specific sets are installed into isolated paths to avoid Galaxy dependency conflicts.
 # These paths are added automatically at runtime by the Ansible driver when the module runs.
-progress "Installing workload dependencies"
+progress "Installing workload dependencies 1/5"
 install_set "platform/postgresql-ha" "module" "platform/postgresql-ha" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__postgresql-ha"
 
+progress "Installing workload dependencies 2/5"
 install_set "platform/onprem/postgresql-ha (legacy alias)" "module" "platform/onprem/postgresql-ha" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__onprem__postgresql-ha"
 
+progress "Installing workload dependencies 3/5"
 install_set "platform/postgresql-ha-backup" "module" "platform/postgresql-ha-backup" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__postgresql-ha-backup"
 
+progress "Installing workload dependencies 4/5"
 install_set "platform/onprem/postgresql-ha-backup (legacy alias)" "module" "platform/onprem/postgresql-ha-backup" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.postgresql-ha.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__onprem__postgresql-ha-backup"
 
+progress "Installing workload dependencies 5/5"
 install_set "platform/onprem/rke2-cluster" "module" "platform/onprem/rke2-cluster" \
   "${RELEASE_ROOT}/tools/setup/requirements/ansible.rke2-cluster.galaxy.yml" \
   "${RUNTIME_ROOT}/state/ansible/modules/platform__onprem__rke2-cluster"

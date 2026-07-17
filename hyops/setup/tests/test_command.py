@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from hyops.cli import main
+from hyops.setup.command import _update_setup_progress
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -24,6 +25,37 @@ def _write_galaxy_marker(runtime: str) -> None:
 
 
 class SetupCommandTests(unittest.TestCase):
+    def test_galaxy_progress_advances_across_dependency_sets(self) -> None:
+        display = MagicMock()
+        positions: dict[str, int] = {}
+        phases = (
+            "Installing shared runtime dependencies",
+            "Shared runtime dependencies ready",
+            "Installing workload dependencies 1/5",
+            "Installing workload dependencies 2/5",
+            "Installing workload dependencies 3/5",
+            "Installing workload dependencies 4/5",
+            "Installing workload dependencies 5/5",
+            "Verifying runtime dependencies",
+        )
+
+        for phase in phases:
+            _update_setup_progress(
+                display,
+                "galaxy",
+                "Galaxy dependencies",
+                f"[hyops-progress] {phase}",
+                completed_phases=10,
+                total_phases=18,
+                phase_positions=positions,
+            )
+
+        percentages = [
+            int(call.args[1].rsplit(" ", 1)[-1].removesuffix("%"))
+            for call in display.update.call_args_list
+        ]
+        self.assertEqual(percentages, [58, 63, 69, 75, 80, 86, 91, 97])
+
     def test_gcp_check_does_not_require_azure(self) -> None:
         with tempfile.TemporaryDirectory() as runtime, patch(
             "hyops.setup.command.shutil.which",
@@ -157,7 +189,7 @@ class SetupCommandTests(unittest.TestCase):
 
         self.assertEqual(rc, 7)
         failed_label = display.finish.call_args_list[-1].args[1]
-        self.assertIn("70%", failed_label)
+        self.assertIn("46%", failed_label)
         self.assertNotIn("100%", failed_label)
 
     def test_target_dry_run_lists_composed_steps(self) -> None:
