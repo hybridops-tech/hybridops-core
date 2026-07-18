@@ -1,12 +1,381 @@
 ---
 - name: Destroy org/gcp/cloudsql-external-replica
   hosts: localhost
+  connection: local
   gather_facts: false
 
+  vars:
+    _hyops_input_project_id: >-
+      {{
+        (vars.get('project_id', '') | default('', true) | string)
+        or (vars.get('target_project_id', '') | default('', true) | string)
+      }}
+    _hyops_input_region: >-
+      {{
+        (vars.get('region', '') | default('', true) | string)
+        or (vars.get('target_region', '') | default('', true) | string)
+      }}
+    _hyops_input_migration_job_name: >-
+      {{ vars.get('migration_job_name', '') | default('', true) | string }}
+    _hyops_input_source_connection_profile_name: >-
+      {{ vars.get('source_connection_profile_name', '') | default('', true) | string }}
+    _hyops_input_destination_connection_profile_name: >-
+      {{ vars.get('destination_connection_profile_name', '') | default('', true) | string }}
+    _hyops_input_gcloud_bin: "{{ vars.get('gcloud_bin', 'gcloud') | string }}"
+    _hyops_input_gcloud_copy_default_config: >-
+      {{ vars.get('gcloud_copy_default_config', true) | bool }}
+    _hyops_input_gcloud_runtime_config_dir: >-
+      {{ vars.get('gcloud_runtime_config_dir', '') | default('', true) | string }}
+    _hyops_input_gcloud_active_account: >-
+      {{ vars.get('gcloud_active_account', '') | default('', true) | string }}
+    _hyops_gcloud_config_dir: >-
+      {{
+        (_hyops_input_gcloud_runtime_config_dir | string)
+        if (_hyops_input_gcloud_runtime_config_dir | length) > 0
+        else (hyops_runtime_root ~ '/cache/gcloud')
+      }}
+    _hyops_gcloud_uses_default_runtime_cache: >-
+      {{ (_hyops_input_gcloud_runtime_config_dir | length) == 0 }}
+    _hyops_default_gcloud_config_dir: "{{ lookup('env', 'HOME') ~ '/.config/gcloud' }}"
+
+  pre_tasks:
+    - name: Normalize DMS destroy inputs
+      ansible.builtin.set_fact:
+        project_id: "{{ _hyops_input_project_id }}"
+        region: "{{ _hyops_input_region }}"
+        migration_job_name: "{{ _hyops_input_migration_job_name }}"
+        source_connection_profile_name: "{{ _hyops_input_source_connection_profile_name }}"
+        destination_connection_profile_name: "{{ _hyops_input_destination_connection_profile_name }}"
+        gcloud_bin: "{{ _hyops_input_gcloud_bin }}"
+        gcloud_copy_default_config: "{{ _hyops_input_gcloud_copy_default_config }}"
+        gcloud_active_account: "{{ _hyops_input_gcloud_active_account }}"
+        _hyops_dms_object_names: >-
+          {{
+            [
+              _hyops_input_migration_job_name,
+              _hyops_input_destination_connection_profile_name,
+              _hyops_input_source_connection_profile_name
+            ]
+            | reject('equalto', '')
+            | unique
+            | list
+          }}
+        _hyops_dms_connection_profile_names: >-
+          {{
+            [
+              _hyops_input_destination_connection_profile_name,
+              _hyops_input_source_connection_profile_name
+            ]
+            | reject('equalto', '')
+            | unique
+            | list
+          }}
+      changed_when: false
+
+    - name: Require project and region when DMS objects are declared
+      ansible.builtin.assert:
+        that:
+          - (project_id | length) > 0
+          - (region | length) > 0
+        fail_msg: >-
+          inputs.project_id/target_project_id and inputs.region/target_region
+          are required to destroy declared DMS objects.
+      when: (_hyops_dms_object_names | length) > 0
+
+    - name: Ensure runtime gcloud config directory exists
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: directory
+        mode: "0700"
+      when: (_hyops_dms_object_names | length) > 0
+
+    - name: Check default gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_default_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_default_gcloud_cfg
+      when: (_hyops_dms_object_names | length) > 0
+
+    - name: Check runtime gcloud config sentinel
+      ansible.builtin.stat:
+        path: "{{ _hyops_gcloud_config_dir }}/config_sentinel"
+      register: _hyops_runtime_gcloud_cfg
+      when: (_hyops_dms_object_names | length) > 0
+
+    - name: Copy default gcloud config into runtime cache
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ _hyops_default_gcloud_config_dir }}/."
+          - "{{ _hyops_gcloud_config_dir }}/"
+      changed_when: true
+      when:
+        - (_hyops_dms_object_names | length) > 0
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+        - not _hyops_runtime_gcloud_cfg.stat.exists
+
+    - name: Require gcloud binary
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - version
+      changed_when: false
+      when: (_hyops_dms_object_names | length) > 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Check cached gcloud project access
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - projects
+          - describe
+          - "{{ project_id }}"
+          - --format=value(projectId)
+      register: _hyops_gcloud_project_access
+      changed_when: false
+      failed_when: false
+      when: (_hyops_dms_object_names | length) > 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Remove stale default runtime gcloud cache
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: absent
+      when:
+        - (_hyops_dms_object_names | length) > 0
+        - (_hyops_gcloud_project_access.rc | int) != 0
+        - _hyops_gcloud_uses_default_runtime_cache | bool
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+
+    - name: Recreate runtime gcloud cache after stale credentials
+      ansible.builtin.file:
+        path: "{{ _hyops_gcloud_config_dir }}"
+        state: directory
+        mode: "0700"
+      when:
+        - (_hyops_dms_object_names | length) > 0
+        - (_hyops_gcloud_project_access.rc | int) != 0
+        - _hyops_gcloud_uses_default_runtime_cache | bool
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+
+    - name: Refresh stale runtime gcloud cache from current operator config
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ _hyops_default_gcloud_config_dir }}/."
+          - "{{ _hyops_gcloud_config_dir }}/"
+      changed_when: true
+      when:
+        - (_hyops_dms_object_names | length) > 0
+        - (_hyops_gcloud_project_access.rc | int) != 0
+        - _hyops_gcloud_uses_default_runtime_cache | bool
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+
+    - name: Recheck gcloud project access after credential refresh
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - projects
+          - describe
+          - "{{ project_id }}"
+          - --format=value(projectId)
+      register: _hyops_gcloud_project_access_refreshed
+      changed_when: false
+      failed_when: false
+      when:
+        - (_hyops_dms_object_names | length) > 0
+        - (_hyops_gcloud_project_access.rc | int) != 0
+        - _hyops_gcloud_uses_default_runtime_cache | bool
+        - gcloud_copy_default_config | bool
+        - _hyops_default_gcloud_cfg.stat.exists
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Normalize effective gcloud project access result
+      ansible.builtin.set_fact:
+        _hyops_gcloud_project_access_effective: >-
+          {{
+            _hyops_gcloud_project_access_refreshed
+            if (
+              _hyops_gcloud_project_access_refreshed is defined
+              and not (_hyops_gcloud_project_access_refreshed.skipped | default(false) | bool)
+            )
+            else _hyops_gcloud_project_access
+          }}
+      changed_when: false
+      when: (_hyops_dms_object_names | length) > 0
+
+    - name: Require authenticated access to the target GCP project
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_project_access_effective.rc | int) == 0
+          - (_hyops_gcloud_project_access_effective.stdout | trim) == (project_id | trim)
+        fail_msg: >-
+          The selected gcloud configuration cannot access project {{ project_id }}.
+          Refresh authentication with hyops init gcp or gcloud auth login before retrying.
+      when: (_hyops_dms_object_names | length) > 0
+
+    - name: Resolve active gcloud account
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - auth
+          - list
+          - --filter=status:ACTIVE
+          - --format=value(account)
+      register: _hyops_gcloud_account
+      changed_when: false
+      when: (_hyops_dms_object_names | length) > 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Require an active gcloud account
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_account.stdout | default('') | trim | length) > 0
+        fail_msg: "No active gcloud account is available for DMS cleanup."
+      when: (_hyops_dms_object_names | length) > 0
+
+    - name: Reject an unexpected gcloud account
+      ansible.builtin.assert:
+        that:
+          - (_hyops_gcloud_account.stdout | trim) == (gcloud_active_account | trim)
+        fail_msg: >-
+          The active gcloud account does not match inputs.gcloud_active_account.
+          Observed={{ _hyops_gcloud_account.stdout | trim }}
+          expected={{ gcloud_active_account | trim }}.
+      when:
+        - (_hyops_dms_object_names | length) > 0
+        - (gcloud_active_account | length) > 0
+
   tasks:
+    - name: Delete DMS migration job without deleting its Cloud SQL database
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - delete
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --quiet
+      register: _hyops_dms_job_delete
+      changed_when: (_hyops_dms_job_delete.rc | int) == 0
+      failed_when:
+        - (_hyops_dms_job_delete.rc | int) != 0
+        - "'not_found' not in ((_hyops_dms_job_delete.stdout | default('') ~ ' ' ~ _hyops_dms_job_delete.stderr | default('')) | lower)"
+        - "'does not exist' not in ((_hyops_dms_job_delete.stdout | default('') ~ ' ' ~ _hyops_dms_job_delete.stderr | default('')) | lower)"
+      when: (migration_job_name | length) > 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Wait for DMS migration job deletion
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - migration-jobs
+          - describe
+          - "{{ migration_job_name }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      register: _hyops_dms_job_absent
+      changed_when: false
+      failed_when: false
+      until: >-
+        (_hyops_dms_job_absent.rc | int) != 0
+        and (
+          'not_found' in ((_hyops_dms_job_absent.stdout | default('') ~ ' ' ~ _hyops_dms_job_absent.stderr | default('')) | lower)
+          or 'does not exist' in ((_hyops_dms_job_absent.stdout | default('') ~ ' ' ~ _hyops_dms_job_absent.stderr | default('')) | lower)
+        )
+      retries: 30
+      delay: 5
+      when:
+        - (migration_job_name | length) > 0
+        - (_hyops_dms_job_delete.rc | default(1) | int) == 0
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Delete remaining DMS connection profiles without deleting Cloud SQL
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - connection-profiles
+          - delete
+          - "{{ item }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --quiet
+      loop: "{{ _hyops_dms_connection_profile_names }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _hyops_dms_profile_delete
+      changed_when: (_hyops_dms_profile_delete.rc | int) == 0
+      failed_when:
+        - (_hyops_dms_profile_delete.rc | int) != 0
+        - "'not_found' not in ((_hyops_dms_profile_delete.stdout | default('') ~ ' ' ~ _hyops_dms_profile_delete.stderr | default('')) | lower)"
+        - "'does not exist' not in ((_hyops_dms_profile_delete.stdout | default('') ~ ' ' ~ _hyops_dms_profile_delete.stderr | default('')) | lower)"
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+    - name: Verify DMS connection profiles are absent
+      ansible.builtin.command:
+        argv:
+          - "{{ gcloud_bin }}"
+          - database-migration
+          - connection-profiles
+          - describe
+          - "{{ item }}"
+          - --project={{ project_id }}
+          - --region={{ region }}
+          - --format=json
+      loop: "{{ _hyops_dms_connection_profile_names }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _hyops_dms_profiles_absent
+      changed_when: false
+      failed_when: false
+      until: >-
+        (_hyops_dms_profiles_absent.rc | int) != 0
+        and (
+          'not_found' in ((_hyops_dms_profiles_absent.stdout | default('') ~ ' ' ~ _hyops_dms_profiles_absent.stderr | default('')) | lower)
+          or 'does not exist' in ((_hyops_dms_profiles_absent.stdout | default('') ~ ' ' ~ _hyops_dms_profiles_absent.stderr | default('')) | lower)
+        )
+      retries: 30
+      delay: 5
+      environment:
+        CLOUDSDK_CONFIG: "{{ _hyops_gcloud_config_dir }}"
+        CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
     - name: Write HyOps outputs
       ansible.builtin.copy:
         dest: "{{ hyops_outputs_file }}"
         mode: "0600"
         content: |
-          {{ {'cap.db.managed_external_replica': 'destroyed'} | to_json }}
+          {{ {
+            'cap.db.managed_external_replica': 'destroyed',
+            'dms_cleanup': {
+              'project_id': (project_id | string),
+              'region': (region | string),
+              'migration_job_name': (migration_job_name | string),
+              'connection_profile_names': (_hyops_dms_connection_profile_names | list),
+              'cloudsql_database_deleted': false
+            }
+          } | to_json }}

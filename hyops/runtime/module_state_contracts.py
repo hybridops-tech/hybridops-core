@@ -2062,6 +2062,12 @@ def resolve_postgresql_dr_source_contract_from_state(
     assumed_state_ok: set[str] | None = None,
 ) -> None:
     """Resolve PostgreSQL DR source assessment outputs from upstream state."""
+    lifecycle_command = str(inputs.get("_hyops_lifecycle_command") or "").strip().lower()
+    if lifecycle_command == "destroy":
+        # Destroy owns the downstream resources named in its inputs. It must
+        # remain possible after the source database has already been retired.
+        return
+
     apply_mode = str(inputs.get("apply_mode") or "").strip().lower()
     if apply_mode == "status" and str(inputs.get("replica_state_ref") or "").strip():
         return
