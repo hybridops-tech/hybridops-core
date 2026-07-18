@@ -48,7 +48,7 @@ NetBox and shared Proxmox SDN remain available for managed platform deployments,
 Seed the EVE-NG secrets before deployment:
 
 ```bash
-hyops secrets ensure --env dev EVENG_ROOT_PASSWORD EVENG_ADMIN_PASSWORD
+hyops secrets ensure --env <env> EVENG_ROOT_PASSWORD EVENG_ADMIN_PASSWORD
 ```
 
 ## Usage
@@ -65,7 +65,7 @@ Run preflight:
 
 ```bash
 hyops blueprint preflight \
-  --env dev \
+  --env <env> \
   --ref onprem/eve-ng@v1 \
   --blueprints-root blueprints
 ```
@@ -74,7 +74,7 @@ Deploy:
 
 ```bash
 hyops blueprint deploy \
-  --env dev \
+  --env <env> \
   --ref onprem/eve-ng@v1 \
   --blueprints-root blueprints \
   --execute
@@ -83,7 +83,7 @@ hyops blueprint deploy \
 Open the private UI:
 
 ```bash
-hyops blueprint access --env dev --ref onprem/eve-ng@v1
+hyops blueprint access --env <env> --ref onprem/eve-ng@v1
 ```
 
 When access closes, HybridOps offers to keep the environment, export its lab
@@ -96,7 +96,7 @@ For non-interactive recovery:
 
 ```bash
 hyops blueprint deploy \
-  --env dev \
+  --env <env> \
   --ref onprem/eve-ng@v1 \
   --execute \
   --restore-labs

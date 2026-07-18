@@ -18,6 +18,6 @@ See [blueprint.yml](blueprint.yml) for the full contract.
 
 ```bash
 hyops blueprint validate --ref gcp/linux-desktop@v1 --blueprints-root blueprints
-hyops blueprint preflight --env dev --ref gcp/linux-desktop@v1 --blueprints-root blueprints
-hyops blueprint deploy --env dev --ref gcp/linux-desktop@v1 --blueprints-root blueprints --execute
+hyops blueprint preflight --env <env> --ref gcp/linux-desktop@v1 --blueprints-root blueprints
+hyops blueprint deploy --env <env> --ref gcp/linux-desktop@v1 --blueprints-root blueprints --execute
 ```

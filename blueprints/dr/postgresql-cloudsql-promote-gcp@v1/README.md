@@ -19,6 +19,6 @@ See [blueprint.yml](blueprint.yml) for the full contract.
 
 ```bash
 hyops blueprint validate --ref dr/postgresql-cloudsql-promote-gcp@v1 --blueprints-root blueprints
-hyops blueprint preflight --env dev --ref dr/postgresql-cloudsql-promote-gcp@v1 --blueprints-root blueprints
-hyops blueprint deploy --env dev --ref dr/postgresql-cloudsql-promote-gcp@v1 --blueprints-root blueprints --execute
+hyops blueprint preflight --env <env> --ref dr/postgresql-cloudsql-promote-gcp@v1 --blueprints-root blueprints
+hyops blueprint deploy --env <env> --ref dr/postgresql-cloudsql-promote-gcp@v1 --blueprints-root blueprints --execute
 ```

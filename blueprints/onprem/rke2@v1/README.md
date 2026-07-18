@@ -18,6 +18,6 @@ See [blueprint.yml](blueprint.yml) for the full contract.
 
 ```bash
 hyops blueprint validate --ref onprem/rke2@v1 --blueprints-root blueprints
-hyops blueprint preflight --env dev --ref onprem/rke2@v1 --blueprints-root blueprints
-hyops blueprint deploy --env dev --ref onprem/rke2@v1 --blueprints-root blueprints --execute
+hyops blueprint preflight --env <env> --ref onprem/rke2@v1 --blueprints-root blueprints
+hyops blueprint deploy --env <env> --ref onprem/rke2@v1 --blueprints-root blueprints --execute
 ```

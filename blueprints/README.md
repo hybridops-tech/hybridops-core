@@ -1,5 +1,8 @@
 # Blueprints
 
+In the command examples, replace `<env>` with the environment name used during
+initialization.
+
 Blueprints are product orchestration manifests for supported module chains.
 
 They package repeatable outcomes, not implementation details.
@@ -90,7 +93,7 @@ credential requirements, state, and driver checks. Some paths may inspect live
 state, but preflight does not deploy resources:
 
 ```bash
-hyops blueprint preflight --env dev \
+hyops blueprint preflight --env <env> \
   --ref gcp/eve-ng@v1 \
   --blueprints-root blueprints
 ```
@@ -98,7 +101,7 @@ hyops blueprint preflight --env dev \
 Execution begins only when `deploy` is given `--execute`:
 
 ```bash
-hyops blueprint deploy --env dev \
+hyops blueprint deploy --env <env> \
   --ref gcp/eve-ng@v1 \
   --blueprints-root blueprints \
   --execute
