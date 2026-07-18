@@ -1928,8 +1928,11 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     if actual != expected:
         print("ERR: lab archive checksum verification failed; no resources were destroyed")
         return OPERATOR_ERROR
-    print(f"lab archive: {archive_path}")
-    print(f"sha256: {actual}")
+    archive_contents = ["lab definitions"]
+    verbose = bool(os.getenv("HYOPS_VERBOSE"))
+    if verbose:
+        print(f"lab archive: {archive_path}")
+        print(f"sha256: {actual}")
     if bool(outputs.get("eveng_lab_archive_node_state_included", False)):
         node_archive_path = Path(
             str(outputs.get("eveng_lab_archive_node_state_archive_path") or "")
@@ -1953,8 +1956,11 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
                 "no resources were destroyed"
             )
             return OPERATOR_ERROR
-        print(f"stopped node state: {node_archive_path}")
-        print(f"sha256: {node_actual}")
+        archive_contents.append("stopped node state")
+        if verbose:
+            print(f"stopped node state: {node_archive_path}")
+            print(f"sha256: {node_actual}")
+    print(f"archive saved: {', '.join(archive_contents)}")
     return 0
 
 

@@ -193,6 +193,41 @@ class ResumableBlueprintDestroyTest(TestCase):
 
         self.assertEqual(rc, 0)
 
+    def test_normal_archive_success_hides_paths_and_checksums(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "labs.tar.gz"
+            archive_path.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            payload = {
+                "archive_before_destroy": {
+                    "module_ref": "platform/test/archive",
+                    "state_instance": "lab_archive",
+                    "inputs": {},
+                }
+            }
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive_path),
+                    "eveng_lab_archive_sha256": checksum,
+                }
+            }
+            stdout = io.StringIO()
+
+            with (
+                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch("hyops.blueprint.command.read_module_state", return_value=state),
+                patch("hyops.blueprint.command.sys.stdout", stdout),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                rc = _run_archive_before_destroy(_namespace(), payload, paths)
+
+        self.assertEqual(rc, 0)
+        output = stdout.getvalue()
+        self.assertIn("archive saved: lab definitions", output)
+        self.assertNotIn(str(archive_path), output)
+        self.assertNotIn(checksum, output)
+
     def test_failed_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
         payload = _payload()
