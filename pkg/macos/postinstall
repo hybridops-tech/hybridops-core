@@ -32,6 +32,7 @@ case "${console_home}" in
     exit 1
     ;;
 esac
+console_group=$(/usr/bin/id -gn "${console_user}")
 
 installed_home_file="/usr/local/share/hybridops-core/installed-home"
 if [ -f "${installed_home_file}" ]; then
@@ -112,8 +113,22 @@ printf '%s\n' "${console_home}" > /usr/local/share/hybridops-core/installed-home
   /usr/local/share/hybridops-core/installed-user \
   /usr/local/share/hybridops-core/installed-home
 
+launcher_source="/usr/local/share/hybridops-core/macos-shell.command"
+launcher_dir="${console_home}/.hybridops/config"
+launcher="${launcher_dir}/macos-shell.command"
+if [ ! -f "${launcher_source}" ]; then
+  echo "HybridOps.Core application launcher is missing from the package." >&2
+  exit 1
+fi
+/bin/mkdir -p "${launcher_dir}"
+/bin/cp "${launcher_source}" "${launcher}"
+/bin/chmod 0755 "${launcher}"
+/usr/sbin/chown "${console_user}:${console_group}" "${launcher_dir}" "${launcher}"
+
 echo "[4/4] Verifying the installed command"
 /usr/local/bin/hyops --help >/dev/null
+[ -x "/Applications/HybridOps.Core.app/Contents/MacOS/HybridOps.Core" ]
+[ -x "${launcher}" ]
 echo "HybridOps.Core installed for ${console_user}."
 echo "Next: hyops setup gcp  # or: azure, proxmox"
 echo "HybridOps.Core package installation completed."
