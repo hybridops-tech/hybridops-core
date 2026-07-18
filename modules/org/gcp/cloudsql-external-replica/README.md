@@ -31,6 +31,7 @@ This keeps replication secrets out of Terraform state and aligns the managed DR 
 - assess an existing Cloud SQL target
 - create DMS source and destination connection profiles
 - create and optionally start a DMS migration job
+- remove the module-owned DMS migration job and connection profiles on destroy
 - publish normalized readiness, establishment, and endpoint outputs
 
 ## Not in scope yet
@@ -102,6 +103,35 @@ when no upstream bastion state exists.
 
 `gcloud` must already be authenticated for the current operator. The module copies the current `~/.config/gcloud` into the runtime cache on first use so long-running or packaged runs do not depend on write access to the default config directory.
 
+## Destroy behavior
+
+`hyops destroy` removes the DMS migration job first, waits for the asynchronous
+deletion to finish, and then removes any remaining source or destination
+connection profiles. Missing objects are treated as already destroyed, so the
+operation can be rerun safely.
+
+The destroy path never passes `--force` to `gcloud`. This is deliberate:
+Google's force-delete options can also delete the destination Cloud SQL
+database. A promoted or otherwise independent Cloud SQL database remains
+outside this module's destroy boundary and must be retired separately through
+its owning lifecycle.
+
+Before deleting anything, the module verifies access to the target project.
+When the default HybridOps runtime gcloud cache has expired and
+`gcloud_copy_default_config=true`, destroy refreshes that cache from the
+current operator gcloud configuration and checks project access again.
+Explicit `gcloud_runtime_config_dir` values are never replaced automatically.
+
+For an established lane, the destroy inputs must resolve:
+
+- `project_id` or `target_project_id`
+- `region` or `target_region`
+- `migration_job_name`
+- `source_connection_profile_name`
+- `destination_connection_profile_name`
+
+Assessment-only state with no DMS object names remains a state-only destroy.
+
 State resolution rule:
 
 - same-env is the default
@@ -143,6 +173,7 @@ Project service requirement:
 - `managed_replication_prereqs_ready`
 - `managed_replication_established`
 - `cap.db.managed_external_replica = assessed|established`
+- `dms_cleanup` (destroy evidence: project, region, removed object names, and the Cloud SQL safety boundary)
 
 `managed_replication_ready_for_cutover=true` means the DMS job is currently `RUNNING`.
 
@@ -157,7 +188,8 @@ Operator rule:
 
 After promote or failback, the establish state can remain `ok` as historical
 evidence while the status instance correctly flips to `error` because the live
-migration job is no longer `RUNNING`.
+migration job is no longer `RUNNING`. Run `hyops destroy` for that establish
+state when the DMS control-plane objects should also be retired.
 
 The endpoint outputs intentionally match the client-facing contract already used by `platform/postgresql-ha`:
 

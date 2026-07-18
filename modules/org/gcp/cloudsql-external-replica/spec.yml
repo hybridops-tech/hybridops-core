@@ -123,6 +123,7 @@ outputs:
     - managed_replication_prereqs_ready
     - managed_replication_established
     - cap.db.managed_external_replica
+    - dms_cleanup
 
 probes: []
 constraints: []
