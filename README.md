@@ -80,8 +80,8 @@ for the complete operating sequence.
 Initialise a target environment:
 
 ```bash
-hyops init proxmox --env dev
-hyops init gcp --env dev
+hyops init proxmox --env <env>
+hyops init gcp --env <env>
 ```
 
 After initialization, preflight resolves the environment, runtime, contracts,
@@ -89,20 +89,20 @@ credential requirements, state, and driver checks. Some module paths may inspect
 live state, but preflight does not deploy resources:
 
 ```bash
-hyops blueprint preflight --env dev --ref onprem/authoritative-foundation@v1
+hyops blueprint preflight --env <env> --ref onprem/authoritative-foundation@v1
 ```
 
 Run a module:
 
 ```bash
-hyops apply --env dev --module platform/onprem/rke2-cluster
-hyops apply --env dev --module org/gcp/project-factory
+hyops apply --env <env> --module platform/onprem/rke2-cluster
+hyops apply --env <env> --module org/gcp/project-factory
 ```
 
 Run a full blueprint (ordered multi-step deployment):
 
 ```bash
-hyops blueprint deploy --env dev --ref onprem/authoritative-foundation@v1 --execute
+hyops blueprint deploy --env <env> --ref onprem/authoritative-foundation@v1 --execute
 ```
 
 The runtime root defaults to `~/.hybridops`. Override with `--root <path>` or `$HYOPS_RUNTIME_ROOT`.

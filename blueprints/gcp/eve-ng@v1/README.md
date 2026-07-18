@@ -57,7 +57,7 @@ target environment are ready:
 Seed the EVE-NG secrets before deployment:
 
 ```bash
-hyops secrets ensure --env dev EVENG_ROOT_PASSWORD EVENG_ADMIN_PASSWORD
+hyops secrets ensure --env <env> EVENG_ROOT_PASSWORD EVENG_ADMIN_PASSWORD
 ```
 
 ## Usage
@@ -74,7 +74,7 @@ Run preflight:
 
 ```bash
 hyops blueprint preflight \
-  --env dev \
+  --env <env> \
   --ref gcp/eve-ng@v1 \
   --blueprints-root blueprints
 ```
@@ -82,7 +82,7 @@ hyops blueprint preflight \
 Open the private EVE-NG UI after deployment:
 
 ```bash
-hyops blueprint access --env dev --ref gcp/eve-ng@v1
+hyops blueprint access --env <env> --ref gcp/eve-ng@v1
 ```
 
 HybridOps resolves the VM, project, and zone from module state, forwards HTTP
@@ -99,7 +99,7 @@ Destruction requires the operator to type `destroy <environment>`.
 Automation must state the intended archive behaviour:
 
 ```bash
-hyops blueprint destroy --env dev --ref gcp/eve-ng@v1 --execute --yes \
+hyops blueprint destroy --env <env> --ref gcp/eve-ng@v1 --execute --yes \
   --archive-before-destroy
 ```
 
@@ -109,7 +109,7 @@ Deploy:
 
 ```bash
 hyops blueprint deploy \
-  --env dev \
+  --env <env> \
   --ref gcp/eve-ng@v1 \
   --blueprints-root blueprints \
   --execute
@@ -120,7 +120,7 @@ offers to restore it after the host is ready. For non-interactive recovery:
 
 ```bash
 hyops blueprint deploy \
-  --env dev \
+  --env <env> \
   --ref gcp/eve-ng@v1 \
   --execute \
   --restore-labs
@@ -134,7 +134,7 @@ Rebuild the blueprint-managed resources:
 
 ```bash
 hyops blueprint rebuild \
-  --env dev \
+  --env <env> \
   --ref gcp/eve-ng@v1 \
   --execute
 ```

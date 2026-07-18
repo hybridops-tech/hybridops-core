@@ -16,6 +16,6 @@ See [blueprint.yml](blueprint.yml) for the full contract.
 
 ```bash
 hyops blueprint validate --ref networking/powerdns-shared-primary@v1 --blueprints-root blueprints
-hyops blueprint preflight --env dev --ref networking/powerdns-shared-primary@v1 --blueprints-root blueprints
-hyops blueprint deploy --env dev --ref networking/powerdns-shared-primary@v1 --blueprints-root blueprints --execute
+hyops blueprint preflight --env <env> --ref networking/powerdns-shared-primary@v1 --blueprints-root blueprints
+hyops blueprint deploy --env <env> --ref networking/powerdns-shared-primary@v1 --blueprints-root blueprints --execute
 ```
