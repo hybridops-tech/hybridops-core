@@ -19,6 +19,7 @@ from hyops.blueprint.command import (
     _print_native_console_client_guidance,
     _require_local_ports_available,
     _ssh_access_error,
+    _ssh_access_trust_options,
     _wait_for_local_port,
 )
 
@@ -49,6 +50,18 @@ class BlueprintAccessTests(unittest.TestCase):
             self.assertEqual(path.parent.name, "access_known_hosts")
             self.assertIn("eve_ng_vm-apply-20260712T120000Z-abcd1234", path.name)
             self.assertTrue(path.parent.is_dir())
+
+    def test_private_access_trust_is_quiet_and_keeps_verification(self) -> None:
+        options = _ssh_access_trust_options(
+            Path("/tmp/access.known_hosts"),
+            host_key_alias="hyops-eve-ng-01",
+        )
+
+        self.assertIn("StrictHostKeyChecking=accept-new", options)
+        self.assertIn("UserKnownHostsFile=/tmp/access.known_hosts", options)
+        self.assertIn("LogLevel=ERROR", options)
+        self.assertIn("HostKeyAlias=hyops-eve-ng-01", options)
+        self.assertNotIn("StrictHostKeyChecking=no", options)
 
     def test_extracts_direct_host_from_proxmox_vm_outputs(self) -> None:
         outputs = {
