@@ -921,6 +921,21 @@ def _access_known_hosts_file(paths, state_ref: str, state: dict[str, Any]) -> Pa
     return directory / f"{scope}.known_hosts"
 
 
+def _ssh_access_trust_options(
+    known_hosts_file: Path,
+    *,
+    host_key_alias: str = "",
+) -> list[str]:
+    options = [
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", f"UserKnownHostsFile={known_hosts_file}",
+        "-o", "LogLevel=ERROR",
+    ]
+    if host_key_alias:
+        options.extend(["-o", f"HostKeyAlias={host_key_alias}"])
+    return options
+
+
 def _ssh_access_error(stderr: str, known_hosts_file: Path) -> str:
     detail = str(stderr or "").strip()
     if (
@@ -994,8 +1009,7 @@ def run_access(ns) -> int:
                 ssh,
                 "-o", "BatchMode=yes",
                 "-o", "IdentitiesOnly=yes",
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", f"UserKnownHostsFile={known_hosts_file}",
+                *_ssh_access_trust_options(known_hosts_file),
                 "-i", str(ssh_key),
             ]
             identity_check = subprocess.run(
@@ -1105,11 +1119,15 @@ def run_access(ns) -> int:
             ]
             iap_proc = subprocess.Popen(iap_argv, cwd=str(Path.home()))
             _wait_for_local_port(iap_port, iap_proc)
+            known_hosts_file = _access_known_hosts_file(paths, state_ref, state)
             ssh_base = [
                 ssh,
                 "-o", "BatchMode=yes",
                 "-o", "IdentitiesOnly=yes",
-                "-o", "StrictHostKeyChecking=accept-new",
+                *_ssh_access_trust_options(
+                    known_hosts_file,
+                    host_key_alias=f"hyops-{known_hosts_file.stem}",
+                ),
                 "-i", ssh_key,
                 "-p", str(iap_port),
             ]
@@ -1130,7 +1148,7 @@ def run_access(ns) -> int:
                 if probe.returncode != 0:
                     raise ValueError(
                         "failed to discover native EVE-NG consoles: "
-                        + (probe.stderr.strip() or f"ssh rc={probe.returncode}")
+                        + _ssh_access_error(probe.stderr, known_hosts_file)
                     )
                 console_ports = _parse_eve_qemu_console_ports(probe.stdout)
                 if console_ports:
