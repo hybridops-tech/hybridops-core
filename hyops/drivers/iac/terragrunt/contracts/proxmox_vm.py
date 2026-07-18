@@ -1172,6 +1172,62 @@ class ProxmoxVmContract(TerragruntModuleContract):
             return out, warnings, "runtime.state_dir is required"
 
         state_dir = Path(state_dir_raw).expanduser().resolve()
+
+        # Evaluate the managed VM-set safety rail before probing the clone
+        # template. A confirmed strict subset is a deletion-only lifecycle
+        # operation: it can safely render a plan even when the historical
+        # source template has since been retired.
+        requested_vm_names = _collect_requested_vm_names(out)
+        confirmed_deletion_only_vm_set = False
+        if requested_vm_names:
+            raw_state_instance = str(runtime.get("state_instance") or "").strip().lower()
+            current_slot = f"instance:{raw_state_instance}" if raw_state_instance else "latest"
+
+            existing_by_slot, existing_err = _collect_existing_managed_vm_names_by_slot(
+                state_dir, module_ref
+            )
+            if existing_err:
+                return out, warnings, existing_err
+
+            existing_vm_names = existing_by_slot.get(current_slot, set())
+            if existing_vm_names and existing_vm_names != requested_vm_names:
+                allow_replace = as_bool(out.get("allow_vm_set_replace"), default=False)
+                diff = _format_vm_set_diff(existing_vm_names, requested_vm_names)
+                if not allow_replace:
+                    return (
+                        out,
+                        warnings,
+                        "vm set collision detected: requested VM names differ from existing managed VM names "
+                        f"for module_ref={module_ref}; {diff}. "
+                        "This run would replace active VMs. Use a separate env/module scope, or explicitly set "
+                        "inputs.allow_vm_set_replace=true when replacement is intentional.",
+                    )
+                confirmed_deletion_only_vm_set = requested_vm_names < existing_vm_names
+                warnings.append(
+                    "allow_vm_set_replace=true: proceeding despite VM set collision "
+                    f"for module_ref={module_ref}; {diff}"
+                )
+
+            # Guard against duplicated VM names across different state slots
+            # (for example latest vs instance), which can silently create
+            # duplicate Proxmox VMs with clashing IP/name intent.
+            cross_slot_conflicts: list[str] = []
+            for slot, names in existing_by_slot.items():
+                if slot == current_slot:
+                    continue
+                overlap = sorted(names & requested_vm_names)
+                if overlap:
+                    cross_slot_conflicts.append(f"{slot} overlap={overlap}")
+            if cross_slot_conflicts:
+                detail = "; ".join(cross_slot_conflicts)
+                return (
+                    out,
+                    warnings,
+                    "vm name collision detected across module state slots "
+                    f"for module_ref={module_ref}: requested={sorted(requested_vm_names)}; {detail}. "
+                    "Use one slot consistently (latest or a single state_instance), or destroy the stale slot first.",
+                )
+
         if template_state_ref and as_positive_int(out.get("template_vm_id")) is None:
             try:
                 state_payload = read_module_state(state_dir, template_state_ref)
@@ -1251,19 +1307,25 @@ class ProxmoxVmContract(TerragruntModuleContract):
                 if probe_err:
                     warnings.append(f"template vm probe skipped: {probe_err}")
                 elif not exists:
-                    if template_state_ref:
-                        source_hint = (
-                            f"template_vm_id={resolved_template_vm_id} resolved from template_state_ref={template_state_ref}"
+                    if confirmed_deletion_only_vm_set:
+                        warnings.append(
+                            f"template_vm_id={resolved_template_vm_id} is unavailable; allowing confirmed "
+                            "deletion-only VM-set shrink because allow_vm_set_replace=true"
                         )
                     else:
-                        source_hint = f"configured template_vm_id={resolved_template_vm_id}"
-                    return (
-                        out,
-                        warnings,
-                        f"{source_hint}, but no VM/template with that ID exists on the Proxmox host. "
-                        "Rebuild or reseed the template first "
-                        "(for example: core/onprem/template-image or core/onprem/vyos-template-seed).",
-                    )
+                        if template_state_ref:
+                            source_hint = (
+                                f"template_vm_id={resolved_template_vm_id} resolved from template_state_ref={template_state_ref}"
+                            )
+                        else:
+                            source_hint = f"configured template_vm_id={resolved_template_vm_id}"
+                        return (
+                            out,
+                            warnings,
+                            f"{source_hint}, but no VM/template with that ID exists on the Proxmox host. "
+                            "Rebuild or reseed the template first "
+                            "(for example: core/onprem/template-image or core/onprem/vyos-template-seed).",
+                        )
                 elif not is_template:
                     return (
                         out,
@@ -1274,57 +1336,6 @@ class ProxmoxVmContract(TerragruntModuleContract):
             else:
                 warnings.append(
                     "template vm probe skipped: proxmox API or SSH runtime credentials are not available"
-                )
-
-        # Hard safety rail: prevent accidental destructive replacement of an
-        # already-managed VM set under the same module_ref in the same env.
-        requested_vm_names = _collect_requested_vm_names(out)
-        if requested_vm_names:
-            raw_state_instance = str(runtime.get("state_instance") or "").strip().lower()
-            current_slot = f"instance:{raw_state_instance}" if raw_state_instance else "latest"
-
-            existing_by_slot, existing_err = _collect_existing_managed_vm_names_by_slot(
-                state_dir, module_ref
-            )
-            if existing_err:
-                return out, warnings, existing_err
-
-            existing_vm_names = existing_by_slot.get(current_slot, set())
-            if existing_vm_names and existing_vm_names != requested_vm_names:
-                allow_replace = as_bool(out.get("allow_vm_set_replace"), default=False)
-                diff = _format_vm_set_diff(existing_vm_names, requested_vm_names)
-                if not allow_replace:
-                    return (
-                        out,
-                        warnings,
-                        "vm set collision detected: requested VM names differ from existing managed VM names "
-                        f"for module_ref={module_ref}; {diff}. "
-                        "This run would replace active VMs. Use a separate env/module scope, or explicitly set "
-                        "inputs.allow_vm_set_replace=true when replacement is intentional.",
-                    )
-                warnings.append(
-                    "allow_vm_set_replace=true: proceeding despite VM set collision "
-                    f"for module_ref={module_ref}; {diff}"
-                )
-
-            # Guard against duplicated VM names across different state slots
-            # (for example latest vs instance), which can silently create
-            # duplicate Proxmox VMs with clashing IP/name intent.
-            cross_slot_conflicts: list[str] = []
-            for slot, names in existing_by_slot.items():
-                if slot == current_slot:
-                    continue
-                overlap = sorted(names & requested_vm_names)
-                if overlap:
-                    cross_slot_conflicts.append(f"{slot} overlap={overlap}")
-            if cross_slot_conflicts:
-                detail = "; ".join(cross_slot_conflicts)
-                return (
-                    out,
-                    warnings,
-                    "vm name collision detected across module state slots "
-                    f"for module_ref={module_ref}: requested={sorted(requested_vm_names)}; {detail}. "
-                    "Use one slot consistently (latest or a single state_instance), or destroy the stale slot first.",
                 )
 
         # Fail fast when a VM consumer targets HybridOps SDN bridges (vnet*) but the shared SDN
