@@ -202,7 +202,7 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
             "https://console.cloud.google.com/billing?project=student-project",
             stdout.getvalue(),
         )
-        self.assertIn("estimated active cost: USD 0.50/hour", stdout.getvalue())
+        self.assertIn("estimated fixed cost: USD 0.50/hour", stdout.getvalue())
         self.assertIn("estimated access-session cost:", stdout.getvalue())
 
     def test_access_close_destroy_delegates_confirmation(self) -> None:

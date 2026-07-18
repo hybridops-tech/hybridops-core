@@ -198,6 +198,11 @@ def estimate_gcp_vm_cost(
         disk_gib = Decimal("0")
     if not machine_type or not disk_type or disk_gib <= 0:
         return CostEstimate(False, detail="deployed VM pricing inputs are unavailable")
+    outputs = state.get("outputs")
+    vms = outputs.get("vms") if isinstance(outputs, dict) else None
+    vm_count = len(vms) if isinstance(vms, dict) else 1
+    if vm_count < 1:
+        return CostEstimate(False, detail="deployed VM outputs are unavailable")
 
     cpus, memory_gib, detail = _machine_shape(project_id, zone, machine_type)
     if detail:
@@ -248,8 +253,8 @@ def estimate_gcp_vm_cost(
     if not core_price or not ram_price or not disk_price:
         return CostEstimate(False, detail="a public price was not found for the deployed VM shape")
 
-    compute_hourly = core_price * cpus + ram_price * memory_gib
-    disk_hourly = disk_price * disk_gib
+    compute_hourly = (core_price * cpus + ram_price * memory_gib) * vm_count
+    disk_hourly = disk_price * disk_gib * vm_count
     if "mo" in disk_unit.lower():
         disk_hourly /= _HOURS_PER_MONTH
     if "h" not in core_unit.lower() or "h" not in ram_unit.lower():
@@ -259,5 +264,9 @@ def estimate_gcp_vm_cost(
         True,
         hourly=hourly,
         currency=currency,
-        basis="public list price; usage-based network charges excluded",
+        basis=(
+            f"public list price for {vm_count} VM"
+            f"{'s' if vm_count != 1 else ''} and boot disk"
+            f"{'s' if vm_count != 1 else ''}; usage-based network charges excluded"
+        ),
     )

@@ -887,16 +887,16 @@ def _print_cost_estimate(
     access_seconds: int | None = None,
 ) -> None:
     if not estimate.available:
-        print("estimated active cost: unavailable")
+        print("estimated fixed cost: unavailable")
         return
     print(
-        "estimated active cost: "
+        "estimated fixed cost: "
         f"{format_money(estimate.hourly, estimate.currency)}/hour"
     )
     state_seconds = _state_age_seconds(state.get("updated_at"))
     if state_seconds:
         print(
-            "estimated cost since resource update: "
+            "estimated maximum since resource update: "
             f"{format_money(estimate.amount_for_seconds(state_seconds), estimate.currency)}"
         )
     if access_seconds is not None:
@@ -963,6 +963,18 @@ def _offer_access_close_destroy(
     destroy_ns.archive_before_destroy = False
     destroy_ns.skip_archive = False
     return run_destroy(destroy_ns)
+
+
+def _destroyed_blueprint_cost_cleared(payload: dict[str, Any], paths) -> bool:
+    """Return true only when every declared step has terminal resource state."""
+
+    for step in payload.get("steps") or []:
+        if bool(step.get("retain_on_destroy", False)):
+            return False
+        status = module_state_status(paths.state_dir, step_state_ref(step))
+        if status not in {"destroyed", "absent"}:
+            return False
+    return True
 
 
 def _access_known_hosts_file(paths, state_ref: str, state: dict[str, Any]) -> Path:
@@ -1151,7 +1163,12 @@ def run_access(ns) -> int:
         if not match:
             raise ValueError("GCP VM state does not contain a usable instance id")
         project, zone, instance = match.groups()
-        print("checking cloud cost estimate", flush=True)
+        cost_progress = ProgressDisplay(show_elapsed=True)
+        cost_progress.start(
+            "cloud-cost",
+            "Cloud cost estimate",
+            plain="cloud cost estimate: checking",
+        )
         try:
             cost_estimate = estimate_gcp_vm_cost(
                 project_id=project,
@@ -1164,6 +1181,24 @@ def run_access(ns) -> int:
                 False,
                 detail="cloud pricing could not be resolved",
             )
+        except KeyboardInterrupt:
+            cost_progress.finish(
+                "cloud-cost",
+                "Cloud cost estimate",
+                "cancelled",
+                plain="cloud cost estimate: cancelled",
+            )
+            raise
+        cost_progress.finish(
+            "cloud-cost",
+            "Cloud cost estimate",
+            "ok" if cost_estimate.available else "skipped",
+            plain=(
+                "cloud cost estimate: ready"
+                if cost_estimate.available
+                else "cloud cost estimate: unavailable"
+            ),
+        )
         port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
         url = f"http://127.0.0.1:{port}{path}"
         gcloud = shutil.which("gcloud")
@@ -2321,12 +2356,22 @@ def run_destroy(ns) -> int:
         "optional_failures": optional_failures,
         "steps": step_results,
     }
+    cost_cleared = False
     if final_status == "ok" and str(payload["blueprint_ref"]).startswith("gcp/"):
-        output["cost"] = {
-            "estimated_ongoing_hourly": "0.00",
-            "currency": "USD",
-            "scope": "destroyed blueprint resources",
-        }
+        cost_cleared = _destroyed_blueprint_cost_cleared(payload, paths)
+        output["cost"] = (
+            {
+                "status": "cleared",
+                "estimated_ongoing_hourly": "0.00",
+                "currency": "USD",
+                "scope": "declared blueprint resources",
+            }
+            if cost_cleared
+            else {
+                "status": "unverified",
+                "scope": "declared blueprint resources",
+            }
+        )
 
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
@@ -2340,7 +2385,10 @@ def run_destroy(ns) -> int:
         if optional_failures:
             print(f"optional_failures: {', '.join(optional_failures)}")
         if final_status == "ok" and str(payload["blueprint_ref"]).startswith("gcp/"):
-            print("estimated ongoing cost from destroyed resources: USD 0.00/hour")
+            if cost_cleared:
+                print("estimated ongoing blueprint cost: USD 0.00/hour")
+            else:
+                print("ongoing blueprint cost: verify remaining resources")
 
     if cancelled:
         return CANCELLED

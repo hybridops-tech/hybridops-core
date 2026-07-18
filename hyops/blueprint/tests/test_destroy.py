@@ -8,6 +8,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from hyops.blueprint.command import (
+    _destroyed_blueprint_cost_cleared,
     _run_archive_before_destroy,
     _select_archive_destroy_mode,
     run_destroy,
@@ -51,6 +52,31 @@ def _namespace():
 
 
 class ResumableBlueprintDestroyTest(TestCase):
+    def test_cost_is_cleared_only_when_every_step_is_terminal(self):
+        payload = _payload()
+        paths = SimpleNamespace(state_dir="/tmp/state")
+
+        with patch(
+            "hyops.blueprint.command.module_state_status",
+            side_effect=("destroyed", "absent", "destroyed"),
+        ):
+            self.assertTrue(_destroyed_blueprint_cost_cleared(payload, paths))
+
+        with patch(
+            "hyops.blueprint.command.module_state_status",
+            side_effect=("destroyed", "ok", "destroyed"),
+        ):
+            self.assertFalse(_destroyed_blueprint_cost_cleared(payload, paths))
+
+    def test_retained_step_prevents_zero_cost_claim(self):
+        payload = _payload()
+        payload["steps"][0]["retain_on_destroy"] = True
+        paths = SimpleNamespace(state_dir="/tmp/state")
+
+        with patch("hyops.blueprint.command.module_state_status") as status:
+            self.assertFalse(_destroyed_blueprint_cost_cleared(payload, paths))
+        status.assert_not_called()
+
     def _run(self, statuses, run_step, *, retained=()):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
         payload = _payload()
