@@ -9,10 +9,12 @@ from unittest.mock import patch
 
 from hyops.blueprint.command import (
     _destroyed_blueprint_cost_cleared,
+    _gcp_blueprint_cost_estimate,
     _run_archive_before_destroy,
     _select_archive_destroy_mode,
     run_destroy,
 )
+from hyops.runtime.cost import CostEstimate
 
 
 def _payload():
@@ -52,6 +54,45 @@ def _namespace():
 
 
 class ResumableBlueprintDestroyTest(TestCase):
+    def test_standalone_destroy_resolves_cost_from_access_state(self):
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "access": {
+                "state_ref": "platform/gcp/platform-vm#gcp_eve_ng_vm",
+            },
+        }
+        paths = SimpleNamespace(state_dir="/tmp/state", meta_dir=Path("/tmp/meta"))
+        state = {
+            "outputs": {
+                "vms": {
+                    "eve-ng-01": {
+                        "vm_id": (
+                            "projects/student-project/zones/europe-west2-b/"
+                            "instances/eve-ng-01"
+                        )
+                    }
+                }
+            }
+        }
+        expected = CostEstimate(True)
+
+        with (
+            patch("hyops.blueprint.command.read_module_state", return_value=state),
+            patch(
+                "hyops.blueprint.command._gcp_cost_estimate_with_progress",
+                return_value=expected,
+            ) as estimate,
+        ):
+            result = _gcp_blueprint_cost_estimate(payload, paths)
+
+        self.assertIs(result, expected)
+        estimate.assert_called_once_with(
+            project_id="student-project",
+            zone="europe-west2-b",
+            state=state,
+            paths=paths,
+        )
+
     def test_cost_is_cleared_only_when_every_step_is_terminal(self):
         payload = _payload()
         paths = SimpleNamespace(state_dir="/tmp/state")

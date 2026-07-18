@@ -908,6 +908,93 @@ def _print_cost_estimate(
         print(f"pricing basis: {estimate.basis}")
 
 
+def _gcp_cost_estimate_with_progress(
+    *,
+    project_id: str,
+    zone: str,
+    state: dict[str, Any],
+    paths,
+) -> CostEstimate:
+    progress = ProgressDisplay(show_elapsed=True)
+    progress.start(
+        "cloud-cost",
+        "Cloud cost estimate",
+        plain="cloud cost estimate: checking",
+    )
+    try:
+        estimate = estimate_gcp_vm_cost(
+            project_id=project_id,
+            zone=zone,
+            state=state,
+            cache_dir=paths.meta_dir / "pricing",
+        )
+    except Exception:
+        estimate = CostEstimate(
+            False,
+            detail="cloud pricing could not be resolved",
+        )
+    except KeyboardInterrupt:
+        progress.finish(
+            "cloud-cost",
+            "Cloud cost estimate",
+            "cancelled",
+            plain="cloud cost estimate: cancelled",
+        )
+        raise
+    progress.finish(
+        "cloud-cost",
+        "Cloud cost estimate",
+        "ok" if estimate.available else "skipped",
+        plain=(
+            "cloud cost estimate: ready"
+            if estimate.available
+            else "cloud cost estimate: unavailable"
+        ),
+    )
+    return estimate
+
+
+def _gcp_blueprint_cost_estimate(
+    payload: dict[str, Any],
+    paths,
+) -> CostEstimate | None:
+    if not str(payload.get("blueprint_ref") or "").startswith("gcp/"):
+        return None
+    access = payload.get("access")
+    if not isinstance(access, dict):
+        return None
+    state_ref = str(access.get("state_ref") or "").strip()
+    if not state_ref:
+        return None
+    try:
+        module_ref, state_instance = split_module_state_ref(state_ref)
+        state = read_module_state(
+            paths.state_dir,
+            module_ref,
+            state_instance=state_instance,
+        )
+    except (OSError, ValueError):
+        return None
+    outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
+    vms = outputs.get("vms") if isinstance(outputs.get("vms"), dict) else {}
+    if not vms:
+        return None
+    first_vm = next(iter(vms.values()))
+    if not isinstance(first_vm, dict):
+        return None
+    vm_id = str(first_vm.get("vm_id") or "").strip()
+    match = re.fullmatch(r"projects/([^/]+)/zones/([^/]+)/instances/([^/]+)", vm_id)
+    if not match:
+        return None
+    project_id, zone, _instance = match.groups()
+    return _gcp_cost_estimate_with_progress(
+        project_id=project_id,
+        zone=zone,
+        state=state,
+        paths=paths,
+    )
+
+
 def _offer_access_close_destroy(
     ns,
     payload: dict[str, Any],
@@ -962,6 +1049,7 @@ def _offer_access_close_destroy(
     destroy_ns.yes = False
     destroy_ns.archive_before_destroy = False
     destroy_ns.skip_archive = False
+    destroy_ns._cost_estimate = cost_estimate
     return run_destroy(destroy_ns)
 
 
@@ -1163,41 +1251,11 @@ def run_access(ns) -> int:
         if not match:
             raise ValueError("GCP VM state does not contain a usable instance id")
         project, zone, instance = match.groups()
-        cost_progress = ProgressDisplay(show_elapsed=True)
-        cost_progress.start(
-            "cloud-cost",
-            "Cloud cost estimate",
-            plain="cloud cost estimate: checking",
-        )
-        try:
-            cost_estimate = estimate_gcp_vm_cost(
-                project_id=project,
-                zone=zone,
-                state=state,
-                cache_dir=paths.meta_dir / "pricing",
-            )
-        except Exception:
-            cost_estimate = CostEstimate(
-                False,
-                detail="cloud pricing could not be resolved",
-            )
-        except KeyboardInterrupt:
-            cost_progress.finish(
-                "cloud-cost",
-                "Cloud cost estimate",
-                "cancelled",
-                plain="cloud cost estimate: cancelled",
-            )
-            raise
-        cost_progress.finish(
-            "cloud-cost",
-            "Cloud cost estimate",
-            "ok" if cost_estimate.available else "skipped",
-            plain=(
-                "cloud cost estimate: ready"
-                if cost_estimate.available
-                else "cloud cost estimate: unavailable"
-            ),
+        cost_estimate = _gcp_cost_estimate_with_progress(
+            project_id=project,
+            zone=zone,
+            state=state,
+            paths=paths,
         )
         port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
         url = f"http://127.0.0.1:{port}{path}"
@@ -2152,6 +2210,14 @@ def run_destroy(ns) -> int:
                     f"    id={step_id} module={step['module_ref']} "
                     f"state={status} ref={state_ref}"
                 )
+        cost_estimate = getattr(ns, "_cost_estimate", None)
+        if cost_estimate is None:
+            cost_estimate = _gcp_blueprint_cost_estimate(payload, paths)
+        if isinstance(cost_estimate, CostEstimate) and cost_estimate.available:
+            print(
+                "estimated fixed cost while retained: "
+                f"{format_money(cost_estimate.hourly, cost_estimate.currency)}/hour"
+            )
 
     try:
         archive_mode = _select_archive_destroy_mode(ns, payload, env_name)
