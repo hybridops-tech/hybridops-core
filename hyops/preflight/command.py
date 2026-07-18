@@ -58,6 +58,15 @@ def _check_cmd(name: str, cmd: str) -> CheckResult:
     return CheckResult(name=name, ok=path is not None, detail=path or "missing")
 
 
+def _check_vault_encryption() -> CheckResult:
+    path = which("ansible-vault")
+    return CheckResult(
+        name="vault:encryption",
+        ok=path is not None,
+        detail="available" if path is not None else "missing",
+    )
+
+
 def _check_readiness(meta_dir: Path, target: str) -> CheckResult:
     try:
         m = read_marker(meta_dir, target)
@@ -71,7 +80,7 @@ def _check_readiness(meta_dir: Path, target: str) -> CheckResult:
 
 def _check_vault_access(vault_path: Path, auth: VaultAuth) -> CheckResult:
     if not vault_path.exists():
-        return CheckResult(name="vault:file", ok=True, detail="absent")
+        return CheckResult(name="vault:data", ok=True, detail="not initialized")
 
     if not has_password_source(auth):
         return CheckResult(name="vault:decrypt", ok=False, detail="password source not provided")
@@ -183,9 +192,9 @@ def run(ns) -> int:
     for name, cmd in (
         ("cmd:ssh", "ssh"),
         ("cmd:scp", "scp"),
-        ("cmd:ansible-vault", "ansible-vault"),
     ):
         results.append(_check_cmd(name, cmd))
+    results.append(_check_vault_encryption())
 
     # Runtime layout existence checks.
     results.append(CheckResult(name="runtime:root", ok=file_exists(paths.root), detail=str(paths.root)))

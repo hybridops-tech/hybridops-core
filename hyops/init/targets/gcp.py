@@ -182,11 +182,12 @@ def run(ns) -> int:
                 },
             },
         )
-        print(f"wrote config template: {config_path}")
+        _verbose_print(f"wrote config template: {config_path}")
         if not bool(getattr(ns, "with_cli_login", False)):
+            print(f"configuration created: {config_path}")
             print("edit the file and re-run: hyops init gcp")
             return CONFIG_TEMPLATE_WRITTEN
-        print("config template created; continuing with interactive discovery.")
+        print("preparing GCP environment")
     elif bool(getattr(ns, "force", False)):
         if _ensure_gcp_config_keys(config_path):
             print(f"updated config template: {config_path}")
@@ -385,9 +386,16 @@ def run(ns) -> int:
                 print(f"run record: {evidence_dir}")
                 return OPERATOR_ERROR
 
-            print("starting GCP sign-in; follow the prompts shown below.")
+            print("sign in to Google Cloud using the browser prompt")
             r = run_capture_interactive(
-                ["gcloud", "auth", "login", "--no-launch-browser", "--brief"],
+                [
+                    "gcloud",
+                    "auth",
+                    "login",
+                    "--no-launch-browser",
+                    "--brief",
+                    "--update-adc",
+                ],
                 evidence_dir=evidence_dir,
                 label="gcp_sign_in",
                 redact=True,
@@ -545,7 +553,7 @@ def run(ns) -> int:
         and bool(getattr(ns, "with_cli_login", False))
         and _require_tty()
     ):
-        ssh_public_key = _offer_ssh_key_generation(evidence_dir)
+        ssh_public_key = _ensure_ssh_key(evidence_dir)
 
     project_access = _diagnose_gcp_project_access(project_id, evidence_dir)
     project_access_validated = bool(project_access[0])
@@ -1191,8 +1199,8 @@ def _run_interactive_adc_login(evidence_dir: Path, *, reason: str) -> bool:
         print("ERR: interactive authentication requires a TTY")
         print(f"run record: {evidence_dir}")
         return False
-    print(f"WARN: {reason}")
-    print("starting GCP credential sign-in; follow the prompts shown below.")
+    _verbose_print(f"additional authorization required: {reason}")
+    print("complete Google Cloud authorization using the browser prompt")
     r = run_capture_interactive(
         [
             "gcloud",
@@ -1226,19 +1234,8 @@ def _read_first_pubkey() -> str:
     return ""
 
 
-def _offer_ssh_key_generation(evidence_dir: Path) -> str:
+def _ensure_ssh_key(evidence_dir: Path) -> str:
     key_path = Path.home() / ".ssh" / "id_ed25519"
-    try:
-        answer = str(
-            input(f"No SSH public key was found. Generate {key_path}? [Y/n]: ") or ""
-        ).strip().lower()
-    except EOFError:
-        return ""
-    except KeyboardInterrupt:
-        print()
-        return ""
-    if answer not in ("", "y", "yes"):
-        return ""
     if key_path.exists() or key_path.with_suffix(".pub").exists():
         print(f"WARN: {key_path} already exists; refusing to overwrite it.")
         return _read_first_pubkey()
@@ -1266,7 +1263,7 @@ def _offer_ssh_key_generation(evidence_dir: Path) -> str:
         return ""
     public_key = _read_first_pubkey()
     if public_key:
-        print(f"generated SSH key: {key_path}.pub")
+        _verbose_print(f"generated SSH key: {key_path}.pub")
     return public_key
 
 
@@ -1930,7 +1927,7 @@ def _confirm_gcp_identity_interactive(
             print("cancelled. no Google Cloud identity was changed.")
             return "", OPERATOR_ERROR
 
-        print("starting GCP sign-in; follow the prompts shown below.")
+        print("sign in to Google Cloud using the browser prompt")
         result = run_capture_interactive(
             [
                 "gcloud",
