@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+metadata_dir="/usr/local/share/hybridops-core"
+installed_home_file="${metadata_dir}/installed-home"
+
+if [ ! -f "${installed_home_file}" ]; then
+  /usr/bin/osascript -e 'display alert "HybridOps.Core is not installed for a macOS user."'
+  exit 1
+fi
+
+installed_home=$(/bin/cat "${installed_home_file}")
+case "${installed_home}" in
+  /Users/*) ;;
+  *)
+    /usr/bin/osascript -e 'display alert "HybridOps.Core could not determine the installed user."'
+    exit 1
+    ;;
+esac
+
+launcher="${installed_home}/.hybridops/config/macos-shell.command"
+if [ ! -x "${launcher}" ]; then
+  /usr/bin/osascript -e 'display alert "The HybridOps.Core Terminal launcher is unavailable. Reinstall HybridOps.Core."'
+  exit 1
+fi
+
+exec /usr/bin/open -a Terminal "${launcher}"

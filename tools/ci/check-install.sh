@@ -125,6 +125,8 @@ fi
 
 bash -n "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
 bash -n "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+bash -n "${HYOPS_REPO_ROOT}/pkg/macos/app/HybridOps.Core"
+bash -n "${HYOPS_REPO_ROOT}/pkg/macos/macos-shell.command"
 bash -n "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
 bash -n "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 sh -n "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
@@ -144,7 +146,12 @@ grep -Fq 'src="hybridops.svg"' "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusio
 test -s "${HYOPS_REPO_ROOT}/pkg/macos/resources/hybridops.svg"
 grep -Fq 'resources/hybridops.svg' "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
 grep -Fq 'Open installation log' "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
-grep -Fq 'file:///System/Applications/Utilities/Terminal.app' \
+if grep -Fq 'file:///System/Applications/Utilities/Terminal.app' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"; then
+  echo "ERR: macOS conclusion still points to the generic Terminal application" >&2
+  exit 1
+fi
+grep -Fq 'file:///Applications/HybridOps.Core.app' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
 grep -Fq 'file:///Library/Logs/HybridOps/core-install.log' \
   "${HYOPS_REPO_ROOT}/pkg/macos/resources/conclusion.html"
@@ -183,6 +190,19 @@ if grep -Eq '(-mindepth|-maxdepth)' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"; 
   exit 1
 fi
 test -s "${HYOPS_REPO_ROOT}/pkg/macos/resources/license.html"
+test -s "${HYOPS_REPO_ROOT}/assets/macos/hybridops.png"
+grep -Fq 'tech.hybridops.core.launcher' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/app/Info.plist"
+grep -Fq 'exec /usr/bin/open -a Terminal' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/app/HybridOps.Core"
+grep -Fq "printf '\\033]0;HybridOps.Core\\007'" \
+  "${HYOPS_REPO_ROOT}/pkg/macos/macos-shell.command"
+grep -Fq "HybridOps.Core ready." \
+  "${HYOPS_REPO_ROOT}/pkg/macos/macos-shell.command"
+grep -Fq "hyops%f:%F{blue}%~%f" \
+  "${HYOPS_REPO_ROOT}/pkg/macos/macos-shell.command"
+grep -Fq '/Applications/HybridOps.Core.app' \
+  "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
 grep -Fq 'Runtime environments, logs and vault data were retained.' \
   "${HYOPS_REPO_ROOT}/pkg/macos/uninstall-macos.sh"
 grep -Fq 'tech.hybridops.core' "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"
@@ -211,6 +231,13 @@ while [[ "$#" -gt 1 ]]; do
   esac
 done
 test -x "${root}/usr/local/share/hybridops-core/uninstall-macos.sh"
+test -x "${root}/usr/local/share/hybridops-core/macos-shell.command"
+test -x "${root}/Applications/HybridOps.Core.app/Contents/MacOS/HybridOps.Core"
+test -s "${root}/Applications/HybridOps.Core.app/Contents/Resources/hybridops.icns"
+grep -Fq '<string>0.1.0</string>' \
+  "${root}/Applications/HybridOps.Core.app/Contents/Info.plist"
+! grep -Fq '__HYOPS_VERSION__' \
+  "${root}/Applications/HybridOps.Core.app/Contents/Info.plist"
 test -x "${scripts}/postinstall"
 test -s "${scripts}/release.tar.gz"
 test -s "${scripts}/release.tar.gz.sha256"
@@ -231,6 +258,33 @@ EOF
 cat >"${MACOS_PKG_FAKE_BIN}/pkgutil" <<'EOF'
 #!/usr/bin/env bash
 exit 1
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/sips" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+source=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --out) output="$2"; shift 2 ;;
+    -z) shift 3 ;;
+    *) source="$1"; shift ;;
+  esac
+done
+cp "${source}" "${output}"
+EOF
+cat >"${MACOS_PKG_FAKE_BIN}/iconutil" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -o) output="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+test -n "${output}"
+printf 'icns fixture\n' >"${output}"
 EOF
 chmod 0755 "${MACOS_PKG_FAKE_BIN}"/*
 PATH="${MACOS_PKG_FAKE_BIN}:${PATH}" \

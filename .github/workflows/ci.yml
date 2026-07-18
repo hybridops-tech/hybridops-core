@@ -126,7 +126,15 @@ jobs:
           PKG="$(ls -1 dist/releases/hybridops-core-*-macos-${{ matrix.architecture }}.pkg | head -n 1)"
           sudo installer -pkg "${PKG}" -target /
           /usr/local/bin/hyops --help >/dev/null
+          test -x "/Applications/HybridOps.Core.app/Contents/MacOS/HybridOps.Core"
+          test -s "/Applications/HybridOps.Core.app/Contents/Resources/hybridops.icns"
+          test -x "${HOME}/.hybridops/config/macos-shell.command"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+            "/Applications/HybridOps.Core.app/Contents/Info.plist" |
+            grep -Fx "tech.hybridops.core.launcher"
           sudo /usr/local/share/hybridops-core/uninstall-macos.sh
+          test ! -e "/Applications/HybridOps.Core.app"
+          test ! -e "${HOME}/.hybridops/config/macos-shell.command"
 
       - name: Upload macOS package artifact
         uses: actions/upload-artifact@v7
