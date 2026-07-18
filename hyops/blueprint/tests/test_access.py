@@ -6,6 +6,7 @@ import io
 import socket
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,6 +23,7 @@ from hyops.blueprint.command import (
     _ssh_access_trust_options,
     _wait_for_local_port,
 )
+from hyops.runtime.cost import CostEstimate
 
 
 class _TTY(io.StringIO):
@@ -180,6 +182,13 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
                 payload,
                 {"updated_at": "2026-07-14T08:00:00Z"},
                 project_id="student-project",
+                cost_estimate=CostEstimate(
+                    True,
+                    hourly=Decimal("0.50"),
+                    currency="USD",
+                    basis="public list price",
+                ),
+                access_started_at=0,
             )
 
         self.assertEqual(rc, 0)
@@ -193,6 +202,8 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
             "https://console.cloud.google.com/billing?project=student-project",
             stdout.getvalue(),
         )
+        self.assertIn("estimated fixed cost: USD 0.50/hour", stdout.getvalue())
+        self.assertIn("estimated access-session cost:", stdout.getvalue())
 
     def test_access_close_destroy_delegates_confirmation(self) -> None:
         ns = SimpleNamespace(env="student-lab")

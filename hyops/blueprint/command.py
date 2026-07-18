@@ -21,9 +21,11 @@ from typing import Any
 
 from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.browser import is_windows_wsl, open_operator_url
+from hyops.runtime.cost import CostEstimate, format_money
 from hyops.runtime.evidence import new_run_id
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.gcp import diagnose_project_billing
+from hyops.runtime.gcp_cost import estimate_gcp_vm_cost
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import read_module_state, split_module_state_ref
 from hyops.runtime.paths import resolve_runtime_paths
@@ -865,12 +867,142 @@ def _state_age(updated_at: Any) -> str:
     return f"{minutes}m"
 
 
+def _state_age_seconds(updated_at: Any) -> int:
+    raw = str(updated_at or "").strip()
+    if not raw:
+        return 0
+    try:
+        recorded = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if recorded.tzinfo is None:
+            recorded = recorded.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return 0
+    return max(0, int((datetime.now(timezone.utc) - recorded).total_seconds()))
+
+
+def _print_cost_estimate(
+    estimate: CostEstimate,
+    *,
+    state: dict[str, Any],
+    access_seconds: int | None = None,
+) -> None:
+    if not estimate.available:
+        print("estimated fixed cost: unavailable")
+        return
+    print(
+        "estimated fixed cost: "
+        f"{format_money(estimate.hourly, estimate.currency)}/hour"
+    )
+    state_seconds = _state_age_seconds(state.get("updated_at"))
+    if state_seconds:
+        print(
+            "estimated maximum since resource update: "
+            f"{format_money(estimate.amount_for_seconds(state_seconds), estimate.currency)}"
+        )
+    if access_seconds is not None:
+        print(
+            "estimated access-session cost: "
+            f"{format_money(estimate.amount_for_seconds(access_seconds), estimate.currency)}"
+        )
+    if estimate.basis:
+        print(f"pricing basis: {estimate.basis}")
+
+
+def _gcp_cost_estimate_with_progress(
+    *,
+    project_id: str,
+    zone: str,
+    state: dict[str, Any],
+    paths,
+) -> CostEstimate:
+    progress = ProgressDisplay(show_elapsed=True)
+    progress.start(
+        "cloud-cost",
+        "Cloud cost estimate",
+        plain="cloud cost estimate: checking",
+    )
+    try:
+        estimate = estimate_gcp_vm_cost(
+            project_id=project_id,
+            zone=zone,
+            state=state,
+            cache_dir=paths.meta_dir / "pricing",
+        )
+    except Exception:
+        estimate = CostEstimate(
+            False,
+            detail="cloud pricing could not be resolved",
+        )
+    except KeyboardInterrupt:
+        progress.finish(
+            "cloud-cost",
+            "Cloud cost estimate",
+            "cancelled",
+            plain="cloud cost estimate: cancelled",
+        )
+        raise
+    progress.finish(
+        "cloud-cost",
+        "Cloud cost estimate",
+        "ok" if estimate.available else "skipped",
+        plain=(
+            "cloud cost estimate: ready"
+            if estimate.available
+            else "cloud cost estimate: unavailable"
+        ),
+    )
+    return estimate
+
+
+def _gcp_blueprint_cost_estimate(
+    payload: dict[str, Any],
+    paths,
+) -> CostEstimate | None:
+    if not str(payload.get("blueprint_ref") or "").startswith("gcp/"):
+        return None
+    access = payload.get("access")
+    if not isinstance(access, dict):
+        return None
+    state_ref = str(access.get("state_ref") or "").strip()
+    if not state_ref:
+        return None
+    try:
+        module_ref, state_instance = split_module_state_ref(state_ref)
+        state = read_module_state(
+            paths.state_dir,
+            module_ref,
+            state_instance=state_instance,
+        )
+    except (OSError, ValueError):
+        return None
+    outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
+    vms = outputs.get("vms") if isinstance(outputs.get("vms"), dict) else {}
+    if not vms:
+        return None
+    first_vm = next(iter(vms.values()))
+    if not isinstance(first_vm, dict):
+        return None
+    vm_id = str(first_vm.get("vm_id") or "").strip()
+    match = re.fullmatch(r"projects/([^/]+)/zones/([^/]+)/instances/([^/]+)", vm_id)
+    if not match:
+        return None
+    project_id, zone, _instance = match.groups()
+    return _gcp_cost_estimate_with_progress(
+        project_id=project_id,
+        zone=zone,
+        state=state,
+        paths=paths,
+    )
+
+
 def _offer_access_close_destroy(
     ns,
     payload: dict[str, Any],
     state: dict[str, Any],
     *,
     project_id: str = "",
+    cost_estimate: CostEstimate | None = None,
+    access_started_at: float | None = None,
 ) -> int:
     access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
     if not bool(access.get("offer_destroy_on_close", False)):
@@ -891,6 +1023,17 @@ def _offer_access_close_destroy(
             f"https://console.cloud.google.com/billing?project={project_id}"
         )
     print(f"resource state age: {_state_age(state.get('updated_at'))}")
+    if cost_estimate is not None:
+        access_seconds = (
+            max(0, int(time.monotonic() - access_started_at))
+            if access_started_at is not None
+            else None
+        )
+        _print_cost_estimate(
+            cost_estimate,
+            state=state,
+            access_seconds=access_seconds,
+        )
     print("billable resources may remain active after access closes")
 
     destroy_command = (
@@ -906,7 +1049,20 @@ def _offer_access_close_destroy(
     destroy_ns.yes = False
     destroy_ns.archive_before_destroy = False
     destroy_ns.skip_archive = False
+    destroy_ns._cost_estimate = cost_estimate
     return run_destroy(destroy_ns)
+
+
+def _destroyed_blueprint_cost_cleared(payload: dict[str, Any], paths) -> bool:
+    """Return true only when every declared step has terminal resource state."""
+
+    for step in payload.get("steps") or []:
+        if bool(step.get("retain_on_destroy", False)):
+            return False
+        status = module_state_status(paths.state_dir, step_state_ref(step))
+        if status not in {"destroyed", "absent"}:
+            return False
+    return True
 
 
 def _access_known_hosts_file(paths, state_ref: str, state: dict[str, Any]) -> Path:
@@ -1095,6 +1251,12 @@ def run_access(ns) -> int:
         if not match:
             raise ValueError("GCP VM state does not contain a usable instance id")
         project, zone, instance = match.groups()
+        cost_estimate = _gcp_cost_estimate_with_progress(
+            project_id=project,
+            zone=zone,
+            state=state,
+            paths=paths,
+        )
         port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
         url = f"http://127.0.0.1:{port}{path}"
         gcloud = shutil.which("gcloud")
@@ -1175,12 +1337,16 @@ def run_access(ns) -> int:
         else:
             print(f"local endpoint: 127.0.0.1:{port}")
         _print_guest_network_guidance(access)
+        validated, enabled, _detail = diagnose_project_billing(project)
+        print(f"billing: {'enabled' if enabled else 'disabled'}" if validated else "billing: unable to verify")
+        _print_cost_estimate(cost_estimate, state=state)
         if bool(getattr(ns, "native_consoles", False)):
             _print_native_console_client_guidance()
             print(_native_console_status(console_ports))
             if not console_ports:
                 print("native console setup: start a QEMU node, then rerun access with --native-consoles")
         print("press Ctrl-C to close access")
+        access_started_at = time.monotonic()
         proc = subprocess.Popen(argv, cwd=str(Path.home()))
         time.sleep(2)
         if proc.poll() is not None:
@@ -1201,6 +1367,8 @@ def run_access(ns) -> int:
                 payload,
                 state,
                 project_id=project,
+                cost_estimate=cost_estimate,
+                access_started_at=access_started_at,
             )
     except Exception as exc:
         if "iap_proc" in locals():
@@ -2042,6 +2210,14 @@ def run_destroy(ns) -> int:
                     f"    id={step_id} module={step['module_ref']} "
                     f"state={status} ref={state_ref}"
                 )
+        cost_estimate = getattr(ns, "_cost_estimate", None)
+        if cost_estimate is None:
+            cost_estimate = _gcp_blueprint_cost_estimate(payload, paths)
+        if isinstance(cost_estimate, CostEstimate) and cost_estimate.available:
+            print(
+                "estimated fixed cost while retained: "
+                f"{format_money(cost_estimate.hourly, cost_estimate.currency)}/hour"
+            )
 
     try:
         archive_mode = _select_archive_destroy_mode(ns, payload, env_name)
@@ -2246,6 +2422,22 @@ def run_destroy(ns) -> int:
         "optional_failures": optional_failures,
         "steps": step_results,
     }
+    cost_cleared = False
+    if final_status == "ok" and str(payload["blueprint_ref"]).startswith("gcp/"):
+        cost_cleared = _destroyed_blueprint_cost_cleared(payload, paths)
+        output["cost"] = (
+            {
+                "status": "cleared",
+                "estimated_ongoing_hourly": "0.00",
+                "currency": "USD",
+                "scope": "declared blueprint resources",
+            }
+            if cost_cleared
+            else {
+                "status": "unverified",
+                "scope": "declared blueprint resources",
+            }
+        )
 
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
@@ -2258,6 +2450,11 @@ def run_destroy(ns) -> int:
             print(f"required_failures: {', '.join(required_failures)}")
         if optional_failures:
             print(f"optional_failures: {', '.join(optional_failures)}")
+        if final_status == "ok" and str(payload["blueprint_ref"]).startswith("gcp/"):
+            if cost_cleared:
+                print("estimated ongoing blueprint cost: USD 0.00/hour")
+            else:
+                print("ongoing blueprint cost: verify remaining resources")
 
     if cancelled:
         return CANCELLED
