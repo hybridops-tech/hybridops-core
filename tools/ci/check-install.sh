@@ -189,7 +189,11 @@ if grep -Eq '(-mindepth|-maxdepth)' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"; 
   echo "ERR: macOS postinstall uses GNU find options" >&2
   exit 1
 fi
-test -s "${HYOPS_REPO_ROOT}/pkg/macos/resources/license.html"
+if grep -Fq '("license", "license.html", None)' \
+  "${HYOPS_REPO_ROOT}/pkg/build_macos_pkg.sh"; then
+  echo "ERR: macOS package still declares a click-through licence pane" >&2
+  exit 1
+fi
 test -s "${HYOPS_REPO_ROOT}/assets/macos/hybridops.png"
 grep -Fq 'tech.hybridops.core.launcher' \
   "${HYOPS_REPO_ROOT}/pkg/macos/app/Info.plist"
