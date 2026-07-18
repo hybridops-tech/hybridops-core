@@ -1,11 +1,15 @@
 import argparse
+import io
+import os
+from contextlib import redirect_stdout
 from pathlib import Path
-from unittest import TestCase
 from types import SimpleNamespace
+from unittest import TestCase
 from unittest.mock import patch
 
 from hyops.init.targets.gcp import (
     _adc_impersonation_ok,
+    _create_gcp_project,
     _discover_gcp_zones,
     _discover_gcp_projects,
     _cmd_ok,
@@ -18,6 +22,7 @@ from hyops.init.targets.gcp import (
     _select_billing_account_interactive,
     _select_gcp_project_interactive,
     _select_gcp_zone_interactive,
+    _verbose_print,
     _write_config_template,
     add_subparser,
 )
@@ -81,6 +86,7 @@ class GcpCliCompatibilityTest(TestCase):
         self.assertIn("GCP_QUOTA_PROJECT_ID=", content)
         self.assertIn("GCP_CREDENTIALS_OUT=", content)
         self.assertNotIn("GCP_TERRAFORM_SA_EMAIL=", content)
+        self.assertNotIn("org/gcp/", content)
 
 
 class AdcImpersonationTest(TestCase):
@@ -362,6 +368,71 @@ class GcpDefaultsReviewTest(TestCase):
 
         self.assertEqual(values, ("existing-project", "europe-west2", ""))
         input_mock.assert_called_once_with("GCP project id [existing-project]: ")
+
+    @patch("hyops.init.targets.gcp._prompt_gcp_region", return_value="europe-west2")
+    @patch("builtins.input", return_value="")
+    def test_review_output_uses_operator_labels(self, _input, _region):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            _review_detected_gcp_defaults_interactive(
+                env_name="demo-lab",
+                project_id="existing-project",
+                project_id_source="gcloud",
+                region="europe-west2",
+                region_source="gcloud",
+                billing_account_id="ABC-123",
+                billing_account_source="gcloud",
+            )
+
+        rendered = output.getvalue()
+        self.assertIn("GCP settings for env demo-lab:", rendered)
+        self.assertIn("project: existing-project", rendered)
+        self.assertIn("region: europe-west2", rendered)
+        self.assertIn("billing account: ABC-123", rendered)
+        self.assertNotIn("source=", rendered)
+        self.assertNotIn("gcloud", rendered)
+
+
+class GcpProjectCreationOutputTest(TestCase):
+    @patch("hyops.init.targets.gcp._cmd_ok", return_value=True)
+    def test_project_creation_output_hides_provider_commands(self, cmd_ok):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = _create_gcp_project(
+                project_id="demo-project",
+                billing_account_id="ABC-123",
+                evidence_dir=Path("/tmp/evidence"),
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(cmd_ok.call_count, 3)
+        rendered = output.getvalue()
+        self.assertIn("project created: demo-project", rendered)
+        self.assertIn("linking project billing", rendered)
+        self.assertIn("preparing GCP project services", rendered)
+        self.assertNotIn("gcloud", rendered)
+        self.assertNotIn("googleapis.com", rendered)
+        self.assertNotIn("Terraform", rendered)
+
+
+class GcpVerboseOutputTest(TestCase):
+    def test_verbose_detail_is_quiet_by_default(self):
+        output = io.StringIO()
+
+        with patch.dict(os.environ, {}, clear=True), redirect_stdout(output):
+            _verbose_print("provider detail")
+
+        self.assertEqual(output.getvalue(), "")
+
+    def test_verbose_detail_is_available_when_requested(self):
+        output = io.StringIO()
+
+        with patch.dict(os.environ, {"HYOPS_VERBOSE": "1"}, clear=True), redirect_stdout(output):
+            _verbose_print("provider detail")
+
+        self.assertEqual(output.getvalue(), "provider detail\n")
 
 
 class GcpSshKeySetupTest(TestCase):

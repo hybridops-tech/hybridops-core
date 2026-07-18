@@ -427,17 +427,17 @@ def run(ns) -> int:
         "gcp_credentials_check",
     ):
         if getattr(ns, "non_interactive", False):
-            print("ERR: GCP application credentials are not available for non-interactive initialization")
+            print("ERR: GCP authorization is not available for non-interactive initialization")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         if not bool(getattr(ns, "with_cli_login", False)):
-            print("ERR: GCP application credentials are not available.")
+            print("ERR: GCP authorization is not available.")
             print("Re-run with: hyops init gcp --with-cli-login")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         if not _run_interactive_adc_login(
             evidence_dir,
-            reason="GCP application credentials are required for initialization.",
+            reason="Additional GCP authorization is required for initialization.",
         ):
             return TARGET_EXEC_FAILURE
 
@@ -637,14 +637,14 @@ def run(ns) -> int:
         if not project_access_validated and bootstrap_project_allowed:
             project_bootstrap_pending = True
             print(
-                f"WARN: target GCP project {project_id} is not accessible yet; entering bootstrap mode "
-                "so org/gcp/project-factory can create or adopt it."
+                f"WARN: GCP project {project_id} is not accessible yet; "
+                "project preparation remains incomplete."
             )
             if project_access[1]:
                 print("provider detail is available in the run record.")
             print(
-                "hint: in bootstrap mode, only org/gcp/project-factory should run. "
-                "After project creation, rerun: hyops init gcp --env <env> --force "
+                "Complete or adopt the project, then rerun: "
+                "hyops init gcp --env <env> --force "
                 f"--project-id {project_id} --region {region}"
             )
         if not project_access_validated and not project_bootstrap_pending:
@@ -767,18 +767,13 @@ def run(ns) -> int:
         if non_interactive:
             print("ERR: GCP_RUNTIME_SA_EMAIL is required in --non-interactive mode")
             print("hint: set it in <root>/config/gcp.conf or export GCP_RUNTIME_SA_EMAIL, then re-run.")
-            print("hint: if you're bootstrapping a new project, run org/gcp/project-factory first, then re-run init.")
+            print("hint: if the project is new, complete project preparation and rerun init.")
             print(f"run record: {evidence_dir}")
             return OPERATOR_ERROR
         # Bootstrap-friendly mode: allow running without an impersonation target.
-        print("runtime identity: using validated GCP application credentials.")
+        print("runtime identity: ready")
         if project_bootstrap_pending:
-            print("hint: after running org/gcp/project-factory, re-run: hyops init gcp --env <env> --force")
-        else:
-            print(
-                "hint: service-account impersonation is optional for this existing project; "
-                "configure GCP_RUNTIME_SA_EMAIL later if your operating policy requires it."
-            )
+            print("After project preparation, rerun: hyops init gcp --env <env> --force")
     else:
         imp_ok = _adc_impersonation_ok(
             terraform_sa_email=terraform_sa_email,
@@ -812,10 +807,7 @@ def run(ns) -> int:
         ):
             if _run_interactive_adc_login(
                 evidence_dir,
-                reason=(
-                    "ADC cannot impersonate the Terraform service account. "
-                    "Refresh ADC with the confirmed gcloud identity."
-                ),
+                reason="Additional GCP authorization is required for the configured runtime identity.",
             ):
                 imp_ok = _adc_impersonation_ok(
                     terraform_sa_email=terraform_sa_email,
@@ -825,9 +817,8 @@ def run(ns) -> int:
                 )
         if not imp_ok:
             print("ERR: GCP runtime identity validation failed; see run record")
-            print("hint: the selected identity needs Service Account Token Creator on the runtime identity.")
-            print("hint: re-run with --with-cli-login to refresh GCP application credentials.")
-            print("hint: ensure iamcredentials.googleapis.com is enabled in the target project.")
+            print("hint: confirm that the selected identity can use the configured runtime identity.")
+            print("hint: re-run with --with-cli-login to refresh GCP authorization.")
             print(f"run record: {evidence_dir}")
             return TARGET_EXEC_FAILURE
         impersonation_validated = bool(terraform_sa_email)
@@ -854,20 +845,23 @@ def run(ns) -> int:
             impersonate_service_account=terraform_sa_email,
         )
         if private_service_access_ok:
-            print(
-                f"terraform-sa-setup: validated private service networking permissions on {project_id}"
+            _verbose_print(
+                f"runtime identity: private service access validated for {project_id}"
             )
         elif private_service_access_detail:
             print(
-                "WARN: terraform-sa-setup could not validate private service networking permissions; "
-                + private_service_access_detail
+                "WARN: runtime identity validation for private service access was incomplete; "
+                "provider detail is available in the run record."
             )
 
     eso_sa_email = ""
     if bool(getattr(ns, "with_eso_sa", False)):
         if not project_access_validated:
-            print("WARN: --with-eso-sa skipped: project access is not yet validated (bootstrap mode).")
-            print("hint: run org/gcp/project-factory first, then re-run: hyops init gcp --env <env> --force --with-eso-sa")
+            print("WARN: secret access identity setup was skipped because project access is not ready.")
+            print(
+                "hint: complete project preparation, then rerun: "
+                "hyops init gcp --env <env> --force --with-eso-sa"
+            )
         else:
             vault_file = paths.vault_dir / "bootstrap.vault.env"
             vault_auth = VaultAuth()
@@ -976,7 +970,7 @@ def _create_gcp_project(
     billing_account_id: str,
     evidence_dir: Path,
 ) -> bool:
-    """Create a GCP project, link billing, and enable minimum APIs for Terraform.
+    """Create a GCP project, link billing, and enable its required services.
 
     Intended for personal/standalone accounts where org/gcp/project-factory is
     not applicable. Returns True if the project was created successfully.
@@ -992,7 +986,7 @@ def _create_gcp_project(
     print(f"project created: {project_id}")
 
     ba_id = billing_account_id.removeprefix("billingAccounts/")
-    print(f"linking billing account: {ba_id}")
+    print("linking project billing")
     if not _cmd_ok(
         ["gcloud", "billing", "projects", "link", project_id,
          f"--billing-account={ba_id}", "--quiet"],
@@ -1007,13 +1001,13 @@ def _create_gcp_project(
         "iam.googleapis.com",
         "serviceusage.googleapis.com",
     ]
-    print(f"enabling APIs: {', '.join(apis)}")
+    print("preparing GCP project services")
     if not _cmd_ok(
         ["gcloud", "services", "enable"] + apis + [f"--project={project_id}", "--quiet"],
         evidence_dir,
         "gcp_enable_apis",
     ):
-        print("WARN: some APIs failed to enable; you may need to enable them manually in the GCP console")
+        print("WARN: GCP project service preparation was incomplete; see run record")
 
     return True
 
@@ -1157,16 +1151,20 @@ def _ensure_org_policy_admin(*, account: str, evidence_dir: Path) -> None:
     )
     if r.rc != 0:
         print(
-            f"WARN: could not grant roles/orgpolicy.policyAdmin to {account} on org {org_id}; "
-            "org/gcp/gsm-eso-sa may require a manual grant if the org policy constraint is enforced. "
-            f"detail: {_first_nonempty_line(r.stderr)}"
+            "WARN: organization policy preparation was incomplete; "
+            "provider detail is available in the run record."
         )
     else:
-        print(f"org-policy-admin: granted roles/orgpolicy.policyAdmin to {account} on org {org_id}")
+        _verbose_print("organization policy access: ready")
 
 
 def _require_tty() -> bool:
     return os.isatty(0) and os.isatty(1)
+
+
+def _verbose_print(message: str) -> None:
+    if os.getenv("HYOPS_VERBOSE"):
+        print(message)
 
 
 def _adc_impersonation_ok(
@@ -1392,6 +1390,7 @@ def _ensure_terraform_sa_project_roles(
         return
 
     member = f"serviceAccount:{terraform_sa_email}"
+    preparation_incomplete = False
 
     apis = [
         "compute.googleapis.com",
@@ -1407,12 +1406,9 @@ def _ensure_terraform_sa_project_roles(
             redact=True,
         )
         if r.rc == 0:
-            print(f"runtime-identity setup: ensured {api} is enabled")
+            _verbose_print(f"runtime identity: service ready ({api})")
         else:
-            print(
-                f"WARN: could not enable {api} on {project_id}; "
-                f"downstream modules may fail. detail: {_first_nonempty_line(r.stderr)}"
-            )
+            preparation_incomplete = True
 
     # Lift the org-level iam.disableServiceAccountKeyCreation constraint at
     # project scope. This allows `hyops init gcp --with-eso-sa` to generate a
@@ -1441,12 +1437,9 @@ def _ensure_terraform_sa_project_roles(
             redact=True,
         )
         if r.rc == 0:
-            print(f"runtime-identity setup: ensured the service-account key policy on {project_id}")
+            _verbose_print("runtime identity: key policy ready")
         else:
-            print(
-                f"WARN: could not lift iam.disableServiceAccountKeyCreation on {project_id}; "
-                f"--with-eso-sa may fail. detail: {_first_nonempty_line(r.stderr)}"
-            )
+            preparation_incomplete = True
     finally:
         if policy_file:
             try:
@@ -1472,12 +1465,14 @@ def _ensure_terraform_sa_project_roles(
             redact=True,
         )
         if r.rc == 0:
-            print(f"runtime-identity setup: ensured {role}")
+            _verbose_print(f"runtime identity: access ready ({role})")
         else:
-            print(
-                f"WARN: could not ensure {role} on {terraform_sa_email} for project {project_id}; "
-                f"detail: {_first_nonempty_line(r.stderr)}"
-            )
+            preparation_incomplete = True
+    if preparation_incomplete:
+        print(
+            "WARN: runtime identity preparation was incomplete; "
+            "provider detail is available in the run record."
+        )
 
 
 def _write_config_template(path: Path) -> None:
@@ -1487,10 +1482,10 @@ def _write_config_template(path: Path) -> None:
         "GCP_PROJECT_ID=\n"
         "GCP_REGION=\n"
         "GCP_ZONE=\n"
-        "# Optional: billing account id for org/gcp/project-factory when creating new projects.\n"
+        "# Optional billing account id used when creating a project.\n"
         "GCP_BILLING_ACCOUNT_ID=\n"
         "# Optional: delegated GCP runtime identity email.\n"
-        "# If omitted, HybridOps can derive it from org/gcp/project-factory state after apply.\n"
+        "# If omitted, HybridOps can derive it from project state when available.\n"
         "GCP_RUNTIME_SA_EMAIL=\n"
         "GCP_QUOTA_PROJECT_ID=\n"
         "# Optional non-secret public key persisted into gcp.ready.json for GCE runner/VM bootstrap.\n"
@@ -1739,14 +1734,14 @@ def _review_detected_gcp_defaults_interactive(
     billing_account_source: str,
 ) -> tuple[str, str, str]:
     label = env_name or "<env>"
-    print(f"review detected GCP defaults for env {label}:")
+    print(f"GCP settings for env {label}:")
     if project_id:
-        print(f"  project_id: {project_id} (source={project_id_source})")
+        print(f"  project: {project_id}")
     if region:
-        print(f"  region: {region} (source={region_source})")
+        print(f"  region: {region}")
     if billing_account_id:
-        print(f"  billing_account_id: {billing_account_id} (source={billing_account_source})")
-    print("press Enter to keep a detected value, or type a replacement.")
+        print(f"  billing account: {billing_account_id}")
+    print("Press Enter to keep a value, or type a replacement.")
 
     try:
         project_ans = str(input(f"GCP project id [{project_id}]: ") or "").strip()
