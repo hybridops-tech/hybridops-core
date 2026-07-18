@@ -178,7 +178,7 @@ def _dispatch(ns) -> int:
             cfg.parent.mkdir(parents=True, exist_ok=True)
             cfg.write_text(shlex.quote(str(script)) + "\n", encoding="utf-8")
             os.chmod(cfg, stat.S_IRUSR | stat.S_IWUSR)
-            print(f"[hyops] configured default vault password command: {cfg}", file=sys.stderr)
+            print("[hyops] vault integration configured.", file=sys.stderr)
         except Exception:
             # Best-effort: do not fail bootstrap if config persistence fails.
             pass

@@ -15,7 +15,7 @@ from hyops.init.targets.gcp import (
     _cmd_ok,
     _confirm_gcp_identity_interactive,
     _ensure_terraform_sa_project_roles,
-    _offer_ssh_key_generation,
+    _ensure_ssh_key,
     _prompt_gcp_region,
     _run_interactive_adc_login,
     _review_detected_gcp_defaults_interactive,
@@ -439,21 +439,16 @@ class GcpSshKeySetupTest(TestCase):
     @patch("hyops.init.targets.gcp._read_first_pubkey", return_value="ssh-ed25519 generated hybridops")
     @patch("hyops.init.targets.gcp.run_capture")
     @patch("hyops.init.targets.gcp.Path.home")
-    @patch("builtins.input", return_value="")
-    def test_generates_ed25519_key_by_default(self, _input, home, run_capture, _read_key):
+    def test_generates_ed25519_key_automatically(self, home, run_capture, _read_key):
         from tempfile import TemporaryDirectory
 
         with TemporaryDirectory() as tmp:
             home.return_value = Path(tmp)
             run_capture.return_value = SimpleNamespace(rc=0)
 
-            result = _offer_ssh_key_generation(Path(tmp) / "evidence")
+            result = _ensure_ssh_key(Path(tmp) / "evidence")
 
         self.assertEqual(result, "ssh-ed25519 generated hybridops")
         command = run_capture.call_args.args[0]
         self.assertEqual(command[0:3], ["ssh-keygen", "-t", "ed25519"])
         self.assertIn("-N", command)
-
-    @patch("builtins.input", return_value="n")
-    def test_allows_operator_to_decline_key_generation(self, _input):
-        self.assertEqual(_offer_ssh_key_generation(Path("/tmp/evidence")), "")

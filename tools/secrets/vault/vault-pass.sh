@@ -245,7 +245,7 @@ bootstrap() {
 
   printf '%s\n' "$pw" | pass insert -m "$ENTRY" >/dev/null
   [[ -e "$(canon_file "$STORE_DIR")" ]] || die "expected file not found"
-  log "stored: $ENTRY"
+  log "vault password stored securely"
 }
 
 bootstrap_stdin() {
@@ -265,7 +265,7 @@ bootstrap_stdin() {
 
   printf '%s\n' "$pw" | pass insert -m "$ENTRY" >/dev/null
   [[ -e "$(canon_file "$STORE_DIR")" ]] || die "expected file not found"
-  log "stored: $ENTRY"
+  log "vault password stored securely"
 }
 
 reset_all() {
