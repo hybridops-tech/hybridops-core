@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 import os
+import sys
 
 
 class PackResolveError(RuntimeError):
@@ -55,6 +56,13 @@ def _find_packs_root_from_here(start: Path) -> Path | None:
     return None
 
 
+def _find_packs_root_from_install_prefix(prefix: Path) -> Path | None:
+    candidate = prefix.expanduser().resolve().parent / "app" / "packs"
+    if candidate.is_dir():
+        return candidate.resolve()
+    return None
+
+
 def resolve_packs_root(packs_root: str | None = None) -> Path:
     if packs_root:
         p = Path(packs_root).expanduser().resolve()
@@ -80,6 +88,10 @@ def resolve_packs_root(packs_root: str | None = None) -> Path:
     discovered = _find_packs_root_from_here(Path(__file__))
     if discovered:
         return discovered
+
+    installed = _find_packs_root_from_install_prefix(Path(sys.prefix))
+    if installed:
+        return installed
 
     raise PackNotFoundError("packs root not found; set HYOPS_PACKS_ROOT to an existing packs directory")
 

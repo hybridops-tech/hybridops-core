@@ -100,6 +100,7 @@ TMPDIR=/dev/shm ./pkg/verify_release.sh dist/releases/hybridops-core-<label>.tar
 - the shipped checksum manifest matches the extracted payload
 - `install.sh` can install the bundle into an isolated runtime root
 - installed `hyops` runs without relying on the source checkout
+- the installed runtime resolves its shipped packs without wrapper environment variables
 - the bundle and installed payload do not include vendored HybridOps collection source
 - installed `hyops` exposes `setup galaxy` and the compatible `setup ansible` path
 - the installed payload matches the shipped checksum manifest
