@@ -128,6 +128,19 @@ if [[ "${INSTALLED_VERSION}" != "${EXPECTED_VERSION}" ]]; then
   echo "ERR: installed version ${INSTALLED_VERSION} does not match release version ${EXPECTED_VERSION}" >&2
   exit 3
 fi
+INSTALLED_PACKS="$(
+  cd /
+  env -u PYTHONPATH -u HYOPS_CORE_ROOT -u HYOPS_PACKS_ROOT \
+    HOME="${HOME_DIR}" "${INSTALL_ROOT}/venv/bin/python3" - <<'PY'
+from hyops.runtime.packs import resolve_packs_root
+
+print(resolve_packs_root())
+PY
+)"
+if [[ "${INSTALLED_PACKS}" != "${INSTALLED_APP}/packs" ]]; then
+  echo "ERR: installed runtime resolved packs to ${INSTALLED_PACKS}, expected ${INSTALLED_APP}/packs" >&2
+  exit 3
+fi
 
 (
   cd /
