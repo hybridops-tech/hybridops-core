@@ -1121,13 +1121,16 @@ def run(ns) -> int:
 
     rendered = _write_tfvars(cred_path, values, token_id, token_secret, runtime)
     if not str(rendered.get("ssh_public_key") or "").strip():
-        print("warning: ssh_public_key is empty; packer builds may fail. Set proxmox.ssh_public_key or run ssh-keygen.")
+        print(
+            "warning: ssh_public_key is empty; template image builds may fail. "
+            "Set proxmox.ssh_public_key or generate an SSH key."
+        )
         print(
             "hint: platform/onprem/vyos-edge with ssh_keys_from_init=true will fail until a key is present in proxmox.ready.json"
         )
     if not str(rendered.get("http_bind_address") or "").strip():
         print(
-            "warning: http_bind_address is empty; packer builds may fail. "
+            "warning: http_bind_address is empty; template image builds may fail. "
             "Set proxmox.http_bind_address or pass --http-bind-address."
         )
 

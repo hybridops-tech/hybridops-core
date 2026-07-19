@@ -19,7 +19,6 @@ from hyops.commands._apply_helpers import (
     merge_template_image_outputs,
     normalize_published_outputs,
     persist_rerun_inputs,
-    progress_log_hint,
     select_published_outputs,
 )
 from hyops.drivers.registry import REGISTRY
@@ -27,6 +26,7 @@ from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
 from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.module_state import write_module_state
+from hyops.runtime.operator_output import concise_error
 from hyops.runtime.progress import ProgressDisplay
 from hyops.runtime.stamp import stamp_runtime
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
@@ -120,8 +120,6 @@ def run_single(
     )
     if not child_progress:
         print(f"run record: {evidence_dir}")
-        if not progress.enabled:
-            print(f"progress: logs={progress_log_hint(driver_ref, evidence_dir)}")
         progress.start(
             module_ref,
             f"{command_name} {module_ref}",
@@ -303,7 +301,7 @@ def run_single(
     try:
         if not skip_preflight:
             if not child_progress and not progress.enabled:
-                print(f"progress: phase=preflight driver={driver_ref}")
+                print("progress: phase=preflight")
             preflight_request = dict(request)
             preflight_request["command"] = "preflight"
             preflight_request["lifecycle_command"] = command_name
@@ -315,7 +313,10 @@ def run_single(
                 preflight_error = str(preflight_result.get("error") or "").strip()
                 persist_status_error_state(preflight_error or "preflight failed")
                 if preflight_error:
-                    print(f"error: preflight failed: {preflight_error}", file=sys.stderr)
+                    print(
+                        f"error: preflight failed: {concise_error(preflight_error)}",
+                        file=sys.stderr,
+                    )
                 else:
                     print("error: preflight failed", file=sys.stderr)
                 if not child_progress:
@@ -331,7 +332,7 @@ def run_single(
                 return 1
 
         if not child_progress and not progress.enabled:
-            print(f"progress: phase={command_name} driver={driver_ref}")
+            print(f"progress: phase={command_name}")
         result = driver_fn(request)
         ev.write_json("result.json", result)
 
@@ -348,7 +349,7 @@ def run_single(
             err = str(result.get("error") or "").strip()
             persist_status_error_state(err or f"driver returned status={status or 'unknown'}")
             if err:
-                print(f"error: {err}", file=sys.stderr)
+                print(f"error: {concise_error(err)}", file=sys.stderr)
             if child_progress:
                 print(f"run record: {evidence_dir}", file=sys.stderr)
             return 1

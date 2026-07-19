@@ -27,17 +27,6 @@ def evidence_root(paths, out_dir: str | None, module_ref: str) -> Path:
     return paths.logs_dir / "module" / module_id
 
 
-def progress_log_hint(driver_ref: str, evidence_dir: Path) -> str:
-    token = str(driver_ref or "").strip().lower()
-    if token == "iac/terragrunt":
-        return str((evidence_dir / "terragrunt.log").resolve())
-    if token == "config/ansible":
-        return str((evidence_dir / "ansible.log").resolve())
-    if token == "images/packer":
-        return str((evidence_dir / "packer.log").resolve())
-    return str(evidence_dir)
-
-
 def driver_outputs(result: dict[str, Any]) -> dict[str, Any]:
     normalized = result.get("normalized_outputs")
     if not isinstance(normalized, dict):
