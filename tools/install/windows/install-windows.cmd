@@ -5,6 +5,7 @@ rem purpose: Install HybridOps.Core into Ubuntu 24.04 on Windows WSL2.
 rem maintainer: HybridOps.Tech
 
 set "DISTRO=Ubuntu-24.04"
+set "INSTALL_DIR=%~dp0"
 set "PAYLOAD_DIR=%~dp0payload"
 set "HYOPS_USER_DIR=%LOCALAPPDATA%\HybridOps"
 set "WSL_SETUP_MARKER=%HYOPS_USER_DIR%\wsl-setup.pending"
@@ -306,32 +307,19 @@ if errorlevel 1 (
 )
 
 echo.
-set "CREATE_SHORTCUT="
-set "SHORTCUT_CREATED=false"
-set "SHORTCUT_EXISTS=false"
-powershell.exe -NoProfile -Command "$path = Join-Path ([Environment]::GetFolderPath('Desktop')) 'HybridOps.Core.lnk'; if (Test-Path -LiteralPath $path) { exit 0 }; exit 1"
-if not errorlevel 1 (
-  set "SHORTCUT_EXISTS=true"
-  set "CREATE_SHORTCUT=y"
+set "SHORTCUTS_CREATED=false"
+set "LAUNCHER_DIR=%HYOPS_USER_DIR%"
+set "LAUNCHER=!LAUNCHER_DIR!\Open HybridOps.cmd"
+if not exist "!LAUNCHER_DIR!" mkdir "!LAUNCHER_DIR!"
+copy /y "%PAYLOAD_DIR%\launcher.cmd" "!LAUNCHER!" >nul
+if errorlevel 1 (
+  echo WARN: unable to install the HybridOps.Core launcher.
 ) else (
-  set /p "CREATE_SHORTCUT=Create a HybridOps.Core desktop shortcut? [y/N]: "
-)
-if /I "!CREATE_SHORTCUT!"=="y" (
-  set "LAUNCHER_DIR=%HYOPS_USER_DIR%"
-  set "LAUNCHER=!LAUNCHER_DIR!\Open HybridOps.cmd"
-  if not exist "!LAUNCHER_DIR!" mkdir "!LAUNCHER_DIR!"
-  copy /y "%PAYLOAD_DIR%\launcher.cmd" "!LAUNCHER!" >nul
+  powershell.exe -NoProfile -Command "$iconDir = Join-Path $env:LOCALAPPDATA 'HybridOps'; $iconPath = Join-Path $iconDir 'hybridops.ico'; $launcherPath = $env:LAUNCHER; Copy-Item -Force -LiteralPath (Join-Path $env:PAYLOAD_DIR 'hybridops.ico') -Destination $iconPath; $shortcutPaths = @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'HybridOps.Core.lnk'), (Join-Path $env:INSTALL_DIR 'HybridOps.Core.lnk')); $shell = New-Object -ComObject WScript.Shell; foreach ($shortcutPath in $shortcutPaths) { $shortcut = $shell.CreateShortcut($shortcutPath); $shortcut.TargetPath = $launcherPath; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $iconPath + ',0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save() }"
   if errorlevel 1 (
-    echo WARN: unable to install the HybridOps.Core launcher.
-  )
-  powershell.exe -NoProfile -Command "$iconDir = Join-Path $env:LOCALAPPDATA 'HybridOps'; $iconPath = Join-Path $iconDir 'hybridops.ico'; $launcherPath = Join-Path $iconDir 'Open HybridOps.cmd'; Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico' -Destination $iconPath; $shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HybridOps.Core.lnk'); $shortcut.TargetPath = $launcherPath; $shortcut.WorkingDirectory = $env:USERPROFILE; $shortcut.IconLocation = $iconPath + ',0'; $shortcut.Description = 'Open HybridOps.Core in Ubuntu'; $shortcut.Save()"
-  if errorlevel 1 (
-    echo WARN: unable to create the HybridOps.Core desktop shortcut.
+    echo WARN: unable to create the HybridOps.Core launch shortcuts.
   ) else (
-    set "SHORTCUT_CREATED=true"
-    if not "!SHORTCUT_EXISTS!"=="true" (
-      echo Desktop shortcut created: HybridOps.Core
-    )
+    set "SHORTCUTS_CREATED=true"
   )
 )
 
@@ -342,8 +330,8 @@ if exist "%WSL_SETUP_MARKER%" (
 
 echo.
 echo HybridOps.Core installation completed.
-if "!SHORTCUT_CREATED!"=="true" (
-  echo Open HybridOps.Core from the desktop shortcut, then run: hyops --help
+if "!SHORTCUTS_CREATED!"=="true" (
+  echo Open HybridOps.Core from the desktop or this folder, then run: hyops --help
 ) else (
   echo Open Ubuntu 24.04 from the Windows Start menu, then run: hyops --help
 )

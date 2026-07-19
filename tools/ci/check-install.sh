@@ -67,10 +67,12 @@ if grep -Fq 'start "Ubuntu 24.04 account setup"' "${WINDOWS_INSTALLER}"; then
   echo "ERR: Windows installer opens a separate Ubuntu account window" >&2
   exit 1
 fi
-grep -Fq "CreateShortcut([Environment]::GetFolderPath('Desktop')" "${WINDOWS_INSTALLER}"
+grep -Fq "Join-Path ([Environment]::GetFolderPath('Desktop')) 'HybridOps.Core.lnk'" "${WINDOWS_INSTALLER}"
+grep -Fq '$shell.CreateShortcut($shortcutPath)' "${WINDOWS_INSTALLER}"
 grep -Fq '$shortcut.TargetPath = $launcherPath' "${WINDOWS_INSTALLER}"
 grep -Fq 'set "LAUNCHER=!LAUNCHER_DIR!\Open HybridOps.cmd"' "${WINDOWS_INSTALLER}"
 grep -Fq 'copy /y "%PAYLOAD_DIR%\launcher.cmd" "!LAUNCHER!"' "${WINDOWS_INSTALLER}"
+grep -Fq 'set "INSTALL_DIR=%~dp0"' "${WINDOWS_INSTALLER}"
 WINDOWS_LAUNCHER="${HYOPS_REPO_ROOT}/tools/install/windows/launcher.cmd"
 grep -Fq 'Starting HybridOps.Core' "${WINDOWS_LAUNCHER}"
 grep -Fq "Write-Host 'HybridOps.Core ready.' -ForegroundColor Green" "${WINDOWS_LAUNCHER}"
@@ -86,14 +88,16 @@ grep -Fq 'set "HELPER=%PAYLOAD_DIR%\install-wsl.sh"' "${WINDOWS_INSTALLER}"
 grep -Fq 'test -e \"${HOME}/.hybridops/core\"' "${WINDOWS_INSTALLER}"
 grep -Fq 'Existing HybridOps.Core installation found.' "${WINDOWS_INSTALLER}"
 grep -Fq 'set "FORCE=true"' "${WINDOWS_INSTALLER}"
-grep -Fq "Copy-Item -Force -LiteralPath '%PAYLOAD_DIR%\hybridops.ico'" "${WINDOWS_INSTALLER}"
-grep -Fq "Test-Path -LiteralPath" "${WINDOWS_INSTALLER}"
-grep -Fq "set \"SHORTCUT_EXISTS=true\"" "${WINDOWS_INSTALLER}"
+grep -Fq "Copy-Item -Force -LiteralPath (Join-Path \$env:PAYLOAD_DIR 'hybridops.ico')" "${WINDOWS_INSTALLER}"
+grep -Fq "Join-Path \$env:INSTALL_DIR 'HybridOps.Core.lnk'" "${WINDOWS_INSTALLER}"
 if grep -Fq "Desktop shortcut updated:" "${WINDOWS_INSTALLER}"; then
   echo "ERR: Windows update announces routine shortcut refresh" >&2
   exit 1
 fi
-grep -Fq 'Create a HybridOps.Core desktop shortcut? [y/N]:' "${WINDOWS_INSTALLER}"
+if grep -Fq 'Create a HybridOps.Core desktop shortcut?' "${WINDOWS_INSTALLER}"; then
+  echo "ERR: Windows installer still prompts before creating launch shortcuts" >&2
+  exit 1
+fi
 grep -Fq 'set "WSL_SETUP_MARKER=%HYOPS_USER_DIR%\wsl-setup.pending"' "${WINDOWS_INSTALLER}"
 grep -Fq "Get-Process -Name 'wslsettings'" "${WINDOWS_INSTALLER}"
 grep -Fq '[void]$_.CloseMainWindow()' "${WINDOWS_INSTALLER}"

@@ -292,8 +292,8 @@ HybridOps.Core for Windows 11 (WSL2)
 1. Extract every file from this ZIP archive.
 2. Run Install HybridOps.cmd.
 
-After a successful installation, use the optional HybridOps.Core desktop
-shortcut or open Ubuntu 24.04 from the Windows Start menu.
+After a successful installation, open HybridOps.Core from the desktop or from
+the extracted installer folder.
 
 The first Ubuntu launch may ask you to create a Linux username and password.
 Complete that prompt. Control returns to the installer automatically.
