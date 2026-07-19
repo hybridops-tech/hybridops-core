@@ -227,7 +227,7 @@ def add_secrets_subparser(sp: argparse._SubParsersAction) -> None:
     x.add_argument("--vault-password-file", default=None, help="Vault password file.")
     x.add_argument("--vault-password-command", default=None, help="Command to output vault password.")
     x.add_argument(
-        "cmd",
+        "exec_argv",
         nargs=argparse.REMAINDER,
         help="Command to run (use -- before the command if it contains flags).",
     )
@@ -1997,7 +1997,7 @@ def run_exec(ns) -> int:
         print(f"ERR: vault file not found: {vault_path}")
         return CONFIG_INVALID
 
-    argv = list(getattr(ns, "cmd", []) or [])
+    argv = list(getattr(ns, "exec_argv", []) or [])
     if argv and argv[0] == "--":
         argv = argv[1:]
     if not argv:
