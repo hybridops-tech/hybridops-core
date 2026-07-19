@@ -67,6 +67,16 @@ class CliRoutingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("invalid choice", result.stderr)
 
+    def test_secrets_exec_keeps_top_level_command_name(self) -> None:
+        from hyops.cli import build_parser
+
+        parsed = build_parser().parse_args(
+            ["secrets", "exec", "--env", "test", "--", "true"]
+        )
+
+        self.assertEqual(parsed.cmd, "secrets")
+        self.assertEqual(parsed.exec_argv, ["--", "true"])
+
 
 if __name__ == "__main__":
     unittest.main()
