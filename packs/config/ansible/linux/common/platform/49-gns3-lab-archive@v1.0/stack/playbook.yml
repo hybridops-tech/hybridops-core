@@ -1,0 +1,58 @@
+---
+- name: platform/linux/gns3-lab-archive
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) | trim }}"
+    _hyops_archive_path: >-
+      {{
+        (gns3_lab_archive_path | default('') | trim)
+        if (gns3_lab_archive_path | default('') | trim | length > 0)
+        else (
+          _hyops_runtime_root ~ '/artifacts/gns3/labs/' ~
+          (gns3_lab_archive_name | default('gns3-labs.tar.gz'))
+        )
+      }}
+    gns3_lab_archive_password: >-
+      {{ lookup('env', gns3_lab_archive_password_env) }}
+
+  tasks:
+    - name: Require HybridOps runtime root for the default archive path
+      ansible.builtin.assert:
+        that:
+          - _hyops_archive_path | trim | length > 0
+          - >-
+            (gns3_lab_archive_path | default('') | trim | length > 0)
+            or (_hyops_runtime_root | length > 0)
+        fail_msg: "HYOPS_RUNTIME_ROOT is required when gns3_lab_archive_path is empty"
+
+    - name: Export or restore GNS3 labs
+      ansible.builtin.include_role:
+        name: "{{ gns3_lab_archive_role_fqcn }}"
+      vars:
+        gns3_lab_archive_resolved_path: "{{ _hyops_archive_path }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.gns3.archive': 'ready',
+            'gns3_lab_archive_action': gns3_lab_archive_results.action,
+            'gns3_lab_archive_path': gns3_lab_archive_results.archive_path,
+            'gns3_lab_archive_manifest_path':
+              gns3_lab_archive_results.manifest_path | default(''),
+            'gns3_lab_archive_sha256': gns3_lab_archive_results.sha256,
+            'gns3_lab_archive_created_at':
+              gns3_lab_archive_results.created_at | default(''),
+            'gns3_lab_archive_members':
+              gns3_lab_archive_results.members | default([]),
+            'gns3_lab_archive_images_included':
+              gns3_lab_archive_results.images_included | default(false)
+          } | to_json }}

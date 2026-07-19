@@ -157,3 +157,43 @@ class BlueprintLabRestoreTest(TestCase):
             inputs["eveng_lab_archive_node_state_expected_sha256"],
             "c" * 64,
         )
+
+    def test_gns3_restore_uses_declared_archive_contract(self):
+        payload = {
+            "archive_before_destroy": {
+                "module_ref": "platform/linux/gns3-lab-archive",
+                "state_instance": "gns3_archive",
+                "contract_prefix": "gns3_lab_archive",
+                "node_state": False,
+                "restore_overwrite_default": True,
+                "inputs": {
+                    "inventory_state_ref": "platform/test/vm#gns3_vm",
+                    "gns3_lab_archive_action": "export",
+                },
+            }
+        }
+        archive = (Path("/tmp/gns3-labs.tar.gz"), "d" * 64, None, "")
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=0,
+        ) as command:
+            rc = _run_lab_restore(
+                _namespace(restore_labs=True),
+                payload,
+                SimpleNamespace(),
+                archive,
+            )
+
+        self.assertEqual(rc, 0)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertEqual(inputs["gns3_lab_archive_action"], "restore")
+        self.assertEqual(
+            inputs["gns3_lab_archive_path"],
+            "/tmp/gns3-labs.tar.gz",
+        )
+        self.assertEqual(
+            inputs["gns3_lab_archive_expected_sha256"],
+            "d" * 64,
+        )
+        self.assertTrue(inputs["gns3_lab_archive_overwrite"])
+        self.assertNotIn("gns3_lab_archive_include_node_state", inputs)

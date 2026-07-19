@@ -5,8 +5,8 @@ template. The blueprint provisions the VM and configures the authenticated
 GNS3 API through the provider-neutral Linux module.
 
 The API listens on the VM loopback interface. The access command opens a private
-SSH tunnel for the GNS3 desktop client; the server is not exposed to the local
-network by this blueprint.
+SSH tunnel for the bundled Web UI and GNS3 desktop client; the server is not
+exposed to the local network by this blueprint.
 
 ## Execution chain
 
@@ -46,7 +46,7 @@ hyops blueprint deploy \
   --execute
 ```
 
-## Connect a desktop client
+## Connect to GNS3
 
 ```bash
 hyops blueprint access \
@@ -54,12 +54,13 @@ hyops blueprint access \
   --ref onprem/gns3@v1
 ```
 
-Keep the command running and configure the GNS3 desktop client to use host
-`127.0.0.1`, port `3080` and protocol `HTTP`. Retrieve the generated password
-from the environment vault when configuring the client:
+Keep the command running. Open `http://127.0.0.1:3080/` in a browser or
+configure the GNS3 desktop client to use host `127.0.0.1`, port `3080` and
+protocol `HTTP`. The default username is `gns3`. Retrieve the generated
+password from the environment vault:
 
 ```bash
-hyops secrets show --env gns3-lab GNS3_SERVER_PASSWORD
+hyops secrets show --env gns3-lab --raw GNS3_SERVER_PASSWORD
 ```
 
 Press Ctrl-C in the access terminal to close the tunnel.
@@ -74,4 +75,17 @@ Press Ctrl-C in the access terminal to close the tunnel.
 - API: authenticated HTTP on VM loopback port 3080
 
 Ordinary blueprint destroy removes the workload VM and retains the reusable
-Ubuntu template.
+Ubuntu template. The interactive destroy flow can export and verify GNS3
+projects before teardown. Project topology, controller metadata and writable
+node disks are preserved; downloadable base images are rebuilt from their
+declarations.
+
+Restore the latest verified archive during redeployment:
+
+```bash
+hyops blueprint deploy \
+  --env gns3-lab \
+  --ref onprem/gns3@v1 \
+  --execute \
+  --restore-labs
+```

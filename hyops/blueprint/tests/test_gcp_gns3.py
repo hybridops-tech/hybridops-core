@@ -42,6 +42,17 @@ class GCPGNS3BlueprintTest(TestCase):
         self.assertEqual(health["requires"], ["gcp_gns3_starter_lab"])
         self.assertTrue(health["inputs"]["gns3_healthcheck_deep"])
 
+    def test_destroy_protects_gns3_project_state(self) -> None:
+        archive = self.blueprint["archive_before_destroy"]
+        self.assertEqual(
+            archive["module_ref"],
+            "platform/linux/gns3-lab-archive",
+        )
+        self.assertEqual(archive["contract_prefix"], "gns3_lab_archive")
+        self.assertFalse(archive["node_state"])
+        self.assertTrue(archive["restore_overwrite_default"])
+        self.assertFalse(archive["inputs"]["gns3_lab_archive_include_images"])
+
     def test_images_are_verified_before_starter_lab(self) -> None:
         image_step = self.blueprint["steps"][3]
         self.assertEqual(image_step["requires"], ["gcp_gns3_server"])

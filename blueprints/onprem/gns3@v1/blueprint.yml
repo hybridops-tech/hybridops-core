@@ -22,6 +22,26 @@ access:
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
 
+archive_before_destroy:
+  module_ref: "platform/linux/gns3-lab-archive"
+  state_instance: "gns3_lab_archive"
+  contract_prefix: "gns3_lab_archive"
+  contents_label: "projects and node state"
+  node_state: false
+  restore_overwrite_default: true
+  inputs:
+    inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+    inventory_vm_groups:
+      targets:
+        - "gns3-01"
+    target_user: "opsadmin"
+    ssh_proxy_jump_auto: true
+    ssh_proxy_jump_user: "root"
+    become: true
+    become_user: "root"
+    gns3_lab_archive_action: "export"
+    gns3_lab_archive_include_images: false
+
 steps:
   - id: template_image_jammy
     module_ref: "core/onprem/template-image"

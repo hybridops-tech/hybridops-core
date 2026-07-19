@@ -1,0 +1,81 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/gns3-lab-archive"
+
+metadata:
+  title: "Linux GNS3 Lab Archive"
+  description: "Export or restore GNS3 projects and controller state without retaining the workload VM."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+
+    required_env:
+      - "GNS3_SERVER_PASSWORD"
+    required_env_destroy: []
+    load_vault_env: true
+
+    gns3_lab_archive_role_fqcn: "hybridops.app.gns3_lab_archive"
+    gns3_lab_archive_action: "export"
+    gns3_lab_archive_data_root: "/var/lib/gns3"
+    gns3_lab_archive_name: "gns3-labs.tar.gz"
+    gns3_lab_archive_path: ""
+    gns3_lab_archive_expected_sha256: ""
+    gns3_lab_archive_overwrite: false
+    gns3_lab_archive_include_images: false
+    gns3_lab_archive_remote_dir: "/tmp/hyops-gns3-lab-archive"
+    gns3_lab_archive_owner: "gns3"
+    gns3_lab_archive_group: "gns3"
+    gns3_lab_archive_service: "gns3server"
+    gns3_lab_archive_manage_service: true
+    gns3_lab_archive_port: 3080
+    gns3_lab_archive_username: "gns3"
+    gns3_lab_archive_password_env: "GNS3_SERVER_PASSWORD"
+    gns3_lab_archive_api_wait_timeout: 60
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/49-gns3-lab-archive@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.gns3.archive
+    - gns3_lab_archive_action
+    - gns3_lab_archive_path
+    - gns3_lab_archive_manifest_path
+    - gns3_lab_archive_sha256
+    - gns3_lab_archive_created_at
+    - gns3_lab_archive_members
+    - gns3_lab_archive_images_included
+
+probes: []
+constraints: []

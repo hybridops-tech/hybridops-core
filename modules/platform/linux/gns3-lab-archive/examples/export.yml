@@ -1,0 +1,7 @@
+inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+inventory_vm_groups:
+  targets:
+    - "gns3-01"
+target_user: "opsadmin"
+gns3_lab_archive_action: export
+gns3_lab_archive_include_images: false
