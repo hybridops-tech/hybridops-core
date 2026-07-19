@@ -59,6 +59,17 @@ class OnPremGNS3BlueprintTest(TestCase):
             "ubuntu-22.04",
         )
 
+    def test_destroy_protects_gns3_project_state(self) -> None:
+        archive = self.blueprint["archive_before_destroy"]
+        self.assertEqual(
+            archive["module_ref"],
+            "platform/linux/gns3-lab-archive",
+        )
+        self.assertEqual(archive["contract_prefix"], "gns3_lab_archive")
+        self.assertFalse(archive["node_state"])
+        self.assertTrue(archive["restore_overwrite_default"])
+        self.assertFalse(archive["inputs"]["gns3_lab_archive_include_images"])
+
     def test_healthcheck_runs_disposable_vpcs_lifecycle(self) -> None:
         health_step = self.blueprint["steps"][5]
         self.assertEqual(health_step["requires"], ["gns3_starter_lab"])

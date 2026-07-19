@@ -252,7 +252,15 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         raw_archive = as_mapping(
             spec.get("archive_before_destroy"), "archive_before_destroy"
         )
-        allowed = {"module_ref", "state_instance", "inputs"}
+        allowed = {
+            "module_ref",
+            "state_instance",
+            "inputs",
+            "contract_prefix",
+            "contents_label",
+            "node_state",
+            "restore_overwrite_default",
+        }
         unknown = sorted(str(key) for key in raw_archive if str(key) not in allowed)
         if unknown:
             raise ValueError(
@@ -273,7 +281,31 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 "archive_before_destroy.state_instance",
             ),
             "inputs": archive_inputs if isinstance(archive_inputs, dict) else {},
+            "contract_prefix": as_non_empty_string(
+                raw_archive.get("contract_prefix", "eveng_lab_archive"),
+                "archive_before_destroy.contract_prefix",
+            ),
+            "contents_label": as_non_empty_string(
+                raw_archive.get("contents_label", "lab definitions"),
+                "archive_before_destroy.contents_label",
+            ),
+            "node_state": bool_field(
+                raw_archive.get("node_state", True),
+                "archive_before_destroy.node_state",
+            ),
+            "restore_overwrite_default": bool_field(
+                raw_archive.get("restore_overwrite_default", False),
+                "archive_before_destroy.restore_overwrite_default",
+            ),
         }
+        if not re.fullmatch(
+            r"[a-z][a-z0-9_]*",
+            archive_before_destroy["contract_prefix"],
+        ):
+            raise ValueError(
+                "archive_before_destroy.contract_prefix must be a lowercase "
+                "input/output prefix"
+            )
 
     raw_steps = spec.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:

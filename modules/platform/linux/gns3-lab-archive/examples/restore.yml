@@ -1,0 +1,9 @@
+inventory_state_ref: "platform/onprem/platform-vm#gns3_vm"
+inventory_vm_groups:
+  targets:
+    - "gns3-01"
+target_user: "opsadmin"
+gns3_lab_archive_action: restore
+gns3_lab_archive_path: "/srv/hybridops/gns3/gns3-labs.tar.gz"
+gns3_lab_archive_expected_sha256: "CHANGE_ME"
+gns3_lab_archive_overwrite: true

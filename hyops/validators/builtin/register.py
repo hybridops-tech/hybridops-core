@@ -50,6 +50,7 @@ from hyops.validators.platform.linux import (
     eve_ng_images,
     eve_ng_lab_archive,
     eve_ng_labs,
+    gns3_lab_archive,
     gns3_images,
 )
 from hyops.validators.platform.onprem import (
@@ -109,6 +110,7 @@ def register_all() -> None:
     register("platform/linux/eve-ng-labs", eve_ng_labs.validate)
     register("platform/linux/eve-ng-healthcheck", eve_ng_healthcheck.validate)
     register("platform/linux/gns3-images", gns3_images.validate)
+    register("platform/linux/gns3-lab-archive", gns3_lab_archive.validate)
     register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)
     register("platform/network/edge-observability", edge_observability.validate)
     register("platform/network/cloudflare-traffic-steering", cloudflare_traffic_steering.validate)

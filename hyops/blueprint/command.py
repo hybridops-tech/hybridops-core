@@ -1377,6 +1377,25 @@ def run_access(ns) -> int:
         return OPERATOR_ERROR
 
 
+def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
+    prefix = str(lifecycle.get("contract_prefix") or "eveng_lab_archive").strip()
+    return {
+        "prefix": prefix,
+        "contents_label": str(
+            lifecycle.get("contents_label") or "lab definitions"
+        ).strip(),
+        "node_state": bool(lifecycle.get("node_state", True)),
+        "restore_overwrite_default": bool(
+            lifecycle.get("restore_overwrite_default", False)
+        ),
+        "path_output": f"{prefix}_path",
+        "sha256_output": f"{prefix}_sha256",
+        "node_included_output": f"{prefix}_node_state_included",
+        "node_path_output": f"{prefix}_node_state_archive_path",
+        "node_sha256_output": f"{prefix}_node_state_sha256",
+    }
+
+
 def _verified_lab_archive(
     payload: dict[str, Any],
     paths,
@@ -1394,10 +1413,9 @@ def _verified_lab_archive(
     except FileNotFoundError:
         return None
     outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
-    archive_path = Path(
-        str(outputs.get("eveng_lab_archive_path") or "")
-    ).expanduser()
-    expected = str(outputs.get("eveng_lab_archive_sha256") or "").strip().lower()
+    contract = _lab_archive_contract(lifecycle)
+    archive_path = Path(str(outputs.get(contract["path_output"]) or "")).expanduser()
+    expected = str(outputs.get(contract["sha256_output"]) or "").strip().lower()
     if not archive_path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", expected):
         return None
 
@@ -1410,12 +1428,14 @@ def _verified_lab_archive(
 
     node_archive: Path | None = None
     node_checksum = ""
-    if bool(outputs.get("eveng_lab_archive_node_state_included", False)):
+    if contract["node_state"] and bool(
+        outputs.get(contract["node_included_output"], False)
+    ):
         candidate = Path(
-            str(outputs.get("eveng_lab_archive_node_state_archive_path") or "")
+            str(outputs.get(contract["node_path_output"]) or "")
         ).expanduser()
         candidate_checksum = str(
-            outputs.get("eveng_lab_archive_node_state_sha256") or ""
+            outputs.get(contract["node_sha256_output"]) or ""
         ).strip().lower()
         if not candidate.is_file() or not re.fullmatch(
             r"[0-9a-f]{64}", candidate_checksum
@@ -1481,26 +1501,32 @@ def _run_lab_restore(
     archive: tuple[Path, str, Path | None, str],
 ) -> int:
     lifecycle = payload["archive_before_destroy"]
+    contract = _lab_archive_contract(lifecycle)
+    prefix = contract["prefix"]
     archive_path, checksum, node_archive_path, node_checksum = archive
     restore_inputs = dict(lifecycle.get("inputs") or {})
     restore_inputs.update(
         {
-            "eveng_lab_archive_action": "restore",
-            "eveng_lab_archive_path": str(archive_path),
-            "eveng_lab_archive_expected_sha256": checksum,
-            "eveng_lab_archive_include_node_state": False,
-            "eveng_lab_archive_stop_running_nodes": False,
-            "eveng_lab_archive_overwrite": bool(
-                getattr(ns, "overwrite_labs", False)
-            ),
+            f"{prefix}_action": "restore",
+            f"{prefix}_path": str(archive_path),
+            f"{prefix}_expected_sha256": checksum,
+            f"{prefix}_overwrite": bool(getattr(ns, "overwrite_labs", False))
+            or contract["restore_overwrite_default"],
         }
     )
-    if node_archive_path is not None:
+    if contract["node_state"]:
         restore_inputs.update(
             {
-                "eveng_lab_archive_restore_node_state": True,
-                "eveng_lab_archive_node_state_path": str(node_archive_path),
-                "eveng_lab_archive_node_state_expected_sha256": node_checksum,
+                f"{prefix}_include_node_state": False,
+                f"{prefix}_stop_running_nodes": False,
+            }
+        )
+    if contract["node_state"] and node_archive_path is not None:
+        restore_inputs.update(
+            {
+                f"{prefix}_restore_node_state": True,
+                f"{prefix}_node_state_path": str(node_archive_path),
+                f"{prefix}_node_state_expected_sha256": node_checksum,
             }
         )
     restore_step = {
@@ -2079,10 +2105,11 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
             state_instance=archive["state_instance"],
         )
         outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
+        contract = _lab_archive_contract(archive)
         archive_path = Path(
-            str(outputs.get("eveng_lab_archive_path") or "")
+            str(outputs.get(contract["path_output"]) or "")
         ).expanduser()
-        expected = str(outputs.get("eveng_lab_archive_sha256") or "").strip().lower()
+        expected = str(outputs.get(contract["sha256_output"]) or "").strip().lower()
         if not archive_path.is_file() or not expected:
             raise ValueError("lab export did not publish a verifiable archive")
         digest = hashlib.sha256()
@@ -2096,17 +2123,19 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     if actual != expected:
         print("ERR: lab archive checksum verification failed; no resources were destroyed")
         return OPERATOR_ERROR
-    archive_contents = ["lab definitions"]
+    archive_contents = [contract["contents_label"]]
     verbose = bool(os.getenv("HYOPS_VERBOSE"))
     if verbose:
         print(f"lab archive: {archive_path}")
         print(f"sha256: {actual}")
-    if bool(outputs.get("eveng_lab_archive_node_state_included", False)):
+    if contract["node_state"] and bool(
+        outputs.get(contract["node_included_output"], False)
+    ):
         node_archive_path = Path(
-            str(outputs.get("eveng_lab_archive_node_state_archive_path") or "")
+            str(outputs.get(contract["node_path_output"]) or "")
         ).expanduser()
         node_expected = str(
-            outputs.get("eveng_lab_archive_node_state_sha256") or ""
+            outputs.get(contract["node_sha256_output"]) or ""
         ).strip().lower()
         if not node_archive_path.is_file() or not re.fullmatch(
             r"[0-9a-f]{64}", node_expected
