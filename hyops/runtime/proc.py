@@ -138,7 +138,22 @@ def run_capture(
 
 
 def _progress_label(label: str) -> str:
-    return " ".join(label.replace("_", " ").replace("-", " ").split())
+    normalized = " ".join(label.replace("_", " ").replace("-", " ").split())
+    public_labels = {
+        "ansible apply": "configuration",
+        "ansible destroy": "configuration teardown",
+        "ansible plan": "configuration plan",
+        "ansible validate": "configuration validation",
+        "terragrunt init": "infrastructure preparation",
+        "terragrunt apply": "infrastructure",
+        "terragrunt destroy": "infrastructure teardown",
+        "terragrunt plan": "infrastructure plan",
+        "terragrunt output": "infrastructure state",
+        "packer init": "image preparation",
+        "packer validate": "image validation",
+        "packer build": "image build",
+    }
+    return public_labels.get(normalized, normalized)
 
 
 def _run_with_delayed_progress(
@@ -253,6 +268,7 @@ def run_capture_stream(
     argv: Sequence[str],
     evidence_dir: Path,
     label: str,
+    display_label: str | None = None,
     cwd: str | None = None,
     env: Mapping[str, str] | None = None,
     timeout_s: int | None = None,
@@ -348,10 +364,11 @@ def run_capture_stream(
         _write_result_envelope(evidence_dir, label, result, redact=redact)
         return result
     if stream_progress.enabled:
+        progress_label = _progress_label(display_label or label)
         stream_progress.start(
             label,
-            _progress_label(label),
-            plain=f"operation={label} status=running",
+            progress_label,
+            plain=f"operation={progress_label} status=running",
         )
     assert p.stdout is not None
     assert p.stderr is not None
@@ -479,11 +496,15 @@ def run_capture_stream(
     )
     _write_result_envelope(evidence_dir, label, r, redact=redact)
     if stream_progress.enabled:
+        progress_label = _progress_label(display_label or label)
         stream_progress.finish(
             label,
-            _progress_label(label),
+            progress_label,
             "cancelled" if interrupted else ("ok" if rc == 0 else "failed"),
-            plain=f"operation={label} status={'cancelled' if interrupted else ('ok' if rc == 0 else 'failed')}",
+            plain=(
+                f"operation={progress_label} "
+                f"status={'cancelled' if interrupted else ('ok' if rc == 0 else 'failed')}"
+            ),
         )
     if interrupted:
         raise KeyboardInterrupt

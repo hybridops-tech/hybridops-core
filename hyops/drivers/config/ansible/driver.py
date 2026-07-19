@@ -514,6 +514,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         env=env,
         evidence_dir=evidence_dir,
         label=label,
+        display_label=module_ref.rsplit("/", 1)[-1].replace("-", " "),
         timeout_s=timeout_s,
         redact=redact,
         retries=retries,

@@ -24,6 +24,11 @@ class _ImmediateTimer:
 
 
 class CapturedProcessProgressTests(unittest.TestCase):
+    def test_internal_driver_progress_labels_are_operator_facing(self) -> None:
+        self.assertEqual(proc._progress_label("ansible_apply"), "configuration")
+        self.assertEqual(proc._progress_label("terragrunt_apply"), "infrastructure")
+        self.assertEqual(proc._progress_label("packer_build"), "image build")
+
     def test_missing_command_returns_standard_result_and_record(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             evidence_dir = Path(tmp)
