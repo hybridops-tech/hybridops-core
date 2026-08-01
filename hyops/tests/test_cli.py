@@ -28,9 +28,13 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
 PUBLIC_COMMANDS = (
     "apply",
     "blueprint",
+    "deploy",
+    "destroy",
+    "import",
     "init",
     "inventory",
     "module",
+    "plan",
     "preflight",
     "rebuild",
     "runner",
@@ -40,6 +44,7 @@ PUBLIC_COMMANDS = (
     "state",
     "test",
     "update",
+    "validate",
     "vault",
 )
 
