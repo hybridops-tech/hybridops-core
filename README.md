@@ -150,6 +150,25 @@ Every `hyops` command writes a non-secret structured run record:
 ~/.hybridops/logs/init/<target>/<run_id>/
 ```
 
+### Runtime retention and cleanup
+
+The runtime root is local operator state, not repository content. HybridOps does
+not impose a retention period: keep run records while they are needed for
+debugging, audit, or handoff, then remove them according to the operator's own
+retention policy.
+
+For a local review, this command lists files under the default log directory
+that are older than seven days without deleting them:
+
+```bash
+find ~/.hybridops/logs -type f -mtime +7 -print
+```
+
+Review the output before removing anything. Do not treat the whole runtime root
+as disposable: `config/`, `credentials/`, `vault/`, `meta/`, and `state/` may
+contain active or sensitive environment data. Never commit runtime logs,
+credentials, vault material, private addresses, or unredacted evidence.
+
 ## Requirements
 
 - Python ≥ 3.11
