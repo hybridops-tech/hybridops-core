@@ -25,6 +25,25 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+PUBLIC_COMMANDS = (
+    "apply",
+    "blueprint",
+    "init",
+    "inventory",
+    "module",
+    "preflight",
+    "rebuild",
+    "runner",
+    "secrets",
+    "setup",
+    "show",
+    "state",
+    "test",
+    "update",
+    "vault",
+)
+
+
 class CliRoutingTests(unittest.TestCase):
     def test_version(self) -> None:
         result = run_cli("--version")
@@ -34,8 +53,9 @@ class CliRoutingTests(unittest.TestCase):
     def test_top_level_help_lists_public_commands(self) -> None:
         result = run_cli("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
-        for command in ("apply", "blueprint", "module", "state"):
-            self.assertIn(command, result.stdout)
+        for command in PUBLIC_COMMANDS:
+            with self.subTest(command=command):
+                self.assertIn(command, result.stdout)
 
     def test_top_level_help_omits_backend_maintenance_commands(self) -> None:
         result = run_cli("--help")
@@ -56,7 +76,7 @@ class CliRoutingTests(unittest.TestCase):
         self.assertIn("usage: hyops", result.stdout)
 
     def test_selected_command_help(self) -> None:
-        for command in ("apply", "blueprint", "module", "state"):
+        for command in PUBLIC_COMMANDS:
             with self.subTest(command=command):
                 result = run_cli(command, "--help")
                 self.assertEqual(result.returncode, 0, result.stderr)
