@@ -214,12 +214,12 @@ steps:
       ssh_username: opsadmin
       ssh_keys_from_init: true
       public_ipv6_enabled: false
-      firewall_name: CHANGE_ME_CONTROL_FIREWALL_NAME
-      ssh_source_cidrs:
-        - CHANGE_ME_OPERATOR_CIDR
-      firewall_extra_tcp_ports:
-        - 80
-        - 443
+    firewall_name: CHANGE_ME_CONTROL_FIREWALL_NAME
+    ssh_source_cidrs:
+      - CHANGE_ME_OPERATOR_CIDR
+    firewall_extra_tcp_ports:
+      - 80
+      - 443
   - id: edge_control_runner
     module_ref: platform/linux/ops-runner
     state_instance: edge_control_runner
