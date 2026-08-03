@@ -105,6 +105,33 @@ class BlueprintCatalogTests(unittest.TestCase):
             failures, count = check_blueprint_catalog(repo)
             self.assertTrue(len(failures) > 0)
 
+    def test_check_blueprint_catalog_unknown_step_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = Path(tmp_dir)
+            blueprints = repo / "blueprints" / "test" / "sample@v1"
+            blueprints.mkdir(parents=True)
+            modules = repo / "modules" / "test" / "sample-module"
+            modules.mkdir(parents=True)
+            (modules / "spec.yml").write_text("kind: ModuleSpec\n")
+
+            bp_spec = {
+                "api_version": "hybridops/v1",
+                "kind": "BlueprintSpec",
+                "blueprint_ref": "test/sample@v1",
+                "mode": "hybrid",
+                "steps": [
+                    {
+                        "id": "step1",
+                        "module_ref": "test/sample-module",
+                        "firewall_name": "invalid",
+                    }
+                ],
+            }
+            (blueprints / "blueprint.yml").write_text(yaml.dump(bp_spec))
+
+            failures, count = check_blueprint_catalog(repo)
+            self.assertTrue(any("step 'step1' has unknown keys: firewall_name" in f for f in failures))
+
 
 if __name__ == "__main__":
     unittest.main()
