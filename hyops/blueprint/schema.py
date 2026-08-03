@@ -314,6 +314,25 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
     step_ids: set[str] = set()
 
+    allowed_step_keys = {
+        "id",
+        "module_ref",
+        "execution_profile",
+        "action",
+        "phase",
+        "requires",
+        "with_deps",
+        "skip_if_state_ok",
+        "verify_state_on_skip",
+        "retain_on_destroy",
+        "optional",
+        "inputs",
+        "inputs_file",
+        "state_instance",
+        "presentation",
+        "contracts",
+    }
+
     for idx, raw in enumerate(raw_steps, start=1):
         step = as_mapping(raw, f"steps[{idx}]")
         step_id = as_non_empty_string(step.get("id"), f"steps[{idx}].id")
@@ -322,6 +341,12 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         if step_id in step_ids:
             raise ValueError(f"duplicate step id: {step_id}")
         step_ids.add(step_id)
+
+        unknown_step_keys = sorted([str(k) for k in step.keys() if str(k) not in allowed_step_keys])
+        if unknown_step_keys:
+            raise ValueError(
+                f"step '{step_id}' has unknown keys: {', '.join(unknown_step_keys)}"
+            )
 
         module_ref = module_ref_field(step.get("module_ref"), f"steps[{idx}].module_ref")
         execution_profile = str(step.get("execution_profile") or "").strip()
