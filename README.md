@@ -53,73 +53,19 @@ The full reference scenario library is published at **[docs.hybridops.tech/refer
 
 ## Quick start
 
-Install the release package for your workstation:
+For installation, workstation setup, target initialisation, and first-run guidance,
+see the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/).
 
-| Platform | Installation |
-|---|---|
-| Linux | Extract the versioned archive and run `./install.sh` |
-| macOS | Open the package for Apple silicon or Intel |
-| Windows 11 | Extract the Windows ZIP and run `Install HybridOps.cmd` |
-
-See the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/)
-for downloads, verification, and workstation setup.
-
-Inspect a shipped blueprint before configuring a provider:
+Inspect a shipped blueprint locally:
 
 ```bash
 hyops blueprint validate --ref onprem/authoritative-foundation@v1
 hyops blueprint plan --ref onprem/authoritative-foundation@v1
 ```
 
-`validate` checks the blueprint manifest. `plan` validates the manifest and
-prints the ordered steps. Neither command selects a runtime, invokes a driver,
-or contacts the provider. See the
-[authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/README.md)
-for the complete operating sequence.
-
-Initialise a target environment:
-
-```bash
-hyops init proxmox --env <env>
-hyops init gcp --env <env>
-```
-
-After initialization, preflight resolves the environment, runtime, contracts,
-credential requirements, state, and driver checks. Some module paths may inspect
-live state, but preflight does not deploy resources:
-
-```bash
-hyops blueprint preflight --env <env> --ref onprem/authoritative-foundation@v1
-```
-
-Run a module:
-
-```bash
-hyops apply --env <env> --module platform/onprem/rke2-cluster
-hyops apply --env <env> --module org/gcp/project-factory
-```
-
-Run a full blueprint (ordered multi-step deployment):
-
-```bash
-hyops blueprint deploy --env <env> --ref onprem/authoritative-foundation@v1 --execute
-```
-
-The runtime root defaults to `~/.hybridops`. Override with `--root <path>` or `$HYOPS_RUNTIME_ROOT`.
-
-Check the installed release when required:
-
-```bash
-hyops update check
-hyops update install
-```
-
-Core performs a cached, non-blocking release check during interactive use. The
-check does not collect command or environment data and can be disabled with
-`HYOPS_UPDATE_CHECK=0`. The published support policy can pause new mutating
-operations when an installed release is no longer supported;
-updates remain explicit, while destroy, recovery, access, and inspection stay
-available.
+These commands validate and plan the formation without contacting a provider.
+See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/)
+or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
 
 ## Execution model
 
@@ -150,25 +96,6 @@ Every `hyops` command writes a non-secret structured run record:
 ~/.hybridops/logs/init/<target>/<run_id>/
 ```
 
-### Runtime retention and cleanup
-
-The runtime root is local operator state, not repository content. HybridOps does
-not impose a retention period: keep run records while they are needed for
-debugging, audit, or handoff, then remove them according to the operator's own
-retention policy.
-
-For a local review, this command lists files under the default log directory
-that are older than seven days without deleting them:
-
-```bash
-find ~/.hybridops/logs -type f -mtime +7 -print
-```
-
-Review the output before removing anything. Do not treat the whole runtime root
-as disposable: `config/`, `credentials/`, `vault/`, `meta/`, and `state/` may
-contain active or sensitive environment data. Never commit runtime logs,
-credentials, vault material, private addresses, or unredacted evidence.
-
 ## Requirements
 
 - Python ≥ 3.11
@@ -176,8 +103,8 @@ credentials, vault material, private addresses, or unredacted evidence.
 
 ## Research and external review
 
-HybridOps Core also serves as the public reference implementation for ongoing
-research in platform engineering and infrastructure automation.
+HybridOps Core is the public reference implementation for ongoing research in
+platform engineering and infrastructure automation.
 
 See [Research and External Review](RESEARCH.md) for published papers,
 implementation maps, and external technical reviews.
