@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -54,6 +55,16 @@ class CliRoutingTests(unittest.TestCase):
         result = run_cli("--version")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout.strip(), r"^\d+\.\d+\.\d+(?:[-+].*)?$")
+
+    def test_source_version_metadata_matches_runtime(self) -> None:
+        import hyops
+
+        project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        package_version = project["project"]["version"]
+
+        self.assertEqual(package_version, hyops.__version__)
+        self.assertFalse(package_version.startswith("0.0.0"))
+        self.assertNotIn("dev", package_version.lower())
 
     def test_top_level_help_lists_public_commands(self) -> None:
         result = run_cli("--help")
