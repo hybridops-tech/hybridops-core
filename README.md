@@ -174,6 +174,14 @@ credentials, vault material, private addresses, or unredacted evidence.
 - Python ≥ 3.11
 - Tool dependencies vary by module: `terraform`, `terragrunt`, `ansible`, `packer`, `gcloud`, `kubectl`; only the tools used by the modules you run need to be present
 
+## Research and external review
+
+HybridOps Core also serves as the public reference implementation for ongoing
+research in platform engineering and infrastructure automation.
+
+See [Research and External Review](RESEARCH.md) for published papers,
+implementation mappings, and independent practitioner assessments.
+
 ## Documentation
 
 - **Full docs and reference scenarios:** [docs.hybridops.tech](https://docs.hybridops.tech)
