@@ -1,14 +1,14 @@
 # Research and External Review
 
-HybridOps Core provides the public implementation material for the research papers listed below. Each paper is linked to relevant documentation, blueprint formations, and source code where applicable.
+HybridOps Core contains the public implementation references for the research papers below. Each paper links to the relevant documentation, blueprint formations, and source code.
 
 ## Using the implementation maps
 
-Each map uses three types of reference:
+Each map points to three types of reference where relevant:
 
 - **Public docs:** architecture context, reference scenarios, runbooks, and the generated blueprint catalog.
 - **Blueprint formations:** shipped blueprint directories that show the README, `blueprint.yml`, and related files together.
-- **Runtime and module source:** the code that implements the relevant contract, validation, lifecycle, or evidence behaviour.
+- **Runtime and module source:** code that implements the relevant contract, validation, lifecycle, or evidence behaviour.
 
 The [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/) is the main catalog for shipped formations, runbooks, and source contracts. The repository [Blueprints directory](blueprints/) documents the contract model and exposes the formations directly.
 
