@@ -15,7 +15,7 @@
     <td align="center"><strong>80</strong><br><sub>runtime modules</sub></td>
     <td align="center"><strong>28</strong><br><sub>reference blueprints</sub></td>
     <td align="center"><strong>52</strong><br><sub>public decision records</sub></td>
-    <td align="center"><strong>8</strong><br><sub>execution targets</sub></td>
+    <td align="center"><strong>8</strong><br><sub>supported targets</sub></td>
   </tr>
 </table>
 
