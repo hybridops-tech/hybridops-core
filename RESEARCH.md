@@ -1,14 +1,14 @@
 # Research and External Review
 
-HybridOps Core is the public reference implementation for the technical papers below. The papers examine contract-driven infrastructure operations across heterogeneous tools, targets, and environments.
+HybridOps Core is the public reference implementation for the technical papers below. The papers examine contract-driven infrastructure operations across heterogeneous environments and lifecycle boundaries.
 
 ## Research scope
 
-HybridOps defines one operator contract across intent, environment policy, dependency ordering, preflight, execution, published outputs, and run records. Terraform, Terragrunt, Ansible, Packer, Kubernetes tooling, provider CLIs, and APIs integrate through modules, drivers, and packs as execution mechanisms within that lifecycle.
+HybridOps defines one operator contract across intent, environment policy, dependency ordering, preflight, execution, published outputs, verification, and run records. Modules, drivers, and packs bind environment-specific implementation behind those contracts while blueprints compose the wider lifecycle.
 
-The contribution under review is the runtime architecture, its contract boundaries, and the implementation used to exercise them across different infrastructure classes. Contracts, dependency graphs, validation, and health checks are established mechanisms; HybridOps composes them into a consistent runtime model intended to preserve lifecycle semantics across heterogeneous execution surfaces.
+The contribution under review is the runtime architecture, its contract boundaries, and the implementation used to exercise them across different infrastructure classes. Contracts, dependency graphs, validation, and health checks are established mechanisms. HybridOps makes them part of a consistent runtime model with explicit lifecycle semantics, policy separation, implementation substitution, and structured operational records.
 
-The review should test the architecture against real operating conditions, including provider substitution, partial failure, recovery, authority changes, concurrency, and scale. Claims in the papers are mapped to public implementation references so reviewers can examine the runtime rather than assess the papers in isolation.
+The review should test the architecture against real operating conditions, including partial failure, recovery, authority changes, concurrency, implementation substitution, and scale. Claims in the papers are mapped to public implementation references so reviewers can examine the runtime rather than assess the papers in isolation.
 
 ## Using the implementation maps
 
@@ -117,7 +117,7 @@ Useful review areas include:
 - architectural coherence of the runtime and contract boundaries
 - operational value across heterogeneous infrastructure environments
 - failure handling, authority, concurrency, recovery, and scale
-- portability across providers, targets, and implementation changes
+- portability across environments, lifecycle stages, and implementation changes
 - comparison with relevant existing systems and operating models
 - whether the implementation and evidence support the claims made in each paper
 
