@@ -23,39 +23,28 @@
 
 ## What this is
 
-HybridOps Core is the automation runtime behind a hybrid infrastructure platform that runs across **Proxmox, Hetzner, GCP, AWS, Azure, Kubernetes, Cloudflare, and local** targets.
+HybridOps Core provides one operator contract for infrastructure lifecycles across **Proxmox, Hetzner, GCP, AWS, Azure, Kubernetes, Cloudflare, and local** targets.
 
-It provides a stable operator boundary above the tools that perform the work. Module specs define intent, profiles carry environment policy, drivers adapt execution, packs contain versioned implementation assets, and the runtime records the result of each operation.
+Module specs define intent. Profiles carry environment policy. Drivers adapt execution. Packs contain versioned implementation assets. Blueprints compose modules into dependency-aware operations. The runtime validates the resolved contract, performs preflight, executes the selected implementation, publishes outputs, and writes a structured run record.
 
-HybridOps does not replace Terraform, Terragrunt, Ansible, Packer, Kubernetes, cloud APIs, or application health mechanisms. Those remain execution surfaces beneath the runtime. The purpose of Core is to keep the operator-facing lifecycle consistent when an infrastructure operation crosses several of them.
+Terraform, Terragrunt, Ansible, Packer, Kubernetes tooling, provider CLIs, and APIs integrate through the runtime rather than defining the operator workflow themselves.
 
-Core adds:
+Core standardises:
 
-- **controlled execution:** modules and blueprints resolve through one runtime path
-- **governance and preflight validation:** required conditions are checked before dependent work proceeds
-- **structured run records:** each operation produces a non-secret record with inputs, execution metadata, outputs, and redacted logs
-
-Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) merges and validates runtime inputs, applies profile policy, selects a driver and pack, executes the operation, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments, evaluate required preflight checks before execution, and require explicit confirmation when rerun or destructive risk is detected.
-
-### Where the extra runtime boundary is useful
-
-The runtime is intended for operations where ownership is split across tools or targets. Examples include a workflow that provisions infrastructure, configures services, publishes state, validates health, and records recovery or teardown outcomes across different systems.
-
-If one existing control plane already owns the complete lifecycle, adding HybridOps may provide little value. A single Terraform stack, a self-contained Kubernetes operator, or a provider-native workflow can be the better boundary when it already provides the required policy, lifecycle, and evidence model.
-
-The design question is therefore not whether contracts, validation, state, or health checks already exist. They do. The question is whether a common operator contract across heterogeneous execution surfaces reduces lifecycle-specific glue without hiding the systems that remain authoritative.
+- **contract resolution:** deterministic input merge, validation, dependency ordering, and environment policy
+- **controlled execution:** driver-based dispatch through versioned implementation packs and isolated workdirs
+- **preflight and verification:** required conditions and module probes around execution
+- **run records:** non-secret execution records with metadata, outputs, and redacted logs
 
 ## Reference scenarios
 
-HybridOps is exercised through complete reference scenarios rather than isolated configuration examples. Each scenario connects architecture, operating procedures, and run records across a tested platform path. The library includes source-of-truth operations, Kubernetes platform foundations, hybrid WAN extension, secret delivery, and disaster recovery.
-
-Representative scenarios:
+HybridOps is exercised through complete platform paths rather than isolated configuration examples.
 
 - **[Authoritative on-prem foundation](https://docs.hybridops.tech/reference-scenarios/authoritative-onprem-foundation/):** NetBox-backed source-of-truth operations and Proxmox SDN baseline
 - **[PostgreSQL HA failover and failback](https://docs.hybridops.tech/reference-scenarios/postgresql-ha-dr-cycle/):** Patroni, pgBackRest, GCP recovery, and controlled failback
 - **[RKE2 HA platform foundation](https://docs.hybridops.tech/reference-scenarios/gitops-kubernetes-foundation/):** RKE2 cluster foundation with GitOps delivery
 
-The full reference scenario library is published at **[docs.hybridops.tech/reference-scenarios](https://docs.hybridops.tech/reference-scenarios)**.
+See the full [reference scenario library](https://docs.hybridops.tech/reference-scenarios/).
 
 ## Quick start
 
@@ -68,7 +57,7 @@ hyops blueprint validate --ref onprem/authoritative-foundation@v1
 hyops blueprint plan --ref onprem/authoritative-foundation@v1
 ```
 
-These commands validate and plan the formation without contacting a provider. See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/) or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
+See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/) or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
 
 ## Execution model
 
@@ -88,13 +77,11 @@ flowchart LR
     driver --> record
 ```
 
-This boundary keeps intent, policy, implementation, and execution records separate: module specs define intent, profiles carry policy, packs carry implementation assets, and drivers produce reviewable run records.
+This boundary keeps intent, policy, implementation, and execution records separate. Blueprints add explicit ordering, required preflight evaluation, and guarded lifecycle operations around the same runtime path.
 
-Blueprints sequence modules into repeatable deployments with explicit ordering, required preflight evaluation before execution, and confirmation prompts when rerun or destructive risk is detected.
+Run records are written under stable paths such as:
 
-Every `hyops` command writes a non-secret structured run record:
-
-```
+```text
 ~/.hybridops/logs/module/<module_id>/<run_id>/
 ~/.hybridops/logs/init/<target>/<run_id>/
 ```
@@ -102,11 +89,11 @@ Every `hyops` command writes a non-secret structured run record:
 ## Requirements
 
 - Python >= 3.11
-- Tool dependencies vary by module: `terraform`, `terragrunt`, `ansible`, `packer`, `gcloud`, `kubectl`; only the tools used by the modules you run need to be present
+- Tool dependencies vary by module: `terraform`, `terragrunt`, `ansible`, `packer`, `gcloud`, `kubectl`
 
 ## Research and external review
 
-HybridOps Core is the public reference implementation for ongoing research in platform engineering and infrastructure automation.
+HybridOps Core is the public reference implementation for ongoing work in platform engineering and infrastructure automation.
 
 See [Research and External Review](RESEARCH.md) for published papers, implementation maps, and external technical reviews.
 
@@ -115,8 +102,7 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 - **Full docs and reference scenarios:** [docs.hybridops.tech](https://docs.hybridops.tech)
 - **Public site:** [hybridops.tech](https://hybridops.tech)
 - **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Security reports:** [security@hybridops.tech](mailto:security@hybridops.tech), see [SECURITY.md](.github/SECURITY.md)
-- **Bugs and feature requests:** use the issue tracker
+- **Security:** [SECURITY.md](.github/SECURITY.md)
 - **Reference model:** [Anuket CNTT](https://cntt.readthedocs.io/en/latest/common/chapter00.html)
 
 ## License
