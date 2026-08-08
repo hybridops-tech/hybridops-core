@@ -23,11 +23,13 @@
 
 ## What this is
 
-HybridOps Core is the runtime that gives infrastructure operations a stable operator contract across environments, lifecycle stages, and implementation changes.
+An individual control system can complete its work while the wider operation remains incomplete: an authority may be stale, a dependency unavailable, a result unverified, or teardown unfinished.
+
+HybridOps Core governs that cross-system transition through a stable operator contract across environments, lifecycle stages, and implementation changes. Native platforms remain authoritative for their own resources; Core governs whether the wider operation may advance.
 
 A `ModuleSpec` defines intended capability. A `Profile` carries environment policy. A `Driver` binds execution. A versioned `Pack` carries implementation assets. A `Blueprint` composes modules into a dependency-aware lifecycle. The runtime resolves these contracts, performs preflight, executes the selected implementation, publishes outputs, and writes a structured run record.
 
-Core standardises:
+Core governs across these handoffs:
 
 - **contract resolution:** deterministic input merge, validation, dependency ordering, and environment policy
 - **controlled execution:** driver-based dispatch through versioned implementation packs and isolated workdirs
