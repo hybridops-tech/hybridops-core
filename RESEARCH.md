@@ -1,18 +1,14 @@
 # Research and External Review
 
-HybridOps Core contains the public implementation references for the research papers below. Each paper links to the relevant documentation, blueprint formations, and source code.
+HybridOps Core is the public reference implementation for the technical papers below. The papers examine contract-driven infrastructure operations across heterogeneous tools, targets, and environments.
 
-## Review boundary
+## Research scope
 
-HybridOps is not presented as a replacement for Terraform, Terragrunt, Ansible, Packer, Kubernetes, provider APIs, or application runtime mechanisms. Those systems remain responsible for the work they already do.
+HybridOps defines one operator contract across intent, environment policy, dependency ordering, preflight, execution, published outputs, and run records. Terraform, Terragrunt, Ansible, Packer, Kubernetes tooling, provider CLIs, and APIs integrate through modules, drivers, and packs as execution mechanisms within that lifecycle.
 
-The research question is narrower: when one infrastructure operation crosses several tools or targets, can the operator-facing lifecycle remain stable across them?
+The contribution under review is the runtime architecture, its contract boundaries, and the implementation used to exercise them across different infrastructure classes. Contracts, dependency graphs, validation, and health checks are established mechanisms; HybridOps composes them into a consistent runtime model intended to preserve lifecycle semantics across heterogeneous execution surfaces.
 
-HybridOps tests that question by placing a common runtime boundary around intent, environment policy, dependency ordering, preflight, execution, published outputs, and run records while leaving the underlying implementation tool-specific and replaceable.
-
-The individual mechanisms are not claimed as novel. Contracts, dependency graphs, validation, health checks, state, retries, and logging are established techniques. The contribution under review is their composition at this cross-tool infrastructure boundary, together with the implementation used to test whether the added abstraction is operationally justified.
-
-The model is not expected to add value everywhere. If one existing control plane already owns the complete lifecycle and provides the required policy, validation, state, and evidence, an additional runtime layer may be unnecessary. Reviewers are specifically invited to identify those cases.
+The review should test the architecture against real operating conditions, including provider substitution, partial failure, recovery, authority changes, concurrency, and scale. Claims in the papers are mapped to public implementation references so reviewers can examine the runtime rather than assess the papers in isolation.
 
 ## Using the implementation maps
 
@@ -116,13 +112,13 @@ The [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/) is the m
 
 Independent practitioners are invited to assess the papers against the corresponding public implementation.
 
-A review may cover:
+Useful review areas include:
 
-- whether the stated operating problem exists in the reviewer's environment
-- whether an existing control plane already solves it without another runtime layer
-- technical credibility of the proposed boundary
-- practical value relative to the added abstraction
-- architectural limitations, unsupported assumptions, and failure modes
-- whether the implementation supports the claims made in the paper
+- architectural coherence of the runtime and contract boundaries
+- operational value across heterogeneous infrastructure environments
+- failure handling, authority, concurrency, recovery, and scale
+- portability across providers, targets, and implementation changes
+- comparison with relevant existing systems and operating models
+- whether the implementation and evidence support the claims made in each paper
 
-Critical findings and counterexamples are welcome.
+Specific criticism and counterexamples are welcome.
