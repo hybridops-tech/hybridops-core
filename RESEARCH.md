@@ -2,6 +2,18 @@
 
 HybridOps Core contains the public implementation references for the research papers below. Each paper links to the relevant documentation, blueprint formations, and source code.
 
+## Review boundary
+
+HybridOps is not presented as a replacement for Terraform, Terragrunt, Ansible, Packer, Kubernetes, provider APIs, or application runtime mechanisms. Those systems remain responsible for the work they already do.
+
+The research question is narrower: when one infrastructure operation crosses several tools or targets, can the operator-facing lifecycle remain stable across them?
+
+HybridOps tests that question by placing a common runtime boundary around intent, environment policy, dependency ordering, preflight, execution, published outputs, and run records while leaving the underlying implementation tool-specific and replaceable.
+
+The individual mechanisms are not claimed as novel. Contracts, dependency graphs, validation, health checks, state, retries, and logging are established techniques. The contribution under review is their composition at this cross-tool infrastructure boundary, together with the implementation used to test whether the added abstraction is operationally justified.
+
+The model is not expected to add value everywhere. If one existing control plane already owns the complete lifecycle and provides the required policy, validation, state, and evidence, an additional runtime layer may be unnecessary. Reviewers are specifically invited to identify those cases.
+
 ## Using the implementation maps
 
 Each map points to three types of reference where relevant:
@@ -106,11 +118,11 @@ Independent practitioners are invited to assess the papers against the correspon
 
 A review may cover:
 
-- whether the problem reflects real operational practice
-- technical credibility
-- practical value
-- architectural limitations
-- unsupported assumptions or failure modes
+- whether the stated operating problem exists in the reviewer's environment
+- whether an existing control plane already solves it without another runtime layer
+- technical credibility of the proposed boundary
+- practical value relative to the added abstraction
+- architectural limitations, unsupported assumptions, and failure modes
 - whether the implementation supports the claims made in the paper
 
-Critical findings are welcome.
+Critical findings and counterexamples are welcome.

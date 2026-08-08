@@ -25,23 +25,29 @@
 
 HybridOps Core is the automation runtime behind a hybrid infrastructure platform that runs across **Proxmox, Hetzner, GCP, AWS, Azure, Kubernetes, Cloudflare, and local** targets.
 
-It keeps module intent stable while drivers run versioned implementation packs,
-profiles apply environment policy, preflight checks readiness, and each
-operation produces a structured run record. It adds:
+It provides a stable operator boundary above the tools that perform the work. Module specs define intent, profiles carry environment policy, drivers adapt execution, packs contain versioned implementation assets, and the runtime records the result of each operation.
 
-- **controlled execution:** how modules and blueprints are resolved and run
-- **governance and preflight validation:** checks before an operation proceeds, including blueprint-level preflight before deploy execution
-- **structured run records:** a non-secret record for every operation
+HybridOps does not replace Terraform, Terragrunt, Ansible, Packer, Kubernetes, cloud APIs, or application health mechanisms. Those remain execution surfaces beneath the runtime. The purpose of Core is to keep the operator-facing lifecycle consistent when an infrastructure operation crosses several of them.
 
-Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) resolves the contract, selects a driver, executes it, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments, evaluate required preflight checks before execution, and surface explicit confirmation when rerun or destructive risk is detected.
+Core adds:
+
+- **controlled execution:** modules and blueprints resolve through one runtime path
+- **governance and preflight validation:** required conditions are checked before dependent work proceeds
+- **structured run records:** each operation produces a non-secret record with inputs, execution metadata, outputs, and redacted logs
+
+Each module carries a declarative intent contract (`spec.yml`). A CLI (`hyops`) merges and validates runtime inputs, applies profile policy, selects a driver and pack, executes the operation, and writes a structured run record. Blueprints sequence modules into repeatable multi-step deployments, evaluate required preflight checks before execution, and require explicit confirmation when rerun or destructive risk is detected.
+
+### Where the extra runtime boundary is useful
+
+The runtime is intended for operations where ownership is split across tools or targets. Examples include a workflow that provisions infrastructure, configures services, publishes state, validates health, and records recovery or teardown outcomes across different systems.
+
+If one existing control plane already owns the complete lifecycle, adding HybridOps may provide little value. A single Terraform stack, a self-contained Kubernetes operator, or a provider-native workflow can be the better boundary when it already provides the required policy, lifecycle, and evidence model.
+
+The design question is therefore not whether contracts, validation, state, or health checks already exist. They do. The question is whether a common operator contract across heterogeneous execution surfaces reduces lifecycle-specific glue without hiding the systems that remain authoritative.
 
 ## Reference scenarios
 
-HybridOps is exercised through complete reference scenarios rather than isolated
-configuration examples. Each scenario connects architecture, operating
-procedures, and run records across a tested platform path. The library includes
-source-of-truth operations, Kubernetes platform foundations, hybrid WAN
-extension, secret delivery, and disaster recovery.
+HybridOps is exercised through complete reference scenarios rather than isolated configuration examples. Each scenario connects architecture, operating procedures, and run records across a tested platform path. The library includes source-of-truth operations, Kubernetes platform foundations, hybrid WAN extension, secret delivery, and disaster recovery.
 
 Representative scenarios:
 
@@ -53,8 +59,7 @@ The full reference scenario library is published at **[docs.hybridops.tech/refer
 
 ## Quick start
 
-For installation, workstation setup, target initialisation, and first-run guidance,
-see the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/).
+For installation, workstation setup, target initialisation, and first-run guidance, see the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/).
 
 Inspect a shipped blueprint locally:
 
@@ -63,9 +68,7 @@ hyops blueprint validate --ref onprem/authoritative-foundation@v1
 hyops blueprint plan --ref onprem/authoritative-foundation@v1
 ```
 
-These commands validate and plan the formation without contacting a provider.
-See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/)
-or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
+These commands validate and plan the formation without contacting a provider. See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/) or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
 
 ## Execution model
 
@@ -98,16 +101,14 @@ Every `hyops` command writes a non-secret structured run record:
 
 ## Requirements
 
-- Python ≥ 3.11
+- Python >= 3.11
 - Tool dependencies vary by module: `terraform`, `terragrunt`, `ansible`, `packer`, `gcloud`, `kubectl`; only the tools used by the modules you run need to be present
 
 ## Research and external review
 
-HybridOps Core is the public reference implementation for ongoing research in
-platform engineering and infrastructure automation.
+HybridOps Core is the public reference implementation for ongoing research in platform engineering and infrastructure automation.
 
-See [Research and External Review](RESEARCH.md) for published papers,
-implementation maps, and external technical reviews.
+See [Research and External Review](RESEARCH.md) for published papers, implementation maps, and external technical reviews.
 
 ## Documentation
 
