@@ -22,9 +22,11 @@ The [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/) is the m
 
 ## Published research
 
-### HybridOps Contract Runtime: Technical Review v1.0
+### HybridOps Contract Runtime: Technical Review v1.1
 
-**Paper:** https://hybridops.tech/papers/hybridops-contract-runtime-technical-review-v1.0.pdf
+**Paper:** https://hybridops.tech/papers/hybridops-contract-runtime-technical-review-v1.1.pdf
+
+**Earlier institutional review edition:** https://hybridops.tech/papers/hybridops-contract-runtime-technical-review-v1.0.pdf
 
 **Implementation map:**
 
