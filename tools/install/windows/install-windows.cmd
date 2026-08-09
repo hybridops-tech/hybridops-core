@@ -331,7 +331,7 @@ if exist "%WSL_SETUP_MARKER%" (
 echo.
 echo HybridOps.Core installation completed.
 if "!SHORTCUTS_CREATED!"=="true" (
-  echo Open HybridOps.Core from the desktop or this folder, then run: hyops --help
+  echo Open HybridOps.Core from the desktop, then run: hyops --help
 ) else (
   echo Open Ubuntu 24.04 from the Windows Start menu, then run: hyops --help
 )
