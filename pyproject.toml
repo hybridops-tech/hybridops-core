@@ -34,6 +34,7 @@ include = ["hyops*"]
   "collections/**/*.txt",
 ]
 "hyops.drivers.images.packer" = ["profiles/*.yml", "README.md"]
+"hyops.state" = ["examples/*.yml"]
 
 [project.scripts]
 hyops = "hyops.cli:main"

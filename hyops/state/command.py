@@ -6,6 +6,7 @@ maintainer: HybridOps.Tech
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,14 @@ from hyops.runtime.module_state import (
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.refs import module_id_from_ref
 from hyops.runtime.source_roots import resolve_input_path, resolve_module_root
+from hyops.runtime.state import write_json_atomic
+from hyops.state.stop_state import (
+    NON_TERMINAL,
+    StopStateManifestError,
+    evaluate_stop_state,
+    format_stop_state_result,
+    load_stop_state_manifest,
+)
 
 
 def add_state_subparser(sp: argparse._SubParsersAction) -> None:
@@ -96,6 +105,46 @@ def add_state_subparser(sp: argparse._SubParsersAction) -> None:
     )
     d.add_argument("--out-dir", default=None, help="Override evidence root.")
     d.set_defaults(_handler=run_detach)
+
+    v = ssp.add_parser(
+        "verify-stop",
+        help="Verify the stopping condition recorded for an environment.",
+    )
+    v.add_argument(
+        "--manifest",
+        required=True,
+        help="Lifecycle manifest in YAML or JSON format.",
+    )
+    v.add_argument("--json", action="store_true", help="Emit the result as JSON.")
+    v.add_argument(
+        "--output",
+        default=None,
+        help="Write the normalized JSON result to this path.",
+    )
+    v.set_defaults(_handler=run_verify_stop)
+
+
+def run_verify_stop(ns) -> int:
+    try:
+        manifest = load_stop_state_manifest(Path(str(ns.manifest)))
+        result = evaluate_stop_state(manifest)
+    except StopStateManifestError as exc:
+        print(f"ERR: invalid stop-state manifest: {exc}", file=sys.stderr)
+        return 2
+
+    output = str(getattr(ns, "output", "") or "").strip()
+    if output:
+        try:
+            write_json_atomic(Path(output).expanduser().resolve(), result)
+        except OSError as exc:
+            print(f"ERR: cannot write stop-state result: {exc}", file=sys.stderr)
+            return 2
+
+    if bool(getattr(ns, "json", False)):
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        print(format_stop_state_result(result))
+    return 2 if result["result"] == NON_TERMINAL else 0
 
 
 def run_unlock(ns) -> int:

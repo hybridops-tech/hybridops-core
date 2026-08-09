@@ -1,0 +1,51 @@
+schema_version: "1.0"
+
+environment:
+  id: training-lab
+  state_timestamp: 2026-07-30T18:00:00Z
+  resources:
+    - logical_id: private_network
+      provider_id: projects/example/global/networks/training-lab
+      state: destroyed
+      retention_class: reproducible
+      cost_basis: network control plane
+      cost_bearing: false
+    - logical_id: lab_host
+      provider_id: projects/example/zones/europe-west2-b/instances/training-lab
+      state: destroyed
+      retention_class: preserve
+      cost_basis: compute and persistent storage
+      archive_scopes:
+        - lab_state
+    - logical_id: image_cache
+      provider_id: storage/example/images/training-lab
+      state: retained
+      retention_class: retained
+      cost_basis: retained storage
+      owner: network-platform
+      review_date: 2026-08-31
+
+estimate:
+  currency: USD
+  fixed_hourly: 0.42
+  included:
+    - lab_host
+  excluded:
+    - image_cache
+  pricing_timestamp: 2026-07-30T17:45:00Z
+
+archives:
+  - scope: lab_state
+    location: artifacts/training-lab/lab-state.tar.gz
+    integrity_value: sha256:8d5f73b7c5c8f573cb2f8d876854960a21a4e28f83fe3366db7d40db3df34d9f
+    verification: passed
+
+teardown:
+  started_at: 2026-07-30T17:50:00Z
+  steps:
+    - resource: lab_host
+      result: destroyed
+    - resource: private_network
+      result: destroyed
+    - resource: image_cache
+      result: retained
