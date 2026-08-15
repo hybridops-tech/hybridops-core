@@ -21,6 +21,7 @@ def _ensure_dir(path: Path, mode: int) -> bool:
     if path.exists():
         if not path.is_dir():
             raise RuntimeError(f"Path exists but is not a directory: {path}")
+        os.chmod(path, mode)
         return False
     path.mkdir(parents=True, exist_ok=True)
     os.chmod(path, mode)
