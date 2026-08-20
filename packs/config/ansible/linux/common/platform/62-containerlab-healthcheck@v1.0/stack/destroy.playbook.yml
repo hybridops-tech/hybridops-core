@@ -1,0 +1,19 @@
+---
+- name: Destroy platform/linux/containerlab-healthcheck
+  hosts: targets
+  become: false
+  gather_facts: false
+
+  tasks:
+    - name: Healthcheck has no owned remote resources
+      ansible.builtin.debug:
+        msg: "Containerlab healthcheck state cleared; no remote resources are owned."
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {'cap.lab.containerlab.health': 'absent'} | to_json }}

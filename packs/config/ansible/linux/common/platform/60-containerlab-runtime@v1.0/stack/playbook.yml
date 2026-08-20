@@ -1,0 +1,26 @@
+---
+- name: platform/linux/containerlab
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Install and verify Containerlab runtime
+      ansible.builtin.include_role:
+        name: "{{ containerlab_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.containerlab.runtime': 'ready',
+            'containerlab_runtime_status': containerlab_runtime_result.status,
+            'containerlab_version': containerlab_runtime_result.version,
+            'containerlab_package_checksum': containerlab_runtime_result.package_checksum,
+            'containerlab_kvm_status': containerlab_runtime_result.kvm
+          } | to_json }}

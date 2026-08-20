@@ -1,0 +1,9 @@
+# Minimal recovery-guard example for a disposable Containerlab host.
+
+target_host: "10.80.70.10"
+target_user: "opsadmin"
+containerlab_recovery_action: "arm"
+containerlab_recovery_mode: "rebuild"
+containerlab_recovery_source_root: "/var/lib/hybridops/containerlab/labs/example"
+containerlab_recovery_topology_relpath: "lab.clab.yml"
+containerlab_recovery_labdir_base: "/var/lib/hybridops/containerlab/labdirs"

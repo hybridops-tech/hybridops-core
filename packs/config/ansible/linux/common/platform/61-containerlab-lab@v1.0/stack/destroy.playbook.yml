@@ -1,0 +1,60 @@
+---
+- name: Destroy platform/linux/containerlab-lab
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_remote_dir: >-
+      {{
+        containerlab_lab_remote_dir
+        | default('/var/lib/hybridops/containerlab/labs/gcp-containerlab')
+        | regex_replace('/+$', '')
+      }}
+
+  tasks:
+    - name: Initialize native cleanup status
+      ansible.builtin.set_fact:
+        _hyops_containerlab_cleanup_status: "ok"
+
+    - name: Ask Containerlab to clean the dedicated disposable host
+      block:
+        - name: Delegate dedicated-host lab destruction to Containerlab
+          ansible.builtin.include_role:
+            name: "{{ containerlab_lab_role_fqcn }}"
+          vars:
+            _containerlab_lab_action: destroy
+            _containerlab_lab_destroy_all: true
+      rescue:
+        - name: Record best-effort native cleanup failure
+          ansible.builtin.set_fact:
+            _hyops_containerlab_cleanup_status: "failed"
+
+        - name: Report best-effort native cleanup failure
+          ansible.builtin.debug:
+            msg: >-
+              Containerlab native cleanup failed after the recovery gate passed.
+              HybridOps will continue toward disposal of the dedicated managed
+              execution host rather than keep cloud compute alive solely for
+              container cleanup.
+
+    - name: Remove staged Containerlab source tree
+      ansible.builtin.file:
+        path: "{{ _hyops_remote_dir }}"
+        state: absent
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.containerlab': (
+              'absent'
+              if _hyops_containerlab_cleanup_status == 'ok'
+              else 'cleanup-failed-host-disposal-pending'
+            )
+          } | to_json }}

@@ -1,0 +1,87 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/containerlab-recovery"
+
+metadata:
+  title: "Linux Containerlab Recovery Guard"
+  description: "Guard disposable-host teardown on verified off-host retention of a declared Containerlab-native recovery set."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+    containerlab_recovery_role_fqcn: "hybridops.app.containerlab_recovery"
+    containerlab_recovery_action: "arm"
+    containerlab_recovery_mode: "rebuild"
+    containerlab_recovery_topology_path: ""
+    containerlab_recovery_source_root: ""
+    containerlab_recovery_topology_relpath: ""
+    containerlab_recovery_image_refs: []
+    containerlab_recovery_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+    containerlab_recovery_controller_dir: ""
+    containerlab_recovery_latest_path: ""
+    containerlab_recovery_path: ""
+    containerlab_recovery_archive_path: ""
+    containerlab_recovery_expected_sha256: ""
+    containerlab_recovery_overwrite: false
+    containerlab_recovery_save_configs: true
+    containerlab_recovery_save_configs_required: false
+    containerlab_recovery_snapshot_timeout: "5m"
+    containerlab_recovery_snapshot_node_filter: ""
+    containerlab_recovery_include_lab_dir: false
+    containerlab_recovery_lab_dir: ""
+    containerlab_recovery_additional_paths: []
+    containerlab_recovery_disable_version_check: true
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/63-containerlab-recovery@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.containerlab.recovery
+    - containerlab_recovery_action
+    - containerlab_recovery_mode
+    - containerlab_recovery_path
+    - containerlab_recovery_sha256
+    - containerlab_recovery_topology_sha256
+    - containerlab_recovery_latest_path
+    - containerlab_recovery_safe_for_host_destroy
+    - containerlab_recovery_labdir_base
+    - containerlab_recovery_topology_path
+    - containerlab_recovery_source_root
+    - containerlab_recovery_snapshot_dir
+    - containerlab_recovery_manifest_path
+    - containerlab_recovery_image_refs
+
+probes: []
+constraints: []

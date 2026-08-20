@@ -1,0 +1,152 @@
+---
+- name: Preserve Containerlab recovery set before disposable-host teardown
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) | trim }}"
+    _hyops_controller_dir: >-
+      {{
+        (containerlab_recovery_controller_dir | default('') | trim)
+        if (containerlab_recovery_controller_dir | default('') | trim | length > 0)
+        else (_hyops_runtime_root ~ '/artifacts/containerlab/recovery')
+      }}
+    _hyops_latest_path: >-
+      {{
+        (containerlab_recovery_latest_path | default('') | trim)
+        if (containerlab_recovery_latest_path | default('') | trim | length > 0)
+        else (_hyops_controller_dir ~ '/latest.tar.gz')
+      }}
+    _hyops_latest_sha_path: "{{ _hyops_latest_path }}.sha256"
+    _hyops_latest_metadata_path: "{{ _hyops_latest_path }}.json"
+    _hyops_topology_path: >-
+      {{ (containerlab_recovery_source_root | regex_replace('/+$', '')) ~ '/' ~ containerlab_recovery_topology_relpath }}
+
+  pre_tasks:
+    - name: Materialize recovery destroy wrapper inputs before role delegation
+      ansible.builtin.set_fact:
+        _hyops_effective_controller_dir: "{{ _hyops_controller_dir }}"
+        _hyops_effective_topology_path: "{{ _hyops_topology_path }}"
+
+    - name: Require controller recovery storage before compute teardown
+      ansible.builtin.assert:
+        that:
+          - containerlab_recovery_source_root | trim | length > 0
+          - containerlab_recovery_topology_relpath | trim | length > 0
+          - containerlab_recovery_labdir_base | trim | length > 0
+          - containerlab_recovery_source_root | regex_replace('/+$', '') != containerlab_recovery_labdir_base | regex_replace('/+$', '')
+          - >-
+            (containerlab_recovery_controller_dir | default('') | trim | length > 0)
+            or (_hyops_runtime_root | length > 0)
+        fail_msg: >-
+          A managed source root, separate native labdir base, topology relative
+          path and durable controller recovery location are required before
+          disposable compute can be destroyed.
+
+  tasks:
+    - name: Export declared recovery set using Containerlab-native facilities
+      ansible.builtin.include_role:
+        name: "{{ containerlab_recovery_role_fqcn }}"
+      vars:
+        _containerlab_recovery_action: export
+        _containerlab_recovery_topology_path: "{{ _hyops_effective_topology_path }}"
+        _containerlab_recovery_controller_dir: "{{ _hyops_effective_controller_dir }}"
+
+    - name: Ensure stable recovery pointer directory exists
+      ansible.builtin.file:
+        path: "{{ _hyops_latest_path | dirname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Restrict immutable recovery archive permissions
+      ansible.builtin.file:
+        path: "{{ containerlab_recovery_result.controller_archive }}"
+        state: file
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Update stable latest recovery pointer without duplicating archive bytes
+      ansible.builtin.file:
+        src: "{{ containerlab_recovery_result.controller_archive }}"
+        dest: "{{ _hyops_latest_path }}"
+        state: link
+        force: true
+      delegate_to: localhost
+      become: false
+
+    - name: Record stable latest recovery checksum
+      ansible.builtin.copy:
+        dest: "{{ _hyops_latest_sha_path }}"
+        mode: "0600"
+        content: "{{ containerlab_recovery_result.sha256 }}\n"
+      delegate_to: localhost
+      become: false
+
+    - name: Record stable latest recovery metadata
+      ansible.builtin.copy:
+        dest: "{{ _hyops_latest_metadata_path }}"
+        mode: "0600"
+        content: >-
+          {{ {
+            'schema': 'hybridops.containerlab.latest/v1',
+            'archive_sha256': containerlab_recovery_result.sha256,
+            'topology_sha256': containerlab_recovery_result.topology_sha256,
+            'mode': containerlab_recovery_result.mode,
+            'image_refs': containerlab_recovery_result.image_refs,
+            'labdir_base': containerlab_recovery_result.labdir_base,
+            'timestamp_archive': containerlab_recovery_result.controller_archive
+          } | to_nice_json }}
+      delegate_to: localhost
+      become: false
+
+    - name: Verify stable latest recovery pointer target
+      ansible.builtin.stat:
+        path: "{{ _hyops_latest_path }}"
+        checksum_algorithm: sha256
+        follow: true
+      register: _hyops_latest_archive_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Gate managed-host destruction on verified off-host recovery
+      ansible.builtin.assert:
+        that:
+          - containerlab_recovery_result.safe_for_host_destroy | bool
+          - containerlab_recovery_result.labdir_base == containerlab_recovery_labdir_base
+          - _hyops_latest_archive_stat.stat.exists
+          - _hyops_latest_archive_stat.stat.checksum == containerlab_recovery_result.sha256
+        fail_msg: >-
+          Containerlab recovery retention did not verify off-host against the
+          declared native labdir base; refusing to advance managed-host
+          destruction.
+      delegate_to: localhost
+      become: false
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.containerlab.recovery': 'retained',
+            'containerlab_recovery_action': 'export',
+            'containerlab_recovery_mode': containerlab_recovery_result.mode,
+            'containerlab_recovery_path': containerlab_recovery_result.controller_archive,
+            'containerlab_recovery_sha256': containerlab_recovery_result.sha256,
+            'containerlab_recovery_topology_sha256': containerlab_recovery_result.topology_sha256,
+            'containerlab_recovery_latest_path': _hyops_latest_path,
+            'containerlab_recovery_safe_for_host_destroy': true,
+            'containerlab_recovery_labdir_base': containerlab_recovery_result.labdir_base,
+            'containerlab_recovery_topology_path': '',
+            'containerlab_recovery_source_root': '',
+            'containerlab_recovery_snapshot_dir': '',
+            'containerlab_recovery_manifest_path': '',
+            'containerlab_recovery_image_refs': containerlab_recovery_result.image_refs
+          } | to_json }}

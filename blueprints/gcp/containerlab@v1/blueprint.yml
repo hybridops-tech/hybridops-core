@@ -1,0 +1,222 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "gcp/containerlab@v1"
+mode: "hybrid"
+
+metadata:
+  title: "GCP Disposable Containerlab Lab"
+  description: "Provision private high-resource Containerlab compute on demand and require a verified off-host recovery set before managed-host teardown."
+  outcome: "A private Containerlab host runs the operator's unchanged topology, and HybridOps verifies off-host recovery state before the host can be removed."
+  ready_message: "Containerlab cloud lab ready"
+
+policy:
+  fail_fast: true
+  evidence_required: true
+  ipam_authority: "none"
+
+access:
+  type: "gcp-iap-ssh-forward"
+  state_ref: "platform/gcp/platform-vm#gcp_containerlab_vm"
+  remote_port: 22
+  local_port: 2222
+  open_browser: false
+  ssh_user: "opsadmin"
+  ssh_key_file: "~/.ssh/id_ed25519"
+  offer_destroy_on_close: true
+
+steps:
+  - id: gcp_containerlab_network
+    module_ref: "platform/gcp/lab-network"
+    execution_profile: "gcp-local@v1.0"
+    state_instance: "gcp_containerlab_network"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "containerlab"
+      subnetwork_cidr: "10.80.70.0/24"
+
+  - id: gcp_containerlab_vm
+    module_ref: "platform/gcp/platform-vm"
+    execution_profile: "gcp-local@v1.0"
+    state_instance: "gcp_containerlab_vm"
+    action: "deploy"
+    phase: "bootstrap"
+    requires:
+      - gcp_containerlab_network
+    with_deps: true
+    skip_if_state_ok: true
+    verify_state_on_skip: true
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      name_prefix: "platform"
+      context_id: "containerlab"
+      network_state_ref: "platform/gcp/lab-network#gcp_containerlab_network"
+      subnetwork_output_key: "subnetwork_name"
+      zone: ""
+      zone_from_init_region: true
+      machine_type: "n2-highmem-8"
+      boot_disk_size_gb: 128
+      boot_disk_type: "pd-standard"
+      source_image_project: "ubuntu-os-cloud"
+      source_image_family: "ubuntu-2204-lts"
+      assign_public_ip: false
+      enable_nested_virtualization: true
+      ssh_username: "opsadmin"
+      ssh_keys_from_init: true
+      post_apply_ssh_readiness:
+        enabled: true
+        required: true
+        target_user: "opsadmin"
+        connectivity_wait_s: 90
+      tags:
+        - "platform"
+        - "gcp"
+        - "containerlab"
+        - "lab"
+        - "allow-iap-ssh"
+      labels:
+        role: "containerlab"
+        workload: "network-lab"
+        lifecycle: "disposable"
+      vms:
+        containerlab-01:
+          role: "containerlab"
+
+  - id: gcp_containerlab_runtime
+    module_ref: "platform/linux/containerlab"
+    state_instance: "gcp_containerlab_runtime"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_containerlab_vm
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_containerlab_vm"
+      inventory_vm_groups:
+        targets:
+          - "containerlab-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      containerlab_version: "0.78.0"
+      containerlab_install_docker: true
+      containerlab_operator_user: "opsadmin"
+      # Empty means HybridOps verifies against the official pinned-release
+      # checksums.txt manifest and records the actual downloaded SHA-256.
+      containerlab_package_checksum: ""
+      containerlab_require_kvm: true
+
+  - id: gcp_containerlab_lab
+    module_ref: "platform/linux/containerlab-lab"
+    state_instance: "gcp_containerlab_lab"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_containerlab_runtime
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_containerlab_vm"
+      inventory_vm_groups:
+        targets:
+          - "containerlab-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      # Set in a runtime overlay for a first deployment. On a later deployment,
+      # a verified latest recovery bundle can supply the archived source tree.
+      containerlab_lab_source_dir: ""
+      containerlab_lab_topology_relpath: "lab.clab.yml"
+      containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/gcp-containerlab"
+      # Native Containerlab-generated clab-* runtime artifacts stay outside the
+      # authoritative source tree so source preservation does not absorb them.
+      containerlab_lab_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+      containerlab_lab_required_images: []
+      containerlab_lab_pull_missing_images: false
+      containerlab_lab_restore_latest: true
+      containerlab_lab_restore_require_source_match: true
+
+  - id: gcp_containerlab_healthcheck
+    module_ref: "platform/linux/containerlab-healthcheck"
+    state_instance: "gcp_containerlab_healthcheck"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_containerlab_lab
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_containerlab_vm"
+      inventory_vm_groups:
+        targets:
+          - "containerlab-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      containerlab_healthcheck_expected_version: "0.78.0"
+      containerlab_healthcheck_require_kvm: true
+      containerlab_healthcheck_topology_path: "/var/lib/hybridops/containerlab/labs/gcp-containerlab/lab.clab.yml"
+      containerlab_healthcheck_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+      containerlab_healthcheck_require_deployed_lab: true
+
+  - id: gcp_containerlab_recovery_guard
+    module_ref: "platform/linux/containerlab-recovery"
+    state_instance: "gcp_containerlab_recovery_guard"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_containerlab_healthcheck
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_containerlab_vm"
+      inventory_vm_groups:
+        targets:
+          - "containerlab-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      containerlab_recovery_action: "arm"
+      # rebuild retains the declared source tree plus supported config-save
+      # output. snapshot additionally requests supported vrnetlab snapshots.
+      containerlab_recovery_mode: "rebuild"
+      containerlab_recovery_source_root: "/var/lib/hybridops/containerlab/labs/gcp-containerlab"
+      containerlab_recovery_topology_relpath: "lab.clab.yml"
+      containerlab_recovery_image_refs: []
+      containerlab_recovery_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+      containerlab_recovery_save_configs: true
+      containerlab_recovery_save_configs_required: false
+      containerlab_recovery_include_lab_dir: false
