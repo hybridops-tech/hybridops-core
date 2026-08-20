@@ -2,9 +2,9 @@
 
 ## Problem
 
-Some Containerlab labs need a large VM for only part of the day. Keeping that VM running only to preserve lab state is expensive.
+Some Containerlab labs need a large VM for only part of the day. Keeping that VM running solely to preserve lab state extends the lifetime and cost of execution capacity beyond the active lab session.
 
-Containerlab already owns topology, deployment, and the recovery features it supports. Before HybridOps removes the execution host, it must verify that the recovery data selected by policy has been copied somewhere that will survive that host.
+HybridOps separates those concerns. Containerlab owns topology, deployment and native recovery semantics. HybridOps verifies that the recovery state selected by policy has survived beyond the execution host before that host is released.
 
 ## Ownership
 
@@ -18,9 +18,9 @@ Containerlab remains responsible for:
 - topology validation
 - deploy and convergence
 - native `save`
-- supported vrnetlab snapshot and restore
+- vrnetlab snapshot and restore where supported
 - lab inspection and generated runtime state
-- supported local or remote startup-config and licence references
+- local or remote startup-config and licence references supported by Containerlab
 
 ### HybridOps
 
@@ -29,13 +29,13 @@ HybridOps is responsible for:
 - private GCP infrastructure
 - nested virtualisation and KVM readiness
 - Containerlab version and package verification
-- image reachability checks without distributing vendor images
+- image reachability checks
 - VM lifetime and cost context
 - recovery policy
 - off-host recovery retention and checksum verification
 - compute-release and rebuild order
-- handing recovery data back to Containerlab
-- recording the run result
+- handing recovery data back through Containerlab
+- recording the lifecycle result
 
 ```text
 .clab.yml and native recovery data
@@ -55,7 +55,7 @@ HybridOps is responsible for:
 
 ## Native Containerlab behaviour used by HybridOps
 
-HybridOps targets Containerlab `0.78.0` and uses native `validate`, `deploy`, `inspect`, `save`, `destroy`, and supported snapshot commands. HybridOps does not reproduce Containerlab topology or convergence logic.
+HybridOps targets Containerlab `0.78.0` and uses native `validate`, `deploy`, `inspect`, `save`, `destroy`, and snapshot commands supported by the selected node types. Containerlab remains the topology and convergence engine throughout the lifecycle.
 
 Containerlab normally creates `clab-*` data beside the topology. HybridOps sets native `CLAB_LABDIR_BASE` to:
 
@@ -63,22 +63,25 @@ Containerlab normally creates `clab-*` data beside the topology. HybridOps sets 
 /var/lib/hybridops/containerlab/labdirs
 ```
 
-This keeps generated Containerlab data separate from the operator source tree. It does not create a new HybridOps lab-state format.
+This keeps generated Containerlab data separate from the operator source tree while retaining Containerlab's native state layout.
 
-Containerlab can also use supported remote startup-config and licence references. Those assets should stay at their existing authoritative location. HybridOps only preserves local source material that would otherwise disappear with the disposable VM.
+Remote startup-config and licence assets remain at their authoritative locations and are referenced through Containerlab. Local source material required for reconstruction is included in the selected recovery set.
 
-## What HybridOps does not do
+## Authority model
 
-HybridOps does not act as:
+The architecture keeps each responsibility with the system that owns its semantics:
 
-- a second topology engine
-- a node or link reconciler
-- a vendor configuration renderer
-- a Containerlab snapshot implementation
-- a Clabernetes replacement
-- a proprietary NOS image repository
-- a remote startup-config service
-- a general backup product
+| Concern | Authority |
+| --- | --- |
+| Topology, nodes, links and convergence | Containerlab |
+| Native save, snapshot and restore behaviour | Containerlab |
+| Proprietary NOS image and licence rights | Operator / authorised source |
+| GCP host lifecycle and private access | HybridOps |
+| Recovery policy and release gate | HybridOps |
+| Off-host archive integrity | HybridOps recovery record |
+| Realised cloud spend | GCP billing |
+
+This allows HybridOps to govern execution lifetime while Containerlab continues to govern the lab itself.
 
 ## Recovery flow
 
@@ -88,7 +91,7 @@ Lab deployment, health checks, and recovery operations use the same `CLAB_LABDIR
 
 The recovery step is last in deploy order. Blueprint destroy runs in reverse order, so recovery runs before lab, runtime, and VM removal.
 
-During destroy, HybridOps:
+During compute release, HybridOps:
 
 1. asks Containerlab for native save output and, in `snapshot` mode, supported vrnetlab snapshots
 2. creates a timestamped archive
@@ -96,15 +99,15 @@ During destroy, HybridOps:
 4. verifies its SHA-256 there
 5. restricts the retained archive permissions
 6. updates the latest pointer, checksum, and metadata
-7. allows compute release to continue only after the off-host check succeeds
+7. releases compute after the off-host check succeeds
 
-The timestamped archive is the retained object. `latest.tar.gz` is only a symlink to it, with checksum and metadata stored alongside the link.
+The timestamped archive is the retained object. `latest.tar.gz` is a symlink to it, with checksum and metadata stored alongside the link.
 
-The controller filesystem is the first retention target. That proves the recovery copy survives deletion of the GCP VM, but the controller still needs its own backup policy.
+The controller filesystem is the first retention target beyond the disposable VM. Environment backup policy can extend that protection according to the required retention period.
 
 ## Rebuild flow
 
-On a fresh host, HybridOps:
+On fresh compute, HybridOps:
 
 1. verifies the latest pointer, checksum, and metadata
 2. verifies the immutable archive
@@ -113,30 +116,28 @@ On a fresh host, HybridOps:
 5. imports the archive
 6. restores the source tree to the managed path
 7. passes supported snapshots back to Containerlab
-8. runs one native Containerlab deploy
+8. performs one native Containerlab deployment
 9. runs the independent health check
-
-There is no preliminary deploy that is destroyed before the real restore deploy.
 
 ## Recovery modes
 
-`rebuild` keeps the source tree and supported native configuration-save output. Automatic reuse of saved configuration depends on how the topology is written.
+`rebuild` keeps the source tree and native configuration-save output produced by the topology. Automatic configuration reuse follows the topology's existing startup-config references.
 
-`snapshot` also keeps Containerlab-supported vrnetlab snapshots. Unsupported node kinds may still start fresh.
+`snapshot` adds Containerlab-supported vrnetlab snapshots to the retained recovery set and returns them through native restore semantics.
 
-`ephemeral` keeps source intent only.
+`ephemeral` keeps source intent and starts runtime state fresh on the next execution host.
 
-## Validated lifecycle boundary
+## Validated lifecycle
 
-The real GCP acceptance path proved that the selected recovery set could be verified off-host before the original execution VM was removed, that reconstruction occurred on a fresh VM with a different resource identity through one native Containerlab deployment, and that the reconstructed lab passed independent health verification before final compute cleanup.
+The real GCP acceptance path proved that the selected recovery set could be verified off-host before the original execution VM was removed, reconstruction occurred on a fresh VM with a different resource identity through one native Containerlab deployment, the reconstructed lab passed independent health verification, and final execution compute was released.
 
 The validation record is maintained in [VALIDATION.md](VALIDATION.md).
 
-## Remaining review questions
+## Practitioner review questions
 
-The implementation is complete for the validated GCP scope. External review is therefore about the operating boundary rather than whether the feature exists:
+The implementation is complete for the validated GCP lifecycle. External review can now test the operating model against real Containerlab practice:
 
 1. For a real Containerlab lab, which native state should be required to survive before a disposable execution host is released?
-2. Where should the lifecycle refuse compute release because the required state cannot be externalised or reconstructed with sufficient fidelity?
+2. Which topology or workload conditions should keep the release gate closed until a higher-fidelity recovery mechanism is available?
 
-Corrections and counterexamples can be raised against the implemented path without treating the feature as pre-release design work.
+Corrections, counterexamples and additional recovery requirements can be raised directly against the implemented path.
