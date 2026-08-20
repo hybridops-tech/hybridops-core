@@ -1,9 +1,14 @@
 # Changelog
 
-- Unreleased
-  - made initialized environment blueprints the automatic execution source while retaining `--file` as an explicit override
+- v0.1.4 pre-release - 2026-08-20
+  - added `hyops blueprint edit` and made initialized environment blueprints the automatic execution source while retaining `--file` as an explicit override
   - added private workstation-to-device automation access for EVE-NG and GNS3, including scoped SSH and automation client files, DHCP discovery, and optional local routing
   - added vault-backed EVE-NG IOL and GNS3 IOU licence placement with checksum-verified image registration and archive exclusion
+  - added a disposable GCP Containerlab lifecycle with private access, native topology execution, health verification, off-host recovery checks, rebuild protection, and cost context
+  - added provider-neutral stop-state verification for destructive lifecycle decisions
+  - added installable CI candidate artifacts for acceptance testing before release publication
+  - tightened permissions on existing runtime directories during installation and setup
+  - pinned `hybridops.app` and `hybridops.helper` to `0.1.9` for the Containerlab and device-automation release set
   - aligned source package and runtime version metadata with the v0.1.4 pre-release and added regression coverage to prevent placeholder versions returning
   - added checksum-verified GNS3 image installation and template registration
   - added a private GCP GNS3 teaching blueprint with IAP desktop-client access
