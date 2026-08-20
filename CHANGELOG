@@ -1,28 +1,135 @@
 # Changelog
 
-- v0.1.4 pre-release - 2026-08-20
-  - added `hyops blueprint edit` and made initialized environment blueprints the automatic execution source while retaining `--file` as an explicit override
-  - added private workstation-to-device automation access for EVE-NG and GNS3, including scoped SSH and automation client files, DHCP discovery, and optional local routing
-  - added vault-backed EVE-NG IOL and GNS3 IOU licence placement with checksum-verified image registration and archive exclusion
-  - added a disposable GCP Containerlab lifecycle with private access, native topology execution, health verification, off-host recovery checks, rebuild protection, and cost context
-  - added provider-neutral stop-state verification for destructive lifecycle decisions
-  - added installable CI candidate artifacts for acceptance testing before release publication
-  - tightened permissions on existing runtime directories during installation and setup
-  - pinned `hybridops.app` and `hybridops.helper` to `0.1.9` for the Containerlab and device-automation release set
-  - aligned source package and runtime version metadata with the v0.1.4 pre-release and added regression coverage to prevent placeholder versions returning
-  - added checksum-verified GNS3 image installation and template registration
-  - added a private GCP GNS3 teaching blueprint with IAP desktop-client access
-  - added an idempotent zero-image GNS3 starter-lab module and blueprint stage
-  - added structured GNS3 health checks with an optional disposable VPCS lifecycle
-  - added private desktop-client TCP access for the Proxmox GNS3 blueprint
-  - added a standalone Proxmox GNS3 blueprint with a private authenticated API
-  - added a provider-neutral GNS3 server module backed by hybridops.app 0.1.8
-  - linked README scenario entries directly to their reference scenario pages
-  - added README coverage for every shipped blueprint directory
-  - refreshed the blueprint catalogue so all 27 shipped blueprints are visible from the index
-  - clarified the README metrics as 52 public decision records and 8 supported surfaces
+This changelog records significant operator-facing capabilities, lifecycle changes, compatibility fixes, and release engineering updates. Individual commits and maintenance-only changes remain available through the linked comparisons.
 
-- v0.1.2 - 2026-03-20
-  - cleared the remaining release warnings by making maintained destroy playbooks ansible-lint clean
-  - removed the Node 20 Terraform action warning from CI by replacing the deprecated setup action with a native Terraform install step
-  - kept Ansible lint/cache state out of the repository by isolating ansible-lint project/cache directories and ignoring accidental `.ansible/` residue
+## [v0.1.4 pre-release][v0.1.4 candidate] (current candidate) - 2026-08-20
+
+### Added
+
+- Added `hyops blueprint init` and `hyops blueprint edit` as the environment-local blueprint workflow. Initialized blueprints are now the default execution source, while `--file` remains an explicit override.
+- Added managed workstation-to-device automation access for EVE-NG and GNS3, including target discovery, scoped SSH configuration, inventory output, proxy settings, client commands, and optional local routing.
+- Added vault-backed EVE-NG IOL and GNS3 IOU licence placement, checksum-verified image registration, and archive exclusion for licence material.
+- Added a private GCP Containerlab blueprint that preserves native topology semantics and combines host provisioning, KVM readiness, health verification, cost context, and verified off-host recovery state.
+- Added a provider-neutral stop-state verifier for destructive lifecycle decisions.
+- Added GNS3 project archive and restoration across blueprint teardown and rebuild.
+- Added fixed-resource GCP cost estimates to blueprint lifecycle output.
+- Added installable CI candidate artifacts for acceptance testing before release publication.
+
+### Changed
+
+- Pinned `hybridops.app` and `hybridops.helper` to `0.1.9` for the Containerlab and device-automation release set.
+- Expanded CI coverage across the public CLI surface and every shipped blueprint.
+- Aligned source package and runtime version metadata with the `v0.1.4` release line and added regression coverage for installed version reporting.
+- Kept lifecycle output independent of the selected execution tool and simplified GCP initialization and vault readiness output.
+- Clarified the runtime boundary, research scope, and external technical-review path in the repository documentation.
+
+### Fixed
+
+- Protected Containerlab destroy and rebuild from proceeding without the required recovery result.
+- Tightened permissions on existing runtime directories during installation and setup.
+- Fixed deletion-only Proxmox VM-set shrink operations and external-replica DMS cleanup.
+- Fixed installed pack discovery outside the wrapper environment and corrected `hyops secrets exec` argument routing.
+- Bounded the AzureRM provider below the incompatible v5 boundary.
+- Created or refreshed Windows launch shortcuts after installation.
+
+## [v0.1.3] - 2026-07-18
+
+### Added
+
+- Added complete private EVE-NG teaching blueprints for GCP and Proxmox, including isolated networking, guest egress, health checks, images, private browser access, and native console access.
+- Added provider-neutral GNS3 server, health-check, starter-lab, and managed-image modules, with complete teaching blueprints for GCP and Proxmox.
+- Added EVE-NG lab archive, node-state preservation, post-deployment restoration, and archive-aware teardown protection.
+- Added blueprint rebuild, resumable and idempotent destroy, retained reusable dependencies, and confirmation for destructive or replacement-prone operations.
+- Added cloud-lab access cost visibility and state-backed private access paths.
+- Added environment-scoped run records for installation, setup, preflight, module execution, and blueprint operations.
+- Added target-oriented setup, `hyops setup galaxy`, interactive GCP project and zone selection, and setup readiness checks.
+- Added Windows 11 support through WSL2, a branded Windows installer and launcher, and automatic update of an existing Core installation.
+- Added a native macOS package, application launcher, release assets, architecture checks, and installer diagnostics.
+- Added controlled Core update checks, supported-release enforcement, and stable cross-platform release downloads.
+- Added RKE2 etcd member lifecycle support.
+
+### Changed
+
+- Strengthened blueprint preflight for authentication, billing, required secrets, planned dependencies, execution profiles, and target capacity.
+- Added live setup phases, readable blueprint stage summaries, consistent terminal status colours, concise run-record presentation, and clearer archive progress.
+- Kept backend implementation commands out of primary CLI help.
+- Made forced installation transactional and refreshed Galaxy metadata during forced dependency setup.
+- Added module-catalog, CLI-routing, strict-plugin, installer, and release-publication checks.
+
+### Fixed
+
+- Recovered valid local backend state after interrupted writes and guided reruns after interrupted blueprint deployments.
+- Added guarded local vault recovery and detected unavailable WSL runtime storage before execution.
+- Prevented implicit Proxmox token rotation and made Proxmox SSH onboarding, address detection, and template preflight portable.
+- Explained GCP zonal-capacity failures and kept GCP initialization output focused on operator decisions.
+- Scoped private-access host trust to the environment and kept archive restore inputs action-specific.
+- Corrected Windows shortcut reuse, launcher branding, installer completion, package layout, and bundled licence handling.
+- Corrected macOS release checksums and ensured publication checks out the requested tag.
+
+## [v0.1.2] - 2026-04-11
+
+### Added
+
+- Added GCP Linux and Windows desktop blueprints.
+- Added a GCP VM firewall-rules module and a Linux desktop XRDP module with browser support.
+- Added `hyops blueprint destroy` for reverse-order blueprint teardown.
+
+### Changed
+
+- Expanded the catalogue to 72 modules and 26 blueprints.
+- Tightened the Core execution-layer documentation and reference-scenario routing.
+
+### Fixed
+
+- Removed an unnecessary desktop password-library dependency and suppressed an interactive policy prompt during desktop setup.
+- Resolved quality failures in the VM firewall and desktop configuration packs.
+
+## [v0.1.1] - 2026-04-04
+
+### Added
+
+- Added a Kubernetes DNS stub-domain module for forwarding selected zones to shared authority.
+- Added state-derived VPN prefixes, consumer SNAT contracts, and on-premises SDN host-route handoff.
+- Added public-DNS exposure for edge observability and convergence checks for traffic steering.
+- Added raw secret output for controlled command composition.
+- Added a Git-pinned Ansible collection setup path alongside released Galaxy dependencies.
+
+### Changed
+
+- Converted shipped blueprints into operator scaffolds and removed environment-specific placeholder values and stale product terminology.
+- Normalized public messages, examples, module documentation, and repository metadata around the HybridOps runtime boundary.
+- Updated collection and Proxmox SDN module pins and moved release publication to the GitHub CLI.
+
+### Fixed
+
+- Hardened kube-dns application, Packer bind-address detection, network convergence, and shared-state input resolution.
+- Removed stale installer assets, placeholder control paths, and repository-local Ansible cache state.
+
+## [v0.1.0] - 2026-03-20
+
+### Added
+
+- Published the first HybridOps Core runtime with 70 module contracts and 24 reference blueprints across on-premises, cloud, Kubernetes, networking, database, recovery, image, and local execution surfaces.
+- Established versioned module intent, environment policy, implementation-pack resolution, driver dispatch, runtime-root isolation, validation, preflight, and structured run records.
+- Added drivers for infrastructure provisioning, system configuration, machine-image construction, inventory integration, and controlled operational commands.
+- Added initial Proxmox, GCP, Hetzner, AWS, Azure, Kubernetes, Cloudflare, and local target contracts.
+- Added complete reference flows for PostgreSQL HA and cloud recovery, GKE burst capacity, RKE2 workloads, NetBox, EVE-NG, VyOS edge networking, shared DNS authority, WAN extension, and operator runners.
+- Added state and recovery controls for PostgreSQL, Cloud SQL, Longhorn, runtime secrets, DNS cutover, and manual decision gates.
+- Added shared network decision services, edge observability, Cloudflare traffic steering, and metric-driven burst traffic activation.
+- Added secret mapping and synchronization for environment vaults, Google Secret Manager, and Kubernetes secret consumers.
+
+### Changed
+
+- Replaced vendored Ansible collection source with pinned released collections and kept collection implementation outside the Core package.
+- Consolidated networking, database, recovery, and validation contracts into reusable public module paths.
+
+### Fixed
+
+- Hardened destroy-time validation, replay safety, validator cleanup, image and template flows, database services, edge networking, and release installation.
+- Added shell, Python, YAML, infrastructure, installation, and release quality gates.
+
+[v0.1.4 candidate]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.3...main
+[v0.1.3]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.2...v0.1.3
+[v0.1.2]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.1...v0.1.2
+[v0.1.1]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.0...v0.1.1
+[v0.1.0]: https://github.com/hybridops-tech/hybridops-core/tree/v0.1.0
