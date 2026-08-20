@@ -39,6 +39,44 @@ target path. Public Core should consume that through generic inputs such as:
 - `workloads_revision`
 - `workloads_target_path`
 
+## Candidate builds
+
+CI produces installable candidate artifacts for pull requests and manually
+selected refs. Candidate artifacts are temporary test outputs, not published
+HybridOps.Core releases.
+
+For a pull request, the quality checks and downloadable candidate are both tied
+to the prospective merge with `main`. This means the package represents the
+exact tree that CI accepted for that pull request.
+
+For branch-specific testing without a release, run the `HybridOps.Core CI`
+workflow manually from GitHub Actions and select the branch or ref. A manual
+candidate is built from the exact selected commit.
+
+Candidate labels identify the tested source, for example:
+
+```text
+pr304-05216dd9e76a
+candidate-3eb4f37e1c12
+```
+
+The full source commit and build context are retained in the bundle metadata and
+in the uploaded build provenance file. Candidate artifacts are retained for 30
+days and include checksums.
+
+The Linux/general release archive is verified through `pkg/verify_release.sh`,
+which installs the built archive into an isolated prefix and runs the installed
+`hyops` without relying on the source checkout. macOS candidates are built for
+Intel and Apple silicon, checksum-verified, installed with the native installer,
+smoke-tested and removed before upload.
+
+A version tag is still required for permanent GitHub Release assets. Candidate
+artifacts are never promoted to GitHub Releases automatically.
+
+Local `dist/` output remains disposable and is intentionally not committed.
+Git records source; CI records build artifacts; tagged releases publish the
+permanent distribution assets.
+
 ## Commands
 
 Build a bundle from the current source tree:
