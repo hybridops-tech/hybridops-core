@@ -78,7 +78,20 @@ def validate(inputs: dict[str, Any]) -> None:
 
     if data.get("required_env_destroy") is not None:
         require_str_list(data.get("required_env_destroy"), "inputs.required_env_destroy")
-    normalize_required_env(data.get("required_env"), "inputs.required_env")
+    required_env = normalize_required_env(data.get("required_env"), "inputs.required_env")
+    iol_license_env = require_non_empty_str(
+        data.get("eveng_images_iol_license_env"),
+        "inputs.eveng_images_iol_license_env",
+    )
+    iol_license_required = require_bool(
+        data.get("eveng_images_iol_license_required"),
+        "inputs.eveng_images_iol_license_required",
+    )
+    if iol_license_required and iol_license_env not in required_env:
+        raise ValueError(
+            "inputs.required_env must include inputs.eveng_images_iol_license_env "
+            "when an IOL licence is required"
+        )
 
     if source == "url":
         _validate_image_list(data.get("eveng_images_list"))

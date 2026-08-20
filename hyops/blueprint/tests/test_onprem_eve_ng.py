@@ -16,6 +16,10 @@ class OnPremEveNgBlueprintTest(TestCase):
         self.assertEqual(validated["policy"]["ipam_authority"], "none")
         self.assertTrue(validated["access"]["offer_destroy_on_close"])
         self.assertEqual(
+            validated["access"]["automation"]["management_cidr"],
+            "172.29.128.0/24",
+        )
+        self.assertEqual(
             validated["archive_before_destroy"]["module_ref"],
             "platform/linux/eve-ng-lab-archive",
         )
@@ -34,6 +38,9 @@ class OnPremEveNgBlueprintTest(TestCase):
             step for step in validated["steps"] if step["id"] == "eve_ng_config"
         )
         self.assertTrue(config_step["inputs"]["eveng_guest_nat_enabled"])
+        self.assertTrue(
+            config_step["inputs"]["eveng_management_access_enabled"]
+        )
         health_step = next(
             step for step in validated["steps"] if step["id"] == "eve_ng_healthcheck"
         )

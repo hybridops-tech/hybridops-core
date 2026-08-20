@@ -76,6 +76,77 @@ class GNS3ImagesValidatorTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate(inputs)
 
+    def test_iou_image_requires_a_preflighted_license(self) -> None:
+        inputs = valid_inputs()
+        inputs["gns3_images_items"] = [
+            {
+                "name": "Authorised IOU router",
+                "type": "iou",
+                "url": "https://example.test/router.bin",
+                "filename": "router.bin",
+                "checksum": "sha256:" + "a" * 64,
+                "template": {
+                    "ethernet_adapters": 4,
+                    "serial_adapters": 0,
+                },
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "required_env must include"):
+            validate(inputs)
+
+        inputs["required_env"].append("GNS3_IOU_LICENSE")
+        validate(inputs)
+
+    def test_iou_image_rejects_qemu_disk_fields(self) -> None:
+        inputs = valid_inputs()
+        inputs["required_env"].append("GNS3_IOU_LICENSE")
+        inputs["gns3_images_items"] = [
+            {
+                "name": "Authorised IOU router",
+                "type": "iou",
+                "url": "https://example.test/router.bin",
+                "filename": "router.bin",
+                "checksum": "sha256:" + "a" * 64,
+                "disk_type": "hda",
+            }
+        ]
+        with self.assertRaisesRegex(ValueError, "disk_type is not valid for IOU"):
+            validate(inputs)
+
+    def test_iou_image_accepts_explicit_i386_runtime(self) -> None:
+        inputs = valid_inputs()
+        inputs["required_env"].append("GNS3_IOU_LICENSE")
+        inputs["gns3_images_items"] = [
+            {
+                "name": "Authorised IOU router",
+                "type": "iou",
+                "url": "https://example.test/i86bi-router.bin",
+                "filename": "i86bi-router.bin",
+                "checksum": "sha256:" + "a" * 64,
+                "architecture": "i386",
+            }
+        ]
+        validate(inputs)
+
+    def test_iou_image_requires_canonical_type_and_architecture(self) -> None:
+        for key, value in (("type", "IOU"), ("architecture", "I386")):
+            with self.subTest(key=key):
+                inputs = valid_inputs()
+                inputs["required_env"].append("GNS3_IOU_LICENSE")
+                image = {
+                    "name": "Authorised IOU router",
+                    "type": "iou",
+                    "url": "https://example.test/i86bi-router.bin",
+                    "filename": "i86bi-router.bin",
+                    "checksum": "sha256:" + "a" * 64,
+                    "architecture": "i386",
+                }
+                image[key] = value
+                inputs["gns3_images_items"] = [image]
+                with self.assertRaises(ValueError):
+                    validate(inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

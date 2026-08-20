@@ -90,6 +90,22 @@ through the existing IAP SSH path with the declared HybridOps key, opens the
 browser, and keeps access active until `Ctrl-C`. Port 80 remains closed at the
 GCP firewall. Use `--no-browser` when only the printed local URL is required.
 
+For workstation automation, connect a device management interface to `Cloud8`
+and run:
+
+```bash
+hyops blueprint access --env <env> --ref gcp/eve-ng@v1 --automation
+```
+
+The command keeps the UI private, discovers management leases and writes a
+scoped SSH configuration and automation inventory. Use the printed SSH config
+from a second terminal or VS Code while the access session remains open.
+DHCP supplies the management gateway; static devices must use `172.29.128.1`.
+On Linux or WSL, `--route-lab` additionally creates a temporary layer-3 route
+and verifies the management gateway when `172.29.128.0/24` does not conflict
+locally. Windows and macOS applications can use the generated SSH configuration
+or local proxy.
+
 After an interactive access session closes, the blueprint reports billing
 status and resource-state age, provides the project-specific GCP Billing link
 for trial, credit and spend details, then offers to keep the environment,

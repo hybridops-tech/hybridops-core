@@ -49,6 +49,8 @@ inputs:
     eveng_images_keep_cache: false
     eveng_images_raw_qemu_layout: "foldered"
     eveng_images_raw_qemu_disk_name: "virtioa.qcow2"
+    eveng_images_iol_license_env: "EVENG_IOL_LICENSE"
+    eveng_images_iol_license_required: false
     eveng_images_fail_on_corrupt: true
     eveng_images_logging_enabled: false
     eveng_images_log_dir_controller: "{{ playbook_dir | default('.', true) }}/var/log/hybridops/eveng-images"
@@ -73,6 +75,7 @@ outputs:
     - cap.lab.eveng.images
     - eveng_images_source
     - eveng_images_requested_count
+    - eveng_images_iol_license_ready
 
 probes: []
 constraints: []

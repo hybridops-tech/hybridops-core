@@ -98,6 +98,11 @@ class CliRoutingTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f"hyops {command}", result.stdout)
 
+    def test_blueprint_help_includes_edit(self) -> None:
+        result = run_cli("blueprint", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("edit", result.stdout)
+
     def test_unknown_command_returns_parser_error(self) -> None:
         result = run_cli("not-a-command")
         self.assertEqual(result.returncode, 2)

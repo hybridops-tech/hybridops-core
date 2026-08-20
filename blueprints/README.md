@@ -98,6 +98,20 @@ hyops blueprint preflight --env <env> \
   --blueprints-root blueprints
 ```
 
+After `init`, open a local overlay directly in your default editor:
+
+```bash
+hyops blueprint init --env <env> --ref gcp/eve-ng@v1 --edit
+```
+
+You can also run a separate edit step:
+
+```bash
+hyops blueprint edit --env <env> --ref gcp/eve-ng@v1
+```
+
+Use `--file` when you need to target a different local overlay path.
+
 Execution begins only when `deploy` is given `--execute`:
 
 ```bash

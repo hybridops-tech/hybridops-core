@@ -13,6 +13,10 @@
     _hyops_input_eveng_images_keep_cache: "{{ vars.get('eveng_images_keep_cache', false) | bool }}"
     _hyops_input_eveng_images_raw_qemu_layout: "{{ vars.get('eveng_images_raw_qemu_layout', 'foldered') | string }}"
     _hyops_input_eveng_images_raw_qemu_disk_name: "{{ vars.get('eveng_images_raw_qemu_disk_name', 'virtioa.qcow2') | string }}"
+    _hyops_input_eveng_images_iol_license_env: "{{ vars.get('eveng_images_iol_license_env', 'EVENG_IOL_LICENSE') | string }}"
+    _hyops_input_eveng_images_iol_license_required: "{{ vars.get('eveng_images_iol_license_required', false) | bool }}"
+    _hyops_input_eveng_images_iol_license_content: >-
+      {{ lookup('env', _hyops_input_eveng_images_iol_license_env) | default('', true) }}
     _hyops_input_eveng_images_fail_on_corrupt: "{{ vars.get('eveng_images_fail_on_corrupt', true) | bool }}"
     _hyops_input_eveng_images_logging_enabled: "{{ vars.get('eveng_images_logging_enabled', false) | bool }}"
     _hyops_input_eveng_images_log_dir_controller: "{{ vars.get('eveng_images_log_dir_controller', playbook_dir ~ '/var/log/hybridops/eveng-images') | string }}"
@@ -43,6 +47,8 @@
         eveng_images_keep_cache: "{{ _hyops_input_eveng_images_keep_cache }}"
         eveng_images_raw_qemu_layout: "{{ _hyops_input_eveng_images_raw_qemu_layout }}"
         eveng_images_raw_qemu_disk_name: "{{ _hyops_input_eveng_images_raw_qemu_disk_name }}"
+        eveng_images_iol_license_content: "{{ _hyops_input_eveng_images_iol_license_content }}"
+        eveng_images_iol_license_required: "{{ _hyops_input_eveng_images_iol_license_required }}"
         eveng_images_fail_on_corrupt: "{{ _hyops_input_eveng_images_fail_on_corrupt }}"
         eveng_images_logging_enabled: "{{ _hyops_input_eveng_images_logging_enabled }}"
         eveng_images_log_dir_controller: "{{ _hyops_input_eveng_images_log_dir_controller }}"
@@ -66,5 +72,8 @@
           {{ {
             'cap.lab.eveng.images': 'ready',
             'eveng_images_source': (eveng_images_source | default('url')),
-            'eveng_images_requested_count': ((eveng_images_list | default([])) | length)
+            'eveng_images_requested_count': ((eveng_images_list | default([])) | length),
+            'eveng_images_iol_license_ready': (
+              eveng_images_iol_license_ready | default(false) | bool
+            )
           } | to_json }}

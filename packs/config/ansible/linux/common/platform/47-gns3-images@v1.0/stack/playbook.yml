@@ -7,6 +7,8 @@
   vars:
     _hyops_gns3_images_password: >-
       {{ lookup('env', gns3_images_password_env | default('GNS3_SERVER_PASSWORD')) }}
+    _hyops_gns3_images_iourc_content: >-
+      {{ lookup('env', gns3_images_iou_license_env | default('GNS3_IOU_LICENSE')) | default('', true) }}
 
   tasks:
     - name: Install GNS3 images and templates
@@ -14,6 +16,7 @@
         name: "{{ gns3_images_role_fqcn }}"
       vars:
         gns3_images_password: "{{ _hyops_gns3_images_password }}"
+        gns3_images_iourc_content: "{{ _hyops_gns3_images_iourc_content }}"
 
   post_tasks:
     - name: Write HyOps outputs
@@ -27,5 +30,6 @@
             'cap.lab.gns3.images': 'ready',
             'gns3_images_requested_count': gns3_images_results.requested_count,
             'gns3_images_installed_count': gns3_images_results.installed_count,
-            'gns3_images_template_names': gns3_images_results.template_names
+            'gns3_images_template_names': gns3_images_results.template_names,
+            'gns3_images_iou_license_ready': gns3_images_results.iou_license_ready
           } | to_json }}

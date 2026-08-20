@@ -36,11 +36,23 @@ class GCPGNS3BlueprintTest(TestCase):
         self.assertEqual(access["remote_port"], 3080)
         self.assertEqual(access["local_port"], 3080)
         self.assertFalse(access["open_browser"])
+        self.assertEqual(
+            access["automation"]["management_cidr"],
+            "172.29.130.0/24",
+        )
+        self.assertEqual(
+            access["automation"]["management_network_label"],
+            "hyops-mgmt0",
+        )
 
     def test_required_health_stage_is_deep(self) -> None:
         health = self.blueprint["steps"][5]
         self.assertEqual(health["requires"], ["gcp_gns3_starter_lab"])
         self.assertTrue(health["inputs"]["gns3_healthcheck_deep"])
+
+    def test_server_builds_private_management_bridge(self) -> None:
+        server = self.blueprint["steps"][2]
+        self.assertTrue(server["inputs"]["gns3_server_management_access_enabled"])
 
     def test_destroy_protects_gns3_project_state(self) -> None:
         archive = self.blueprint["archive_before_destroy"]

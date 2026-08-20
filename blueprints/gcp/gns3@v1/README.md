@@ -39,6 +39,15 @@ hyops blueprint deploy --env gns3-gcp --ref gcp/gns3@v1 --execute
 hyops blueprint access --env gns3-gcp --ref gcp/gns3@v1
 ```
 
+For workstation automation, add a GNS3 Cloud node mapped to `hyops-mgmt0`,
+connect device management interfaces to it, and run access with `--automation`.
+HybridOps discovers management leases and writes a scoped SSH config, target
+file and automation inventory. Optional `--route-lab` routing requires
+Linux or WSL with TUN support and a non-conflicting `172.29.130.0/24` local
+route. Windows and macOS applications use the generated SSH configuration or
+local proxy. DHCP supplies the management gateway; static devices must use
+`172.29.130.1`.
+
 Keep the command running. Open the printed HTTP endpoint in a browser or
 configure the GNS3 desktop client to use it. The default username is `gns3`.
 Retrieve the password from the environment vault:
