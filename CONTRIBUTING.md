@@ -17,7 +17,7 @@ Useful contributions include:
 - bug fixes and regression tests
 - clearer CLI behaviour and validation errors
 - module, blueprint, driver, and pack improvements
-- Terraform, Ansible, Packer, and shell quality fixes
+- execution, packaging, and infrastructure quality fixes
 - preflight checks, probes, and run-record improvements
 - accurate examples and operator documentation
 
@@ -30,8 +30,8 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-Tool dependencies vary by change. Install only the tools needed for the area
-you are working on, such as Terraform, Ansible, Packer, or ShellCheck.
+Dependencies vary by change. Install only what the area you are working on
+requires. The repository checks below show the expected validation paths.
 
 ## Scope and conventions
 
@@ -39,8 +39,9 @@ you are working on, such as Terraform, Ansible, Packer, or ShellCheck.
 - Do not include credentials, tokens, private addresses, customer data, or
   unredacted run records.
 - Read the local `README.md` before changing a module or blueprint.
-- Keep tool-specific implementation in the selected driver and pack. A module
-  should describe intent, inputs, validation, execution selection, and outputs.
+- Keep implementation-specific details in the selected driver and pack. A
+  module should describe intent, inputs, validation, execution selection, and
+  outputs.
 - Keep shipped blueprints reusable. Do not hard-code private repository
   layouts, customer environments, credentials, or application-specific flows.
 - Avoid broad formatting-only or unrelated refactors in a functional change.
@@ -80,8 +81,37 @@ bash tools/ci/lint-ansible.sh
 bash tools/ci/check-terraform.sh
 ```
 
-The GitHub Actions suite is the final check. In the pull request, state which
-commands you ran and call out anything you could not run locally.
+GitHub Actions is the repository gate. In the pull request, state which checks
+you ran locally and call out anything you could not run.
+
+## Candidate validation
+
+After the quality jobs pass, CI builds temporary installable candidates. A pull
+request candidate is built from the prospective merge with `main`, so the
+package is tied to the exact tree accepted by that CI run.
+
+Use the candidate, rather than a source checkout, when a change needs acceptance
+testing in a real environment. This is especially important for installation,
+packaging, provider lifecycle, host integration, recovery, and other behaviour
+that cannot be established by repository checks alone.
+
+Before an acceptance run:
+
+- download the candidate from the exact pull request run
+- verify its checksum
+- record the artifact name, workflow run, source SHA, and provenance
+- install it through the normal product installation path
+
+During the run, record the environment assumptions, the observed result, and
+cleanup. Do not edit the installed payload to make a test pass. If the test uses
+a development dependency, record its exact commit rather than only a branch
+name.
+
+Candidate artifacts are short-lived test outputs. They are not releases and
+must not be presented or promoted as releases. Permanent distribution still
+comes from the tagged release path. When a claim depends on the released
+installation path, repeat the relevant acceptance check against the published
+release before making that claim.
 
 ## Pull request description
 

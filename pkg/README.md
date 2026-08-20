@@ -14,9 +14,8 @@ Python wheel because operators need the runtime payload as shipped:
 - `tools/`
 - `install.sh`
 
-HybridOps Ansible collection source is not part of the public bundle contract.
-Operators install the pinned released `hybridops.*` collection artifacts through
-`hyops setup galaxy`.
+Runtime dependency source is not part of the public bundle contract. Operators
+install pinned dependencies through the normal `hyops setup <target>` path.
 
 ## Public Product Boundary
 
@@ -139,8 +138,8 @@ TMPDIR=/dev/shm ./pkg/verify_release.sh dist/releases/hybridops-core-<label>.tar
 - `install.sh` can install the bundle into an isolated runtime root
 - installed `hyops` runs without relying on the source checkout
 - the installed runtime resolves its shipped packs without wrapper environment variables
-- the bundle and installed payload do not include vendored HybridOps collection source
-- installed `hyops` exposes `setup galaxy` and the compatible `setup ansible` path
+- the bundle and installed payload do not include vendored runtime dependency source
+- installed `hyops` exposes the required setup paths
 - the installed payload matches the shipped checksum manifest
 - the temporary filesystem has enough free space before extraction begins
 
@@ -152,5 +151,6 @@ current source payload, with a `TMPDIR` hint instead of failing late and
 silently.
 
 GitHub Actions also runs the reusable quality workflow before bundle build and
-publication. The blocking checks are Python compile/import integrity, Ansible
-playbook syntax and pack-surface lint, and Terraform `fmt`/`validate`/`tflint`.
+publication. Blocking checks cover Python integrity, configuration syntax and
+lint, infrastructure definition validation, shell quality, and install/package
+verification.
