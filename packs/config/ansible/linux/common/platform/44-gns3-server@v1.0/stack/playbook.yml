@@ -18,6 +18,22 @@
     _hyops_gns3_require_kvm: "{{ gns3_server_require_kvm | default(false) | bool }}"
     _hyops_gns3_install_emulators: >-
       {{ gns3_server_install_emulators | default(true) | bool }}
+    _hyops_gns3_management_access_enabled: >-
+      {{ gns3_server_management_access_enabled | default(false) | bool }}
+    _hyops_gns3_management_bridge: >-
+      {{ gns3_server_management_bridge | default('hyops-mgmt0') }}
+    _hyops_gns3_management_cidr: >-
+      {{ gns3_server_management_cidr | default('172.29.130.1/24') }}
+    _hyops_gns3_management_subnet: >-
+      {{ gns3_server_management_subnet | default('172.29.130.0/24') }}
+    _hyops_gns3_management_dhcp_start: >-
+      {{ gns3_server_management_dhcp_start | default('172.29.130.50') }}
+    _hyops_gns3_management_dhcp_end: >-
+      {{ gns3_server_management_dhcp_end | default('172.29.130.200') }}
+    _hyops_gns3_management_lease_file: >-
+      {{ gns3_server_management_lease_file | default('/var/lib/misc/dnsmasq.hybridops-gns3-management.leases') }}
+    _hyops_gns3_management_access_ssh_user: >-
+      {{ gns3_server_management_access_ssh_user | default(target_user | default('opsadmin')) }}
 
   tasks:
     - name: Install and configure GNS3 server
@@ -32,6 +48,15 @@
         gns3_server_enable_kvm: "{{ _hyops_gns3_enable_kvm }}"
         gns3_server_require_kvm: "{{ _hyops_gns3_require_kvm }}"
         gns3_server_install_emulators: "{{ _hyops_gns3_install_emulators }}"
+        gns3_server_management_access_enabled: "{{ _hyops_gns3_management_access_enabled }}"
+        gns3_server_management_bridge: "{{ _hyops_gns3_management_bridge }}"
+        gns3_server_management_cidr: "{{ _hyops_gns3_management_cidr }}"
+        gns3_server_management_subnet: "{{ _hyops_gns3_management_subnet }}"
+        gns3_server_management_dhcp_start: "{{ _hyops_gns3_management_dhcp_start }}"
+        gns3_server_management_dhcp_end: "{{ _hyops_gns3_management_dhcp_end }}"
+        gns3_server_management_lease_file: "{{ _hyops_gns3_management_lease_file }}"
+        gns3_server_management_access_ssh_user: >-
+          {{ _hyops_gns3_management_access_ssh_user }}
 
   post_tasks:
     - name: Write HyOps outputs

@@ -95,7 +95,10 @@ jobs:
         shell: bash
         run: |
           export HYOPS_RELEASE_LABEL="${GITHUB_SHA::12}"
-          export HYOPS_RELEASE_VERSION="0.0.${GITHUB_RUN_NUMBER}"
+          export HYOPS_RELEASE_VERSION="$(
+            python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+          )"
+          echo "HYOPS_RELEASE_VERSION=${HYOPS_RELEASE_VERSION}" >> "${GITHUB_ENV}"
           bash pkg/build_release.sh
           TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
           bash pkg/build_macos_pkg.sh \
@@ -126,6 +129,7 @@ jobs:
           PKG="$(ls -1 dist/releases/hybridops-core-*-macos-${{ matrix.architecture }}.pkg | head -n 1)"
           sudo installer -pkg "${PKG}" -target /
           /usr/local/bin/hyops --help >/dev/null
+          test "$(/usr/local/bin/hyops --version)" = "${HYOPS_RELEASE_VERSION}"
           test -x "/Applications/HybridOps.Core.app/Contents/MacOS/HybridOps.Core"
           test -s "/Applications/HybridOps.Core.app/Contents/Resources/hybridops.icns"
           test -x "${HOME}/.hybridops/config/macos-shell.command"

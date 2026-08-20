@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 import re
 from typing import Any
@@ -246,6 +247,89 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 "access guest network guidance requires guest_network_label, "
                 "guest_gateway, and guest_dhcp_range"
             )
+        raw_automation = raw_access.get("automation")
+        if raw_automation is not None:
+            automation = as_mapping(raw_automation, "access.automation")
+            management_cidr = as_non_empty_string(
+                automation.get("management_cidr"),
+                "access.automation.management_cidr",
+            )
+            management_gateway = as_non_empty_string(
+                automation.get("management_gateway"),
+                "access.automation.management_gateway",
+            )
+            try:
+                management_network = ipaddress.ip_network(
+                    management_cidr,
+                    strict=False,
+                )
+                gateway_address = ipaddress.ip_address(management_gateway)
+            except ValueError as exc:
+                raise ValueError(
+                    "access.automation requires a valid IPv4 management network"
+                ) from exc
+            if management_network.version != 4 or gateway_address.version != 4:
+                raise ValueError("access.automation supports IPv4 management networks")
+            if gateway_address not in management_network:
+                raise ValueError(
+                    "access.automation.management_gateway must be inside management_cidr"
+                )
+            management_dhcp_range = as_non_empty_string(
+                automation.get("management_dhcp_range"),
+                "access.automation.management_dhcp_range",
+            )
+            try:
+                dhcp_start_raw, dhcp_end_raw = management_dhcp_range.split("-", 1)
+                dhcp_start = ipaddress.ip_address(dhcp_start_raw.strip())
+                dhcp_end = ipaddress.ip_address(dhcp_end_raw.strip())
+            except ValueError as exc:
+                raise ValueError(
+                    "access.automation.management_dhcp_range must be START-END"
+                ) from exc
+            reserved_addresses = {
+                management_network.network_address,
+                management_network.broadcast_address,
+            }
+            if (
+                dhcp_start.version != 4
+                or dhcp_end.version != 4
+                or dhcp_start not in management_network
+                or dhcp_end not in management_network
+                or int(dhcp_start) > int(dhcp_end)
+                or dhcp_start in reserved_addresses
+                or dhcp_end in reserved_addresses
+                or int(dhcp_start) <= int(gateway_address) <= int(dhcp_end)
+            ):
+                raise ValueError(
+                    "access.automation.management_dhcp_range must contain an "
+                    "ordered, usable range inside management_cidr"
+                )
+            lease_file = as_non_empty_string(
+                automation.get("lease_file"),
+                "access.automation.lease_file",
+            )
+            if not lease_file.startswith("/"):
+                raise ValueError("access.automation.lease_file must be an absolute path")
+            local_socks_port = int(automation.get("local_socks_port") or 0)
+            if local_socks_port and not 1 <= local_socks_port <= 65535:
+                raise ValueError(
+                    "access.automation.local_socks_port must be between 1 and 65535"
+                )
+            access["automation"] = {
+                "management_network_label": as_non_empty_string(
+                    automation.get("management_network_label"),
+                    "access.automation.management_network_label",
+                ),
+                "management_cidr": str(management_network),
+                "management_gateway": str(gateway_address),
+                "management_dhcp_range": f"{dhcp_start}-{dhcp_end}",
+                "lease_file": lease_file,
+                "default_user": str(
+                    automation.get("default_user") or "admin"
+                ).strip()
+                or "admin",
+                "local_socks_port": local_socks_port,
+            }
 
     archive_before_destroy: dict[str, Any] = {}
     if spec.get("archive_before_destroy") is not None:

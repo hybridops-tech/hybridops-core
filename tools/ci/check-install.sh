@@ -139,6 +139,15 @@ grep -Fq 'Python 3.11 or newer' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
 grep -Fq 'macOS 13 or newer' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
 grep -Fq 'hybridops-core/discussions' "${HYOPS_REPO_ROOT}/pkg/macos/preinstall"
 grep -Fq 'HYOPS_RELEASE_VERSION=' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+if grep -Fq 'HYOPS_RELEASE_VERSION="0.0.${GITHUB_RUN_NUMBER}"' \
+  "${HYOPS_REPO_ROOT}/.github/workflows/ci.yml"; then
+  echo "ERR: macOS CI packages use a synthetic version instead of the Core release version" >&2
+  exit 1
+fi
+grep -Fq 'tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]' \
+  "${HYOPS_REPO_ROOT}/.github/workflows/ci.yml"
+grep -Fq 'test "$(/usr/local/bin/hyops --version)" = "${HYOPS_RELEASE_VERSION}"' \
+  "${HYOPS_REPO_ROOT}/.github/workflows/ci.yml"
 grep -Fq 'does not match release version' "${HYOPS_REPO_ROOT}/pkg/verify_release.sh"
 grep -Fq 'HybridOps.Core macOS package launcher' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"
 grep -Fq '/Library/Logs/HybridOps' "${HYOPS_REPO_ROOT}/pkg/macos/postinstall"

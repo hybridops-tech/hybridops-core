@@ -52,6 +52,14 @@ inputs:
     gns3_server_enable_kvm: true
     gns3_server_require_kvm: false
     gns3_server_install_emulators: true
+    gns3_server_management_access_enabled: false
+    gns3_server_management_bridge: "hyops-mgmt0"
+    gns3_server_management_cidr: "172.29.130.1/24"
+    gns3_server_management_subnet: "172.29.130.0/24"
+    gns3_server_management_dhcp_start: "172.29.130.50"
+    gns3_server_management_dhcp_end: "172.29.130.200"
+    gns3_server_management_lease_file: "/var/lib/misc/dnsmasq.hybridops-gns3-management.leases"
+    gns3_server_management_access_ssh_user: "opsadmin"
 
 execution:
   driver: "config/ansible"

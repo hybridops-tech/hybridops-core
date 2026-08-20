@@ -46,6 +46,7 @@ inputs:
     gns3_images_port: 3080
     gns3_images_username: "gns3"
     gns3_images_password_env: "GNS3_SERVER_PASSWORD"
+    gns3_images_iou_license_env: "GNS3_IOU_LICENSE"
     gns3_images_items: []
 
 execution:
@@ -60,6 +61,7 @@ outputs:
     - gns3_images_requested_count
     - gns3_images_installed_count
     - gns3_images_template_names
+    - gns3_images_iou_license_ready
 
 probes: []
 constraints: []

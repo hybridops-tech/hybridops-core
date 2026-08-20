@@ -6,8 +6,10 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: |
-        Use this for focused questions and documentation clarification. Do not include credentials, tokens, private addresses, customer data, or unredacted run records.
+      value: >-
+        Use this for focused questions and documentation clarification. Do not
+        include credentials, tokens, private addresses, customer data, or
+        unredacted run records.
   - type: dropdown
     id: area
     attributes:

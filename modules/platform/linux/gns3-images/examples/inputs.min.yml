@@ -3,6 +3,10 @@ inventory_vm_groups:
   targets:
     - "gns3-01"
 target_user: "opsadmin"
+# For an authorised IOU image, also set:
+# load_vault_env: true
+# required_env: ["GNS3_SERVER_PASSWORD", "GNS3_IOU_LICENSE"]
+# gns3_images_iou_license_env: "GNS3_IOU_LICENSE"
 gns3_images_items:
   - name: "Alpine Linux 3.24"
     url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-virt-3.24.1-x86_64.iso"

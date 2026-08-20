@@ -49,12 +49,31 @@ def _validate_template(value: Any, label: str) -> None:
         raise ValueError(f"{label}.linked_clone must be a boolean")
 
 
-def _validate_images(value: Any) -> None:
+def _validate_iou_template(value: Any, label: str) -> None:
+    template = require_mapping(value, label)
+    for key in ("ram", "nvram", "ethernet_adapters"):
+        if key in template:
+            _positive_int(template[key], f"{label}.{key}")
+    if "serial_adapters" in template:
+        value = template["serial_adapters"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{label}.serial_adapters must be an integer >= 0")
+    for key in ("category", "console_type", "symbol"):
+        if key in template:
+            require_non_empty_str(template[key], f"{label}.{key}")
+    if "use_default_iou_values" in template and not isinstance(
+        template["use_default_iou_values"], bool
+    ):
+        raise ValueError(f"{label}.use_default_iou_values must be a boolean")
+
+
+def _validate_images(value: Any) -> bool:
     if not isinstance(value, list) or not value:
         raise ValueError("inputs.gns3_images_items must be a non-empty list")
 
     names: set[str] = set()
     filenames: set[str] = set()
+    iou_requested = False
     for index, raw in enumerate(value, start=1):
         label = f"inputs.gns3_images_items[{index}]"
         item = require_mapping(raw, label)
@@ -62,9 +81,9 @@ def _validate_images(value: Any) -> None:
         url = require_non_empty_str(item.get("url"), f"{label}.url")
         filename = require_non_empty_str(item.get("filename"), f"{label}.filename")
         checksum = require_non_empty_str(item.get("checksum"), f"{label}.checksum")
-        disk_type = require_non_empty_str(
-            item.get("disk_type", "hda"), f"{label}.disk_type"
-        ).lower()
+        image_type = require_non_empty_str(
+            item.get("type", "qemu"), f"{label}.type"
+        )
 
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -73,8 +92,29 @@ def _validate_images(value: Any) -> None:
             raise ValueError(f"{label}.filename must be a safe basename")
         if not _SHA256_RE.fullmatch(checksum):
             raise ValueError(f"{label}.checksum must use sha256:<64 hex characters>")
-        if disk_type not in {"hda", "cdrom"}:
-            raise ValueError(f"{label}.disk_type must be hda or cdrom")
+        if image_type not in {"qemu", "iou"}:
+            raise ValueError(f"{label}.type must be qemu or iou")
+        if image_type == "qemu":
+            disk_type = require_non_empty_str(
+                item.get("disk_type", "hda"), f"{label}.disk_type"
+            ).lower()
+            if disk_type not in {"hda", "cdrom"}:
+                raise ValueError(f"{label}.disk_type must be hda or cdrom")
+        else:
+            iou_requested = True
+            if not filename.endswith(".bin"):
+                raise ValueError(f"{label}.filename must end with .bin for IOU")
+            if "disk_type" in item:
+                raise ValueError(f"{label}.disk_type is not valid for IOU")
+            architecture = require_non_empty_str(
+                item.get(
+                    "architecture",
+                    "i386" if filename.lower().startswith("i86bi") else "x86_64",
+                ),
+                f"{label}.architecture",
+            )
+            if architecture not in {"i386", "x86_64"}:
+                raise ValueError(f"{label}.architecture must be i386 or x86_64")
         if name in names:
             raise ValueError(f"{label}.name duplicates an earlier declaration")
         if filename in filenames:
@@ -85,7 +125,11 @@ def _validate_images(value: Any) -> None:
         if item.get("timeout") is not None:
             _positive_int(item["timeout"], f"{label}.timeout")
         if item.get("template") is not None:
-            _validate_template(item["template"], f"{label}.template")
+            if image_type == "iou":
+                _validate_iou_template(item["template"], f"{label}.template")
+            else:
+                _validate_template(item["template"], f"{label}.template")
+    return iou_requested
 
 
 def validate(inputs: dict[str, Any]) -> None:
@@ -102,7 +146,16 @@ def validate(inputs: dict[str, Any]) -> None:
     require_non_empty_str(
         data.get("gns3_images_password_env"), "inputs.gns3_images_password_env"
     )
-    normalize_required_env(data.get("required_env"), "inputs.required_env")
+    iou_license_env = require_non_empty_str(
+        data.get("gns3_images_iou_license_env"),
+        "inputs.gns3_images_iou_license_env",
+    )
+    required_env = normalize_required_env(data.get("required_env"), "inputs.required_env")
     if data.get("required_env_destroy") is not None:
         require_str_list(data.get("required_env_destroy"), "inputs.required_env_destroy")
-    _validate_images(data.get("gns3_images_items"))
+    iou_requested = _validate_images(data.get("gns3_images_items"))
+    if iou_requested and iou_license_env not in required_env:
+        raise ValueError(
+            "inputs.required_env must include inputs.gns3_images_iou_license_env "
+            "when an IOU image is declared"
+        )

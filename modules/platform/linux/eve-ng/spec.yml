@@ -56,6 +56,14 @@ inputs:
     eveng_guest_nat_subnet: "172.29.129.0/24"
     eveng_guest_nat_dhcp_start: "172.29.129.50"
     eveng_guest_nat_dhcp_end: "172.29.129.200"
+    eveng_management_access_enabled: false
+    eveng_management_bridge: "pnet8"
+    eveng_management_cidr: "172.29.128.1/24"
+    eveng_management_subnet: "172.29.128.0/24"
+    eveng_management_dhcp_start: "172.29.128.50"
+    eveng_management_dhcp_end: "172.29.128.200"
+    eveng_management_lease_file: "/var/lib/misc/dnsmasq.leases"
+    eveng_management_access_ssh_user: "opsadmin"
     eveng_root_password_env: "EVENG_ROOT_PASSWORD"
     eveng_admin_password_env: "EVENG_ADMIN_PASSWORD"
 

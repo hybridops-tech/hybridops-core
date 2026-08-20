@@ -21,6 +21,13 @@ access:
   local_port: 3080
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
+  automation:
+    management_network_label: "hyops-mgmt0"
+    management_cidr: "172.29.130.0/24"
+    management_gateway: "172.29.130.1"
+    management_dhcp_range: "172.29.130.50-172.29.130.200"
+    lease_file: "/var/lib/misc/dnsmasq.hybridops-gns3-management.leases"
+    default_user: "admin"
 
 archive_before_destroy:
   module_ref: "platform/linux/gns3-lab-archive"
@@ -109,6 +116,7 @@ steps:
       gns3_server_enable_kvm: true
       gns3_server_require_kvm: true
       gns3_server_install_emulators: true
+      gns3_server_management_access_enabled: true
 
   - id: gns3_images
     module_ref: "platform/linux/gns3-images"
@@ -129,6 +137,12 @@ steps:
       ssh_proxy_jump_user: "root"
       become: true
       become_user: "root"
+      # Keep authorised IOU licence content in the environment vault, not in
+      # this file. Import it once with `hyops secrets set --from-file`, then
+      # enable these inputs when an item below uses type: "iou":
+      # load_vault_env: true
+      # required_env: ["GNS3_SERVER_PASSWORD", "GNS3_IOU_LICENSE"]
+      # gns3_images_iou_license_env: "GNS3_IOU_LICENSE"
       gns3_images_items:
         - name: "Alpine Linux 3.24"
           url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-virt-3.24.1-x86_64.iso"
@@ -138,6 +152,12 @@ steps:
           template:
             ram: 512
             adapters: 2
+        # Authorised IOU image example:
+        # - name: "Operator supplied IOU"
+        #   url: "https://example.invalid/operator-supplied-iou.bin"
+        #   filename: "operator-supplied-iou.bin"
+        #   checksum: "sha256:<64-hex-character-checksum>"
+        #   type: "iou"
 
   - id: gns3_starter_lab
     module_ref: "platform/linux/gns3-starter-lab"

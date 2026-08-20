@@ -24,5 +24,6 @@ class GNS3ImagesModuleTest(TestCase):
                 "gns3_images_requested_count",
                 "gns3_images_installed_count",
                 "gns3_images_template_names",
+                "gns3_images_iou_license_ready",
             ],
         )

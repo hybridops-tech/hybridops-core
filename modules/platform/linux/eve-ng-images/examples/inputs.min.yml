@@ -3,6 +3,10 @@ target_user: "opsadmin"
 ssh_private_key_file: "~/.ssh/id_ed25519"
 
 eveng_images_source: "url"
+# Optional for authorised IOL images on EVE-NG Community Edition:
+# load_vault_env: true
+# required_env: ["EVENG_IOL_LICENSE"]
+# eveng_images_iol_license_required: true
 eveng_images_list:
   - url: "https://example.invalid/images/router-image.tgz"
     name: "router-image.tgz"

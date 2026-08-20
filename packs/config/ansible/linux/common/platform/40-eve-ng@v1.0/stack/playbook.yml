@@ -17,6 +17,15 @@
     _hyops_input_eveng_guest_nat_subnet: "{{ eveng_guest_nat_subnet | default('172.29.129.0/24') }}"
     _hyops_input_eveng_guest_nat_dhcp_start: "{{ eveng_guest_nat_dhcp_start | default('172.29.129.50') }}"
     _hyops_input_eveng_guest_nat_dhcp_end: "{{ eveng_guest_nat_dhcp_end | default('172.29.129.200') }}"
+    _hyops_input_eveng_management_access_enabled: "{{ eveng_management_access_enabled | default(false) | bool }}"
+    _hyops_input_eveng_management_bridge: "{{ eveng_management_bridge | default('pnet8') }}"
+    _hyops_input_eveng_management_cidr: "{{ eveng_management_cidr | default('172.29.128.1/24') }}"
+    _hyops_input_eveng_management_subnet: "{{ eveng_management_subnet | default('172.29.128.0/24') }}"
+    _hyops_input_eveng_management_dhcp_start: "{{ eveng_management_dhcp_start | default('172.29.128.50') }}"
+    _hyops_input_eveng_management_dhcp_end: "{{ eveng_management_dhcp_end | default('172.29.128.200') }}"
+    _hyops_input_eveng_management_lease_file: "{{ eveng_management_lease_file | default('/var/lib/misc/dnsmasq.leases') }}"
+    _hyops_input_eveng_management_access_ssh_user: >-
+      {{ eveng_management_access_ssh_user | default(target_user | default('opsadmin')) }}
     _hyops_input_eveng_root_password: "{{ lookup('env', eveng_root_password_env | default('EVENG_ROOT_PASSWORD')) }}"
     _hyops_input_eveng_admin_password: "{{ lookup('env', eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD')) }}"
 
@@ -36,6 +45,15 @@
         eveng_guest_nat_subnet: "{{ _hyops_input_eveng_guest_nat_subnet }}"
         eveng_guest_nat_dhcp_start: "{{ _hyops_input_eveng_guest_nat_dhcp_start }}"
         eveng_guest_nat_dhcp_end: "{{ _hyops_input_eveng_guest_nat_dhcp_end }}"
+        eveng_management_access_enabled: "{{ _hyops_input_eveng_management_access_enabled }}"
+        eveng_management_bridge: "{{ _hyops_input_eveng_management_bridge }}"
+        eveng_management_cidr: "{{ _hyops_input_eveng_management_cidr }}"
+        eveng_management_subnet: "{{ _hyops_input_eveng_management_subnet }}"
+        eveng_management_dhcp_start: "{{ _hyops_input_eveng_management_dhcp_start }}"
+        eveng_management_dhcp_end: "{{ _hyops_input_eveng_management_dhcp_end }}"
+        eveng_management_lease_file: "{{ _hyops_input_eveng_management_lease_file }}"
+        eveng_management_access_ssh_user: >-
+          {{ _hyops_input_eveng_management_access_ssh_user }}
         eveng_root_password: "{{ _hyops_input_eveng_root_password }}"
         eveng_admin_password: "{{ _hyops_input_eveng_admin_password }}"
 

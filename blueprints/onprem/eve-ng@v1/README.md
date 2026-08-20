@@ -86,6 +86,15 @@ Open the private UI:
 hyops blueprint access --env <env> --ref onprem/eve-ng@v1
 ```
 
+Connect a device management interface to `Cloud8`, then add `--automation` to
+open a private workstation-to-device path. HybridOps writes the SSH config,
+device target file and automation inventory under the selected environment.
+The access session must remain open. DHCP supplies the management gateway;
+static devices must use `172.29.128.1`. On Linux or WSL, optional
+`--route-lab` creates a temporary layer-3 route when `172.29.128.0/24` does not
+conflict locally. Windows and macOS applications use the generated SSH
+configuration or local proxy.
+
 When access closes, HybridOps offers to keep the environment, export its lab
 definitions before teardown, or destroy without an export. Direct interactive
 destroy uses the same choices. Automation must pass either
@@ -116,6 +125,7 @@ The shipped blueprint provisions one VM:
 - disk: `256` GB
 - network: `vmbr0` with DHCP
 - guest egress network: `Cloud9` (`172.29.129.0/24`)
+- private automation network: `Cloud8` (`172.29.128.0/24`)
 - SSH user: `opsadmin`
 
 The VM consumes the template state from:

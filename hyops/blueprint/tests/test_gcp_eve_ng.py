@@ -14,6 +14,14 @@ class GcpEveNgBlueprintTest(TestCase):
 
         self.assertTrue(validated["access"]["offer_destroy_on_close"])
         self.assertEqual(
+            validated["access"]["automation"]["management_network_label"],
+            "Cloud8",
+        )
+        self.assertEqual(
+            validated["access"]["automation"]["management_cidr"],
+            "172.29.128.0/24",
+        )
+        self.assertEqual(
             validated["metadata"]["ready_message"],
             "EVE-NG network emulation lab ready",
         )
@@ -40,6 +48,11 @@ class GcpEveNgBlueprintTest(TestCase):
         self.assertTrue(by_id["gcp_eve_ng_vm"]["inputs"]["zone_from_init_region"])
         self.assertTrue(
             by_id["gcp_eve_ng_config"]["inputs"]["eveng_guest_nat_enabled"]
+        )
+        self.assertTrue(
+            by_id["gcp_eve_ng_config"]["inputs"][
+                "eveng_management_access_enabled"
+            ]
         )
         self.assertEqual(
             len(by_id["gcp_eve_ng_images"]["inputs"]["eveng_images_list"]), 4

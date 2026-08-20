@@ -17,7 +17,9 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+import yaml
 
 from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.browser import is_windows_wsl, open_operator_url
@@ -42,19 +44,66 @@ from .contracts import (
     resolved_step_inputs_file,
     step_state_ref,
 )
+from .automation_access import (
+    automation_session_paths,
+    build_tunnel_ssh_argv,
+    linux_tunnel_plan,
+    load_automation_targets,
+    local_route_conflicts,
+    prepare_automation_session,
+)
 from .planner import compute_preflight, run_step_module_command
 from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
 
 
-def _resolve_and_validate(ns) -> dict[str, Any]:
+def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
+    if not blueprint_ref:
+        return ""
+    if not (getattr(ns, "root", None) or getattr(ns, "env", None)):
+        return ""
+
+    paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+    overlay_root = (paths.config_dir / "blueprints").resolve()
+    unresolved = overlay_root / _default_overlay_name(blueprint_ref)
+    candidate = unresolved.resolve()
+    try:
+        candidate.relative_to(overlay_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"initialized blueprint resolves outside {overlay_root}: {unresolved}"
+        ) from exc
+
+    if unresolved.is_symlink() and not candidate.exists():
+        raise FileNotFoundError(f"initialized blueprint link is broken: {unresolved}")
+    if candidate.exists() and not candidate.is_file():
+        raise ValueError(f"initialized blueprint is not a file: {candidate}")
+    return str(candidate) if candidate.is_file() else ""
+
+
+def _resolve_and_validate(
+    ns,
+    *,
+    allow_runtime_overlay: bool = True,
+) -> dict[str, Any]:
     blueprints_root = resolve_blueprints_root(getattr(ns, "blueprints_root", "blueprints"))
+    blueprint_ref = str(getattr(ns, "ref", "") or "").strip()
+    explicit_file = str(getattr(ns, "file", "") or "").strip()
+    overlay_file = ""
+    if allow_runtime_overlay and not explicit_file:
+        overlay_file = _runtime_overlay_for_ref(ns, blueprint_ref)
     path = resolve_blueprint_file(
-        ref=str(getattr(ns, "ref", "") or ""),
-        file_path=str(getattr(ns, "file", "") or ""),
+        ref=blueprint_ref,
+        file_path=explicit_file or overlay_file,
         blueprints_root=blueprints_root,
     )
     spec = load_blueprint(path)
-    return validate_blueprint(spec, path)
+    payload = validate_blueprint(spec, path)
+    if overlay_file and payload["blueprint_ref"] != blueprint_ref:
+        raise ValueError(
+            f"initialized blueprint ref mismatch: requested {blueprint_ref}, "
+            f"file declares {payload['blueprint_ref']}: {path}"
+        )
+    return payload
 
 
 def _enforce_runtime_blueprint_file_scope(ns, paths, *, command_label: str) -> None:
@@ -72,6 +121,70 @@ def _enforce_runtime_blueprint_file_scope(ns, paths, *, command_label: str) -> N
             f"{allowed_root} for the selected runtime. "
             "Copy the shipped blueprint there and rerun."
         ) from exc
+
+
+def _editor_argv(ns) -> list[str]:
+    explicit = str(getattr(ns, "editor", "") or "").strip()
+    for candidate in (
+        explicit,
+        os.environ.get("HYOPS_EDITOR", "").strip(),
+        os.environ.get("VISUAL", "").strip(),
+        os.environ.get("EDITOR", "").strip(),
+    ):
+        if candidate:
+            return shlex.split(candidate, posix=(os.name != "nt"))
+
+    candidates = ["nano", "vim", "vi", "code --wait", "open -e", "notepad"]
+    for candidate in candidates:
+        argv = shlex.split(candidate, posix=(os.name != "nt"))
+        if shutil.which(argv[0]):
+            return argv
+
+    raise RuntimeError("no editor command available. Set --editor or HYOPS_EDITOR.")
+
+
+def _blueprint_file_for_edit(ns) -> Path:
+    require_runtime_selection(
+        getattr(ns, "root", None),
+        getattr(ns, "env", None),
+        command_label="hyops blueprint edit",
+    )
+    paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+    ensure_layout(paths)
+
+    explicit = str(getattr(ns, "file", "") or "").strip()
+    if explicit:
+        _enforce_runtime_blueprint_file_scope(ns, paths, command_label="blueprint edit")
+        explicit_path = Path(explicit).expanduser().resolve()
+        if not explicit_path.exists():
+            raise FileNotFoundError(f"blueprint file not found: {explicit_path}")
+        if not explicit_path.is_file():
+            raise ValueError(f"blueprint file is not a file: {explicit_path}")
+        return explicit_path
+
+    if not str(getattr(ns, "ref", "") or "").strip():
+        raise ValueError(
+            "blueprint edit requires --ref unless --file is set. "
+            "Run blueprint init to generate a runtime blueprint first."
+        )
+
+    overlay = _runtime_overlay_for_ref(ns, str(getattr(ns, "ref", "")).strip())
+    if not overlay:
+        raise FileNotFoundError(
+            f"initialized blueprint not found for {getattr(ns, 'ref', None)}; "
+            "run `hyops blueprint init` first."
+        )
+
+    return Path(overlay)
+
+
+def _resolve_edit_target(ns) -> Path:
+    blueprint_file = _blueprint_file_for_edit(ns)
+    if not blueprint_file.exists():
+        raise FileNotFoundError(f"blueprint file not found: {blueprint_file}")
+    if not blueprint_file.is_file():
+        raise ValueError(f"blueprint file is not a regular file: {blueprint_file}")
+    return blueprint_file
 
 
 def _emit(payload: dict[str, Any], *, json_mode: bool) -> None:
@@ -383,8 +496,19 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     ssp = p.add_subparsers(dest="blueprint_cmd", required=True)
 
     def add_common_args(sub: argparse.ArgumentParser) -> None:
-        sub.add_argument("--ref", default="", help="Blueprint ref, e.g. onprem/eve-ng@v1.")
-        sub.add_argument("--file", default="", help="Explicit blueprint YAML path.")
+        sub.add_argument(
+            "--ref",
+            default="",
+            help=(
+                "Blueprint ref, e.g. onprem/eve-ng@v1. Uses the environment's "
+                "initialized blueprint automatically when available."
+            ),
+        )
+        sub.add_argument(
+            "--file",
+            default="",
+            help="Explicit blueprint YAML path; overrides automatic environment selection.",
+        )
         sub.add_argument(
             "--blueprints-root",
             default="blueprints",
@@ -409,10 +533,42 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Overwrite an existing runtime blueprint overlay.",
     )
+    i.add_argument(
+        "--edit",
+        action="store_true",
+        help="Open the initialized blueprint in a local editor immediately.",
+    )
+    i.add_argument(
+        "--editor",
+        default="",
+        help=(
+            "Editor command to use when --edit is set. "
+            "Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."
+        ),
+    )
     i.set_defaults(_handler=run_init)
+
+    e = ssp.add_parser(
+        "edit",
+        help="Open a runtime blueprint file in a local editor.",
+    )
+    add_common_args(e)
+    e.add_argument("--root", default=None, help="Override runtime root for blueprint selection.")
+    e.add_argument("--env", default=None, help="Runtime environment namespace.")
+    e.add_argument(
+        "--editor",
+        default="",
+        help=(
+            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, "
+            "then common editors."
+        ),
+    )
+    e.set_defaults(_handler=run_edit)
 
     q = ssp.add_parser("validate", help="Validate a blueprint manifest.")
     add_common_args(q)
+    q.add_argument("--root", default=None, help="Override runtime root for overlay selection.")
+    q.add_argument("--env", default=None, help="Runtime environment namespace.")
     q.set_defaults(_handler=run_validate)
 
     u = ssp.add_parser(
@@ -431,6 +587,8 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
 
     r = ssp.add_parser("plan", help="Render blueprint execution order (skeleton).")
     add_common_args(r)
+    r.add_argument("--root", default=None, help="Override runtime root for overlay selection.")
+    r.add_argument("--env", default=None, help="Runtime environment namespace.")
     r.set_defaults(_handler=run_plan)
 
     a = ssp.add_parser("access", help="Open a declared private blueprint access path.")
@@ -451,7 +609,87 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Forward active native console ports declared by the blueprint.",
     )
+    a.add_argument(
+        "--automation",
+        action="store_true",
+        help="Open private device automation access and write client configuration.",
+    )
+    a.add_argument(
+        "--socks-port",
+        type=int,
+        default=0,
+        help="Local device proxy port (default: choose an available port).",
+    )
+    a.add_argument(
+        "--targets",
+        default="",
+        help="Override the environment automation target file.",
+    )
+    a.add_argument(
+        "--route-lab",
+        action="store_true",
+        help="Route the declared management subnet through a Linux TUN interface.",
+    )
     a.set_defaults(_handler=run_access)
+
+    device = ssp.add_parser(
+        "device",
+        help="Use devices through an active private blueprint access session.",
+    )
+    device_commands = device.add_subparsers(dest="device_cmd", required=True)
+
+    def add_device_args(sub: argparse.ArgumentParser) -> None:
+        add_common_args(sub)
+        sub.add_argument("--root", default=None, help="Override runtime root.")
+        sub.add_argument("--env", default=None, help="Runtime environment namespace.")
+
+    device_list = device_commands.add_parser(
+        "list",
+        help="List discovered and operator-defined device targets.",
+    )
+    add_device_args(device_list)
+    device_list.set_defaults(_handler=run_device)
+
+    device_ping = device_commands.add_parser(
+        "ping",
+        help="Test a device address through the managed lab gateway.",
+    )
+    add_device_args(device_ping)
+    device_ping.add_argument("target", help="Device name or management IPv4 address.")
+    device_ping.add_argument(
+        "--count",
+        type=int,
+        default=3,
+        help="Number of probes (default: 3).",
+    )
+    device_ping.set_defaults(_handler=run_device)
+
+    device_ssh = device_commands.add_parser(
+        "ssh",
+        help="Open SSH to a device through the managed lab gateway.",
+    )
+    add_device_args(device_ssh)
+    device_ssh.add_argument("target", help="Discovered or operator-defined device name.")
+    device_ssh.set_defaults(_handler=run_device)
+
+    device_shell = device_commands.add_parser(
+        "shell",
+        help="Open a shell configured for the active device session.",
+    )
+    add_device_args(device_shell)
+    device_shell.set_defaults(_handler=run_device)
+
+    device_run = device_commands.add_parser(
+        "run",
+        help="Run a command with the active device-session environment.",
+    )
+    add_device_args(device_run)
+    device_run.add_argument(
+        "command",
+        nargs=argparse.REMAINDER,
+        help="Command to run, normally after --.",
+    )
+    device_run.set_defaults(_handler=run_device)
 
     t = ssp.add_parser("deploy", help="Deploy blueprint steps in dependency order.")
     add_common_args(t)
@@ -595,6 +833,217 @@ def run_validate(ns) -> int:
         return OPERATOR_ERROR
 
 
+def _resolve_device_blueprint(ns, paths) -> dict[str, Any]:
+    if str(getattr(ns, "ref", "") or "").strip() or str(
+        getattr(ns, "file", "") or ""
+    ).strip():
+        return _resolve_and_validate(ns)
+
+    candidates: list[dict[str, Any]] = []
+    blueprint_dir = Path(paths.config_dir) / "blueprints"
+    for path in sorted(blueprint_dir.glob("*.yml")):
+        try:
+            payload = validate_blueprint(load_blueprint(path), path)
+        except (OSError, ValueError):
+            continue
+        access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+        if isinstance(access.get("automation"), dict) and access["automation"]:
+            candidates.append(payload)
+    if not candidates:
+        raise ValueError(
+            "no initialized automation blueprint was found; pass --ref or run blueprint init"
+        )
+    if len(candidates) > 1:
+        refs = ", ".join(str(item.get("blueprint_ref") or "") for item in candidates)
+        raise ValueError(f"multiple automation blueprints are initialized ({refs}); pass --ref")
+    return candidates[0]
+
+
+def _device_context(ns) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    require_runtime_selection(
+        getattr(ns, "root", None),
+        getattr(ns, "env", None),
+        command_label="hyops blueprint device",
+    )
+    paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+    payload = _resolve_device_blueprint(ns, paths)
+    access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+    automation = access.get("automation") if isinstance(access.get("automation"), dict) else {}
+    if not automation:
+        raise ValueError("blueprint does not declare device automation access")
+    env_name = str(getattr(ns, "env", "") or Path(paths.root).name)
+    material = automation_session_paths(
+        paths=paths,
+        blueprint_ref=str(payload.get("blueprint_ref") or "blueprint"),
+        env_name=env_name,
+    )
+    target_file = material["target_file"]
+    if not target_file.is_file():
+        raise ValueError(
+            "device targets are unavailable; run blueprint access with --automation"
+        )
+    targets = load_automation_targets(target_file, automation["management_cidr"])
+    return automation, material, targets
+
+
+def _resolve_device_target(
+    value: str,
+    automation: dict[str, Any],
+    targets: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any] | None]:
+    token = str(value or "").strip()
+    for target in targets:
+        if token in {target["name"], target["host"]}:
+            return str(target["host"]), target
+    try:
+        address = ipaddress.ip_address(token)
+    except ValueError as exc:
+        raise ValueError(f"unknown device target: {token}") from exc
+    network = ipaddress.ip_network(automation["management_cidr"], strict=False)
+    if address not in network:
+        raise ValueError(f"device address {address} is outside {network}")
+    return str(address), None
+
+
+def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
+    required = {
+        "SSH configuration": Path(material["ssh_config"]),
+        "Ansible configuration": Path(material["ansible_config"]),
+        "Nornir host inventory": Path(material["nornir_hosts"]),
+        "Nornir group inventory": Path(material["nornir_groups"]),
+        "Nornir defaults": Path(material["nornir_defaults"]),
+        "session metadata": Path(material["session_file"]),
+    }
+    for label, path in required.items():
+        if not path.is_file():
+            raise ValueError(
+                f"{label} is unavailable; run blueprint access with --automation"
+            )
+    try:
+        session = yaml.safe_load(
+            Path(material["session_file"]).read_text(encoding="utf-8")
+        ) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise ValueError("device session metadata is invalid") from exc
+    proxy = str(session.get("socks_proxy") or "").strip()
+    inventory_options = {
+        "host_file": str(material["nornir_hosts"]),
+        "group_file": str(material["nornir_groups"]),
+        "defaults_file": str(material["nornir_defaults"]),
+    }
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "ANSIBLE_CONFIG": str(material["ansible_config"]),
+            "HYOPS_DEVICE_INVENTORY": str(material["inventory"]),
+            "HYOPS_DEVICE_TARGETS": str(material["target_file"]),
+            "HYOPS_DEVICE_SSH_CONFIG": str(material["ssh_config"]),
+            "HYOPS_DEVICE_PROXY": proxy,
+            "NORNIR_INVENTORY_PLUGIN": "SimpleInventory",
+            "NORNIR_INVENTORY_OPTIONS": json.dumps(inventory_options),
+            "NORNIR_SSH_CONFIG_FILE": str(material["ssh_config"]),
+        }
+    )
+    if proxy:
+        environment["ALL_PROXY"] = proxy
+        environment["all_proxy"] = proxy
+    return environment
+
+
+def run_device(ns) -> int:
+    try:
+        automation, material, targets = _device_context(ns)
+        action = str(getattr(ns, "device_cmd", "") or "")
+        if action == "list":
+            if bool(getattr(ns, "json", False)):
+                print(json.dumps({"targets": targets}, indent=2, sort_keys=True))
+            elif not targets:
+                print(
+                    "no devices discovered; connect a management interface to "
+                    f"{automation['management_network_label']}"
+                )
+            else:
+                for target in targets:
+                    source = "DHCP" if target.get("source") == "dhcp-lease" else "static"
+                    platform = target.get("platform") or "unspecified"
+                    print(f"{target['name']}  {target['host']}  {platform}  {source}")
+            return 0
+
+        ssh_config = Path(material["ssh_config"])
+        if not ssh_config.is_file():
+            raise ValueError(
+                "private access is not active; run blueprint access with --automation "
+                "and keep it open"
+            )
+        ssh = shutil.which("ssh")
+        if not ssh:
+            raise ValueError("ssh is required; run: hyops setup base")
+
+        if action == "ping":
+            count = int(getattr(ns, "count", 3) or 3)
+            if not 1 <= count <= 20:
+                raise ValueError("--count must be between 1 and 20")
+            address, _target = _resolve_device_target(ns.target, automation, targets)
+            result = subprocess.run(
+                [
+                    ssh,
+                    "-F",
+                    str(ssh_config),
+                    str(material["gateway_alias"]),
+                    "ping",
+                    "-c",
+                    str(count),
+                    "--",
+                    address,
+                ],
+                cwd=str(Path.home()),
+                check=False,
+            )
+            return int(result.returncode)
+
+        if action == "ssh":
+            _address, target = _resolve_device_target(ns.target, automation, targets)
+            if target is None:
+                raise ValueError("device SSH requires a named target; run device list")
+            alias = f"{material['alias_prefix']}-{target['name']}"
+            result = subprocess.run(
+                [ssh, "-F", str(ssh_config), alias],
+                cwd=str(Path.home()),
+                check=False,
+            )
+            return int(result.returncode)
+        if action in {"shell", "run"}:
+            environment = _device_process_environment(material)
+            if action == "shell":
+                shell = str(os.environ.get("SHELL") or shutil.which("bash") or "").strip()
+                if not shell:
+                    raise ValueError("an interactive shell is unavailable")
+                print("device automation environment ready; exit to leave")
+                result = subprocess.run(
+                    [shell, "-i"],
+                    cwd=str(Path.cwd()),
+                    env=environment,
+                    check=False,
+                )
+                return int(result.returncode)
+            command = list(getattr(ns, "command", []) or [])
+            if command and command[0] == "--":
+                command = command[1:]
+            if not command:
+                raise ValueError("device run requires a command after --")
+            result = subprocess.run(
+                command,
+                cwd=str(Path.cwd()),
+                env=environment,
+                check=False,
+            )
+            return int(result.returncode)
+        raise ValueError(f"unsupported device command: {action}")
+    except Exception as exc:
+        print(f"ERR: blueprint device failed: {exc}")
+        return OPERATOR_ERROR
+
+
 def run_init(ns) -> int:
     try:
         require_runtime_selection(
@@ -602,7 +1051,7 @@ def run_init(ns) -> int:
             getattr(ns, "env", None),
             command_label="hyops blueprint init",
         )
-        payload = _resolve_and_validate(ns)
+        payload = _resolve_and_validate(ns, allow_runtime_overlay=False)
         paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
         ensure_layout(paths)
         dest_dir = (paths.config_dir / "blueprints").resolve()
@@ -613,11 +1062,18 @@ def run_init(ns) -> int:
         dest_path = (dest_dir / dest_name).resolve()
         if dest_path.exists() and not bool(getattr(ns, "force", False)):
             raise FileExistsError(
-                f"blueprint overlay already exists: {dest_path} "
+                f"initialized blueprint already exists: {dest_path} "
                 "(use --force to overwrite)"
             )
         shutil.copy2(Path(payload["path"]), dest_path)
         dest_path.chmod(0o600)
+        if bool(getattr(ns, "edit", False)):
+            editor_argv = _editor_argv(ns)
+            editor_argv.append(str(dest_path))
+            print(f"Opening blueprint for edit: {dest_path}")
+            result = subprocess.run(editor_argv, check=False)
+            if result.returncode != 0:
+                raise RuntimeError(f"editor returned {result.returncode}")
         out = {
             "blueprint_ref": payload["blueprint_ref"],
             "status": "initialized",
@@ -628,11 +1084,26 @@ def run_init(ns) -> int:
             print(json.dumps(out, indent=2, sort_keys=True))
         else:
             print(f"blueprint={payload['blueprint_ref']} status=initialized")
-            print(f"source={payload['path']}")
             print(f"file={dest_path}")
         return 0
     except Exception as exc:
         print(f"ERR: blueprint init failed: {exc}")
+        return OPERATOR_ERROR
+
+
+def run_edit(ns) -> int:
+    try:
+        blueprint_file = _resolve_edit_target(ns)
+        editor_argv = _editor_argv(ns)
+        editor_argv.append(str(blueprint_file))
+        print(f"Opening blueprint for edit: {blueprint_file}")
+        result = subprocess.run(editor_argv, check=False)
+        if result.returncode != 0:
+            print(f"ERR: blueprint edit failed: editor returned {result.returncode}")
+            return OPERATOR_ERROR
+        return 0
+    except Exception as exc:
+        print(f"ERR: blueprint edit failed: {exc}")
         return OPERATOR_ERROR
 
 
@@ -1117,6 +1588,328 @@ def _stop_process(proc: subprocess.Popen | None) -> None:
         proc.wait(timeout=5)
 
 
+def _automation_settings(access: dict[str, Any], ns) -> dict[str, Any] | None:
+    requested = bool(getattr(ns, "automation", False) or getattr(ns, "route_lab", False))
+    if not requested:
+        return None
+    automation = access.get("automation")
+    if not isinstance(automation, dict) or not automation:
+        raise ValueError("blueprint does not declare device automation access")
+    return automation
+
+
+def _read_automation_leases(
+    ssh_base: list[str],
+    ssh_target: str,
+    automation: dict[str, Any],
+) -> str:
+    lease_file = str(automation.get("lease_file") or "").strip()
+    if not lease_file:
+        return ""
+    remote_command = (
+        f"cat -- {shlex.quote(lease_file)} 2>/dev/null || "
+        f"sudo -n cat -- {shlex.quote(lease_file)}"
+    )
+    result = subprocess.run(
+        [*ssh_base, ssh_target, remote_command],
+        cwd=str(Path.home()),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        timeout=20,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
+def _prepare_automation_access(
+    *,
+    ns,
+    payload: dict[str, Any],
+    paths,
+    automation: dict[str, Any],
+    gateway: dict[str, Any],
+    ssh_base: list[str],
+    ssh_target: str,
+    reserved_ports: list[int] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    requested_port = int(getattr(ns, "socks_port", 0) or 0) or int(
+        automation.get("local_socks_port") or 0
+    )
+    socks_port = _available_local_port(requested_port)
+    reserved = set(reserved_ports or [])
+    if socks_port in reserved and requested_port:
+        raise ValueError(
+            f"device proxy port {socks_port} is already used by this access session"
+        )
+    while socks_port in reserved:
+        socks_port = _available_local_port(0)
+    _require_local_ports_available([socks_port])
+    lease_text = _read_automation_leases(ssh_base, ssh_target, automation)
+    session = prepare_automation_session(
+        paths=paths,
+        blueprint_ref=str(payload.get("blueprint_ref") or "blueprint"),
+        env_name=str(getattr(ns, "env", "") or Path(paths.root).name),
+        automation=automation,
+        gateway=gateway,
+        socks_port=socks_port,
+        lease_text=lease_text,
+        target_file_override=str(getattr(ns, "targets", "") or ""),
+    )
+    return socks_port, session
+
+
+def _automation_refresher(
+    *,
+    ns,
+    payload: dict[str, Any],
+    paths,
+    automation: dict[str, Any],
+    gateway: dict[str, Any],
+    ssh_base: list[str],
+    ssh_target: str,
+    socks_port: int,
+    session: dict[str, Any],
+) -> Callable[[], None] | None:
+    if str(getattr(ns, "targets", "") or ""):
+        return None
+
+    def refresh() -> None:
+        lease_text = _read_automation_leases(ssh_base, ssh_target, automation)
+        if not lease_text:
+            return
+        updated = prepare_automation_session(
+            paths=paths,
+            blueprint_ref=str(payload.get("blueprint_ref") or "blueprint"),
+            env_name=str(getattr(ns, "env", "") or Path(paths.root).name),
+            automation=automation,
+            gateway=gateway,
+            socks_port=socks_port,
+            lease_text=lease_text,
+        )
+        added = list(updated.get("new_targets") or [])
+        session.clear()
+        session.update(updated)
+        for name in added:
+            target = next(
+                (item for item in updated["targets"] if item["name"] == name),
+                None,
+            )
+            if target:
+                print(f"device discovered: {name} ({target['host']})", flush=True)
+
+    return refresh
+
+
+def _print_automation_access(
+    automation: dict[str, Any],
+    session: dict[str, Any],
+    *,
+    route_requested: bool = False,
+) -> None:
+    print(
+        "automation network: "
+        f"{automation['management_network_label']} "
+        f"({automation['management_cidr']})"
+    )
+    print("device discovery: watching management-network DHCP leases")
+    print("device commands: hyops blueprint device --help")
+    if verbose_enabled():
+        print(f"device proxy: {session['socks_proxy']}")
+        print(f"static target overrides: {session['target_file']}")
+        print(f"SSH and VS Code config: {session['ssh_config']}")
+        print(f"automation inventory: {session['inventory']}")
+        print(f"API proxy settings: {session['proxy_env']}")
+    if not route_requested:
+        print("direct routing: not active; use device commands or the API proxy")
+    if session["discovered_count"]:
+        print(f"management addresses discovered: {session['discovered_count']}")
+    if session["aliases"]:
+        print(f"SSH targets: {', '.join(session['aliases'])}")
+    else:
+        print(
+            "device targets: none discovered; connect a management interface to "
+            f"{automation['management_network_label']}"
+        )
+
+
+def _print_lab_route_ready(automation: dict[str, Any]) -> None:
+    print(f"local route: {automation['management_cidr']} through the lab host")
+    if is_windows_wsl():
+        print(
+            "route scope: HybridOps Linux environment; Windows applications "
+            "use the generated proxy or SSH config"
+        )
+
+
+def _start_lab_route(
+    automation: dict[str, Any],
+    gateway: dict[str, Any],
+    *,
+    scope: str,
+) -> tuple[subprocess.Popen, dict[str, Any]]:
+    if not sys.platform.startswith("linux"):
+        raise ValueError(
+            "--route-lab currently requires Linux; use --automation for "
+            "portable SSH and API access"
+        )
+    conflicts = local_route_conflicts(automation["management_cidr"])
+    if conflicts:
+        raise ValueError(
+            "management subnet conflicts with a local route: " + conflicts[0]
+        )
+    ip_command = shutil.which("ip")
+    if not ip_command:
+        raise ValueError("--route-lab requires the ip command")
+    if not Path("/dev/net/tun").exists():
+        raise ValueError("--route-lab requires Linux TUN support at /dev/net/tun")
+    plan = linux_tunnel_plan(scope)
+    if Path(f"/sys/class/net/{plan['interface']}").exists():
+        raise ValueError(
+            f"local tunnel interface is already in use: {plan['interface']}"
+        )
+    privilege: list[str] = []
+    if os.geteuid() != 0:
+        sudo = shutil.which("sudo")
+        if not sudo:
+            raise ValueError("--route-lab requires sudo to create a local route")
+        privilege = [sudo]
+
+    def run_ip(*arguments: str, check: bool = True) -> subprocess.CompletedProcess:
+        result = subprocess.run(
+            [*privilege, ip_command, *arguments],
+            cwd=str(Path.home()),
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE if check else subprocess.DEVNULL,
+            check=False,
+        )
+        if check and result.returncode != 0:
+            detail = str(result.stderr or "").strip().splitlines()
+            reason = detail[-1] if detail else f"ip exited with rc={result.returncode}"
+            raise ValueError(f"local route setup failed: {reason}")
+        return result
+
+    route_proc: subprocess.Popen | None = None
+    try:
+        run_ip(
+            "tuntap",
+            "add",
+            "dev",
+            plan["interface"],
+            "mode",
+            "tun",
+            "user",
+            str(os.getuid()),
+        )
+        run_ip(
+            "address",
+            "replace",
+            plan["local_cidr"],
+            "peer",
+            plan["remote_ip"],
+            "dev",
+            plan["interface"],
+        )
+        run_ip("link", "set", plan["interface"], "up")
+        route_proc = subprocess.Popen(
+            build_tunnel_ssh_argv(
+                gateway=gateway,
+                plan=plan,
+                remote_helper="/usr/local/sbin/hybridops-lab-route",
+            ),
+            cwd=str(Path.home()),
+        )
+        ping = shutil.which("ping")
+        if not ping:
+            raise ValueError("--route-lab requires ping to verify the tunnel")
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            if route_proc.poll() is not None:
+                raise ValueError(f"lab route exited with rc={route_proc.returncode}")
+            probe = subprocess.run(
+                [ping, "-c", "1", "-W", "1", plan["remote_ip"]],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if probe.returncode == 0:
+                break
+            time.sleep(0.5)
+        else:
+            raise ValueError("timed out verifying the private lab route")
+        run_ip(
+            "route",
+            "replace",
+            automation["management_cidr"],
+            "via",
+            plan["remote_ip"],
+            "dev",
+            plan["interface"],
+        )
+        gateway_probe = subprocess.run(
+            [ping, "-c", "1", "-W", "2", automation["management_gateway"]],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if gateway_probe.returncode != 0:
+            raise ValueError(
+                "private management gateway did not respond through the lab route"
+            )
+        plan["privilege"] = privilege
+        plan["ip_command"] = ip_command
+        return route_proc, plan
+    except BaseException:
+        _stop_process(route_proc)
+        run_ip("link", "delete", plan["interface"], check=False)
+        raise
+
+
+def _stop_lab_route(
+    route_proc: subprocess.Popen | None,
+    route_plan: dict[str, Any] | None,
+) -> None:
+    _stop_process(route_proc)
+    if not route_plan:
+        return
+    ip_command = str(route_plan.get("ip_command") or "")
+    if not ip_command:
+        return
+    privilege = [str(item) for item in route_plan.get("privilege") or []]
+    subprocess.run(
+        [*privilege, ip_command, "link", "delete", route_plan["interface"]],
+        cwd=str(Path.home()),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def _wait_for_access_processes(
+    access_proc: subprocess.Popen,
+    route_proc: subprocess.Popen | None = None,
+    maintenance: Callable[[], None] | None = None,
+) -> int:
+    next_maintenance = time.monotonic() + 3
+    while True:
+        access_rc = access_proc.poll()
+        if access_rc is not None:
+            return int(access_rc)
+        if route_proc is not None:
+            route_rc = route_proc.poll()
+            if route_rc is not None:
+                return int(route_rc)
+        if maintenance is not None and time.monotonic() >= next_maintenance:
+            try:
+                maintenance()
+            except Exception as exc:
+                if verbose_enabled():
+                    print(f"WARN: device discovery refresh failed: {exc}")
+            next_maintenance = time.monotonic() + 8
+        time.sleep(0.5)
+
+
 def run_access(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
@@ -1138,12 +1931,17 @@ def run_access(ns) -> int:
         access_type = str(access.get("type") or "").strip()
         remote_port = int(access.get("remote_port") or 80)
         path = str(access.get("path") or "/")
+        automation = _automation_settings(access, ns)
 
         if access_type in {"direct-http", "ssh-forward", "ssh-tcp-forward"}:
             host = _extract_access_host(outputs)
             if not host:
                 raise ValueError(f"VM state does not contain a usable IPv4 address: {state_ref}")
             if access_type == "direct-http":
+                if automation:
+                    raise ValueError(
+                        "device automation access requires an SSH-forward access path"
+                    )
                 url = f"http://{host}:{remote_port}{path}"
                 print("opening direct EVE-NG access")
                 print(f"URL: {url}")
@@ -1210,8 +2008,32 @@ def run_access(ns) -> int:
             if requested_port:
                 _require_local_ports_available([port])
             url = f"http://127.0.0.1:{port}{path}"
+            automation_session: dict[str, Any] | None = None
+            socks_port = 0
+            gateway = {
+                "host": host,
+                "user": ssh_user,
+                "port": 22,
+                "identity_file": str(ssh_key),
+                "known_hosts_file": str(known_hosts_file),
+                "host_key_alias": "",
+                "ssh_command": ssh_base,
+            }
+            if automation:
+                socks_port, automation_session = _prepare_automation_access(
+                    ns=ns,
+                    payload=payload,
+                    paths=paths,
+                    automation=automation,
+                    gateway=gateway,
+                    ssh_base=ssh_base,
+                    ssh_target=ssh_target,
+                    reserved_ports=[port, *console_ports],
+                )
             argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
             argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{remote_port}"])
+            if automation:
+                argv.extend(["-D", f"127.0.0.1:{socks_port}"])
             for console_port in console_ports:
                 argv.extend(
                     ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
@@ -1222,26 +2044,69 @@ def run_access(ns) -> int:
                 print("opening private TCP access")
                 print(f"local endpoint: 127.0.0.1:{port}")
             else:
-                print("opening private Proxmox EVE-NG access")
+                print("opening private lab access")
                 print(f"local URL: {url}")
             _print_guest_network_guidance(access)
+            if automation and automation_session:
+                _print_automation_access(
+                    automation,
+                    automation_session,
+                    route_requested=bool(getattr(ns, "route_lab", False)),
+                )
             if bool(getattr(ns, "native_consoles", False)):
                 _print_native_console_client_guidance()
                 print(_native_console_status(console_ports))
                 if not console_ports:
                     print("native console setup: start a QEMU node, then rerun access with --native-consoles")
-            print("press Ctrl-C to close access")
             proc = subprocess.Popen(argv, cwd=str(Path.home()))
             time.sleep(2)
             if proc.poll() is not None:
                 return OPERATOR_ERROR
+            if automation:
+                _wait_for_local_port(socks_port, proc)
+            automation_refresh = None
+            if automation and automation_session:
+                automation_refresh = _automation_refresher(
+                    ns=ns,
+                    payload=payload,
+                    paths=paths,
+                    automation=automation,
+                    gateway=gateway,
+                    ssh_base=ssh_base,
+                    ssh_target=ssh_target,
+                    socks_port=socks_port,
+                    session=automation_session,
+                )
+            route_proc: subprocess.Popen | None = None
+            route_plan: dict[str, Any] | None = None
+            if automation and bool(getattr(ns, "route_lab", False)):
+                try:
+                    print("preparing private lab route", flush=True)
+                    route_proc, route_plan = _start_lab_route(
+                        automation,
+                        gateway,
+                        scope=f"{paths.root}:{payload['blueprint_ref']}",
+                    )
+                    _print_lab_route_ready(automation)
+                except BaseException:
+                    _stop_process(proc)
+                    raise
             if access_type != "ssh-tcp-forward" and not bool(
                 getattr(ns, "no_browser", False)
             ):
                 open_operator_url(url)
+            print("press Ctrl-C to close access")
             try:
-                return int(proc.wait())
+                rc = _wait_for_access_processes(
+                    proc,
+                    route_proc,
+                    maintenance=automation_refresh,
+                )
+                _stop_lab_route(route_proc, route_plan)
+                _stop_process(proc)
+                return rc
             except KeyboardInterrupt:
+                _stop_lab_route(route_proc, route_plan)
                 _stop_process(proc)
                 print("access closed")
                 return _offer_access_close_destroy(ns, payload, state)
@@ -1258,6 +2123,8 @@ def run_access(ns) -> int:
             paths=paths,
         )
         port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
+        if int(getattr(ns, "local_port", 0) or 0):
+            _require_local_ports_available([port])
         url = f"http://127.0.0.1:{port}{path}"
         gcloud = shutil.which("gcloud")
         if not gcloud:
@@ -1272,6 +2139,8 @@ def run_access(ns) -> int:
             if not ssh:
                 raise ValueError("ssh is required; run: hyops setup base")
             iap_port = _available_local_port(0)
+            while iap_port == port:
+                iap_port = _available_local_port(0)
             print("preparing private GCP IAP access", flush=True)
             iap_argv = [
                 gcloud, "compute", "start-iap-tunnel", instance, "22",
@@ -1315,14 +2184,43 @@ def run_access(ns) -> int:
                 console_ports = _parse_eve_qemu_console_ports(probe.stdout)
                 if console_ports:
                     _require_local_ports_available(console_ports)
+            automation_session: dict[str, Any] | None = None
+            socks_port = 0
+            host_key_alias = f"hyops-{known_hosts_file.stem}"
+            gateway = {
+                "host": "127.0.0.1",
+                "user": ssh_user,
+                "port": iap_port,
+                "identity_file": ssh_key,
+                "known_hosts_file": str(known_hosts_file),
+                "host_key_alias": host_key_alias,
+                "ssh_command": ssh_base,
+            }
+            if automation:
+                socks_port, automation_session = _prepare_automation_access(
+                    ns=ns,
+                    payload=payload,
+                    paths=paths,
+                    automation=automation,
+                    gateway=gateway,
+                    ssh_base=ssh_base,
+                    ssh_target=ssh_target,
+                    reserved_ports=[port, iap_port, *console_ports],
+                )
             argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
             argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{remote_port}"])
+            if automation:
+                argv.extend(["-D", f"127.0.0.1:{socks_port}"])
             for console_port in console_ports:
                 argv.extend(
                     ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
                 )
             argv.append(ssh_target)
         else:
+            if automation:
+                raise ValueError(
+                    "device automation access requires an SSH-forward access path"
+                )
             if bool(getattr(ns, "native_consoles", False)):
                 raise ValueError("native consoles require an SSH-forward access declaration")
             argv = [
@@ -1337,6 +2235,12 @@ def run_access(ns) -> int:
         else:
             print(f"local endpoint: 127.0.0.1:{port}")
         _print_guest_network_guidance(access)
+        if automation and automation_session:
+            _print_automation_access(
+                automation,
+                automation_session,
+                route_requested=bool(getattr(ns, "route_lab", False)),
+            )
         validated, enabled, _detail = diagnose_project_billing(project)
         print(f"billing: {'enabled' if enabled else 'disabled'}" if validated else "billing: unable to verify")
         _print_cost_estimate(cost_estimate, state=state)
@@ -1345,20 +2249,57 @@ def run_access(ns) -> int:
             print(_native_console_status(console_ports))
             if not console_ports:
                 print("native console setup: start a QEMU node, then rerun access with --native-consoles")
-        print("press Ctrl-C to close access")
         access_started_at = time.monotonic()
         proc = subprocess.Popen(argv, cwd=str(Path.home()))
         time.sleep(2)
         if proc.poll() is not None:
             _stop_process(iap_proc)
             return OPERATOR_ERROR
+        if automation:
+            _wait_for_local_port(socks_port, proc)
+        automation_refresh = None
+        if automation and automation_session:
+            automation_refresh = _automation_refresher(
+                ns=ns,
+                payload=payload,
+                paths=paths,
+                automation=automation,
+                gateway=gateway,
+                ssh_base=ssh_base,
+                ssh_target=ssh_target,
+                socks_port=socks_port,
+                session=automation_session,
+            )
+        route_proc: subprocess.Popen | None = None
+        route_plan: dict[str, Any] | None = None
+        if automation and bool(getattr(ns, "route_lab", False)):
+            try:
+                print("preparing private lab route", flush=True)
+                route_proc, route_plan = _start_lab_route(
+                    automation,
+                    gateway,
+                    scope=f"{paths.root}:{payload['blueprint_ref']}",
+                )
+                _print_lab_route_ready(automation)
+            except BaseException:
+                _stop_process(proc)
+                _stop_process(iap_proc)
+                raise
         if open_browser and not bool(getattr(ns, "no_browser", False)):
             open_operator_url(url)
+        print("press Ctrl-C to close access")
         try:
-            rc = int(proc.wait())
+            rc = _wait_for_access_processes(
+                proc,
+                route_proc,
+                maintenance=automation_refresh,
+            )
+            _stop_lab_route(route_proc, route_plan)
+            _stop_process(proc)
             _stop_process(iap_proc)
             return rc
         except KeyboardInterrupt:
+            _stop_lab_route(route_proc, route_plan)
             _stop_process(proc)
             _stop_process(iap_proc)
             print("access closed")

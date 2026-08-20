@@ -87,6 +87,12 @@ The [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/) is the m
 - [GCP GNS3 operation](blueprints/gcp/gns3@v1/): creates the private GCP network and VM, installs GNS3 and starter content, then runs a health check.
 - [On-Prem EVE-NG operation](blueprints/onprem/eve-ng@v1/): builds from a template image, provisions the Proxmox VM, installs EVE-NG and images, then validates the host.
 - [On-Prem GNS3 operation](blueprints/onprem/gns3@v1/): builds from a verified template, provisions the Proxmox VM, installs GNS3 and starter content, then validates the host.
+
+The EVE-NG and GNS3 operations also declare a private device-management plane.
+An access session can publish environment-scoped SSH and automation client
+material, proxy workstation traffic through the existing private host path,
+and optionally route the management subnet after checking for local conflicts.
+No device or management subnet is opened to the public network.
 - [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/): comparative view of the on-premises and GCP lab operations.
 
 **External review:** https://github.com/hybridops-tech/hybridops-core/issues/271
