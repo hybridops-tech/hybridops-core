@@ -35,6 +35,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve build label
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            label="${GITHUB_REF_NAME#v}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            pr_number="${GITHUB_REF#refs/pull/}"
+            pr_number="${pr_number%%/*}"
+            label="pr${pr_number}-${GITHUB_SHA::12}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            label="candidate-${GITHUB_SHA::12}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            label="scheduled-${GITHUB_SHA::12}"
+          else
+            label="ci-${GITHUB_SHA::12}"
+          fi
+          echo "HYOPS_BUILD_LABEL=${label}" >> "${GITHUB_ENV}"
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -44,11 +63,7 @@ jobs:
       - name: Build release bundle
         shell: bash
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            export HYOPS_RELEASE_LABEL="${GITHUB_REF_NAME#v}"
-          else
-            export HYOPS_RELEASE_LABEL="${GITHUB_SHA::12}"
-          fi
+          export HYOPS_RELEASE_LABEL="${HYOPS_BUILD_LABEL}"
           bash pkg/build_release.sh
 
       - name: Verify release bundle
@@ -57,15 +72,33 @@ jobs:
           TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
           bash pkg/verify_release.sh "${TARBALL}"
 
+      - name: Write build provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          base_ref="${GITHUB_BASE_REF:-}"
+          cat > "dist/releases/hybridops-core-${HYOPS_BUILD_LABEL}-build.env" <<EOF
+          HYOPS_BUILD_LABEL=${HYOPS_BUILD_LABEL}
+          HYOPS_BUILD_SOURCE_SHA=${GITHUB_SHA}
+          HYOPS_BUILD_SOURCE_REF=${source_ref}
+          HYOPS_BUILD_BASE_REF=${base_ref}
+          HYOPS_BUILD_EVENT=${GITHUB_EVENT_NAME}
+          HYOPS_BUILD_RUN_ID=${GITHUB_RUN_ID}
+          HYOPS_BUILD_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}
+          EOF
+
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v7
         with:
-          name: hybridops-core-release-bundle
+          name: hybridops-core-build-bundle
+          retention-days: 30
           path: |
             dist/releases/*.tar.gz
             dist/releases/*.tar.gz.sha256
             dist/releases/*-windows.zip
             dist/releases/*-windows.zip.sha256
+            dist/releases/*-build.env
 
   build-macos-package:
     needs: quality
@@ -85,6 +118,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve build label
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            label="${GITHUB_REF_NAME#v}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            pr_number="${GITHUB_REF#refs/pull/}"
+            pr_number="${pr_number%%/*}"
+            label="pr${pr_number}-${GITHUB_SHA::12}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            label="candidate-${GITHUB_SHA::12}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            label="scheduled-${GITHUB_SHA::12}"
+          else
+            label="ci-${GITHUB_SHA::12}"
+          fi
+          echo "HYOPS_BUILD_LABEL=${label}" >> "${GITHUB_ENV}"
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -94,7 +146,7 @@ jobs:
       - name: Build macOS package
         shell: bash
         run: |
-          export HYOPS_RELEASE_LABEL="${GITHUB_SHA::12}"
+          export HYOPS_RELEASE_LABEL="${HYOPS_BUILD_LABEL}"
           export HYOPS_RELEASE_VERSION="$(
             python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
           )"
@@ -104,15 +156,22 @@ jobs:
           bash pkg/build_macos_pkg.sh \
             --archive "${TARBALL}" \
             --version "${HYOPS_RELEASE_VERSION}" \
-            --output "dist/releases/hybridops-core-${HYOPS_RELEASE_LABEL}-macos-${{ matrix.architecture }}.pkg"
+            --output "dist/releases/hybridops-core-${HYOPS_BUILD_LABEL}-macos-${{ matrix.architecture }}.pkg"
+          PKG="dist/releases/hybridops-core-${HYOPS_BUILD_LABEL}-macos-${{ matrix.architecture }}.pkg"
+          PKG_DIR="$(dirname "${PKG}")"
+          PKG_NAME="$(basename "${PKG}")"
+          (cd "${PKG_DIR}" && shasum -a 256 "${PKG_NAME}" > "${PKG_NAME}.sha256")
 
       - name: Inspect macOS package
         shell: bash
         run: |
           PKG="$(ls -1 dist/releases/hybridops-core-*-macos-${{ matrix.architecture }}.pkg | head -n 1)"
           EXPANDED="${RUNNER_TEMP}/hybridops-core-pkg"
+          PKG_DIR="$(dirname "${PKG}")"
+          PKG_NAME="$(basename "${PKG}")"
           test "$(uname -m)" = "${{ matrix.architecture }}"
           test "$(stat -f '%z' "${PKG}")" -gt 1000000
+          (cd "${PKG_DIR}" && shasum -a 256 -c "${PKG_NAME}.sha256")
           pkgutil --expand "${PKG}" "${EXPANDED}"
           test -f "${EXPANDED}/Distribution"
           python3 - "${EXPANDED}/Distribution" <<'PY'
@@ -140,8 +199,29 @@ jobs:
           test ! -e "/Applications/HybridOps.Core.app"
           test ! -e "${HOME}/.hybridops/config/macos-shell.command"
 
+      - name: Write build provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          base_ref="${GITHUB_BASE_REF:-}"
+          cat > "dist/releases/hybridops-core-${HYOPS_BUILD_LABEL}-macos-${{ matrix.architecture }}-build.env" <<EOF
+          HYOPS_BUILD_LABEL=${HYOPS_BUILD_LABEL}
+          HYOPS_BUILD_SOURCE_SHA=${GITHUB_SHA}
+          HYOPS_BUILD_SOURCE_REF=${source_ref}
+          HYOPS_BUILD_BASE_REF=${base_ref}
+          HYOPS_BUILD_EVENT=${GITHUB_EVENT_NAME}
+          HYOPS_BUILD_RUN_ID=${GITHUB_RUN_ID}
+          HYOPS_BUILD_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}
+          HYOPS_BUILD_ARCHITECTURE=${{ matrix.architecture }}
+          EOF
+
       - name: Upload macOS package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: hybridops-core-macos-package-${{ matrix.architecture }}
-          path: dist/releases/*-macos-${{ matrix.architecture }}.pkg
+          name: hybridops-core-build-macos-${{ matrix.architecture }}
+          retention-days: 30
+          path: |
+            dist/releases/*-macos-${{ matrix.architecture }}.pkg
+            dist/releases/*-macos-${{ matrix.architecture }}.pkg.sha256
+            dist/releases/*-macos-${{ matrix.architecture }}-build.env
