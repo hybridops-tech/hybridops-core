@@ -1,0 +1,9 @@
+# Minimal Containerlab healthcheck example for a deployed lab.
+
+target_host: "10.80.70.10"
+target_user: "opsadmin"
+containerlab_healthcheck_expected_version: "0.78.0"
+containerlab_healthcheck_require_kvm: true
+containerlab_healthcheck_topology_path: "/var/lib/hybridops/containerlab/labs/example/lab.clab.yml"
+containerlab_healthcheck_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+containerlab_healthcheck_require_deployed_lab: true

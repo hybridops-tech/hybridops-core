@@ -1,0 +1,62 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/containerlab"
+
+metadata:
+  title: "Linux Containerlab Runtime"
+  description: "Install and verify a pinned Containerlab runtime on an existing Ubuntu host."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+    containerlab_role_fqcn: "hybridops.app.containerlab"
+    containerlab_version: "0.78.0"
+    containerlab_install_docker: true
+    containerlab_operator_user: "opsadmin"
+    containerlab_package_checksum: ""
+    containerlab_require_kvm: true
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/60-containerlab-runtime@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.containerlab.runtime
+    - containerlab_runtime_status
+    - containerlab_version
+    - containerlab_package_checksum
+    - containerlab_kvm_status
+
+probes: []
+constraints: []

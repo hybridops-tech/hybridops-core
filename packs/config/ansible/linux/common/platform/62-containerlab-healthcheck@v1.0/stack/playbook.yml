@@ -1,0 +1,26 @@
+---
+- name: platform/linux/containerlab-healthcheck
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Verify Containerlab execution envelope
+      ansible.builtin.include_role:
+        name: "{{ containerlab_healthcheck_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.containerlab.health': 'ready',
+            'containerlab_health_status': containerlab_healthcheck_results.status,
+            'containerlab_version': containerlab_healthcheck_results.version,
+            'containerlab_kvm_status': containerlab_healthcheck_results.kvm,
+            'containerlab_health_labdir_base': containerlab_healthcheck_results.labdir_base
+          } | to_json }}

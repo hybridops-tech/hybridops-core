@@ -1,0 +1,8 @@
+# Minimal Containerlab lab example for an existing managed host.
+
+target_host: "10.80.70.10"
+target_user: "opsadmin"
+containerlab_lab_source_dir: "/srv/labs/example"
+containerlab_lab_topology_relpath: "lab.clab.yml"
+containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/example"
+containerlab_lab_labdir_base: "/var/lib/hybridops/containerlab/labdirs"

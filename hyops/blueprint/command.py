@@ -3528,7 +3528,7 @@ def run_rebuild(ns) -> int:
             "json": False,
             "execute": True,
             "archive_before_destroy": False,
-            "skip_archive": True,
+            "skip_archive": bool(payload.get("archive_before_destroy")),
         }
     )
     print("rebuild_phase=destroy status=running")

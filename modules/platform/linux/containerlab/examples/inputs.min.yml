@@ -1,0 +1,6 @@
+# Minimal Containerlab runtime example for an existing Ubuntu host.
+
+target_host: "10.80.70.10"
+target_user: "opsadmin"
+containerlab_version: "0.78.0"
+containerlab_require_kvm: true

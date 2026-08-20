@@ -1,0 +1,14 @@
+name: hyops-two-node
+
+topology:
+  nodes:
+    leaf1:
+      kind: linux
+      image: alpine:3.21
+    leaf2:
+      kind: linux
+      image: alpine:3.21
+  links:
+    - endpoints:
+        - "leaf1:eth1"
+        - "leaf2:eth1"

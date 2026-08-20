@@ -1,0 +1,264 @@
+---
+- name: platform/linux/containerlab-lab
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) | trim }}"
+    _hyops_latest_path: >-
+      {{
+        (containerlab_lab_restore_latest_path | default('') | trim)
+        if (containerlab_lab_restore_latest_path | default('') | trim | length > 0)
+        else (_hyops_runtime_root ~ '/artifacts/containerlab/recovery/latest.tar.gz')
+      }}
+    _hyops_latest_sha_path: "{{ _hyops_latest_path }}.sha256"
+    _hyops_latest_metadata_path: "{{ _hyops_latest_path }}.json"
+
+  pre_tasks:
+    - name: Require runtime root for default recovery path
+      ansible.builtin.assert:
+        that:
+          - >-
+            not (containerlab_lab_restore_latest | bool) or
+            (containerlab_lab_restore_latest_path | default('') | trim | length > 0) or
+            (_hyops_runtime_root | length > 0)
+        fail_msg: >-
+          HYOPS_RUNTIME_ROOT or containerlab_lab_restore_latest_path is required
+          when automatic latest recovery is enabled.
+
+    - name: Read latest recovery archive state
+      ansible.builtin.stat:
+        path: "{{ _hyops_latest_path }}"
+        checksum_algorithm: sha256
+        follow: true
+      register: _hyops_latest_archive_stat
+      delegate_to: localhost
+      become: false
+      when: containerlab_lab_restore_latest | bool
+
+    - name: Read latest recovery checksum state
+      ansible.builtin.stat:
+        path: "{{ _hyops_latest_sha_path }}"
+      register: _hyops_latest_sha_stat
+      delegate_to: localhost
+      become: false
+      when: containerlab_lab_restore_latest | bool
+
+    - name: Read latest recovery metadata state
+      ansible.builtin.stat:
+        path: "{{ _hyops_latest_metadata_path }}"
+      register: _hyops_latest_metadata_stat
+      delegate_to: localhost
+      become: false
+      when: containerlab_lab_restore_latest | bool
+
+    - name: Resolve latest recovery availability
+      ansible.builtin.set_fact:
+        _hyops_restore_available: >-
+          {{
+            (_hyops_latest_archive_stat.stat.exists | default(false)) and
+            (_hyops_latest_sha_stat.stat.exists | default(false)) and
+            (_hyops_latest_metadata_stat.stat.exists | default(false))
+          }}
+        _hyops_any_restore_marker: >-
+          {{
+            (_hyops_latest_archive_stat.stat.exists | default(false)) or
+            (_hyops_latest_sha_stat.stat.exists | default(false)) or
+            (_hyops_latest_metadata_stat.stat.exists | default(false))
+          }}
+      when: containerlab_lab_restore_latest | bool
+
+    - name: Resolve disabled latest recovery state
+      ansible.builtin.set_fact:
+        _hyops_restore_available: false
+        _hyops_any_restore_marker: false
+      when: not (containerlab_lab_restore_latest | bool)
+
+    - name: Reject incomplete recovery markers
+      ansible.builtin.assert:
+        that:
+          - not _hyops_any_restore_marker or _hyops_restore_available
+        fail_msg: >-
+          Latest Containerlab recovery markers are incomplete; refusing an
+          ambiguous restore. Repair or remove the latest recovery set.
+      when: containerlab_lab_restore_latest | bool
+
+    - name: Read latest recovery checksum
+      ansible.builtin.slurp:
+        src: "{{ _hyops_latest_sha_path }}"
+      register: _hyops_latest_sha_raw
+      delegate_to: localhost
+      become: false
+      when: _hyops_restore_available | bool
+
+    - name: Read latest recovery metadata
+      ansible.builtin.slurp:
+        src: "{{ _hyops_latest_metadata_path }}"
+      register: _hyops_latest_metadata_raw
+      delegate_to: localhost
+      become: false
+      when: _hyops_restore_available | bool
+
+    - name: Resolve latest recovery metadata
+      ansible.builtin.set_fact:
+        _hyops_latest_sha256: "{{ _hyops_latest_sha_raw.content | b64decode | trim }}"
+        _hyops_latest_metadata: "{{ _hyops_latest_metadata_raw.content | b64decode | from_json }}"
+      when: _hyops_restore_available | bool
+
+    - name: Validate latest recovery checksum metadata
+      ansible.builtin.assert:
+        that:
+          - _hyops_latest_sha256 is match('^[0-9a-f]{64}$')
+          - _hyops_latest_archive_stat.stat.checksum == _hyops_latest_sha256
+          - _hyops_latest_metadata.archive_sha256 == _hyops_latest_sha256
+          - _hyops_latest_metadata.timestamp_archive | default('') | length > 0
+        fail_msg: >-
+          Latest Containerlab recovery archive or checksum metadata is invalid.
+      when: _hyops_restore_available | bool
+
+    - name: Verify immutable recovery archive referenced by metadata
+      ansible.builtin.stat:
+        path: "{{ _hyops_latest_metadata.timestamp_archive }}"
+        checksum_algorithm: sha256
+      register: _hyops_timestamp_archive_stat
+      delegate_to: localhost
+      become: false
+      when: _hyops_restore_available | bool
+
+    - name: Require immutable recovery archive identity to match latest pointer
+      ansible.builtin.assert:
+        that:
+          - _hyops_timestamp_archive_stat.stat.exists
+          - _hyops_timestamp_archive_stat.stat.isreg
+          - _hyops_timestamp_archive_stat.stat.checksum == _hyops_latest_sha256
+        fail_msg: >-
+          Latest recovery metadata does not resolve to the verified immutable
+          Containerlab recovery archive.
+      when: _hyops_restore_available | bool
+
+    - name: Read current source topology identity
+      ansible.builtin.stat:
+        path: >-
+          {{ (containerlab_lab_source_dir | regex_replace('/+$', '')) ~ '/' ~ containerlab_lab_topology_relpath }}
+        checksum_algorithm: sha256
+      register: _hyops_current_source_topology
+      delegate_to: localhost
+      become: false
+      when:
+        - _hyops_restore_available | bool
+        - containerlab_lab_restore_require_source_match | bool
+        - containerlab_lab_source_dir | length > 0
+
+    - name: Reject stale recovery bundle for changed topology
+      ansible.builtin.assert:
+        that:
+          - _hyops_current_source_topology.stat.exists
+          - _hyops_current_source_topology.stat.isreg
+          - _hyops_current_source_topology.stat.checksum == _hyops_latest_metadata.topology_sha256
+        fail_msg: >-
+          The latest recovery bundle belongs to a different topology revision.
+          Disable source matching only when deliberately restoring the archived
+          topology instead of the current controller source.
+      when:
+        - _hyops_restore_available | bool
+        - containerlab_lab_restore_require_source_match | bool
+        - containerlab_lab_source_dir | length > 0
+
+  tasks:
+    - name: Reset fresh-host recovery import workspace
+      ansible.builtin.file:
+        path: "{{ containerlab_lab_recovery_remote_root }}/import"
+        state: absent
+      when: _hyops_restore_available | bool
+
+    - name: Import verified immutable recovery bundle onto fresh managed host
+      ansible.builtin.include_role:
+        name: "{{ containerlab_lab_recovery_role_fqcn }}"
+      vars:
+        containerlab_recovery_action: import
+        containerlab_recovery_archive_path: "{{ _hyops_latest_metadata.timestamp_archive }}"
+        containerlab_recovery_expected_sha256: "{{ _hyops_latest_sha256 }}"
+        containerlab_recovery_remote_root: "{{ containerlab_lab_recovery_remote_root }}"
+        containerlab_recovery_labdir_base: "{{ containerlab_lab_labdir_base }}"
+        containerlab_recovery_overwrite: true
+      when: _hyops_restore_available | bool
+
+    - name: Verify recovered native labdir contract
+      ansible.builtin.assert:
+        that:
+          - containerlab_recovery_result.labdir_base == containerlab_lab_labdir_base
+        fail_msg: >-
+          The retained recovery bundle was created with a different native
+          Containerlab labdir base; refusing an ambiguous restore.
+      when: _hyops_restore_available | bool
+
+    - name: Reset stable managed source directory before recovery restore
+      ansible.builtin.file:
+        path: "{{ containerlab_lab_remote_dir }}"
+        state: absent
+      when: _hyops_restore_available | bool
+
+    - name: Recreate stable managed source directory
+      ansible.builtin.file:
+        path: "{{ containerlab_lab_remote_dir }}"
+        state: directory
+        mode: "0750"
+      when: _hyops_restore_available | bool
+
+    - name: Stage recovered source tree at stable managed path
+      ansible.builtin.copy:
+        src: "{{ containerlab_recovery_result.source_root | regex_replace('/+$', '') }}/"
+        dest: "{{ containerlab_lab_remote_dir | regex_replace('/+$', '') }}/"
+        remote_src: true
+        mode: preserve
+      when: _hyops_restore_available | bool
+
+    - name: Resolve fresh deployment inputs
+      ansible.builtin.set_fact:
+        _hyops_effective_source_dir: "{{ containerlab_lab_source_dir }}"
+        _hyops_effective_topology_path: "{{ containerlab_lab_topology_path }}"
+        _hyops_effective_restore_dir: ""
+        _hyops_effective_required_images: "{{ containerlab_lab_required_images }}"
+      when: not (_hyops_restore_available | bool)
+
+    - name: Resolve recovered deployment inputs
+      ansible.builtin.set_fact:
+        _hyops_effective_source_dir: ""
+        _hyops_effective_topology_path: >-
+          {{ (containerlab_lab_remote_dir | regex_replace('/+$', '')) ~ '/' ~ containerlab_lab_topology_relpath }}
+        _hyops_effective_restore_dir: "{{ containerlab_recovery_result.snapshot_dir | default('') }}"
+        _hyops_effective_required_images: >-
+          {{
+            containerlab_recovery_result.image_refs
+            if containerlab_recovery_result.image_refs | default([]) | length > 0
+            else containerlab_lab_required_images
+          }}
+      when: _hyops_restore_available | bool
+
+    - name: Delegate final lab deployment to Containerlab
+      ansible.builtin.include_role:
+        name: "{{ containerlab_lab_role_fqcn }}"
+      vars:
+        containerlab_lab_source_dir: "{{ _hyops_effective_source_dir }}"
+        containerlab_lab_topology_path: "{{ _hyops_effective_topology_path }}"
+        containerlab_lab_restore_all_dir: "{{ _hyops_effective_restore_dir }}"
+        containerlab_lab_required_images: "{{ _hyops_effective_required_images }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.containerlab': 'ready',
+            'containerlab_lab_action': containerlab_lab_result.action,
+            'containerlab_lab_topology_path': containerlab_lab_result.topology,
+            'containerlab_lab_source_staged': containerlab_lab_result.source_staged | default(false),
+            'containerlab_lab_labdir_base': containerlab_lab_result.labdir_base,
+            'containerlab_lab_restore_all_dir': containerlab_lab_result.restore_all_dir | default(''),
+            'containerlab_lab_restored_from_latest': (_hyops_restore_available | bool)
+          } | to_json }}

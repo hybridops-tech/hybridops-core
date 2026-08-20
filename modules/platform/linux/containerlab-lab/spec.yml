@@ -1,0 +1,74 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/containerlab-lab"
+
+metadata:
+  title: "Linux Containerlab Lab"
+  description: "Stage an unchanged Containerlab lab source tree and delegate native lab operations to Containerlab."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+    containerlab_lab_role_fqcn: "hybridops.app.containerlab_lab"
+    containerlab_lab_recovery_role_fqcn: "hybridops.app.containerlab_recovery"
+    containerlab_lab_action: "deploy"
+    containerlab_lab_source_dir: ""
+    containerlab_lab_topology_relpath: "lab.clab.yml"
+    containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/gcp-containerlab"
+    containerlab_lab_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+    containerlab_lab_topology_path: ""
+    containerlab_lab_restore_all_dir: ""
+    containerlab_lab_cleanup: false
+    containerlab_lab_required_images: []
+    containerlab_lab_pull_missing_images: false
+    containerlab_lab_restore_latest: false
+    containerlab_lab_restore_latest_path: ""
+    containerlab_lab_restore_require_source_match: true
+    containerlab_lab_recovery_remote_root: "/var/lib/hybridops/containerlab/recovery"
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/61-containerlab-lab@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.containerlab
+    - containerlab_lab_action
+    - containerlab_lab_topology_path
+    - containerlab_lab_source_staged
+    - containerlab_lab_labdir_base
+    - containerlab_lab_restore_all_dir
+    - containerlab_lab_restored_from_latest
+
+probes: []
+constraints: []

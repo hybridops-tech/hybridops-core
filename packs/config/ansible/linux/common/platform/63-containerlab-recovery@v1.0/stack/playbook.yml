@@ -1,0 +1,67 @@
+---
+- name: platform/linux/containerlab-recovery
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Materialize recovery wrapper inputs before role delegation
+      ansible.builtin.set_fact:
+        _hyops_requested_action: "{{ containerlab_recovery_action | default('arm') | trim }}"
+        _hyops_recovery_archive_path: >-
+          {{ containerlab_recovery_archive_path | default(containerlab_recovery_path, true) }}
+
+    - name: Validate recovery guard action
+      ansible.builtin.assert:
+        that:
+          - _hyops_requested_action in ['arm', 'export', 'import']
+          - containerlab_recovery_labdir_base | trim | length > 0
+        fail_msg: >-
+          containerlab_recovery_action must be arm, export or import and the
+          native Containerlab labdir base must be declared.
+
+    - name: Delegate explicit recovery export/import to collection role
+      ansible.builtin.include_role:
+        name: "{{ containerlab_recovery_role_fqcn }}"
+      vars:
+        containerlab_recovery_action: "{{ _hyops_requested_action }}"
+        containerlab_recovery_archive_path: "{{ _hyops_recovery_archive_path }}"
+      when: _hyops_requested_action in ['export', 'import']
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.containerlab.recovery': ('armed' if _hyops_requested_action == 'arm' else 'ready'),
+            'containerlab_recovery_action': _hyops_requested_action,
+            'containerlab_recovery_mode': containerlab_recovery_mode,
+            'containerlab_recovery_path':
+              (containerlab_recovery_result.controller_archive | default(containerlab_recovery_result.topology_path | default('')))
+              if _hyops_requested_action != 'arm' else '',
+            'containerlab_recovery_sha256':
+              (containerlab_recovery_result.sha256 | default('')) if _hyops_requested_action != 'arm' else '',
+            'containerlab_recovery_topology_sha256':
+              (containerlab_recovery_result.topology_sha256 | default('')) if _hyops_requested_action != 'arm' else '',
+            'containerlab_recovery_latest_path': '',
+            'containerlab_recovery_safe_for_host_destroy':
+              (containerlab_recovery_result.safe_for_host_destroy | default(false))
+              if _hyops_requested_action != 'arm' else false,
+            'containerlab_recovery_labdir_base':
+              (containerlab_recovery_result.labdir_base | default(containerlab_recovery_labdir_base))
+              if _hyops_requested_action != 'arm' else containerlab_recovery_labdir_base,
+            'containerlab_recovery_topology_path':
+              (containerlab_recovery_result.topology_path | default('')) if _hyops_requested_action != 'arm' else '',
+            'containerlab_recovery_source_root':
+              (containerlab_recovery_result.source_root | default('')) if _hyops_requested_action != 'arm' else '',
+            'containerlab_recovery_snapshot_dir':
+              (containerlab_recovery_result.snapshot_dir | default('')) if _hyops_requested_action != 'arm' else '',
+            'containerlab_recovery_manifest_path':
+              (containerlab_recovery_result.manifest_path | default('')) if _hyops_requested_action != 'arm' else '',
+            'containerlab_recovery_image_refs':
+              (containerlab_recovery_result.image_refs | default([])) if _hyops_requested_action != 'arm' else []
+          } | to_json }}
