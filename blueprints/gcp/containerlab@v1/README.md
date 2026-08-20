@@ -1,6 +1,6 @@
 # GCP Containerlab v1
 
-This blueprint runs Containerlab on private GCP compute that HybridOps can remove after the selected recovery state has been copied off-host and verified.
+This blueprint runs Containerlab on private GCP compute that HybridOps can release after the selected recovery state has been copied off-host and verified.
 
 ## Responsibilities
 
@@ -14,13 +14,15 @@ Containerlab remains responsible for:
 - generated lab runtime state
 - supported startup-config and licence handling
 
-HybridOps manages the GCP host around it: private infrastructure, KVM readiness, Containerlab version verification, recovery policy, off-host retention, teardown and rebuild order, cost context, and run evidence.
+HybridOps manages the GCP host around it: private infrastructure, KVM readiness, Containerlab version verification, recovery policy, off-host retention, compute-release and rebuild order, cost context, and run evidence.
 
 HybridOps does not rewrite the topology or replace Containerlab recovery behaviour.
 
 ## Feature status
 
-This capability is under pre-release validation. For environment acceptance, use the installable candidate produced by the current pull request CI run. A candidate is a test build, not a release.
+The GCP lifecycle is implemented on Core `main` and has completed end-to-end real-environment validation. The accepted path proved private GCP execution, IAP/SSH access, nested virtualisation and KVM readiness, Containerlab `0.78.0` deployment, independent lab health, off-host recovery verification before original VM deletion, reconstruction on a fresh VM with a different resource identity, one native Containerlab recovery deployment, final health, and final compute cleanup.
+
+See [VALIDATION.md](VALIDATION.md) for the public validation boundary.
 
 ## Prepare the runtime blueprint
 
@@ -54,7 +56,7 @@ Remote startup-config or licence assets already supported by Containerlab should
 
 ## Reference host
 
-The shipped profile uses:
+The validated reference profile uses:
 
 - `n2-highmem-8`
 - 8 vCPU
@@ -89,7 +91,7 @@ During destroy or rebuild HybridOps:
 3. copies the archive to the HybridOps controller
 4. verifies the SHA-256 off-host
 5. writes the latest pointer, checksum, and metadata
-6. allows Containerlab cleanup and GCP teardown only after verification passes
+6. allows Containerlab cleanup and GCP compute release only after verification passes
 
 On a fresh host, HybridOps verifies the latest recovery metadata, imports the archive, restores the managed source path, and then runs one native Containerlab deploy. Supported vrnetlab snapshots are handed back through `containerlab deploy --restore-all`.
 
@@ -123,7 +125,7 @@ Recovery archives may contain configuration or licence material and should remai
 
 ## Cost visibility
 
-The blueprint shows the estimated fixed VM and boot-disk cost, resource age, access-session cost context, and the effect of teardown on declared resources.
+The blueprint shows the estimated fixed VM and boot-disk cost, resource age, access-session cost context, and the effect of compute release on declared resources.
 
 The estimate does not include every usage charge, discount, credit, tax, or external service. GCP billing is authoritative for actual spend.
 
@@ -137,22 +139,18 @@ Removing the VM does not imply zero idle cost. Retained recovery storage, regist
 127.0.0.1:2222
 ```
 
-## Validation status
+## Validation boundary
 
-The feature is still unmerged.
+The validated GCP acceptance path established that:
 
-Completed before the real GCP run:
+- private GCP compute and IAP/SSH access were usable
+- nested virtualisation and KVM readiness passed
+- Containerlab `0.78.0` deployed the supplied topology and independent health passed
+- the selected recovery set was copied and checksum-verified off-host before the original VM was deleted
+- replacement compute had a different resource identity
+- retained recovery state verified and imported on the fresh host
+- reconstruction used one native Containerlab deployment
+- final lab health passed
+- final declared GCP compute was removed
 
-- repository quality and regression checks
-- installable candidate build and installation checks
-- native non-GCP Containerlab 0.78.0 lifecycle smoke
-
-Still required before an end-to-end GCP lifecycle claim:
-
-- private GCP VM and IAP access
-- KVM readiness
-- native Containerlab deploy and health check
-- off-host recovery verification before original VM deletion
-- fresh VM with a different resource identity
-- recovery import and one native Containerlab deploy
-- final health check and cleanup
+The result is specific to the tested GCP lifecycle. It does not establish universal backup semantics for every Containerlab node kind, zero idle cost, or ownership of topology/recovery semantics by HybridOps.
