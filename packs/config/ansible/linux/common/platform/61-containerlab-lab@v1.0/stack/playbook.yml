@@ -176,7 +176,7 @@
       ansible.builtin.include_role:
         name: "{{ containerlab_lab_recovery_role_fqcn }}"
       vars:
-        containerlab_recovery_action: import
+        _containerlab_recovery_action: import
         containerlab_recovery_archive_path: "{{ _hyops_latest_metadata.timestamp_archive }}"
         containerlab_recovery_expected_sha256: "{{ _hyops_latest_sha256 }}"
         containerlab_recovery_remote_root: "{{ containerlab_lab_recovery_remote_root }}"

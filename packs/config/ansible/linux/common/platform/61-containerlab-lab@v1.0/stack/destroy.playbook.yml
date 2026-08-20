@@ -23,8 +23,8 @@
           ansible.builtin.include_role:
             name: "{{ containerlab_lab_role_fqcn }}"
           vars:
-            containerlab_lab_action: destroy
-            containerlab_lab_destroy_all: true
+            _containerlab_lab_action: destroy
+            _containerlab_lab_destroy_all: true
       rescue:
         - name: Record best-effort native cleanup failure
           ansible.builtin.set_fact:

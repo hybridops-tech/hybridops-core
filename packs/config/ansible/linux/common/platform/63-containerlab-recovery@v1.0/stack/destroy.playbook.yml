@@ -49,9 +49,9 @@
       ansible.builtin.include_role:
         name: "{{ containerlab_recovery_role_fqcn }}"
       vars:
-        containerlab_recovery_action: export
-        containerlab_recovery_topology_path: "{{ _hyops_effective_topology_path }}"
-        containerlab_recovery_controller_dir: "{{ _hyops_effective_controller_dir }}"
+        _containerlab_recovery_action: export
+        _containerlab_recovery_topology_path: "{{ _hyops_effective_topology_path }}"
+        _containerlab_recovery_controller_dir: "{{ _hyops_effective_controller_dir }}"
 
     - name: Ensure stable recovery pointer directory exists
       ansible.builtin.file:

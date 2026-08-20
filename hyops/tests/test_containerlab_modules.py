@@ -79,6 +79,44 @@ class ContainerlabModuleContractTest(TestCase):
         )
         self.assertTrue(path.is_file())
 
+    def test_destroy_wrappers_use_private_lifecycle_actions(self) -> None:
+        stack_root = (
+            self.root
+            / "packs"
+            / "config"
+            / "ansible"
+            / "linux"
+            / "common"
+            / "platform"
+        )
+        recovery_destroy = (
+            stack_root
+            / "63-containerlab-recovery@v1.0"
+            / "stack"
+            / "destroy.playbook.yml"
+        ).read_text(encoding="utf-8")
+        lab_destroy = (
+            stack_root
+            / "61-containerlab-lab@v1.0"
+            / "stack"
+            / "destroy.playbook.yml"
+        ).read_text(encoding="utf-8")
+        lab_apply = (
+            stack_root
+            / "61-containerlab-lab@v1.0"
+            / "stack"
+            / "playbook.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("_containerlab_recovery_action: export", recovery_destroy)
+        self.assertIn("_containerlab_recovery_topology_path:", recovery_destroy)
+        self.assertIn("_containerlab_recovery_controller_dir:", recovery_destroy)
+        self.assertNotIn("\n        containerlab_recovery_action: export", recovery_destroy)
+        self.assertIn("_containerlab_lab_action: destroy", lab_destroy)
+        self.assertIn("_containerlab_lab_destroy_all: true", lab_destroy)
+        self.assertNotIn("\n            containerlab_lab_action: destroy", lab_destroy)
+        self.assertIn("_containerlab_recovery_action: import", lab_apply)
+
     def test_containerlab_pack_role_bindings_are_not_self_recursive(self) -> None:
         stack_paths = [
             self.root
@@ -117,4 +155,4 @@ class ContainerlabModuleContractTest(TestCase):
         path = self.root / "tools" / "setup" / "requirements" / "ansible.hybridops.git.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         app = next(item for item in payload["collections"] if item["name"] == "hybridops.app")
-        self.assertEqual(app["ref"], "22863037fe3de85c0fd7d82f0af1ac5416f346f9")
+        self.assertEqual(app["ref"], "d34f53bb1e3f2960ea718b53f6eb45853dea2ef0")
