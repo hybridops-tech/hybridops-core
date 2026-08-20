@@ -33,7 +33,7 @@ HybridOps is responsible for:
 - VM lifetime and cost context
 - recovery policy
 - off-host recovery retention and checksum verification
-- destroy and rebuild order
+- compute-release and rebuild order
 - handing recovery data back to Containerlab
 - recording the run result
 
@@ -82,11 +82,11 @@ HybridOps does not act as:
 
 ## Recovery flow
 
-The reference blueprint uses a private `n2-highmem-8` VM with nested virtualisation.
+The validated reference path uses a private `n2-highmem-8` VM with nested virtualisation.
 
 Lab deployment, health checks, and recovery operations use the same `CLAB_LABDIR_BASE` value. The recovery step also checks that the managed source directory and generated labdir are different paths.
 
-The recovery step is last in deploy order. Blueprint destroy runs in reverse order, so recovery runs before lab, runtime, and VM teardown.
+The recovery step is last in deploy order. Blueprint destroy runs in reverse order, so recovery runs before lab, runtime, and VM removal.
 
 During destroy, HybridOps:
 
@@ -96,7 +96,7 @@ During destroy, HybridOps:
 4. verifies its SHA-256 there
 5. restricts the retained archive permissions
 6. updates the latest pointer, checksum, and metadata
-7. allows teardown to continue only after the off-host check succeeds
+7. allows compute release to continue only after the off-host check succeeds
 
 The timestamped archive is the retained object. `latest.tar.gz` is only a symlink to it, with checksum and metadata stored alongside the link.
 
@@ -126,7 +126,17 @@ There is no preliminary deploy that is destroyed before the real restore deploy.
 
 `ephemeral` keeps source intent only.
 
-## Questions for upstream review
+## Validated lifecycle boundary
 
-1. If the Containerlab execution host is disposable, is it reasonable for HybridOps to retain Containerlab-native recovery data off-host before deleting that host, provided Containerlab still creates and restores the data?
-2. Should HybridOps treat those recovery files as opaque and always hand restore back to Containerlab rather than interpreting them?
+The real GCP acceptance path proved that the selected recovery set could be verified off-host before the original execution VM was removed, that reconstruction occurred on a fresh VM with a different resource identity through one native Containerlab deployment, and that the reconstructed lab passed independent health verification before final compute cleanup.
+
+The validation record is maintained in [VALIDATION.md](VALIDATION.md).
+
+## Remaining review questions
+
+The implementation is complete for the validated GCP scope. External review is therefore about the operating boundary rather than whether the feature exists:
+
+1. For a real Containerlab lab, which native state should be required to survive before a disposable execution host is released?
+2. Where should the lifecycle refuse compute release because the required state cannot be externalised or reconstructed with sufficient fidelity?
+
+Corrections and counterexamples can be raised against the implemented path without treating the feature as pre-release design work.
