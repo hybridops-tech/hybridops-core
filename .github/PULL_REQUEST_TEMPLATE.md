@@ -6,6 +6,8 @@
 
 <!-- List the checks or commands you ran. -->
 
+<!-- If this needed candidate or environment acceptance, record the workflow run, artifact/provenance, environment, result, and cleanup. -->
+
 ## Scope
 
 - [ ] This pull request is focused on one change.
