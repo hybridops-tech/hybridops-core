@@ -57,7 +57,21 @@ private GNS3 access          topology-node automation
 | Health layer | API, KVM, local-compute and starter-project verification |
 | Access layer | Private GNS3 client path plus session-scoped topology-node management access |
 | Continuity layer | Project directories, controller metadata and writable node disks retained away from the execution host |
+| Cost context | Resource age, fixed-resource estimate and retained-resource visibility for cloud execution |
 | Runtime evidence | Module state, archive checksum, health results, resource state and lifecycle records |
+
+## Operating control points
+
+The implementation crosses several operational disciplines, but each one resolves through the same lifecycle record.
+
+| Control point | Decision | Evidence |
+| --- | --- | --- |
+| Readiness | Is execution capacity and GNS3 usable? | Provider state, preflight, API/KVM/local-compute/starter-project health |
+| Private access | Can the operator and automation clients reach the required control surfaces? | Resolved runtime target, access session and generated client material |
+| Continuity | What project state must survive this session? | Controller/project archive, manifest and SHA-256 value |
+| Compute release | Is the high-resource execution host still required? | Verified retained archive and terminal resource state |
+| Reconstruction | Has the project returned to a usable state? | Verified restore, API return and normal GNS3 health path |
+| Cost context | Which cost-bearing resources are active or deliberately retained? | Resource age, fixed-resource estimate, terminal compute state and retained-resource reporting |
 
 ## Private access and device automation
 
@@ -93,6 +107,14 @@ Base images are independently managed by default and can be reconstructed from t
 `--restore-labs` selects the latest verified archive state recorded for the environment. The runtime verifies the recorded checksum before invoking the GNS3 archive module in restore mode.
 
 The restore operation stops the GNS3 service, applies the retained project and controller state, restores ownership, starts the service and waits for the API to return. The normal blueprint health path then verifies the reconstructed lab environment.
+
+## Compute lifetime and cost boundary
+
+Access closure and compute release are separate lifecycle events. Ending the GNS3 client, UI or SSH session leaves the execution host unchanged; the host becomes eligible for release when the retained project state has been verified under the selected continuity policy.
+
+For the GCP path, HybridOps surfaces resource age and fixed-resource cost context alongside the lifecycle. Provider billing remains authoritative for realised spend. After execution compute is released, retained project archives, image sources, shared networking or other deliberately retained resources remain visible as separate state rather than being folded into the compute result.
+
+This makes the cost decision operational rather than timer-based: continuity determines when high-resource compute can end, while the terminal resource record shows what still exists afterward. The Proxmox path uses the same continuity and terminal-state contract without the GCP billing context.
 
 ## Cross-target consistency
 
