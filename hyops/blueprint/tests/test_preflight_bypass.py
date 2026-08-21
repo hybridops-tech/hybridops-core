@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
 from hyops.blueprint.command import run_deploy
 from hyops.runtime.exitcodes import OPERATOR_ERROR
 from hyops.runtime.paths import RuntimePaths
+from hyops.runner.command import _remote_blueprint_command
 
 
 def _payload() -> dict:
@@ -154,6 +156,28 @@ class BlueprintPreflightBypassTest(TestCase):
         self.assertEqual(captured["decision"], "enforce")
         self.assertEqual(captured["status"], "passed")
         self.assertEqual(captured["guarantee"], "established")
+
+    def test_runner_forwards_bypass_reason_to_remote_command(self) -> None:
+        ns = SimpleNamespace(
+            runner_blueprint_cmd="deploy",
+            execute=True,
+            skip_preflight=True,
+            preflight_bypass_reason="controlled provider recovery",
+            yes=True,
+        )
+        ctx = SimpleNamespace(remote_hyops="/opt/hybridops/bin/hyops")
+
+        command = _remote_blueprint_command(
+            ns,
+            runtime_root="/tmp/runtime",
+            remote_blueprint_path="/tmp/runtime/config/blueprints/lab.yml",
+            ctx=ctx,
+        )
+
+        self.assertIn("--skip-preflight", command)
+        reason_index = command.index("--preflight-bypass-reason")
+        self.assertEqual(command[reason_index + 1], "controlled provider recovery")
+
 
 if __name__ == "__main__":
     import unittest
