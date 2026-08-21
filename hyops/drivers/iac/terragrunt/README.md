@@ -36,7 +36,7 @@ Notes:
 - `hyops preflight --module ...`: runs driver contract checks without terragrunt execution.
 - Export hooks are executed only for `apply`/`deploy`.
 
-By default, `hyops apply|deploy|plan|validate` runs driver preflight first and fails fast on contract errors. Use `--skip-preflight` only for controlled troubleshooting.
+Module lifecycle commands run driver preflight by default and fail fast on contract errors. A mutating bypass is limited to controlled recovery or troubleshooting, requires `--skip-preflight` with `--preflight-bypass-reason`, and is recorded before driver execution. Contract resolution and structural validation remain enforced.
 
 Terraform provider cache:
 

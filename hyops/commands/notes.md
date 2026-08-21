@@ -8,10 +8,14 @@
 4. Create evidence dir:
    - `<root>/logs/module/<module_id>/<run_id>/`
 5. Best-effort stamp to `<root>/meta/runtime.json`.
-6. Resolve driver ref to a `DriverFunc`.
-7. Build DriverRequest and invoke driver.
-8. Persist:
+6. Record the preflight enforcement decision.
+7. Resolve driver ref to a `DriverFunc`.
+8. Run driver preflight unless an explicit bypass was recorded.
+9. Build DriverRequest and invoke driver.
+10. Persist:
    - `meta.json`
+   - `preflight_decision.json`
+   - `preflight_result.json` when driver preflight runs
    - `result.json`
    - any driver artifacts
 

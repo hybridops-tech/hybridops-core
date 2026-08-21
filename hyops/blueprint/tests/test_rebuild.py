@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +43,7 @@ def _namespace(root: str, *, execute: bool) -> argparse.Namespace:
         deps_inputs_dir=None,
         deps_force=False,
         skip_preflight=False,
+        preflight_bypass_reason=None,
     )
 
 
@@ -104,6 +106,37 @@ class BlueprintRebuildTests(unittest.TestCase):
         rendered = output.getvalue()
         self.assertNotIn("destroy_order:", rendered)
         self.assertNotIn("deploy_order:", rendered)
+
+    def test_bypass_is_recorded_before_rebuild_destroy(self) -> None:
+        observed = {}
+
+        def destroy(ns):
+            record = Path(ns.root) / "logs/blueprint/gcp_eve-ng_v1/rebuild-test/rebuild.json"
+            observed.update(json.loads(record.read_text(encoding="utf-8")))
+            observed["_file_mode"] = record.stat().st_mode & 0o777
+            return 2
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "hyops.blueprint.command._resolve_and_validate", return_value=_payload()
+        ), patch(
+            "hyops.blueprint.command.new_run_id", return_value="rebuild-test"
+        ), patch("hyops.blueprint.command.run_destroy", side_effect=destroy), patch(
+            "hyops.blueprint.command.run_deploy"
+        ) as deploy:
+            ns = _namespace(tmp, execute=True)
+            ns.skip_preflight = True
+            ns.preflight_bypass_reason = "controlled rebuild recovery"
+            self.assertEqual(run_rebuild(ns), 2)
+
+        deploy.assert_not_called()
+        self.assertEqual(observed["status"], "running")
+        self.assertEqual(observed["preflight"]["decision"], "bypass")
+        self.assertEqual(observed["preflight"]["status"], "bypassed")
+        self.assertEqual(
+            observed["preflight"]["reason"],
+            "controlled rebuild recovery",
+        )
+        self.assertEqual(observed["_file_mode"], 0o600)
 
 
 if __name__ == "__main__":

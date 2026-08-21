@@ -23,6 +23,12 @@ Runtime root is operator state (not repo state). Commands MUST NOT infer repo ro
 - Module: `<root>/logs/module/<module_id>/<run_id>/`
 - Driver: `<root>/logs/driver/<driver_id>/<run_id>/`
 
+Each module run writes `preflight_decision.json`. A normal run records the
+driver preflight result before execution. A mutating bypass requires
+`--skip-preflight` with `--preflight-bypass-reason`; the decision and reason are
+written before the driver can mutate resources. Contract resolution, schema
+validation, and execution-schema checks are not bypassed.
+
 ## Retention and cleanup
 
 The runtime root belongs to the operator. HybridOps does not delete run records

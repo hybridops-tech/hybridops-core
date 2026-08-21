@@ -18,6 +18,7 @@ from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import normalize_state_instance
 from hyops.runtime.paths import resolve_runtime_paths
+from hyops.runtime.preflight_decision import validate_preflight_bypass
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_input_path, resolve_module_root
 
@@ -56,7 +57,12 @@ def _configure_parser(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--skip-preflight",
         action="store_true",
-        help="Skip driver preflight checks (not recommended).",
+        help="Explicitly bypass driver preflight checks.",
+    )
+    p.add_argument(
+        "--preflight-bypass-reason",
+        default=None,
+        help="Required reason when a mutating command uses --skip-preflight.",
     )
     p.set_defaults(_handler=run)
 
@@ -120,6 +126,16 @@ def run(ns) -> int:
         else None
     )
     skip_preflight = bool(getattr(ns, "skip_preflight", False))
+    try:
+        preflight_bypass_reason = validate_preflight_bypass(
+            command=command_name,
+            skip_preflight=skip_preflight,
+            reason=getattr(ns, "preflight_bypass_reason", None),
+        )
+    except ValueError as exc:
+        print(f"ERR: {exc}", file=sys.stderr)
+        return 2
+    preflight_context = getattr(ns, "preflight_context", None)
     allow_state_drift_recreate = bool(getattr(ns, "allow_state_drift_recreate", False))
 
     if with_deps and command_name not in ("apply", "deploy"):
@@ -155,6 +171,8 @@ def run(ns) -> int:
                 inputs_file=dep_inputs,
                 out_dir=out_dir,
                 skip_preflight=skip_preflight,
+                preflight_bypass_reason=preflight_bypass_reason,
+                preflight_context=preflight_context,
                 state_instance=None,
                 allow_state_drift_recreate=allow_state_drift_recreate,
                 profile_override=getattr(ns, "profile_override", None),
@@ -185,6 +203,8 @@ def run(ns) -> int:
         inputs_file=inputs_file,
         out_dir=out_dir,
         skip_preflight=skip_preflight,
+        preflight_bypass_reason=preflight_bypass_reason,
+        preflight_context=preflight_context,
         state_instance=state_instance,
         allow_state_drift_recreate=allow_state_drift_recreate,
         profile_override=getattr(ns, "profile_override", None),
