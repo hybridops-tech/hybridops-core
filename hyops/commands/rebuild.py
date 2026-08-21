@@ -16,6 +16,11 @@ from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
 from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
+from hyops.runtime.preflight_decision import (
+    complete_preflight_decision,
+    new_preflight_decision,
+    validate_preflight_bypass,
+)
 from hyops.runtime.refs import module_id_from_ref, normalize_module_ref
 from hyops.runtime.root import require_runtime_selection
 
@@ -42,7 +47,12 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--skip-preflight",
         action="store_true",
-        help="Skip preflight phase (not recommended).",
+        help="Explicitly bypass the rebuild preflight phase.",
+    )
+    p.add_argument(
+        "--preflight-bypass-reason",
+        default=None,
+        help="Required reason when --skip-preflight is used.",
     )
     p.add_argument(
         "--yes",
@@ -96,6 +106,17 @@ def run(ns) -> int:
     module_ref = normalize_module_ref(module_ref_raw)
     if not module_ref:
         print("ERR: module_ref is required")
+        return 2
+
+    skip_preflight = bool(getattr(ns, "skip_preflight", False))
+    try:
+        preflight_bypass_reason = validate_preflight_bypass(
+            command="rebuild",
+            skip_preflight=skip_preflight,
+            reason=getattr(ns, "preflight_bypass_reason", None),
+        )
+    except ValueError as exc:
+        print(f"ERR: {exc}")
         return 2
 
     confirm_module_raw = str(getattr(ns, "confirm_module", "") or "").strip()
@@ -154,14 +175,22 @@ def run(ns) -> int:
         "module_id": module_id,
         "status": "error",
         "phases": {},
+        "preflight": new_preflight_decision(
+            command="rebuild",
+            skip_preflight=skip_preflight,
+            reason=preflight_bypass_reason,
+            scope="rebuild",
+        ),
     }
+
     def _write_rebuild_metadata() -> None:
         ev.write_json("meta.json", summary)
+        ev.write_json("preflight_decision.json", summary["preflight"])
         ev.write_json("rebuild_summary.json", summary)
 
     _write_rebuild_metadata()
 
-    if not bool(getattr(ns, "skip_preflight", False)):
+    if not skip_preflight:
         preflight_ns = SimpleNamespace(
             root=getattr(ns, "root", None),
             env=getattr(ns, "env", None),
@@ -176,6 +205,11 @@ def run(ns) -> int:
             inputs=getattr(ns, "inputs", None),
         )
         rc_preflight = int(cmd_preflight.run(preflight_ns))
+        summary["preflight"] = complete_preflight_decision(
+            summary["preflight"],
+            passed=rc_preflight == 0,
+            detail="" if rc_preflight == 0 else f"exit_code={rc_preflight}",
+        )
         summary["phases"]["preflight"] = {"status": "ok" if rc_preflight == 0 else "error", "exit_code": rc_preflight}
         if rc_preflight == CANCELLED:
             summary["phases"]["preflight"]["status"] = "cancelled"
@@ -197,7 +231,8 @@ def run(ns) -> int:
         deps_inputs_dir=None,
         deps_force=False,
         out_dir=getattr(ns, "out_dir", None),
-        skip_preflight=bool(getattr(ns, "skip_preflight", False)),
+        skip_preflight=skip_preflight,
+        preflight_bypass_reason=preflight_bypass_reason,
     )
     rc_destroy = int(cmd_apply.run(destroy_ns))
     summary["phases"]["destroy"] = {"status": "ok" if rc_destroy == 0 else "error", "exit_code": rc_destroy}
@@ -221,7 +256,8 @@ def run(ns) -> int:
         deps_inputs_dir=getattr(ns, "deps_inputs_dir", None),
         deps_force=bool(getattr(ns, "deps_force", False)),
         out_dir=getattr(ns, "out_dir", None),
-        skip_preflight=bool(getattr(ns, "skip_preflight", False)),
+        skip_preflight=skip_preflight,
+        preflight_bypass_reason=preflight_bypass_reason,
     )
     rc_apply = int(cmd_apply.run(apply_ns))
     summary["phases"]["apply"] = {"status": "ok" if rc_apply == 0 else "error", "exit_code": rc_apply}
