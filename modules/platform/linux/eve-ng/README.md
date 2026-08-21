@@ -1,20 +1,20 @@
 # platform/linux/eve-ng
 
-Install and configure EVE-NG on a single **Ubuntu 22.04 (Jammy)** Linux host.
+Installs and configures EVE-NG on Ubuntu 22.04 and publishes the lab-platform readiness contract used by HybridOps blueprints.
 
-This module is the provider-neutral EVE-NG capability layer used by both on-prem and cloud blueprints. It does **not** provision a VM by itself.
+This is the provider-neutral EVE-NG capability layer. Enclosing blueprints supply the execution host and access transport, allowing the same EVE-NG contract to run across private cloud and on-premises infrastructure.
 
-Supported access modes:
+Supported access transports include:
+
 - direct SSH
-- explicit bastion / jump host
+- explicit bastion or jump host
 - GCP IAP SSH
 
-For new blueprints, prefer `platform/linux/eve-ng`. The older `platform/onprem/eve-ng` module remains for compatibility with existing inputs.
+Password seeding is part of the run contract:
 
-HybridOps now treats password seeding as part of the safe run contract:
 - `load_vault_env` defaults to `true`
-- validate/preflight fail early if `EVENG_ROOT_PASSWORD` and `EVENG_ADMIN_PASSWORD` are not seeded
-- on-prem private targets can use `ssh_proxy_jump_auto: true`, which defers bastion resolution to runtime preflight instead of timing out on direct SSH
+- validate/preflight requires `EVENG_ROOT_PASSWORD` and `EVENG_ADMIN_PASSWORD`
+- private on-premises targets can resolve their bastion dynamically with `ssh_proxy_jump_auto: true`
 
 ## Usage
 
@@ -26,7 +26,7 @@ hyops apply --env dev \
   --inputs modules/platform/linux/eve-ng/examples/inputs.min.yml
 ```
 
-## Required Secrets
+## Required secrets
 
 - `EVENG_ROOT_PASSWORD`
 - `EVENG_ADMIN_PASSWORD`
@@ -36,4 +36,4 @@ hyops apply --env dev \
 - `eveng_url`
 - `cap.lab.eveng = ready`
 
-For the current EVE role, `eveng_url` is published as `http://...` unless you terminate TLS separately in front of the host.
+The enclosing blueprint can combine this readiness contract with image installation, deep health checks, private UI access, topology-node automation and the EVE-NG archive/restore lifecycle.
