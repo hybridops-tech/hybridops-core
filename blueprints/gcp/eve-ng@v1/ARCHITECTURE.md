@@ -57,7 +57,21 @@ private UI access             topology-node automation
 | Health layer | Service, database, API and KVM readiness |
 | Access layer | Private EVE-NG UI path plus session-scoped topology-node management access |
 | Continuity layer | Lab definitions and selected stopped-QEMU overlay state, retained away from the execution host |
+| Cost context | Resource age, fixed-resource estimate and retained-resource visibility for cloud execution |
 | Runtime evidence | Module state, checksums, health results, resource state and lifecycle records |
+
+## Operating control points
+
+The implementation crosses several operational disciplines, but each one resolves through the same lifecycle record.
+
+| Control point | Decision | Evidence |
+| --- | --- | --- |
+| Readiness | Is execution capacity and EVE-NG usable? | Provider state, preflight, service/database/API/KVM health |
+| Private access | Can the operator and automation clients reach the required control surfaces? | Resolved runtime target, access session and generated client material |
+| Continuity | What state must survive this session? | Lab archive, optional stopped-QEMU overlay archive, manifests and SHA-256 values |
+| Compute release | Is the high-resource execution host still required? | Verified retained recovery set and terminal resource state |
+| Reconstruction | Has the lab returned to a usable state? | Verified restore followed by the normal EVE-NG health path |
+| Cost context | Which cost-bearing resources are active or deliberately retained? | Resource age, fixed-resource estimate, terminal compute state and retained-resource reporting |
 
 ## Private access and device automation
 
@@ -95,7 +109,15 @@ Vendor or base images remain separately managed. Restored overlays are paired wi
 
 Existing lab content is protected by default. Replacement requires the explicit overwrite option.
 
-The restore path therefore reconstructs the surrounding execution environment while returning EVE-NG definitions and selected QEMU state to EVE-NG rather than translating them into another lab format.
+The restore path reconstructs the surrounding execution environment while returning EVE-NG definitions and selected QEMU state to EVE-NG rather than translating them into another lab format.
+
+## Compute lifetime and cost boundary
+
+Access closure and compute release are separate lifecycle events. Ending a browser, console or SSH session leaves the execution host unchanged; the host becomes eligible for release when the selected continuity state has been preserved and verified.
+
+For the GCP path, HybridOps surfaces resource age and fixed-resource cost context alongside the lifecycle. Provider billing remains authoritative for realised spend. After execution compute is released, retained archives, image sources, shared networking or other deliberately retained resources remain visible as separate state rather than being folded into the compute result.
+
+This makes the cost decision operational rather than timer-based: continuity determines when high-resource compute can end, while the terminal resource record shows what still exists afterward. The Proxmox path uses the same continuity and terminal-state contract without the GCP billing context.
 
 ## Cross-target consistency
 
