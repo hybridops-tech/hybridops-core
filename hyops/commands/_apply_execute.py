@@ -335,6 +335,8 @@ def run_single(
             preflight_request["lifecycle_command"] = command_name
             try:
                 preflight_result = driver_fn(preflight_request)
+                if not isinstance(preflight_result, dict):
+                    raise TypeError("driver preflight returned a non-object result")
             except Exception as exc:
                 preflight_decision = complete_preflight_decision(
                     preflight_decision,
@@ -343,8 +345,6 @@ def run_single(
                 )
                 write_preflight_decision(preflight_decision)
                 raise
-            if not isinstance(preflight_result, dict):
-                raise TypeError("driver preflight returned a non-object result")
             ev.write_json("preflight_result.json", preflight_result)
 
             preflight_status = str(preflight_result.get("status", "unknown")).strip().lower()

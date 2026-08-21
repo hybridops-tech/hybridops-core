@@ -183,6 +183,21 @@ class ModulePreflightEvidenceTest(TestCase):
         self.assertEqual(decision["guarantee"], "not-established")
         self.assertEqual(decision["detail"], "readiness check failed")
 
+    def test_malformed_preflight_result_is_recorded_as_failed(self) -> None:
+        rc, calls, decision = self._run(
+            skip_preflight=False,
+            malformed_preflight=True,
+        )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(calls, ["preflight"])
+        self.assertEqual(decision["status"], "failed")
+        self.assertEqual(decision["guarantee"], "not-established")
+        self.assertEqual(
+            decision["detail"],
+            "driver preflight returned a non-object result",
+        )
+
     def test_direct_mutating_bypass_without_reason_is_rejected(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
