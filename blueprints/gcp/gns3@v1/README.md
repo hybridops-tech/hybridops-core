@@ -1,77 +1,110 @@
-# GCP GNS3 Teaching Lab
+# GNS3 network lab
 
-Deploy a private GNS3 server and a zero-image starter topology on Google Cloud.
-The VM has no public IP; SSH, Web UI and desktop-client access use IAP.
+`gcp/gns3@v1` delivers a private GNS3 execution environment with governed access, deep health verification, device automation access, project continuity, rebuild and compute release.
+
+The blueprint uses shared GNS3 capability modules that are also used by the Proxmox path. Provider-specific infrastructure supplies the execution host; GNS3 remains authoritative for projects, topology and node execution.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the lifecycle and ownership model.
+
+## What it delivers
+
+- private nested-virtualization-capable execution compute with no public VM address
+- authenticated GNS3 server through `platform/linux/gns3-server`
+- declared image handling through `platform/linux/gns3-images`
+- a starter project through `platform/linux/gns3-starter-lab`
+- deep GNS3, KVM and local-compute health verification
+- private topology-node management through `hyops-mgmt0`
+- archive-before-release through `platform/linux/gns3-lab-archive`
+- verified restoration of projects, controller metadata and writable node disks
+- structured run records and resource-age/cost context
 
 ## Execution chain
 
 ```text
-platform/gcp/lab-network
-  -> platform/gcp/platform-vm
-  -> platform/linux/gns3-server
-  -> platform/linux/gns3-images
-  -> platform/linux/gns3-starter-lab
-  -> platform/linux/gns3-healthcheck
+private network
+  -> execution host
+  -> GNS3 server
+  -> lab images
+  -> starter project
+  -> GNS3 health verification
 ```
 
-## Prerequisites
+The executable contract is [blueprint.yml](blueprint.yml).
 
-Initialise the GCP environment and seed the GNS3 API password:
+## Prepare and deploy
 
 ```bash
-hyops init gcp --env gns3-gcp
-hyops secrets ensure --env gns3-gcp GNS3_SERVER_PASSWORD
+hyops setup gcp
+hyops init gcp --env <env>
+hyops secrets ensure --env <env> GNS3_SERVER_PASSWORD
+
+ref=gcp/gns3@v1
+hyops blueprint init --env <env> --ref "$ref"
+hyops blueprint validate --env <env> --ref "$ref"
+hyops blueprint plan --env <env> --ref "$ref"
+hyops blueprint preflight --env <env> --ref "$ref"
+hyops blueprint deploy --env <env> --ref "$ref" --execute
 ```
 
-GCP initialisation and module preflight confirm project, authentication and
-billing readiness before resources are created.
+The shipped host profile uses an `n2-standard-8` VM with 32 GB RAM, a 128 GB disk, Ubuntu 22.04 and nested virtualization. It is a reference profile that can be adjusted through the environment blueprint.
 
-## Deploy
+## Private access
+
+Open the GNS3 server through the managed private path:
 
 ```bash
-hyops blueprint preflight --env gns3-gcp --ref gcp/gns3@v1
-hyops blueprint deploy --env gns3-gcp --ref gcp/gns3@v1 --execute
+hyops blueprint access --env <env> --ref gcp/gns3@v1
 ```
 
-## Connect to GNS3
+The access session resolves the current host from HybridOps state and forwards the authenticated GNS3 API/UI endpoint through IAP. The VM and GNS3 service remain private.
+
+For direct automation of topology nodes, map a GNS3 Cloud node to `hyops-mgmt0`, connect device management interfaces to it and run:
 
 ```bash
-hyops blueprint access --env gns3-gcp --ref gcp/gns3@v1
+hyops blueprint access --env <env> --ref gcp/gns3@v1 --automation
 ```
 
-For workstation automation, add a GNS3 Cloud node mapped to `hyops-mgmt0`,
-connect device management interfaces to it, and run access with `--automation`.
-HybridOps discovers management leases and writes a scoped SSH config, target
-file and automation inventory. Optional `--route-lab` routing requires
-Linux or WSL with TUN support and a non-conflicting `172.29.130.0/24` local
-route. Windows and macOS applications use the generated SSH configuration or
-local proxy. DHCP supplies the management gateway; static devices must use
-`172.29.130.1`.
+HybridOps discovers management leases and produces session-scoped SSH configuration, target data and automation inventory. Linux and WSL can optionally use `--route-lab`; Windows and macOS clients can use the generated SSH configuration or local proxy path.
 
-Keep the command running. Open the printed HTTP endpoint in a browser or
-configure the GNS3 desktop client to use it. The default username is `gns3`.
-Retrieve the password from the environment vault:
+## Continuity and compute release
+
+The blueprint declares `platform/linux/gns3-lab-archive` as its archive-before-release contract.
+
+The retained set contains GNS3 project directories and controller metadata. Project directories carry topology files, project files and writable node disks. The archive role stops the GNS3 server while controller state is copied or restored, then returns the service to its operating state.
+
+Base images are separately managed by default and can be reconstructed from their declarations. The retained project archive therefore carries the mutable project state needed for continuation without coupling that state to the lifetime of the execution host.
+
+For an explicit protected destroy:
 
 ```bash
-hyops secrets show --env gns3-gcp --raw GNS3_SERVER_PASSWORD
+hyops blueprint destroy --env <env> --ref gcp/gns3@v1 --execute --yes \
+  --archive-before-destroy
 ```
 
-## Remove the lab
+A later deployment can restore the latest verified set:
 
 ```bash
-hyops blueprint destroy --env gns3-gcp --ref gcp/gns3@v1 --execute
+hyops blueprint deploy --env <env> --ref gcp/gns3@v1 --execute --restore-labs
 ```
 
-The interactive destroy flow can export and verify GNS3 projects before
-teardown. Project topology, controller metadata and writable node disks are
-preserved; downloadable base images are rebuilt from their declarations.
+Restore verifies the recorded SHA-256 before applying the retained controller and project state.
 
-Restore the latest verified archive during redeployment:
+## Rebuild
 
 ```bash
-hyops blueprint deploy \
-  --env gns3-gcp \
-  --ref gcp/gns3@v1 \
-  --execute \
-  --restore-labs
+hyops blueprint rebuild --env <env> --ref gcp/gns3@v1 --execute
 ```
+
+Rebuild applies the same lifecycle boundary: preserve the project state, release the current execution resources, recreate the host, restore the verified archive and return the lab through the normal GNS3 health path.
+
+## Shared implementation
+
+The lab-platform layer is composed from:
+
+- [GNS3 server](../../../modules/platform/linux/gns3-server)
+- [GNS3 images](../../../modules/platform/linux/gns3-images)
+- [GNS3 starter lab](../../../modules/platform/linux/gns3-starter-lab)
+- [GNS3 health check](../../../modules/platform/linux/gns3-healthcheck)
+- [GNS3 lab archive](../../../modules/platform/linux/gns3-lab-archive)
+
+The sibling [Proxmox implementation](../../onprem/gns3@v1) uses the same GNS3, health, access and archive contracts around a different execution-host lifecycle.

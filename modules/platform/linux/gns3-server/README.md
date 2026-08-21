@@ -1,11 +1,12 @@
 # platform/linux/gns3-server
 
-Installs and configures an authenticated GNS3 server on an existing Ubuntu
-22.04 or 24.04 x86_64 host. The module is provider-neutral and can use direct
-SSH, a jump host or GCP IAP.
+Installs and configures an authenticated GNS3 server on Ubuntu 22.04 or 24.04 x86_64 and publishes the lab-platform readiness contract used by HybridOps blueprints.
 
-It installs the server and open-source emulator runtime. It does not provision
-the host, install a desktop client or supply proprietary network images.
+This is the provider-neutral GNS3 server layer. Enclosing blueprints supply the execution host and access transport, the image module supplies declared lab images, and operator-side GNS3 clients consume the private server endpoint.
+
+Supported access transports include direct SSH, a jump host and GCP IAP.
+
+The module can enable KVM-backed local compute, install the open-source emulator runtime and configure the private management network used for topology-node automation.
 
 ## Usage
 
@@ -22,3 +23,5 @@ hyops apply --env lab \
 - `gns3_url`
 - `gns3_api_port`
 - `cap.lab.gns3 = ready`
+
+The enclosing blueprint can combine this readiness contract with managed images, starter projects, deep health checks, private client access, topology-node automation and the GNS3 archive/restore lifecycle.
