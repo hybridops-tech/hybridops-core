@@ -20,6 +20,10 @@ from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import normalize_module_state_ref, read_module_state
 from hyops.runtime.module_state_contracts import resolve_inventory_groups_from_state
 from hyops.runtime.paths import resolve_runtime_paths
+from hyops.runtime.preflight_decision import (
+    new_preflight_decision,
+    validate_preflight_bypass,
+)
 from hyops.runtime.proc import run_capture_stream
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.terraform_cloud import (
@@ -173,7 +177,12 @@ def add_runner_subparser(sp: argparse._SubParsersAction) -> None:
     dep = bssp.add_parser("deploy", help="Run blueprint deploy from the selected runner.")
     add_common_args(dep)
     dep.add_argument("--execute", action="store_true", help="Execute ordered blueprint steps.")
-    dep.add_argument("--skip-preflight", action="store_true", help="Skip blueprint-level preflight gate.")
+    dep.add_argument("--skip-preflight", action="store_true", help="Explicitly bypass blueprint preflight.")
+    dep.add_argument(
+        "--preflight-bypass-reason",
+        default=None,
+        help="Required reason when --skip-preflight is used.",
+    )
     dep.add_argument("--yes", action="store_true", help="Proceed without interactive confirmation.")
     dep.set_defaults(_handler=run_runner_blueprint_deploy)
 
@@ -658,6 +667,9 @@ def _remote_blueprint_command(ns, *, runtime_root: str, remote_blueprint_path: s
             cmd.append("--execute")
         if bool(getattr(ns, "skip_preflight", False)):
             cmd.append("--skip-preflight")
+            reason = str(getattr(ns, "preflight_bypass_reason", None) or "").strip()
+            if reason:
+                cmd.extend(["--preflight-bypass-reason", reason])
         if bool(getattr(ns, "yes", False)):
             cmd.append("--yes")
     return cmd
@@ -905,6 +917,25 @@ def _sync_secret_source_to_runtime(ns, *, paths) -> None:
 
 
 def _execute_runner_blueprint(ns) -> int:
+    preflight_decision: dict[str, Any] | None = None
+    if str(getattr(ns, "runner_blueprint_cmd", "") or "").strip() == "deploy":
+        try:
+            ns.preflight_bypass_reason = validate_preflight_bypass(
+                command="deploy",
+                skip_preflight=bool(getattr(ns, "skip_preflight", False)),
+                reason=getattr(ns, "preflight_bypass_reason", None),
+            )
+        except ValueError as exc:
+            print(f"ERR: runner blueprint setup failed: {exc}")
+            return OPERATOR_ERROR
+        preflight_decision = new_preflight_decision(
+            command="deploy",
+            skip_preflight=bool(getattr(ns, "skip_preflight", False)),
+            reason=ns.preflight_bypass_reason,
+            scope="blueprint",
+            decision_source="runner-cli",
+        )
+
     try:
         require_runtime_selection(
             getattr(ns, "root", None),
@@ -948,19 +979,19 @@ def _execute_runner_blueprint(ns) -> int:
     evidence_root = paths.logs_dir / "runner"
     evidence_dir = init_evidence_dir(evidence_root, run_id)
     ev = EvidenceWriter(evidence_dir)
-    ev.write_json(
-        "dispatch.request.json",
-        {
-            "runner_state_ref": ctx.state_ref,
-            "runner_vm_key": ctx.vm_key,
-            "runtime_root": str(paths.root),
-            "blueprint_file": str(blueprint_path),
-            "runner_blueprint_cmd": ns.runner_blueprint_cmd,
-            "sync_env": sync_env_keys,
-            "tfc_dispatch": tfc_meta,
-            "gcp_dispatch": gcp_meta,
-        },
-    )
+    dispatch_request: dict[str, Any] = {
+        "runner_state_ref": ctx.state_ref,
+        "runner_vm_key": ctx.vm_key,
+        "runtime_root": str(paths.root),
+        "blueprint_file": str(blueprint_path),
+        "runner_blueprint_cmd": ns.runner_blueprint_cmd,
+        "sync_env": sync_env_keys,
+        "tfc_dispatch": tfc_meta,
+        "gcp_dispatch": gcp_meta,
+    }
+    if preflight_decision is not None:
+        dispatch_request["preflight"] = preflight_decision
+    ev.write_json("dispatch.request.json", dispatch_request)
     print(f"runner={ctx.state_ref} status=running run_id={run_id}")
     print(f"run record: {evidence_dir}")
 

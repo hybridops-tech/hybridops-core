@@ -24,7 +24,7 @@ import yaml
 from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.browser import is_windows_wsl, open_operator_url
 from hyops.runtime.cost import CostEstimate, format_money
-from hyops.runtime.evidence import new_run_id
+from hyops.runtime.evidence import EvidenceWriter, new_run_id
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.gcp_cost import estimate_gcp_vm_cost
@@ -32,6 +32,11 @@ from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import read_module_state, split_module_state_ref
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.progress import ProgressDisplay, verbose_enabled
+from hyops.runtime.preflight_decision import (
+    complete_preflight_decision,
+    new_preflight_decision,
+    validate_preflight_bypass,
+)
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
@@ -719,7 +724,12 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     t.add_argument(
         "--skip-preflight",
         action="store_true",
-        help="Skip blueprint-level preflight gate before step execution.",
+        help="Explicitly bypass the blueprint-level preflight gate.",
+    )
+    t.add_argument(
+        "--preflight-bypass-reason",
+        default=None,
+        help="Required reason when --skip-preflight is used.",
     )
     t.add_argument(
         "--yes",
@@ -813,7 +823,12 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     b.add_argument(
         "--skip-preflight",
         action="store_true",
-        help="Skip deploy preflight after teardown.",
+        help="Explicitly bypass deploy preflight after teardown.",
+    )
+    b.add_argument(
+        "--preflight-bypass-reason",
+        default=None,
+        help="Required reason when --skip-preflight is used.",
     )
     b.add_argument(
         "--yes",
@@ -2538,16 +2553,43 @@ def run_deploy(ns) -> int:
         print(f"ERR: blueprint deploy failed: {format_runtime_storage_error(exc)}")
         return OPERATOR_ERROR
 
+    skip_preflight = bool(getattr(ns, "skip_preflight", False))
+    try:
+        preflight_bypass_reason = validate_preflight_bypass(
+            command="deploy",
+            skip_preflight=skip_preflight,
+            reason=getattr(ns, "preflight_bypass_reason", None),
+        )
+    except ValueError as exc:
+        print(f"ERR: blueprint deploy failed: {exc}")
+        return OPERATOR_ERROR
+
+    preflight_decision = new_preflight_decision(
+        command="deploy",
+        skip_preflight=skip_preflight,
+        reason=preflight_bypass_reason,
+        scope="blueprint",
+    )
     preflight_summary: dict[str, Any] | None = None
-    if not bool(getattr(ns, "skip_preflight", False)):
+    if not skip_preflight:
         preflight_steps, preflight_required, preflight_optional = compute_preflight(payload, ns, paths)
         preflight_status = "ok" if not preflight_required else "failed"
+        preflight_decision = complete_preflight_decision(
+            preflight_decision,
+            passed=not preflight_required,
+            detail=(
+                ""
+                if not preflight_required
+                else f"required_failures={','.join(preflight_required)}"
+            ),
+        )
         preflight_summary = {
             "status": preflight_status,
             "required_failures": list(preflight_required),
             "optional_failures": list(preflight_optional),
             "steps": preflight_steps,
         }
+        ns.preflight_context = preflight_decision
         if not json_mode:
             print(
                 f"blueprint={payload['blueprint_ref']} mode={payload['mode']} "
@@ -2580,6 +2622,10 @@ def run_deploy(ns) -> int:
                     )
                 )
             return OPERATOR_ERROR
+    elif not json_mode:
+        print("WARN: blueprint preflight bypassed; decision will be recorded with executed steps")
+
+    ns.preflight_context = preflight_decision
 
     confirm_rc = _confirm_deploy_if_needed(ns, payload, paths)
     if confirm_rc != 0:
@@ -2901,6 +2947,7 @@ def run_deploy(ns) -> int:
         "required_failures": required_failures,
         "optional_failures": optional_failures,
         "steps": step_results,
+        "preflight_decision": preflight_decision,
     }
     if preflight_summary is not None:
         output["preflight"] = preflight_summary
@@ -3460,6 +3507,24 @@ def run_rebuild(ns) -> int:
         print("ERR: --json is not supported with blueprint rebuild --execute")
         return OPERATOR_ERROR
 
+    skip_preflight = bool(getattr(ns, "skip_preflight", False))
+    try:
+        preflight_bypass_reason = validate_preflight_bypass(
+            command="rebuild",
+            skip_preflight=skip_preflight,
+            reason=getattr(ns, "preflight_bypass_reason", None),
+        )
+    except ValueError as exc:
+        print(f"ERR: blueprint rebuild failed: {exc}")
+        return OPERATOR_ERROR
+
+    rebuild_preflight_decision = new_preflight_decision(
+        command="rebuild",
+        skip_preflight=skip_preflight,
+        reason=preflight_bypass_reason,
+        scope="blueprint",
+    )
+
     try:
         require_runtime_selection(
             getattr(ns, "root", None),
@@ -3497,27 +3562,24 @@ def run_rebuild(ns) -> int:
     record_dir = paths.logs_dir / "blueprint" / token / run_id
     record_dir.mkdir(parents=True, exist_ok=True)
     record_file = record_dir / "rebuild.json"
+    record_writer = EvidenceWriter(record_dir)
 
     def write_record(
         status: str, destroy_rc: int | None, deploy_rc: int | None
     ) -> None:
-        record_file.write_text(
-            json.dumps(
-                {
-                    "blueprint_ref": payload["blueprint_ref"],
-                    "env": env_name,
-                    "run_id": run_id,
-                    "status": status,
-                    "destroy_order": destroy_order,
-                    "deploy_order": payload["order"],
-                    "destroy_rc": destroy_rc,
-                    "deploy_rc": deploy_rc,
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
+        record_writer.write_json(
+            record_file.name,
+            {
+                "blueprint_ref": payload["blueprint_ref"],
+                "env": env_name,
+                "run_id": run_id,
+                "status": status,
+                "destroy_order": destroy_order,
+                "deploy_order": payload["order"],
+                "destroy_rc": destroy_rc,
+                "deploy_rc": deploy_rc,
+                "preflight": rebuild_preflight_decision,
+            },
         )
 
     write_record("running", None, None)
@@ -3529,6 +3591,7 @@ def run_rebuild(ns) -> int:
             "execute": True,
             "archive_before_destroy": False,
             "skip_archive": bool(payload.get("archive_before_destroy")),
+            "preflight_bypass_reason": preflight_bypass_reason,
         }
     )
     print("rebuild_phase=destroy status=running")
@@ -3541,7 +3604,11 @@ def run_rebuild(ns) -> int:
 
     print("rebuild_phase=destroy status=ok")
     print("rebuild_phase=deploy status=running")
-    deploy_rc = int(run_deploy(argparse.Namespace(**child_args)))
+    deploy_ns = argparse.Namespace(**child_args)
+    deploy_rc = int(run_deploy(deploy_ns))
+    deploy_preflight = getattr(deploy_ns, "preflight_context", None)
+    if isinstance(deploy_preflight, dict):
+        rebuild_preflight_decision = dict(deploy_preflight)
     final_status = "ok" if deploy_rc == 0 else "deploy-failed"
     write_record(final_status, destroy_rc, deploy_rc)
     print(f"rebuild_phase=deploy status={'ok' if deploy_rc == 0 else 'failed'}")

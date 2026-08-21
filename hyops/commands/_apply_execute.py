@@ -27,6 +27,11 @@ from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.module_state import write_module_state
 from hyops.runtime.operator_output import concise_error
+from hyops.runtime.preflight_decision import (
+    complete_preflight_decision,
+    new_preflight_decision,
+    validate_preflight_bypass,
+)
 from hyops.runtime.progress import ProgressDisplay
 from hyops.runtime.stamp import stamp_runtime
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
@@ -42,6 +47,8 @@ def run_single(
     inputs_file: Path | None,
     out_dir: str | None,
     skip_preflight: bool,
+    preflight_bypass_reason: str = "",
+    preflight_context: dict[str, Any] | None = None,
     state_instance: str | None,
     allow_state_drift_recreate: bool = False,
     import_resource_address: str | None = None,
@@ -51,6 +58,16 @@ def run_single(
     command_name = str(command_name or "apply").strip().lower()
     if command_name not in ("apply", "deploy", "plan", "validate", "destroy", "import"):
         command_name = "apply"
+
+    try:
+        preflight_bypass_reason = validate_preflight_bypass(
+            command=command_name,
+            skip_preflight=skip_preflight,
+            reason=preflight_bypass_reason,
+        )
+    except ValueError as exc:
+        print(f"ERR: {exc}", file=sys.stderr)
+        return 2
 
     try:
         require_runtime_writable(paths.root)
@@ -212,27 +229,38 @@ def run_single(
     except Exception:
         pass
 
-    ev.write_json(
-        "meta.json",
-        {
-            "command": command_name,
-            "run_id": run_id,
-            "module_ref": module_ref,
-            "execution": execution_payload,
-            "requirements": {"credentials": resolved.required_credentials},
-            "dependencies": {
-                "items": resolved.dependencies,
-                "warnings": resolved.dependency_warnings,
-            },
-            "outputs": {"publish": resolved.outputs_publish},
-            "paths": {
-                "runtime_root": str(paths.root),
-                "env": str(env_name or ""),
-                "evidence_dir": str(evidence_dir),
-                "state_dir": str(paths.state_dir),
-            },
-        },
+    preflight_decision = new_preflight_decision(
+        command=command_name,
+        skip_preflight=skip_preflight,
+        reason=preflight_bypass_reason,
+        parent=preflight_context,
     )
+    meta_payload: dict[str, Any] = {
+        "command": command_name,
+        "run_id": run_id,
+        "module_ref": module_ref,
+        "execution": execution_payload,
+        "requirements": {"credentials": resolved.required_credentials},
+        "dependencies": {
+            "items": resolved.dependencies,
+            "warnings": resolved.dependency_warnings,
+        },
+        "outputs": {"publish": resolved.outputs_publish},
+        "paths": {
+            "runtime_root": str(paths.root),
+            "env": str(env_name or ""),
+            "evidence_dir": str(evidence_dir),
+            "state_dir": str(paths.state_dir),
+        },
+        "preflight": preflight_decision,
+    }
+
+    def write_preflight_decision(decision: dict[str, Any]) -> None:
+        meta_payload["preflight"] = decision
+        ev.write_json("preflight_decision.json", decision)
+        ev.write_json("meta.json", meta_payload)
+
+    write_preflight_decision(preflight_decision)
     ev.write_json(
         "inputs_resolved.json",
         {
@@ -305,12 +333,29 @@ def run_single(
             preflight_request = dict(request)
             preflight_request["command"] = "preflight"
             preflight_request["lifecycle_command"] = command_name
-            preflight_result = driver_fn(preflight_request)
+            try:
+                preflight_result = driver_fn(preflight_request)
+                if not isinstance(preflight_result, dict):
+                    raise TypeError("driver preflight returned a non-object result")
+            except Exception as exc:
+                preflight_decision = complete_preflight_decision(
+                    preflight_decision,
+                    passed=False,
+                    detail=str(exc),
+                )
+                write_preflight_decision(preflight_decision)
+                raise
             ev.write_json("preflight_result.json", preflight_result)
 
             preflight_status = str(preflight_result.get("status", "unknown")).strip().lower()
+            preflight_error = str(preflight_result.get("error") or "").strip()
+            preflight_decision = complete_preflight_decision(
+                preflight_decision,
+                passed=preflight_status == "ok",
+                detail=preflight_error,
+            )
+            write_preflight_decision(preflight_decision)
             if preflight_status != "ok":
-                preflight_error = str(preflight_result.get("error") or "").strip()
                 persist_status_error_state(preflight_error or "preflight failed")
                 if preflight_error:
                     print(

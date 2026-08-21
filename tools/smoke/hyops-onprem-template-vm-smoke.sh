@@ -179,7 +179,8 @@ cleanup_vm() {
     --module platform/onprem/platform-vm \
     --state-instance "$smoke_state_instance" \
     --inputs "$vm_inputs" \
-    --skip-preflight >/dev/null 2>&1
+    --skip-preflight \
+    --preflight-bypass-reason "smoke cleanup after controlled validation" >/dev/null 2>&1
   set -e
 }
 trap cleanup_vm EXIT INT TERM

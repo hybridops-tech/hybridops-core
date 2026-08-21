@@ -44,6 +44,7 @@ def run_step_module_command(step: dict[str, Any], payload: dict[str, Any], ns, p
         state_instance=str(step.get("state_instance") or "").strip() or None,
         allow_state_drift_recreate=bool(step.get("verify_state_on_skip", False)),
         profile_override=str(step.get("execution_profile") or "").strip() or None,
+        preflight_context=getattr(ns, "preflight_context", None),
     )
     return int(module_command.run(step_ns))
 

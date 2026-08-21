@@ -103,6 +103,19 @@ class CliRoutingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("edit", result.stdout)
 
+    def test_mutating_preflight_bypass_help_requires_reason(self) -> None:
+        for args in (
+            ("apply", "--help"),
+            ("rebuild", "--help"),
+            ("blueprint", "deploy", "--help"),
+            ("blueprint", "rebuild", "--help"),
+            ("runner", "blueprint", "deploy", "--help"),
+        ):
+            with self.subTest(args=args):
+                result = run_cli(*args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--preflight-bypass-reason", result.stdout)
+
     def test_unknown_command_returns_parser_error(self) -> None:
         result = run_cli("not-a-command")
         self.assertEqual(result.returncode, 2)
