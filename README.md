@@ -101,8 +101,8 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 
 - **Full docs and reference scenarios:** [docs.hybridops.tech](https://docs.hybridops.tech)
 - **Public site:** [hybridops.tech](https://hybridops.tech)
-- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Security:** [SECURITY.md](.github/SECURITY.md)
+- **Contributing:** [Contribution guide](CONTRIBUTING.md)
+- **Security:** [Security policy](.github/SECURITY.md)
 - **Reference model:** [Anuket CNTT](https://cntt.readthedocs.io/en/latest/common/chapter00.html)
 
 ## License
