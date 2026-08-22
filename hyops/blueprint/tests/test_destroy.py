@@ -15,6 +15,7 @@ from hyops.blueprint.command import (
     run_destroy,
 )
 from hyops.runtime.cost import CostEstimate
+from hyops.runtime.exitcodes import CANCELLED
 
 
 def _payload():
@@ -275,6 +276,68 @@ class ResumableBlueprintDestroyTest(TestCase):
 
         with self.assertRaisesRegex(ValueError, "does not declare"):
             _select_archive_destroy_mode(ns, _payload(), "test")
+
+    def test_archive_choice_reprompts_until_an_exact_selection(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = {"archive_before_destroy": {"module_ref": "platform/test/archive"}}
+
+        with (
+            patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+            patch(
+                "hyops.blueprint.command.input",
+                side_effect=["31", "", "2"],
+            ) as prompt,
+        ):
+            selected = _select_archive_destroy_mode(ns, payload, "test")
+
+        self.assertEqual(selected, "archive")
+        self.assertEqual(prompt.call_count, 3)
+
+    def test_archive_choice_interrupt_is_a_distinct_cancellation(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = {"archive_before_destroy": {"module_ref": "platform/test/archive"}}
+
+        with (
+            patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+            patch("hyops.blueprint.command.input", side_effect=KeyboardInterrupt),
+        ):
+            selected = _select_archive_destroy_mode(ns, payload, "test")
+
+        self.assertEqual(selected, "cancel")
+
+    def test_cancelled_archive_choice_returns_cancelled_without_destroying(self):
+        paths = SimpleNamespace(
+            state_dir=Path("/tmp/state"),
+            root=SimpleNamespace(name="test"),
+        )
+        payload = _payload()
+        payload["archive_before_destroy"] = {
+            "module_ref": "platform/test/archive",
+            "state_instance": "lab_archive",
+            "inputs": {},
+        }
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command.require_runtime_writable"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch(
+                "hyops.blueprint.command._select_archive_destroy_mode",
+                return_value="cancel",
+            ),
+            patch("hyops.blueprint.command.run_step_module_command") as command,
+        ):
+            rc = run_destroy(_namespace())
+
+        self.assertEqual(rc, CANCELLED)
+        command.assert_not_called()
 
     def test_verified_archive_is_accepted(self):
         with tempfile.TemporaryDirectory() as tmp:

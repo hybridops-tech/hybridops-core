@@ -3355,19 +3355,17 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
     print("  1. Keep the environment running")
     print("  2. Export labs, verify the archive, then destroy")
     print("  3. Destroy without exporting labs")
-    try:
-        answer = input("Choose [1-3]: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return "keep"
-    if answer == "1" or not answer:
-        return "keep"
-    if answer == "2":
-        return "archive"
-    if answer == "3":
-        return "skip"
-    print("destroy cancelled; expected 1, 2, or 3")
-    return "keep"
+    choices = {"1": "keep", "2": "archive", "3": "skip"}
+    while True:
+        try:
+            answer = input("Choose [1-3]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return "cancel"
+        selected = choices.get(answer)
+        if selected is not None:
+            return selected
+        print("invalid choice; enter exactly 1, 2, or 3")
 
 
 def _confirm_archive_destroy(env_name: str) -> bool:
@@ -3587,6 +3585,11 @@ def run_destroy(ns) -> int:
     except ValueError as exc:
         print(f"ERR: {exc}")
         return OPERATOR_ERROR
+
+    if archive_mode == "cancel":
+        print("destroy cancelled")
+        print("environment retained")
+        return CANCELLED
 
     if archive_mode == "keep":
         print("environment retained")
