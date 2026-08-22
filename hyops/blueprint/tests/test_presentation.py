@@ -183,3 +183,62 @@ class BlueprintPresentationTest(TestCase):
         self.assertEqual(label, "EVE-NG health checks")
         self.assertEqual(detail, "healthy, overall 100%")
         self.assertEqual(item_line, "")
+
+    def test_lists_configured_qemu_and_iol_images(self):
+        step = {
+            "id": "images",
+            "module_ref": "platform/linux/eve-ng-images",
+            "state_instance": "images",
+            "presentation": {
+                "label": "Lab images",
+                "success": "ready",
+                "items_label": "images",
+                "items": ["stale static item"],
+            },
+            "inputs": {
+                "eveng_images_list": [
+                    {
+                        "name": "linux-alpine-3.21.3.tar.gz",
+                        "type": "qemu",
+                        "url": "https://example.invalid/alpine",
+                    },
+                    {
+                        "label": "Cisco IOL L2 15.2d",
+                        "name": "iol-i86bi-linux-l2-adventerprisek9-15.2d-clean.tar.gz",
+                        "type": "iol",
+                        "url": "https://example.invalid/iol-l2",
+                    },
+                    {
+                        "label": "Operator firewall image",
+                        "name": "vendor-firewall.tar.gz",
+                        "type": "qemu",
+                        "url": "https://example.invalid/firewall",
+                    },
+                ]
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            write_module_state(
+                state_dir,
+                step["module_ref"],
+                {
+                    "status": "ok",
+                    "outputs": {"eveng_images_requested_count": 3},
+                },
+                state_instance=step["state_instance"],
+            )
+
+            label, detail, item_line = _step_presentation(
+                step,
+                state_dir=state_dir,
+                progress_after=80,
+            )
+
+        self.assertEqual(label, "Lab images")
+        self.assertEqual(detail, "ready, 3 images, overall 80%")
+        self.assertEqual(
+            item_line,
+            "  images: Alpine Linux, Cisco IOL L2 15.2d, Operator firewall image",
+        )

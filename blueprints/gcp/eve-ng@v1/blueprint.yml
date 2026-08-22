@@ -197,20 +197,25 @@ steps:
         - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/LhBG1ZQI"
           name: "linux-alpine-3.21.3.tar.gz"
           type: "qemu"
+          label: "Alpine Linux"
         - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/GopE0RJR"
           name: "linux-netem.tar.gz"
           type: "qemu"
+          label: "NETem"
         - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/nkJjgBQL"
           name: "linux-tinycore-6.4.tar.gz"
           type: "qemu"
+          label: "Tiny Core Linux"
         - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/uoIABDjA"
           name: "linux-ubuntu-24.04.01-server.tar.gz"
           type: "qemu"
+          label: "Ubuntu Server"
 
         # Authorised IOL image example:
         # - url: "https://example.invalid/operator-supplied-iol.bin"
         #   name: "operator-supplied-iol.bin"
         #   type: "iol"
+        #   label: "Operator IOL image"
 
         # Optional public images. Enable only what a lab needs; desktop,
         # security and legacy images can add substantial download and disk use.

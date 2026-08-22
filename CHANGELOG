@@ -25,6 +25,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Surfaced EVE-NG IOL licence hostname mismatches in normal deployment output before any image changes.
+- Reported the complete configured EVE-NG image set, including operator-supplied IOL images, in blueprint progress output.
 - Protected Containerlab destroy and rebuild from proceeding without the required recovery result.
 - Tightened permissions on existing runtime directories during installation and setup.
 - Fixed deletion-only Proxmox VM-set shrink operations and external-replica DMS cleanup.

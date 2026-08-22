@@ -224,6 +224,57 @@ def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _image_archive_stem(value: str) -> str:
+    stem = Path(value).name
+    for suffix in (".tar.gz", ".qcow2", ".tgz", ".zip", ".img", ".bin", ".gz"):
+        if stem.lower().endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    if stem.lower().endswith("-clean"):
+        stem = stem[:-6]
+    return stem
+
+
+def _eveng_image_display_name(value: str) -> str:
+    stem = _image_archive_stem(value)
+    lowered = stem.lower()
+
+    if lowered.startswith("linux-alpine-"):
+        return "Alpine Linux"
+    if lowered == "linux-netem":
+        return "NETem"
+    if lowered.startswith("linux-tinycore-"):
+        return "Tiny Core Linux"
+    if lowered.startswith("linux-ubuntu-") and "server" in lowered:
+        return "Ubuntu Server"
+    return stem
+
+
+def _configured_eveng_image_labels(step: dict[str, Any]) -> list[str]:
+    if str(step.get("module_ref") or "") != "platform/linux/eve-ng-images":
+        return []
+
+    inputs = step.get("inputs")
+    if not isinstance(inputs, dict):
+        return []
+    configured = inputs.get("eveng_images_list")
+    if not isinstance(configured, list):
+        return []
+
+    labels: list[str] = []
+    for entry in configured:
+        if not isinstance(entry, dict):
+            continue
+        label = str(entry.get("label") or "").strip()
+        if not label:
+            source_name = str(entry.get("name") or entry.get("url") or "").strip()
+            if source_name:
+                label = _eveng_image_display_name(source_name)
+        if label:
+            labels.append(label)
+    return labels
+
+
 def _step_presentation(
     step: dict[str, Any],
     *,
@@ -258,7 +309,7 @@ def _step_presentation(
 
     details.append(f"overall {progress_after}%")
 
-    items = presentation.get("items")
+    items = _configured_eveng_image_labels(step) or presentation.get("items")
     item_line = ""
     if isinstance(items, list) and items:
         item_values = [str(item).strip() for item in items if str(item).strip()]
