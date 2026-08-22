@@ -208,6 +208,17 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(command.call_count, 1)
         self.assertEqual(command.call_args.args[0]["id"], "vm")
 
+    def test_destroy_runs_step_left_error_by_failed_apply(self):
+        rc, inputs_file, command = self._run(
+            {"network": "error", "vm": "destroyed", "health": "destroyed"},
+            [0],
+        )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(inputs_file.call_count, 1)
+        self.assertEqual(command.call_count, 1)
+        self.assertEqual(command.call_args.args[0]["id"], "network")
+
     def test_live_step_failure_remains_fatal(self):
         rc, inputs_file, command = self._run(
             {"network": "ok", "vm": "destroyed", "health": "destroyed"},

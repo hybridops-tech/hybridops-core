@@ -25,7 +25,7 @@ from hyops.drivers.registry import REGISTRY
 from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
 from hyops.runtime.exitcodes import CANCELLED
 from hyops.runtime.module_resolve import resolve_module
-from hyops.runtime.module_state import write_module_state
+from hyops.runtime.module_state import read_module_state, write_module_state
 from hyops.runtime.operator_output import concise_error
 from hyops.runtime.preflight_decision import (
     complete_preflight_decision,
@@ -143,46 +143,89 @@ def run_single(
             plain=f"module={module_ref} status=running run_id={run_id}",
         )
 
-    def persist_status_error_state(error_message: str) -> None:
-        if command_name not in ("apply", "deploy"):
+    mutation_started = False
+
+    def persist_mutation_state(
+        detail: str,
+        *,
+        state_status: str = "error",
+        after_mutation_started: bool = False,
+        required: bool = False,
+    ) -> None:
+        if command_name not in ("apply", "deploy", "import"):
             return
-        if str(resolved.inputs.get("apply_mode") or "").strip().lower() != "status":
+        # Status-only modules intentionally publish failed checks. For all other
+        # modules, do not replace usable state when preflight prevents execution.
+        # Once the mutating driver starts, however, its failure may have left
+        # provider resources behind and must invalidate a stale terminal marker.
+        is_status_apply = (
+            command_name in ("apply", "deploy")
+            and str(resolved.inputs.get("apply_mode") or "").strip().lower() == "status"
+        )
+        if not after_mutation_started and not is_status_apply:
             return
         try:
-            rerun_inputs_file = persist_rerun_inputs(
-                paths.config_dir,
-                module_ref,
-                resolved.inputs,
-                state_instance=state_instance,
-            )
+            try:
+                previous_state = read_module_state(
+                    paths.state_dir,
+                    module_ref,
+                    state_instance=state_instance,
+                )
+            except Exception:
+                previous_state = {}
+
+            rerun_inputs_file = None
+            if command_name in ("apply", "deploy"):
+                rerun_inputs_file = persist_rerun_inputs(
+                    paths.config_dir,
+                    module_ref,
+                    resolved.inputs,
+                    state_instance=state_instance,
+                )
             resolved_inputs_file = ev.write_text(
                 "resolved.inputs.yml",
                 yaml.safe_dump(resolved.inputs, sort_keys=False),
                 redact_output=False,
             )
-            state_payload = {
-                "module_ref": module_ref,
-                "run_id": run_id,
-                "status": "error",
-                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "execution": {
-                    "driver": driver_ref,
-                    "profile": profile_ref,
-                    "pack_id": pack_id,
-                },
-                "requirements": {"credentials": resolved.required_credentials},
-                "dependencies": resolved.dependencies,
-                "outputs": {},
-                "output_count": 0,
-                "evidence_dir": str(evidence_dir),
-                "last_error": error_message,
-            }
+            previous_outputs = previous_state.get("outputs")
+            if not isinstance(previous_outputs, dict):
+                previous_outputs = {}
+            state_payload = dict(previous_state)
+            state_payload.update(
+                {
+                    "module_ref": module_ref,
+                    "run_id": run_id,
+                    "status": state_status,
+                    "updated_at": datetime.now(timezone.utc).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                    "execution": {
+                        "driver": driver_ref,
+                        "profile": profile_ref,
+                        "pack_id": pack_id,
+                    },
+                    "requirements": {"credentials": resolved.required_credentials},
+                    "dependencies": resolved.dependencies,
+                    "outputs": previous_outputs,
+                    "output_count": len(previous_outputs),
+                    "evidence_dir": str(evidence_dir),
+                }
+            )
+            if state_status == "error":
+                state_payload["last_error"] = detail
+                state_payload["failed_command"] = command_name
+                state_payload.pop("active_command", None)
+            else:
+                state_payload["active_command"] = command_name
+                state_payload.pop("last_error", None)
+                state_payload.pop("failed_command", None)
             input_contract = build_input_contract(resolved.inputs)
             if input_contract:
                 state_payload["input_contract"] = input_contract
             if state_instance:
                 state_payload["state_instance"] = state_instance
-            state_payload["rerun_inputs_file"] = str(rerun_inputs_file)
+            if rerun_inputs_file is not None:
+                state_payload["rerun_inputs_file"] = str(rerun_inputs_file)
             state_payload["resolved_inputs_file"] = str(resolved_inputs_file)
             state_path = write_module_state(
                 paths.state_dir,
@@ -196,14 +239,19 @@ def run_single(
                     "path": str(state_path),
                     "published_outputs": [],
                     "publish_policy": resolved.outputs_publish,
-                    "rerun_inputs_file": str(rerun_inputs_file),
+                    "rerun_inputs_file": (
+                        str(rerun_inputs_file) if rerun_inputs_file else ""
+                    ),
                     "resolved_inputs_file": str(resolved_inputs_file),
-                    "status": "error",
-                    "last_error": error_message,
+                    "status": state_status,
+                    "detail": detail,
                 },
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            if required:
+                raise RuntimeError(
+                    f"failed to persist mutation state before {command_name}: {exc}"
+                ) from exc
 
     try:
         stamp_runtime(
@@ -279,7 +327,7 @@ def run_single(
         )
     except Exception as exc:
         ev.write_json("guard_failure.json", {"error": str(exc)})
-        persist_status_error_state(str(exc))
+        persist_mutation_state(str(exc))
         print(f"error: {exc}", file=sys.stderr)
         if not child_progress:
             progress.finish(
@@ -356,7 +404,7 @@ def run_single(
             )
             write_preflight_decision(preflight_decision)
             if preflight_status != "ok":
-                persist_status_error_state(preflight_error or "preflight failed")
+                persist_mutation_state(preflight_error or "preflight failed")
                 if preflight_error:
                     print(
                         f"error: preflight failed: {concise_error(preflight_error)}",
@@ -378,6 +426,17 @@ def run_single(
 
         if not child_progress and not progress.enabled:
             print(f"progress: phase={command_name}")
+        if command_name in ("apply", "deploy", "import"):
+            # Persist this before handing control to the provider. If the process
+            # fails or is interrupted after creating only some resources, a later
+            # destroy must not trust an older destroyed/absent state marker.
+            persist_mutation_state(
+                f"{command_name} started but has not completed",
+                state_status="running",
+                after_mutation_started=True,
+                required=True,
+            )
+            mutation_started = True
         result = driver_fn(request)
         ev.write_json("result.json", result)
 
@@ -392,13 +451,20 @@ def run_single(
             print(f"run record: {evidence_dir}")
         if status != "ok":
             err = str(result.get("error") or "").strip()
-            persist_status_error_state(err or f"driver returned status={status or 'unknown'}")
+            persist_mutation_state(
+                err or f"driver returned status={status or 'unknown'}",
+                after_mutation_started=mutation_started,
+            )
             if err:
                 print(f"error: {concise_error(err)}", file=sys.stderr)
             if child_progress:
                 print(f"run record: {evidence_dir}", file=sys.stderr)
             return 1
     except KeyboardInterrupt:
+        persist_mutation_state(
+            "cancelled after provider execution started",
+            after_mutation_started=mutation_started,
+        )
         ev.write_json(
             "cancelled.json",
             {
@@ -423,7 +489,10 @@ def run_single(
         return CANCELLED
     except Exception as exc:
         error_detail = format_runtime_storage_error(exc)
-        persist_status_error_state(error_detail)
+        persist_mutation_state(
+            error_detail,
+            after_mutation_started=mutation_started,
+        )
         print(f"error: {error_detail}", file=sys.stderr)
         if not child_progress:
             progress.finish(
