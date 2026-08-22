@@ -6,6 +6,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added targeted Galaxy collection refresh with `hyops setup galaxy --collection <name>`.
 - Added `hyops blueprint init` and `hyops blueprint edit` as the environment-local blueprint workflow. Initialized blueprints are now the default execution source, while `--file` remains an explicit override.
 - Added managed workstation-to-device automation access for EVE-NG and GNS3, including target discovery, scoped SSH configuration, inventory output, proxy settings, client commands, and optional local routing.
 - Added vault-backed EVE-NG IOL and GNS3 IOU licence placement, checksum-verified image registration, and archive exclusion for licence material.

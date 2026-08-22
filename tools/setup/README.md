@@ -12,6 +12,7 @@ hyops setup base --sudo
 hyops setup cloud-azure --sudo
 hyops setup cloud-gcp --sudo
 hyops setup galaxy
+hyops setup galaxy --collection helper --force
 hyops setup galaxy --hybridops-source git
 hyops setup galaxy --root /path/to/hybridops-core --hybridops-source git
 hyops setup all --sudo
@@ -34,6 +35,8 @@ hyops setup all --sudo
 - The public install contract uses the pinned released `hybridops.common`,
   `hybridops.helper`, and `hybridops.app` collections from
   [tools/setup/requirements/ansible.galaxy.yml](./requirements/ansible.galaxy.yml).
+- Use `--collection common`, `--collection helper`, or `--collection app` to
+  refresh only that HybridOps collection. Repeat the option to select more than one.
 - Git-based install path (for iteration or a pinned Git-based flow):
   - `hyops setup galaxy --hybridops-source git`
   - `hyops setup galaxy --hybridops-source git --hybridops-git-manifest /path/to/manifest.json`

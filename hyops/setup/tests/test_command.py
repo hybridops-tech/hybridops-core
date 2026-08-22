@@ -286,6 +286,40 @@ class SetupCommandTests(unittest.TestCase):
         self.assertIn("setup=galaxy status=ok", output.getvalue())
         self.assertNotIn("progress=", output.getvalue())
 
+    def test_galaxy_collection_is_forwarded_to_installer(self) -> None:
+        with tempfile.TemporaryDirectory() as runtime, patch(
+            "hyops.setup.command.run_streamed", return_value=0
+        ) as run_streamed, patch(
+            "hyops.setup.command.command_evidence_dir",
+            return_value=Path(runtime) / "run-record",
+        ):
+            rc = main(
+                [
+                    "setup",
+                    "galaxy",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--runtime-root",
+                    runtime,
+                    "--collection",
+                    "helper",
+                    "--force",
+                ]
+            )
+
+        self.assertEqual(rc, 0)
+        argv = run_streamed.call_args.args[0]
+        self.assertIn("--force", argv)
+        self.assertEqual(argv[-2:], ["--collection", "helper"])
+
+    def test_collection_is_rejected_for_non_galaxy_setup(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            rc = main(["setup", "base", "--collection", "helper"])
+
+        self.assertEqual(rc, 2)
+        self.assertIn("--collection is valid only", output.getvalue())
+
     def test_individual_base_setup_elevates_automatically_on_linux(self) -> None:
         with tempfile.TemporaryDirectory() as runtime, patch(
             "hyops.setup.command.run_streamed", return_value=0

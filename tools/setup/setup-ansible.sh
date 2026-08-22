@@ -10,7 +10,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   setup-ansible.sh [--root <path>] [--requirements <path>] [--hybridops-source <release|git>]
-                   [--hybridops-git-manifest <path>] [--force]
+                   [--hybridops-git-manifest <path>] [--collection <name>] [--force]
 
 Options:
   --root <path>         HybridOps runtime root (default: ~/.hybridops or $HYOPS_RUNTIME_ROOT)
@@ -26,6 +26,8 @@ Options:
                         Pinned Git collection manifest used when --hybridops-source git
                         (default: tools/setup/requirements/ansible.hybridops.git.json)
                         If relative, it is resolved relative to this script's release root.
+  --collection <name>   Install only hybridops.common, hybridops.helper, or hybridops.app.
+                        Accepts common, helper, or app and may be repeated.
   --force               Reinstall even if requirements hash is unchanged
   -h, --help            Show help
 USAGE
@@ -45,6 +47,7 @@ REQ_PATH=""
 HYBRIDOPS_SOURCE="${HYOPS_SETUP_ANSIBLE_HYBRIDOPS_SOURCE:-release}"
 HYBRIDOPS_GIT_MANIFEST_PATH="${HYOPS_SETUP_ANSIBLE_HYBRIDOPS_GIT_MANIFEST:-}"
 FORCE="false"
+COLLECTIONS=()
 
 while [[ $# -gt 0 ]]; do
   case "${1:-}" in
@@ -71,6 +74,19 @@ while [[ $# -gt 0 ]]; do
     --force)
       FORCE="true"
       shift
+      ;;
+    --collection)
+      [[ $# -ge 2 && -n "${2:-}" && "${2:-}" != --* ]] || { echo "ERR: --collection requires a value" >&2; usage; exit 2; }
+      case "${2}" in
+        common|helper|app)
+          COLLECTIONS+=("${2}")
+          ;;
+        *)
+          echo "ERR: unsupported collection: ${2} (expected common, helper, or app)" >&2
+          exit 2
+          ;;
+      esac
+      shift 2
       ;;
     -h|--help)
       usage
@@ -254,8 +270,9 @@ PY
 install_hybridops_git_collections() {
   local manifest_file="$1"
   local collections_dir="$2"
+  local selected_csv="${3:-}"
 
-  python3 - "$manifest_file" "$TMP_DIR" "$collections_dir" <<'PY'
+  python3 - "$manifest_file" "$TMP_DIR" "$collections_dir" "$selected_csv" <<'PY'
 import os
 import shutil
 import subprocess
@@ -268,11 +285,18 @@ import json
 manifest_path = Path(sys.argv[1]).resolve()
 tmp_root = Path(sys.argv[2]).resolve()
 collections_dir = Path(sys.argv[3]).resolve()
+selected = {item for item in sys.argv[4].split(",") if item}
 
 data = json.loads(manifest_path.read_text(encoding="utf-8"))
 entries = data.get("collections") or []
 if not isinstance(entries, list) or not entries:
     raise SystemExit(f"ERR: no collections defined in manifest: {manifest_path}")
+if selected:
+    entries = [entry for entry in entries if str(entry.get("name") or "") in selected]
+    found = {str(entry.get("name") or "") for entry in entries}
+    missing = sorted(selected - found)
+    if missing:
+        raise SystemExit(f"ERR: collections missing from manifest: {', '.join(missing)}")
 
 work_root = tmp_root / "hybridops-collections-git"
 shutil.rmtree(work_root, ignore_errors=True)
@@ -324,6 +348,62 @@ for entry in entries:
     )
     print(f"[setup] hybridops collection installed from git: {fqcn}@{ref}")
 PY
+}
+
+collection_version() {
+  local fqcn="$1"
+  python3 - "${REQ_FILE}" "${fqcn}" <<'PY'
+import sys
+
+import yaml
+
+requirements_file, fqcn = sys.argv[1:3]
+data = yaml.safe_load(open(requirements_file, encoding="utf-8")) or {}
+for item in data.get("collections") or []:
+    if isinstance(item, dict) and str(item.get("name") or "") == fqcn:
+        version = str(item.get("version") or "").strip()
+        if version:
+            print(version)
+            raise SystemExit(0)
+raise SystemExit(f"ERR: {fqcn} is not pinned in {requirements_file}")
+PY
+}
+
+install_selected_hybridops_collections() {
+  local state_dir="${RUNTIME_ROOT}/state/ansible"
+  local collections_dir="${state_dir}/galaxy_collections"
+  local collections_tail
+  local -a install_args
+  mkdir -p "${collections_dir}"
+  collections_tail="${ANSIBLE_COLLECTIONS_PATH:-${ANSIBLE_COLLECTIONS_PATHS:-$HOME/.ansible/collections:/usr/share/ansible/collections}}"
+
+  local selected_fqcns=()
+  local collection fqcn version
+  for collection in "${COLLECTIONS[@]}"; do
+    fqcn="hybridops.${collection}"
+    selected_fqcns+=("${fqcn}")
+    if [[ "${HYBRIDOPS_SOURCE}" == "release" ]]; then
+      version="$(collection_version "${fqcn}")"
+      install_args=(
+        ansible-galaxy collection install "${fqcn}:${version}"
+        -p "${collections_dir}"
+      )
+      if [[ "${FORCE}" == "true" ]]; then
+        install_args+=(--force)
+      fi
+      env -u ANSIBLE_COLLECTIONS_PATHS \
+        ANSIBLE_COLLECTIONS_PATH="${collections_dir}:${collections_tail}" \
+        "${install_args[@]}"
+    fi
+  done
+
+  if [[ "${HYBRIDOPS_SOURCE}" == "git" ]]; then
+    local selected_csv
+    selected_csv="$(IFS=,; echo "${selected_fqcns[*]}")"
+    ANSIBLE_COLLECTIONS_PATH="${collections_dir}:${collections_tail}" \
+      install_hybridops_git_collections \
+        "${HYBRIDOPS_GIT_MANIFEST_FILE}" "${collections_dir}" "${selected_csv}"
+  fi
 }
 
 install_set() {
@@ -381,6 +461,15 @@ install_set() {
 }
 
 export HYOPS_RELEASE_ROOT="${RELEASE_ROOT}"
+
+if [[ ${#COLLECTIONS[@]} -gt 0 ]]; then
+  progress "Installing selected HybridOps collections"
+  install_selected_hybridops_collections
+  progress "Selected HybridOps collections ready"
+  progress "Verifying runtime dependencies"
+  echo "[setup] selected collections ready"
+  exit 0
+fi
 
 # Shared/common set (compatible across most workflows)
 progress "Installing shared runtime dependencies"

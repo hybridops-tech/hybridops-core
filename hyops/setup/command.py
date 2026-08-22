@@ -204,6 +204,16 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
         help="Force Galaxy dependency installation where supported.",
     )
     common.add_argument(
+        "--collection",
+        action="append",
+        choices=("common", "helper", "app"),
+        default=argparse.SUPPRESS,
+        help=(
+            "Install only the selected HybridOps collection. Repeat to select more "
+            "than one. Valid only with setup galaxy."
+        ),
+    )
+    common.add_argument(
         "--hybridops-source",
         choices=("release", "git"),
         default=argparse.SUPPRESS,
@@ -336,6 +346,7 @@ def _setup_argv(
     force: bool,
     hybridops_source: str | None,
     hybridops_git_manifest: str | None,
+    collections: tuple[str, ...],
     elevate: bool,
 ) -> list[str]:
     argv = ["bash", str(script)]
@@ -347,6 +358,9 @@ def _setup_argv(
         argv += ["--hybridops-source", hybridops_source]
     if hybridops_git_manifest and action in ("galaxy", "all"):
         argv += ["--hybridops-git-manifest", hybridops_git_manifest]
+    if action == "galaxy":
+        for collection in collections:
+            argv += ["--collection", collection]
     if elevate:
         argv = ["sudo", "-H", "-E"] + argv
     return argv
@@ -410,6 +424,11 @@ def run(ns) -> int:
     force = bool(getattr(ns, "force", False))
     hybridops_source = getattr(ns, "hybridops_source", None)
     hybridops_git_manifest = getattr(ns, "hybridops_git_manifest", None)
+    collections = tuple(getattr(ns, "collection", ()) or ())
+
+    if collections and canonical_action != "galaxy":
+        print("ERR: --collection is valid only with: hyops setup galaxy")
+        return OPERATOR_ERROR
 
     if action == "check":
         evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
@@ -500,6 +519,7 @@ def run(ns) -> int:
                 force=force,
                 hybridops_source=hybridops_source,
                 hybridops_git_manifest=hybridops_git_manifest,
+                collections=(),
                 elevate=step != "galaxy" and os.uname().sysname != "Darwin",
             )
             label = SETUP_LABELS[step]
@@ -606,6 +626,7 @@ def run(ns) -> int:
         force=force,
         hybridops_source=hybridops_source,
         hybridops_git_manifest=hybridops_git_manifest,
+        collections=collections,
         elevate=elevate,
     )
     evidence_paths = resolve_runtime_paths(root=runtime_root_arg, env=env_arg)
@@ -614,7 +635,11 @@ def run(ns) -> int:
     label = SETUP_LABELS.get(canonical_action, canonical_action)
     stream_verbose = verbose_enabled()
     progress = ProgressDisplay(show_elapsed=False)
-    total_phases = _setup_phase_count(canonical_action)
+    total_phases = (
+        3
+        if canonical_action == "galaxy" and collections
+        else _setup_phase_count(canonical_action)
+    )
     phase_positions: dict[str, int] = {}
     progress.start(
         canonical_action,
