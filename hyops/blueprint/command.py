@@ -60,6 +60,12 @@ from .automation_access import (
 )
 from .planner import compute_preflight, run_step_module_command
 from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
+from .iol_repair import (
+    IolRepairError,
+    MODULE_REF as IOL_IMAGES_MODULE_REF,
+    parse_iol_mismatch,
+    repair_iol_license,
+)
 
 
 def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
@@ -826,6 +832,35 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         "--overwrite-labs",
         action="store_true",
         help="Allow --restore-labs to replace existing lab definitions.",
+    )
+    t.add_argument(
+        "--repair-iol-license",
+        action="store_true",
+        help=(
+            "On an exact IOL host-binding mismatch, retrieve one authorised "
+            "repair from the configured broker, update the secret, and retry once."
+        ),
+    )
+    t.add_argument(
+        "--iol-repair-broker-url",
+        default=None,
+        help="HTTPS repair broker endpoint (or HYOPS_IOL_REPAIR_BROKER_URL).",
+    )
+    t.add_argument(
+        "--iol-repair-public-key",
+        default=None,
+        help="PEM public key used to verify broker responses (or HYOPS_IOL_REPAIR_PUBLIC_KEY).",
+    )
+    t.add_argument(
+        "--iol-repair-token-key",
+        default="HYOPS_IOL_REPAIR_TOKEN",
+        help="Shell/runtime-vault key containing the broker bearer token.",
+    )
+    t.add_argument(
+        "--iol-repair-persist",
+        choices=["vault", "gsm"],
+        default=None,
+        help="Also persist the repaired secret to HashiCorp Vault or GCP Secret Manager.",
     )
     t.set_defaults(_handler=run_deploy)
 
@@ -2726,6 +2761,8 @@ def run_deploy(ns) -> int:
     required_failures: list[str] = []
     optional_failures: list[str] = []
     cancelled = False
+    iol_repair_used = False
+    repair_results: list[dict[str, Any]] = []
     progress = ProgressDisplay(
         enabled=bool(
             sys.stdout
@@ -2907,6 +2944,74 @@ def run_deploy(ns) -> int:
         if rc != 0 and not err:
             err = _new_step_failure_detail(step, paths, failure_state_before)
 
+        mismatch = parse_iol_mismatch(err) if rc != 0 else None
+        if (
+            rc != 0
+            and mismatch is not None
+            and bool(getattr(ns, "repair_iol_license", False))
+            and not iol_repair_used
+            and str(step.get("module_ref") or "").strip().lower()
+            == IOL_IMAGES_MODULE_REF
+            and str(step.get("action") or "").strip().lower() in {"apply", "deploy"}
+        ):
+            iol_repair_used = True
+            try:
+                repair = repair_iol_license(
+                    ns,
+                    paths,
+                    state_ref=step_state_ref(step),
+                    mismatch=mismatch,
+                )
+            except IolRepairError as exc:
+                err = f"{err} IOL licence repair failed: {exc}".strip()
+                repair_results.append(
+                    {
+                        "step_id": step_id,
+                        "status": "failed",
+                        "hostname": mismatch.hostname,
+                        "host_id": mismatch.host_id,
+                        "reason": str(exc),
+                    }
+                )
+            else:
+                repair_results.append(
+                    {
+                        "step_id": step_id,
+                        "status": "stored",
+                        "hostname": repair.hostname,
+                        "host_id": repair.host_id,
+                        "request_id": repair.request_id,
+                        "persisted_to": repair.persisted_to,
+                    }
+                )
+                if not json_mode:
+                    print(
+                        f"step={step_id} repair=stored host={repair.hostname} "
+                        f"authority={repair.persisted_to}; retrying once"
+                    )
+                retry_failure_before = _step_failure_state(step, paths)
+                previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
+                if not os.getenv("HYOPS_VERBOSE"):
+                    os.environ["HYOPS_PROGRESS_CHILD"] = "1"
+                try:
+                    rc = run_step_module_command(step, payload, ns, paths)
+                except KeyboardInterrupt:
+                    rc = CANCELLED
+                    err = "cancelled by user"
+                except Exception as exc:
+                    rc = OPERATOR_ERROR
+                    err = format_runtime_storage_error(exc)
+                else:
+                    err = ""
+                finally:
+                    if previous_child is None:
+                        os.environ.pop("HYOPS_PROGRESS_CHILD", None)
+                    else:
+                        os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+                if rc != 0 and not err:
+                    err = _new_step_failure_detail(step, paths, retry_failure_before)
+                repair_results[-1]["status"] = "ok" if rc == 0 else "retry-failed"
+
         if rc == 0:
             completed_label, completed_detail, item_line = _step_presentation(
                 step,
@@ -3032,6 +3137,8 @@ def run_deploy(ns) -> int:
     }
     if preflight_summary is not None:
         output["preflight"] = preflight_summary
+    if repair_results:
+        output["iol_license_repairs"] = repair_results
     if cancelled:
         output["next_actions"] = _cancelled_deploy_actions(ns, payload)
 

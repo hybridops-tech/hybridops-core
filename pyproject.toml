@@ -8,6 +8,7 @@ version = "0.1.4"
 description = "HybridOps.Core runtime scaffold"
 requires-python = ">=3.11"
 dependencies = [
+  "cryptography>=41,<47",
   "PyYAML>=6.0,<7",
   "requests>=2.31,<3",
 ]
