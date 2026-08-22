@@ -8,6 +8,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from hyops.blueprint.command import (
+    _automatic_lab_restore_eligible,
     _run_lab_restore,
     _select_lab_restore_mode,
 )
@@ -41,6 +42,55 @@ def _payload():
 
 
 class BlueprintLabRestoreTest(TestCase):
+    def test_existing_target_does_not_require_automatic_restore(self):
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+
+        with patch(
+            "hyops.blueprint.command.module_state_status",
+            return_value="ok",
+        ):
+            eligible = _automatic_lab_restore_eligible(_payload(), paths)
+
+        self.assertFalse(eligible)
+
+    def test_destroyed_target_allows_automatic_restore(self):
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+
+        with patch(
+            "hyops.blueprint.command.module_state_status",
+            return_value="destroyed",
+        ):
+            eligible = _automatic_lab_restore_eligible(_payload(), paths)
+
+        self.assertTrue(eligible)
+
+    def test_existing_target_does_not_offer_available_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "labs.tar.gz"
+            archive.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive),
+                    "eveng_lab_archive_sha256": checksum,
+                }
+            }
+            with patch(
+                "hyops.blueprint.command.read_module_state",
+                return_value=state,
+            ), patch("builtins.input") as prompt:
+                mode, selected = _select_lab_restore_mode(
+                    _namespace(yes=False),
+                    _payload(),
+                    paths,
+                    automatic_restore_eligible=False,
+                )
+
+        self.assertEqual(mode, "none")
+        self.assertIsNotNone(selected)
+        prompt.assert_not_called()
+
     def test_explicit_restore_uses_verified_archive(self):
         with tempfile.TemporaryDirectory() as tmp:
             archive = Path(tmp) / "labs.tar.gz"

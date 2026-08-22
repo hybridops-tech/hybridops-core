@@ -191,6 +191,7 @@ steps:
     state_instance: "gcp_containerlab_recovery_guard"
     action: "deploy"
     phase: "operations"
+    destroy_gate: true
     requires:
       - gcp_containerlab_healthcheck
     with_deps: false

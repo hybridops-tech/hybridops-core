@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -311,6 +314,52 @@ class SetupCommandTests(unittest.TestCase):
         argv = run_streamed.call_args.args[0]
         self.assertIn("--force", argv)
         self.assertEqual(argv[-2:], ["--collection", "helper"])
+
+    def test_targeted_collection_install_has_no_yaml_runtime_dependency(self) -> None:
+        installer = REPO_ROOT / "tools" / "setup" / "setup-ansible.sh"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            bin_dir = root / "bin"
+            invocation_log = root / "ansible-galaxy.args"
+            bin_dir.mkdir()
+
+            (bin_dir / "python3").write_text(
+                f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n',
+                encoding="utf-8",
+            )
+            (bin_dir / "ansible-galaxy").write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$@" > "$HYOPS_TEST_INVOCATION_LOG"\n',
+                encoding="utf-8",
+            )
+            (bin_dir / "python3").chmod(0o755)
+            (bin_dir / "ansible-galaxy").chmod(0o755)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["HYOPS_TEST_INVOCATION_LOG"] = str(invocation_log)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(installer),
+                    "--root",
+                    str(runtime),
+                    "--collection",
+                    "helper",
+                ],
+                capture_output=True,
+                check=False,
+                env=env,
+                text=True,
+            )
+            invocation = (
+                invocation_log.read_text(encoding="utf-8")
+                if invocation_log.exists()
+                else ""
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("hybridops.helper:0.1.9", invocation)
 
     def test_collection_is_rejected_for_non_galaxy_setup(self) -> None:
         output = io.StringIO()

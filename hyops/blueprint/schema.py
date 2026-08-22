@@ -571,6 +571,10 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                     step.get("retain_on_destroy"),
                     f"steps[{idx}].retain_on_destroy",
                 ),
+                "destroy_gate": bool_field(
+                    step.get("destroy_gate"),
+                    f"steps[{idx}].destroy_gate",
+                ),
                 "optional": bool_field(step.get("optional"), f"steps[{idx}].optional"),
                 "inputs": inputs if isinstance(inputs, dict) else None,
                 "inputs_file": str(inputs_file).strip() if isinstance(inputs_file, str) else "",
@@ -585,6 +589,15 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         for req in step["requires"]:
             if req not in id_set:
                 raise ValueError(f"step '{step['id']}' requires unknown step '{req}'")
+        if step["destroy_gate"]:
+            if not step["requires"]:
+                raise ValueError(
+                    f"step '{step['id']}' uses destroy_gate and must declare requires"
+                )
+            if step["optional"] or step["retain_on_destroy"]:
+                raise ValueError(
+                    f"step '{step['id']}' destroy_gate cannot be optional or retained"
+                )
 
     order = topological_order(steps)
 

@@ -157,6 +157,32 @@ class BlueprintPreflightBypassTest(TestCase):
         self.assertEqual(captured["status"], "passed")
         self.assertEqual(captured["guarantee"], "established")
 
+    def test_failed_deploy_offers_cleanup(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = RuntimePaths.from_root(root)
+            with (
+                patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+                patch("hyops.blueprint.command.require_runtime_selection"),
+                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch("hyops.blueprint.command.ensure_layout"),
+                patch("hyops.blueprint.command.require_runtime_writable"),
+                patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
+                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch("hyops.blueprint.command.module_state_ok", return_value=False),
+                patch("hyops.blueprint.command.enforce_step_contracts"),
+                patch("hyops.blueprint.command.run_step_module_command", return_value=2),
+                patch("hyops.blueprint.command._failed_deploy_has_resources", return_value=True),
+                patch("hyops.blueprint.command._offer_failed_deploy_destroy") as cleanup,
+            ):
+                rc = run_deploy(
+                    _namespace(root, reason="controlled provider recovery")
+                )
+
+        self.assertEqual(rc, OPERATOR_ERROR)
+        cleanup.assert_called_once()
+
     def test_runner_forwards_bypass_reason_to_remote_command(self) -> None:
         ns = SimpleNamespace(
             runner_blueprint_cmd="deploy",

@@ -7,8 +7,8 @@ from hyops.blueprint.schema import load_blueprint, validate_blueprint
 class GCPContainerlabBlueprintTest(TestCase):
     def setUp(self) -> None:
         root = Path(__file__).resolve().parents[3]
-        path = root / "blueprints" / "gcp" / "containerlab@v1" / "blueprint.yml"
-        self.blueprint = validate_blueprint(load_blueprint(path), path)
+        self.path = root / "blueprints" / "gcp" / "containerlab@v1" / "blueprint.yml"
+        self.blueprint = validate_blueprint(load_blueprint(self.path), self.path)
 
     def test_private_six_stage_chain(self) -> None:
         self.assertEqual(
@@ -66,6 +66,7 @@ class GCPContainerlabBlueprintTest(TestCase):
         recovery = self.blueprint["steps"][5]
         inputs = recovery["inputs"]
         self.assertEqual(recovery["requires"], ["gcp_containerlab_healthcheck"])
+        self.assertTrue(recovery["destroy_gate"])
         self.assertEqual(inputs["containerlab_recovery_action"], "arm")
         self.assertEqual(inputs["containerlab_recovery_mode"], "rebuild")
         self.assertEqual(
@@ -73,6 +74,18 @@ class GCPContainerlabBlueprintTest(TestCase):
             "/var/lib/hybridops/containerlab/labs/gcp-containerlab",
         )
         self.assertFalse(inputs["containerlab_recovery_include_lab_dir"])
+
+    def test_destroy_gate_cannot_be_optional(self) -> None:
+        spec = load_blueprint(self.path)
+        recovery = next(
+            step
+            for step in spec["steps"]
+            if step["id"] == "gcp_containerlab_recovery_guard"
+        )
+        recovery["optional"] = True
+
+        with self.assertRaisesRegex(ValueError, "destroy_gate cannot be optional"):
+            validate_blueprint(spec, self.path)
 
     def test_runtime_and_recovery_require_kvm_capable_host(self) -> None:
         runtime = self.blueprint["steps"][2]["inputs"]

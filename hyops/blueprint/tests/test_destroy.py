@@ -208,6 +208,39 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(command.call_count, 1)
         self.assertEqual(command.call_args.args[0]["id"], "vm")
 
+    def test_destroy_gate_runs_when_required_step_is_live(self):
+        paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        payload = _payload()
+        payload["steps"][2]["destroy_gate"] = True
+        payload["steps"][2]["requires"] = ["vm"]
+        statuses = {
+            "network": "destroyed",
+            "vm": "ok",
+            "health": "absent",
+        }
+
+        def state_status(_state_dir, state_ref):
+            return statuses[state_ref.rsplit("#", 1)[-1]]
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command.require_runtime_writable"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch("hyops.blueprint.command.module_state_status", side_effect=state_status),
+            patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+            patch("hyops.blueprint.command.run_step_module_command", return_value=0) as command,
+        ):
+            rc = run_destroy(_namespace())
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [call.args[0]["id"] for call in command.call_args_list],
+            ["health", "vm"],
+        )
+
     def test_destroy_runs_step_left_error_by_failed_apply(self):
         rc, inputs_file, command = self._run(
             {"network": "error", "vm": "destroyed", "health": "destroyed"},

@@ -10,11 +10,13 @@ from hyops.blueprint.command import (
     _collect_deploy_risk_signals,
     _confirm_deploy_if_needed,
     _destroy_preview_label,
+    _gcp_cost_estimate_with_progress,
     _new_step_failure_detail,
     _step_failure_state,
     _step_display_label,
     _step_presentation,
 )
+from hyops.runtime.cost import CostEstimate
 from hyops.runtime.module_state import write_module_state
 
 
@@ -302,4 +304,66 @@ class BlueprintPresentationTest(TestCase):
         self.assertEqual(
             item_line,
             "  images: Alpine Linux, Cisco IOL L2 15.2d, Operator firewall image",
+        )
+
+    def test_lists_large_image_sets_one_per_line(self):
+        image_names = [
+            "Alpine Linux",
+            "NETem",
+            "Tiny Core Linux",
+            "Ubuntu Server",
+            "Cisco IOL L2 15.2d",
+        ]
+        step = {
+            "id": "images",
+            "module_ref": "platform/linux/eve-ng-images",
+            "state_instance": "images",
+            "presentation": {
+                "label": "Lab images",
+                "items_label": "images",
+                "items": image_names,
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            _, _, item_line = _step_presentation(
+                step,
+                state_dir=Path(tmp),
+                progress_after=80,
+            )
+
+        self.assertEqual(
+            item_line,
+            "  images:\n"
+            "    - Alpine Linux\n"
+            "    - NETem\n"
+            "    - Tiny Core Linux\n"
+            "    - Ubuntu Server\n"
+            "    - Cisco IOL L2 15.2d",
+        )
+
+    def test_cost_estimate_progress_does_not_show_elapsed_time(self):
+        paths = type("Paths", (), {"meta_dir": Path("/tmp/meta")})()
+        estimate = CostEstimate(True)
+
+        with (
+            patch("hyops.blueprint.command.ProgressDisplay") as progress_class,
+            patch(
+                "hyops.blueprint.command.estimate_gcp_vm_cost",
+                return_value=estimate,
+            ),
+        ):
+            result = _gcp_cost_estimate_with_progress(
+                project_id="test-project",
+                zone="europe-west2-a",
+                state={},
+                paths=paths,
+            )
+
+        self.assertIs(result, estimate)
+        progress_class.assert_called_once_with(show_elapsed=False)
+        progress_class.return_value.start.assert_called_once_with(
+            "cloud-cost",
+            "Estimating cloud cost",
+            plain="estimating cloud cost",
         )

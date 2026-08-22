@@ -352,21 +352,38 @@ PY
 
 collection_version() {
   local fqcn="$1"
-  python3 - "${REQ_FILE}" "${fqcn}" <<'PY'
-import sys
-
-import yaml
-
-requirements_file, fqcn = sys.argv[1:3]
-data = yaml.safe_load(open(requirements_file, encoding="utf-8")) or {}
-for item in data.get("collections") or []:
-    if isinstance(item, dict) and str(item.get("name") or "") == fqcn:
-        version = str(item.get("version") or "").strip()
-        if version:
-            print(version)
-            raise SystemExit(0)
-raise SystemExit(f"ERR: {fqcn} is not pinned in {requirements_file}")
-PY
+  awk -v target="${fqcn}" -v requirements_file="${REQ_FILE}" '
+    /^collections:[[:space:]]*$/ {
+      in_collections = 1
+      next
+    }
+    in_collections && /^[^[:space:]#]/ {
+      in_collections = 0
+    }
+    in_collections && /^[[:space:]]*-[[:space:]]+name:[[:space:]]*/ {
+      name = $0
+      sub(/^[[:space:]]*-[[:space:]]+name:[[:space:]]*/, "", name)
+      gsub(/^["\047]|["\047][[:space:]]*$/, "", name)
+      next
+    }
+    in_collections && name == target && /^[[:space:]]+version:[[:space:]]*/ {
+      version = $0
+      sub(/^[[:space:]]+version:[[:space:]]*/, "", version)
+      sub(/[[:space:]]+#.*$/, "", version)
+      gsub(/^["\047]|["\047][[:space:]]*$/, "", version)
+      if (version != "") {
+        print version
+        found = 1
+        exit
+      }
+    }
+    END {
+      if (!found) {
+        print "ERR: " target " is not pinned in " requirements_file > "/dev/stderr"
+        exit 1
+      }
+    }
+  ' "${REQ_FILE}"
 }
 
 install_selected_hybridops_collections() {

@@ -231,6 +231,34 @@ def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _failed_deploy_has_resources(payload: dict[str, Any], paths) -> bool:
+    for step in payload.get("steps") or []:
+        status = module_state_status(paths.state_dir, step_state_ref(step))
+        if status and status not in {"absent", "destroyed", "missing"}:
+            return True
+    return False
+
+
+def _offer_failed_deploy_destroy(ns, payload: dict[str, Any], paths) -> int:
+    if not _failed_deploy_has_resources(payload, paths):
+        return 0
+
+    destroy_command = _cancelled_deploy_actions(ns, payload)["destroy"]
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print("WARN: deployment failed while resources may remain active")
+        print(f"destroy incomplete environment: {destroy_command}")
+        return 0
+
+    print()
+    print("deployment failed while resources may remain active")
+    destroy_ns = argparse.Namespace(**vars(ns))
+    destroy_ns.execute = True
+    destroy_ns.yes = False
+    destroy_ns.archive_before_destroy = False
+    destroy_ns.skip_archive = False
+    return run_destroy(destroy_ns)
+
+
 def _image_archive_stem(value: str) -> str:
     stem = Path(value).name
     for suffix in (".tar.gz", ".qcow2", ".tgz", ".zip", ".img", ".bin", ".gz"):
@@ -322,7 +350,13 @@ def _step_presentation(
         item_values = [str(item).strip() for item in items if str(item).strip()]
         if item_values:
             items_label = str(presentation.get("items_label") or "includes").strip()
-            item_line = f"  {items_label}: {', '.join(item_values)}"
+            inline_items = f"  {items_label}: {', '.join(item_values)}"
+            if len(item_values) > 4 or len(inline_items) > 100:
+                item_line = "\n".join(
+                    [f"  {items_label}:", *(f"    - {item}" for item in item_values)]
+                )
+            else:
+                item_line = inline_items
 
     return label, ", ".join(details), item_line
 
@@ -393,6 +427,26 @@ def _destroy_preview_label(step: dict[str, Any], state_status: str) -> str:
     if state_status in {"absent", "destroyed", "missing"}:
         return f"{label} (already absent)"
     return label
+
+
+def _destroy_gate_required(
+    step: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+    paths,
+) -> bool:
+    if not bool(step.get("destroy_gate", False)):
+        return False
+    for required_id in step.get("requires") or []:
+        required_step = by_id.get(str(required_id))
+        if required_step is None:
+            continue
+        status = module_state_status(
+            paths.state_dir,
+            step_state_ref(required_step),
+        )
+        if status and status not in {"absent", "destroyed", "missing"}:
+            return True
+    return False
 
 
 def _emit_plan(payload: dict[str, Any], *, json_mode: bool) -> None:
@@ -736,6 +790,21 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     add_device_args(device_list)
     device_list.set_defaults(_handler=run_device)
 
+    device_edit = device_commands.add_parser(
+        "edit",
+        help="Open the environment device targets in a local editor.",
+    )
+    add_device_args(device_edit)
+    device_edit.add_argument(
+        "--editor",
+        default="",
+        help=(
+            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, "
+            "then common editors."
+        ),
+    )
+    device_edit.set_defaults(_handler=run_device)
+
     device_ping = device_commands.add_parser(
         "ping",
         help="Test a device address through the managed lab gateway.",
@@ -984,7 +1053,7 @@ def _resolve_device_blueprint(ns, paths) -> dict[str, Any]:
     return candidates[0]
 
 
-def _device_context(ns) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+def _device_material(ns) -> tuple[dict[str, Any], dict[str, Any]]:
     require_runtime_selection(
         getattr(ns, "root", None),
         getattr(ns, "env", None),
@@ -1002,6 +1071,11 @@ def _device_context(ns) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, 
         blueprint_ref=str(payload.get("blueprint_ref") or "blueprint"),
         env_name=env_name,
     )
+    return automation, material
+
+
+def _device_context(ns) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    automation, material = _device_material(ns)
     target_file = material["target_file"]
     if not target_file.is_file():
         raise ValueError(
@@ -1009,6 +1083,17 @@ def _device_context(ns) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, 
         )
     targets = load_automation_targets(target_file, automation["management_cidr"])
     return automation, material, targets
+
+
+def _device_edit_command(ns) -> str:
+    command = ["hyops", "blueprint", "device", "edit"]
+    env_name = str(getattr(ns, "env", "") or "").strip()
+    blueprint_ref = str(getattr(ns, "ref", "") or "").strip()
+    if env_name:
+        command.extend(["--env", env_name])
+    if blueprint_ref:
+        command.extend(["--ref", blueprint_ref])
+    return shlex.join(command)
 
 
 def _resolve_device_target(
@@ -1077,8 +1162,25 @@ def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
 
 def run_device(ns) -> int:
     try:
-        automation, material, targets = _device_context(ns)
         action = str(getattr(ns, "device_cmd", "") or "")
+        if action == "edit":
+            automation, material = _device_material(ns)
+            target_file = Path(material["target_file"])
+            if not target_file.is_file():
+                raise ValueError(
+                    "device targets are unavailable; run blueprint access with "
+                    "--automation"
+                )
+            editor_argv = _editor_argv(ns)
+            editor_argv.append(str(target_file))
+            print(f"Opening device targets for edit: {target_file}")
+            result = subprocess.run(editor_argv, check=False)
+            if result.returncode != 0:
+                raise ValueError(f"editor returned {result.returncode}")
+            load_automation_targets(target_file, automation["management_cidr"])
+            return 0
+
+        automation, material, targets = _device_context(ns)
         if action == "list":
             if bool(getattr(ns, "json", False)):
                 print(json.dumps({"targets": targets}, indent=2, sort_keys=True))
@@ -1091,7 +1193,13 @@ def run_device(ns) -> int:
                 for target in targets:
                     source = "DHCP" if target.get("source") == "dhcp-lease" else "static"
                     platform = target.get("platform") or "unspecified"
-                    print(f"{target['name']}  {target['host']}  {platform}  {source}")
+                    user = str(target["user"])
+                    if source == "DHCP" and user == automation["default_user"]:
+                        user += " (default)"
+                    print(
+                        f"{target['name']}  {target['host']}  user={user}  "
+                        f"port={target['port']}  {platform}  {source}"
+                    )
             return 0
 
         ssh_config = Path(material["ssh_config"])
@@ -1131,11 +1239,30 @@ def run_device(ns) -> int:
             if target is None:
                 raise ValueError("device SSH requires a named target; run device list")
             alias = f"{material['alias_prefix']}-{target['name']}"
+            ssh_argv = [
+                ssh,
+                "-F",
+                str(ssh_config),
+                "-l",
+                str(target["user"]),
+                "-p",
+                str(target["port"]),
+            ]
+            if target["identity_file"]:
+                ssh_argv.extend(["-i", str(target["identity_file"])])
+            ssh_argv.append(alias)
             result = subprocess.run(
-                [ssh, "-F", str(ssh_config), alias],
+                ssh_argv,
                 cwd=str(Path.home()),
                 check=False,
             )
+            if result.returncode == 255:
+                print(
+                    f"ERR: device SSH failed for {target['name']} as "
+                    f"{target['user']}."
+                )
+                print(f"device targets: {material['target_file']}")
+                print(f"edit: {_device_edit_command(ns)}")
             return int(result.returncode)
         if action in {"shell", "run"}:
             environment = _device_process_environment(material)
@@ -1511,11 +1638,11 @@ def _gcp_cost_estimate_with_progress(
     state: dict[str, Any],
     paths,
 ) -> CostEstimate:
-    progress = ProgressDisplay(show_elapsed=True)
+    progress = ProgressDisplay(show_elapsed=False)
     progress.start(
         "cloud-cost",
-        "Cloud cost estimate",
-        plain="cloud cost estimate: checking",
+        "Estimating cloud cost",
+        plain="estimating cloud cost",
     )
     try:
         estimate = estimate_gcp_vm_cost(
@@ -2520,10 +2647,26 @@ def _verified_lab_archive(
     return archive_path.resolve(), expected, node_archive, node_checksum
 
 
+def _automatic_lab_restore_eligible(payload: dict[str, Any], paths) -> bool:
+    lifecycle = payload.get("archive_before_destroy")
+    if not isinstance(lifecycle, dict) or not lifecycle:
+        return False
+    inputs = lifecycle.get("inputs")
+    if not isinstance(inputs, dict):
+        return True
+    target_state_ref = str(inputs.get("inventory_state_ref") or "").strip()
+    if not target_state_ref:
+        return True
+    target_status = module_state_status(paths.state_dir, target_state_ref)
+    return not target_status or target_status in {"absent", "destroyed", "missing"}
+
+
 def _select_lab_restore_mode(
     ns,
     payload: dict[str, Any],
     paths,
+    *,
+    automatic_restore_eligible: bool = True,
 ) -> tuple[str, tuple[Path, str, Path | None, str] | None]:
     lifecycle = payload.get("archive_before_destroy")
     requested = bool(getattr(ns, "restore_labs", False))
@@ -2544,6 +2687,8 @@ def _select_lab_restore_mode(
         return "restore", archive
     if skipped:
         return "skip", archive
+    if not automatic_restore_eligible:
+        return "none", archive
     if bool(getattr(ns, "yes", False)) or bool(getattr(ns, "json", False)):
         return "skip", archive
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -2755,6 +2900,7 @@ def run_deploy(ns) -> int:
             )
         return confirm_rc
 
+    automatic_lab_restore_eligible = _automatic_lab_restore_eligible(payload, paths)
     by_id = {step["id"]: step for step in payload["steps"]}
     fail_fast = bool(payload["policy"].get("fail_fast", True))
     step_results: list[dict[str, Any]] = []
@@ -3080,6 +3226,7 @@ def run_deploy(ns) -> int:
                 ns,
                 payload,
                 paths,
+                automatic_restore_eligible=automatic_lab_restore_eligible,
             )
         except (OSError, ValueError) as exc:
             required_failures.append("restore_archived_labs")
@@ -3141,6 +3288,10 @@ def run_deploy(ns) -> int:
         output["iol_license_repairs"] = repair_results
     if cancelled:
         output["next_actions"] = _cancelled_deploy_actions(ns, payload)
+    elif required_failures and _failed_deploy_has_resources(payload, paths):
+        output["next_actions"] = {
+            "destroy": _cancelled_deploy_actions(ns, payload)["destroy"]
+        }
 
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
@@ -3170,6 +3321,8 @@ def run_deploy(ns) -> int:
             print(f"  {output['next_actions']['resume']}")
             print("remove:")
             print(f"  {output['next_actions']['destroy']}")
+        elif required_failures:
+            _offer_failed_deploy_destroy(ns, payload, paths)
 
     if cancelled:
         return CANCELLED
@@ -3409,7 +3562,12 @@ def run_destroy(ns) -> int:
             step = by_id[step_id]
             state_ref = step_state_ref(step)
             status = module_state_status(paths.state_dir, state_ref) or "missing"
-            print(f"  - {_destroy_preview_label(step, status)}")
+            preview_status = (
+                "pending"
+                if _destroy_gate_required(step, by_id, paths)
+                else status
+            )
+            print(f"  - {_destroy_preview_label(step, preview_status)}")
             if os.getenv("HYOPS_VERBOSE"):
                 print(
                     f"    id={step_id} module={step['module_ref']} "
@@ -3509,7 +3667,11 @@ def run_destroy(ns) -> int:
             continue
 
         state_status = module_state_status(paths.state_dir, state_ref)
-        if not state_status or state_status in {"destroyed", "absent"}:
+        destroy_gate_required = _destroy_gate_required(step, by_id, paths)
+        if (
+            not destroy_gate_required
+            and (not state_status or state_status in {"destroyed", "absent"})
+        ):
             reason = "no-state" if not state_status else f"state-{state_status}"
             result = dict(base)
             result.update({"status": "skipped", "reason": reason, "rc": 0})

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import yaml
 
@@ -16,7 +19,7 @@ from hyops.blueprint.automation_access import (
     prepare_automation_session,
 )
 from hyops.blueprint.schema import load_blueprint, validate_blueprint
-from hyops.blueprint.command import _device_process_environment
+from hyops.blueprint.command import _device_process_environment, run_device
 
 
 class AutomationAccessTests(unittest.TestCase):
@@ -172,6 +175,108 @@ class AutomationAccessTests(unittest.TestCase):
             self.assertEqual(by_name["static-fw"]["host"], "172.29.128.80")
             self.assertEqual(by_name["r2"]["source"], "dhcp-lease")
             self.assertEqual(refreshed["new_targets"], ["r2"])
+
+    def test_device_list_shows_default_user_and_port(self) -> None:
+        targets = [
+            {
+                "name": "r1",
+                "host": "172.29.128.51",
+                "user": "admin",
+                "port": 22,
+                "source": "dhcp-lease",
+                "platform": "ios",
+            }
+        ]
+        ns = SimpleNamespace(device_cmd="list", json=False)
+        output = io.StringIO()
+
+        with patch(
+            "hyops.blueprint.command._device_context",
+            return_value=(self.automation, {}, targets),
+        ), redirect_stdout(output):
+            rc = run_device(ns)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            output.getvalue().strip(),
+            "r1  172.29.128.51  user=admin (default)  port=22  ios  DHCP",
+        )
+
+    def test_device_edit_opens_and_validates_target_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target_file = Path(tmp) / "targets.yml"
+            target_file.write_text(
+                "version: 1\ntargets:\n  - name: r1\n"
+                "    host: 172.29.128.51\n    user: netops\n",
+                encoding="utf-8",
+            )
+            ns = SimpleNamespace(device_cmd="edit", editor="nano")
+            result = SimpleNamespace(returncode=0)
+
+            with patch(
+                "hyops.blueprint.command._device_material",
+                return_value=(self.automation, {"target_file": target_file}),
+            ), patch(
+                "hyops.blueprint.command._editor_argv",
+                return_value=["nano"],
+            ), patch(
+                "hyops.blueprint.command.subprocess.run",
+                return_value=result,
+            ) as run:
+                rc = run_device(ns)
+
+        self.assertEqual(rc, 0)
+        run.assert_called_once_with(["nano", str(target_file)], check=False)
+
+    def test_device_ssh_failure_points_to_target_editor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ssh_config = root / "ssh_config"
+            ssh_config.write_text("Host test\n", encoding="utf-8")
+            target_file = root / "targets.yml"
+            target = {
+                "name": "r1",
+                "host": "172.29.128.51",
+                "user": "admin",
+                "port": 22,
+                "identity_file": "",
+                "source": "dhcp-lease",
+                "platform": "ios",
+            }
+            material = {
+                "ssh_config": ssh_config,
+                "target_file": target_file,
+                "alias_prefix": "hyops-demo-lab",
+            }
+            ns = SimpleNamespace(
+                device_cmd="ssh",
+                target="r1",
+                env="demo-lab",
+                ref="gcp/eve-ng@v1",
+            )
+            output = io.StringIO()
+
+            with patch(
+                "hyops.blueprint.command._device_context",
+                return_value=(self.automation, material, [target]),
+            ), patch(
+                "hyops.blueprint.command.shutil.which",
+                return_value="/usr/bin/ssh",
+            ), patch(
+                "hyops.blueprint.command.subprocess.run",
+                return_value=SimpleNamespace(returncode=255),
+            ) as run, redirect_stdout(output):
+                rc = run_device(ns)
+
+        self.assertEqual(rc, 255)
+        self.assertIn("ERR: device SSH failed for r1 as admin.", output.getvalue())
+        self.assertIn(
+            "edit: hyops blueprint device edit --env demo-lab --ref gcp/eve-ng@v1",
+            output.getvalue(),
+        )
+        command = run.call_args.args[0]
+        self.assertIn("-l", command)
+        self.assertIn("admin", command)
 
     def test_route_command_uses_existing_ssh_boundary(self) -> None:
         plan = linux_tunnel_plan("demo-lab:gcp/eve-ng@v1")
