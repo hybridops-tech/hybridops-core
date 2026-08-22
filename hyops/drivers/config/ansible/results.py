@@ -9,8 +9,13 @@ from typing import Any
 
 
 _IOL_HOST_MISMATCH = re.compile(
-    r"does not contain a licence entry for the EVE-NG hostname\s+"
+    r"does not contain a licence entry for (?:"
+    r"this EVE-NG host\.\s+Hostname:\s*|the EVE-NG hostname\s+)"
     r"([A-Za-z0-9][A-Za-z0-9_.-]*)",
+    re.IGNORECASE,
+)
+_IOL_HOST_IDENTIFIER = re.compile(
+    r"Host ID:\s*([A-Za-z0-9][A-Za-z0-9_.:-]*)",
     re.IGNORECASE,
 )
 
@@ -44,10 +49,16 @@ def ansible_error_hint(
 
     iol_host_mismatch = _IOL_HOST_MISMATCH.search(tail)
     if module_ref.strip().lower() == "platform/linux/eve-ng-images" and iol_host_mismatch:
-        hostname = iol_host_mismatch.group(1)
+        hostname = iol_host_mismatch.group(1).rstrip(".")
+        host_identifier_match = _IOL_HOST_IDENTIFIER.search(tail)
+        host_identifier = (
+            f" Host ID: {host_identifier_match.group(1).rstrip('.')}."
+            if host_identifier_match
+            else ""
+        )
         return (
             "IOL licence does not match this EVE-NG host. "
-            f"Current host: {hostname}. "
+            f"Hostname: {hostname}.{host_identifier} "
             "Update EVENG_IOL_LICENSE with an authorised iourc for this host, then rerun. "
             "No images were changed."
         )
