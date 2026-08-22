@@ -10,6 +10,8 @@ from hyops.blueprint.command import (
     _collect_deploy_risk_signals,
     _confirm_deploy_if_needed,
     _destroy_preview_label,
+    _new_step_failure_detail,
+    _step_failure_state,
     _step_display_label,
     _step_presentation,
 )
@@ -17,6 +19,65 @@ from hyops.runtime.module_state import write_module_state
 
 
 class BlueprintPresentationTest(TestCase):
+    def test_surfaces_new_module_failure_from_state(self):
+        step = {
+            "id": "images",
+            "module_ref": "platform/linux/eve-ng-images",
+            "state_instance": "images",
+        }
+
+        with TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            paths = type("Paths", (), {"state_dir": state_dir})()
+            previous = _step_failure_state(step, paths)
+            write_module_state(
+                state_dir,
+                step["module_ref"],
+                {
+                    "run_id": "apply-test",
+                    "status": "error",
+                    "last_error": (
+                        "ansible apply failed: IOL licence does not match this "
+                        "EVE-NG host. Hostname: eve-ng-01. Host ID: 500a0232."
+                    ),
+                },
+                state_instance=step["state_instance"],
+            )
+
+            detail = _new_step_failure_detail(step, paths, previous)
+
+        self.assertEqual(
+            detail,
+            "configuration apply failed: IOL licence does not match this EVE-NG "
+            "host. Hostname: eve-ng-01. Host ID: 500a0232.",
+        )
+
+    def test_does_not_surface_stale_module_failure(self):
+        step = {
+            "id": "images",
+            "module_ref": "platform/linux/eve-ng-images",
+            "state_instance": "images",
+        }
+
+        with TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            paths = type("Paths", (), {"state_dir": state_dir})()
+            write_module_state(
+                state_dir,
+                step["module_ref"],
+                {
+                    "run_id": "apply-old",
+                    "status": "error",
+                    "last_error": "old failure",
+                },
+                state_instance=step["state_instance"],
+            )
+            previous = _step_failure_state(step, paths)
+
+            detail = _new_step_failure_detail(step, paths, previous)
+
+        self.assertEqual(detail, "")
+
     def test_destroyed_steps_do_not_trigger_deploy_risk_warning(self):
         step = {
             "id": "network",

@@ -30,6 +30,7 @@ from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.gcp_cost import estimate_gcp_vm_cost
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import read_module_state, split_module_state_ref
+from hyops.runtime.operator_output import concise_error
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.preflight_decision import (
@@ -450,6 +451,29 @@ def _step_failure_detail(item: dict[str, Any]) -> str:
             if detail:
                 return detail
     return ""
+
+
+def _step_failure_state(step: dict[str, Any], paths) -> tuple[str, str, str]:
+    try:
+        state = read_module_state(paths.state_dir, step_state_ref(step))
+    except (FileNotFoundError, OSError, ValueError):
+        return "", "", ""
+    return (
+        str(state.get("run_id") or "").strip(),
+        str(state.get("status") or "").strip().lower(),
+        str(state.get("last_error") or "").strip(),
+    )
+
+
+def _new_step_failure_detail(
+    step: dict[str, Any],
+    paths,
+    previous: tuple[str, str, str],
+) -> str:
+    current = _step_failure_state(step, paths)
+    if current == previous or current[1] != "error" or not current[2]:
+        return ""
+    return concise_error(current[2])
 
 
 def _evaluate_step_state_skip(step: dict[str, Any], paths) -> tuple[str, str]:
@@ -2861,6 +2885,7 @@ def run_deploy(ns) -> int:
             ),
         )
         previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
+        failure_state_before = _step_failure_state(step, paths)
         if not os.getenv("HYOPS_VERBOSE"):
             os.environ["HYOPS_PROGRESS_CHILD"] = "1"
         try:
@@ -2878,6 +2903,9 @@ def run_deploy(ns) -> int:
                 os.environ.pop("HYOPS_PROGRESS_CHILD", None)
             else:
                 os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+
+        if rc != 0 and not err:
+            err = _new_step_failure_detail(step, paths, failure_state_before)
 
         if rc == 0:
             completed_label, completed_detail, item_line = _step_presentation(
@@ -2931,11 +2959,13 @@ def run_deploy(ns) -> int:
         failure_detail = err or "see module run record"
         progress.finish(
             step_id,
-            step_id,
+            display_label,
             "failed",
             plain=f"step={step_id} status=failed rc={rc} reason={failure_detail}",
-            detail=f"{failure_detail}, overall {progress_before}%",
+            detail=f"overall {progress_before}%",
         )
+        if progress.enabled and err:
+            print(f"error: {failure_detail}", file=sys.stderr)
         if fail_fast:
             break
 
@@ -3405,6 +3435,7 @@ def run_destroy(ns) -> int:
             ),
         )
         previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
+        failure_state_before = _step_failure_state(destroy_step, paths)
         if not os.getenv("HYOPS_VERBOSE"):
             os.environ["HYOPS_PROGRESS_CHILD"] = "1"
         try:
@@ -3422,6 +3453,13 @@ def run_destroy(ns) -> int:
                 os.environ.pop("HYOPS_PROGRESS_CHILD", None)
             else:
                 os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+
+        if rc != 0 and not err:
+            err = _new_step_failure_detail(
+                destroy_step,
+                paths,
+                failure_state_before,
+            )
 
         if rc == 0:
             result = dict(base)
@@ -3471,8 +3509,10 @@ def run_destroy(ns) -> int:
             step_id,
             "failed",
             plain=f"step={step_id} status=failed rc={rc} reason={failure_detail}",
-            detail=f"{failure_detail}, overall {progress_before}%",
+            detail=f"overall {progress_before}%",
         )
+        if progress.enabled and err:
+            print(f"error: {failure_detail}", file=sys.stderr)
         if fail_fast:
             break
 
