@@ -28,6 +28,8 @@ def _validate_image_list(value: Any) -> None:
         require_non_empty_str(item.get("url"), f"inputs.eveng_images_list[{idx}].url")
         if item.get("name") is not None and str(item.get("name") or "").strip():
             require_non_empty_str(item.get("name"), f"inputs.eveng_images_list[{idx}].name")
+        if item.get("label") is not None:
+            require_non_empty_str(item.get("label"), f"inputs.eveng_images_list[{idx}].label")
         image_type = require_non_empty_str(item.get("type"), f"inputs.eveng_images_list[{idx}].type").lower()
         if image_type not in {"qemu", "iol", "dynamips"}:
             raise ValueError(f"inputs.eveng_images_list[{idx}].type must be one of: qemu, iol, dynamips")

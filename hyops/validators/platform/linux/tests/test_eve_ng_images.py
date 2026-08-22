@@ -33,7 +33,16 @@ def valid_inputs() -> dict:
 
 class EVENGImagesValidatorTests(unittest.TestCase):
     def test_optional_iol_license_is_valid(self) -> None:
-        validate(valid_inputs())
+        inputs = valid_inputs()
+        inputs["eveng_images_list"][0]["label"] = "Cisco IOL test image"
+        validate(inputs)
+
+    def test_image_label_must_not_be_empty(self) -> None:
+        inputs = valid_inputs()
+        inputs["eveng_images_list"][0]["label"] = ""
+
+        with self.assertRaisesRegex(ValueError, "label"):
+            validate(inputs)
 
     def test_required_iol_license_must_be_preflighted(self) -> None:
         inputs = valid_inputs()
