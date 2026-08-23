@@ -22,6 +22,9 @@ access:
   offer_destroy_on_close: true
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
+  native_console_mode: "gns3-api"
+  native_console_username: "gns3"
+  native_console_password_env: "GNS3_SERVER_PASSWORD"
   automation:
     management_network_label: "hyops-mgmt0"
     management_cidr: "172.29.130.0/24"

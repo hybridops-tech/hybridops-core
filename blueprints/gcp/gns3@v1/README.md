@@ -58,6 +58,8 @@ hyops blueprint access --env <env> --ref gcp/gns3@v1
 
 The access session resolves the current host from HybridOps state and forwards the authenticated GNS3 API/UI endpoint through IAP. The VM and GNS3 service remain private.
 
+Add `--native-consoles` when using the desktop client's Telnet, VNC, SPICE or web console handlers. HybridOps reads node console assignments from the authenticated GNS3 API and maintains matching loopback forwards while access remains open.
+
 For direct automation of topology nodes, map a GNS3 Cloud node to `hyops-mgmt0`, connect device management interfaces to it and run:
 
 ```bash

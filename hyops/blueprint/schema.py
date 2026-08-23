@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import ipaddress
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any
+
 import yaml
 
 from hyops.runtime.refs import normalize_module_ref
@@ -204,6 +205,12 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             "native_console_mode": str(
                 raw_access.get("native_console_mode") or ""
             ).strip(),
+            "native_console_username": str(
+                raw_access.get("native_console_username") or ""
+            ).strip(),
+            "native_console_password_env": str(
+                raw_access.get("native_console_password_env") or ""
+            ).strip(),
             "guest_network_label": str(
                 raw_access.get("guest_network_label") or ""
             ).strip(),
@@ -233,10 +240,19 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 raise ValueError(
                     "access.ssh_key_file is required for SSH-forward access"
                 )
-        if access["native_console_mode"] not in {"", "eve-ng-qemu"}:
+        if access["native_console_mode"] not in {"", "eve-ng-qemu", "gns3-api"}:
             raise ValueError(
-                "access.native_console_mode must be eve-ng-qemu when set"
+                "access.native_console_mode must be eve-ng-qemu or gns3-api when set"
             )
+        if access["native_console_mode"] == "gns3-api":
+            if not access["native_console_username"]:
+                raise ValueError(
+                    "access.native_console_username is required for gns3-api consoles"
+                )
+            if not access["native_console_password_env"]:
+                raise ValueError(
+                    "access.native_console_password_env is required for gns3-api consoles"
+                )
         guest_fields = [
             access["guest_network_label"],
             access["guest_gateway"],

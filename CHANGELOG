@@ -6,7 +6,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
-- Added live EVE-NG QEMU console discovery so native VNC forwards follow nodes started during an access session.
+- Added live EVE-NG and GNS3 console discovery so native VNC, Telnet, SPICE and web-console forwards follow nodes during an access session.
 - Added targeted Galaxy collection refresh with `hyops setup galaxy --collection <name>`.
 - Added `hyops blueprint init` and `hyops blueprint edit` as the environment-local blueprint workflow. Initialized blueprints are now the default execution source, while `--file` remains an explicit override.
 - Added managed workstation-to-device automation access for EVE-NG and GNS3, including target discovery, scoped SSH configuration, inventory output, proxy settings, client commands, and optional local routing.

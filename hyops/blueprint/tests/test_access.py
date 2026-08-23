@@ -14,13 +14,16 @@ from unittest.mock import Mock, patch
 from hyops.blueprint.command import (
     _access_known_hosts_file,
     _combine_maintenance,
+    _discover_gns3_consoles,
     _extract_access_host,
+    _gns3_console_refresher,
     _native_console_refresher,
     _native_console_status,
     _offer_access_close_destroy,
     _parse_eve_qemu_console_ports,
     _print_native_console_client_guidance,
     _require_local_ports_available,
+    _runtime_access_secret,
     _ssh_access_error,
     _ssh_access_trust_options,
     _wait_for_local_port,
@@ -163,7 +166,7 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
             patch("hyops.blueprint.command.is_windows_wsl", return_value=True),
             patch("hyops.blueprint.command.sys.stdout", stdout),
         ):
-            _print_native_console_client_guidance()
+            _print_native_console_client_guidance("eve-ng-qemu")
 
         message = stdout.getvalue()
         self.assertIn("EVE-NG Windows Client Pack", message)
@@ -175,9 +178,85 @@ LISTEN 0 1 [::]:32769 [::]:* users:(("qemu-system-x86",pid=1,fd=21))
             patch("hyops.blueprint.command.is_windows_wsl", return_value=False),
             patch("hyops.blueprint.command.sys.stdout", stdout),
         ):
-            _print_native_console_client_guidance()
+            _print_native_console_client_guidance("eve-ng-qemu")
 
         self.assertEqual(stdout.getvalue(), "")
+
+    def test_gns3_console_discovery_uses_controller_local_nodes(self) -> None:
+        projects = [{"project_id": "project one"}]
+        nodes = [
+            {
+                "name": "router-1",
+                "console": 5000,
+                "console_host": "127.0.0.1",
+                "console_type": "telnet",
+            },
+            {
+                "name": "desktop-1",
+                "console": 5901,
+                "console_host": "0.0.0.0",
+                "console_type": "vnc",
+            },
+            {
+                "name": "remote-node",
+                "console": 5002,
+                "console_host": "192.0.2.10",
+                "console_type": "telnet",
+            },
+        ]
+        with patch(
+            "hyops.blueprint.command._gns3_api_json",
+            side_effect=[projects, nodes],
+        ) as request:
+            consoles = _discover_gns3_consoles(3080, "gns3", "secret")
+
+        self.assertEqual(
+            consoles,
+            [(5000, "telnet", "router-1"), (5901, "vnc", "desktop-1")],
+        )
+        self.assertIn("project%20one", request.call_args_list[1].args[0])
+
+    def test_gns3_console_refresh_forwards_each_dynamic_port_once(self) -> None:
+        proc = Mock()
+        proc.poll.return_value = None
+        proc.wait.return_value = 0
+        with (
+            patch(
+                "hyops.blueprint.command._discover_gns3_consoles",
+                return_value=[(5000, "telnet", "router-1")],
+            ),
+            patch("hyops.blueprint.command._require_local_ports_available"),
+            patch("hyops.blueprint.command._wait_for_local_port"),
+            patch("hyops.blueprint.command.subprocess.Popen", return_value=proc) as popen,
+        ):
+            refresh, stop = _gns3_console_refresher(
+                ssh_base=["ssh", "-o", "BatchMode=yes"],
+                ssh_target="opsadmin@127.0.0.1",
+                local_api_port=3080,
+                username="gns3",
+                password="secret",
+            )
+            refresh()
+            refresh()
+            stop()
+
+        popen.assert_called_once()
+        self.assertIn(
+            "127.0.0.1:5000:127.0.0.1:5000",
+            popen.call_args.args[0],
+        )
+        proc.terminate.assert_called_once()
+
+    def test_runtime_console_secret_uses_environment_first(self) -> None:
+        paths = SimpleNamespace(vault_dir=Path("/unused"))
+        with (
+            patch.dict("hyops.blueprint.command.os.environ", {"GNS3_PASSWORD": "value"}),
+            patch("hyops.blueprint.command.read_env") as read_env,
+        ):
+            value = _runtime_access_secret(paths, "lab", "GNS3_PASSWORD")
+
+        self.assertEqual(value, "value")
+        read_env.assert_not_called()
 
     def test_rejects_local_console_port_conflict(self) -> None:
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

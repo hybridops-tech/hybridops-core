@@ -71,6 +71,8 @@ password from the environment vault:
 hyops secrets show --env gns3-lab --raw GNS3_SERVER_PASSWORD
 ```
 
+Add `--native-consoles` to forward the Telnet, VNC, SPICE and web console ports declared for GNS3 nodes. Keep the access command running while using the desktop client.
+
 Press Ctrl-C in the access terminal to close the tunnel. HybridOps then offers to keep the environment, archive its projects before teardown, or destroy without an archive.
 
 ## Default VM

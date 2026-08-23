@@ -39,6 +39,12 @@ class GCPGNS3BlueprintTest(TestCase):
         self.assertEqual(access["type"], "gcp-iap-ssh-forward")
         self.assertEqual(access["remote_port"], 3080)
         self.assertEqual(access["local_port"], 3080)
+        self.assertEqual(access["native_console_mode"], "gns3-api")
+        self.assertEqual(access["native_console_username"], "gns3")
+        self.assertEqual(
+            access["native_console_password_env"],
+            "GNS3_SERVER_PASSWORD",
+        )
         self.assertTrue(access["offer_destroy_on_close"])
         self.assertFalse(access["open_browser"])
         self.assertEqual(

@@ -55,6 +55,12 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(access["remote_port"], 3080)
         self.assertEqual(access["local_port"], 3080)
         self.assertTrue(access["offer_destroy_on_close"])
+        self.assertEqual(access["native_console_mode"], "gns3-api")
+        self.assertEqual(access["native_console_username"], "gns3")
+        self.assertEqual(
+            access["native_console_password_env"],
+            "GNS3_SERVER_PASSWORD",
+        )
         self.assertEqual(
             access["automation"]["management_cidr"],
             "172.29.130.0/24",

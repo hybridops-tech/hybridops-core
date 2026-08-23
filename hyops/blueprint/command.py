@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import errno
 import hashlib
 import ipaddress
@@ -15,6 +16,9 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -36,24 +40,17 @@ from hyops.runtime.module_state import (
 )
 from hyops.runtime.operator_output import concise_error
 from hyops.runtime.paths import resolve_runtime_paths
-from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.preflight_decision import (
     complete_preflight_decision,
     new_preflight_decision,
     validate_preflight_bypass,
 )
+from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
+from hyops.runtime.vault import VaultAuth, read_env
 
-from .contracts import (
-    enforce_step_contracts,
-    explicit_step_inputs_changed,
-    module_state_ok,
-    module_state_status,
-    resolved_step_inputs_file,
-    step_state_ref,
-)
 from .automation_access import (
     automation_session_paths,
     build_tunnel_ssh_argv,
@@ -62,14 +59,24 @@ from .automation_access import (
     local_route_conflicts,
     prepare_automation_session,
 )
-from .planner import compute_preflight, run_step_module_command
-from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
+from .contracts import (
+    enforce_step_contracts,
+    explicit_step_inputs_changed,
+    module_state_ok,
+    module_state_status,
+    resolved_step_inputs_file,
+    step_state_ref,
+)
+from .iol_repair import (
+    MODULE_REF as IOL_IMAGES_MODULE_REF,
+)
 from .iol_repair import (
     IolRepairError,
-    MODULE_REF as IOL_IMAGES_MODULE_REF,
     parse_iol_mismatch,
     repair_iol_license,
 )
+from .planner import compute_preflight, run_step_module_command
+from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
 
 
 def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
@@ -1497,9 +1504,11 @@ def _require_local_ports_available(ports: list[int]) -> None:
             sock.close()
 
 
-def _native_console_status(ports: list[int]) -> str:
+def _native_console_status(ports: list[int], *, mode: str = "eve-ng-qemu") -> str:
     if ports:
         return "native console ports: " + ", ".join(str(item) for item in ports)
+    if mode == "gns3-api":
+        return "native consoles: waiting for GNS3 nodes"
     return "native consoles: waiting for active QEMU nodes"
 
 
@@ -1575,11 +1584,153 @@ def _native_console_refresher(
     return refresh, stop
 
 
-def _print_native_console_client_guidance() -> None:
-    if not is_windows_wsl():
+def _runtime_access_secret(paths, env_name: str, env_key: str) -> str:
+    value = str(os.environ.get(env_key) or "").strip()
+    if value:
+        return value
+    vault_file = paths.vault_dir / "bootstrap.vault.env"
+    try:
+        values = read_env(vault_file, VaultAuth())
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
+        raise ValueError(
+            f"native console credential {env_key} could not be read from the environment vault"
+        ) from exc
+    value = str(values.get(env_key) or "").strip()
+    if not value:
+        raise ValueError(
+            f"native console credential {env_key} is missing; run: "
+            f"hyops secrets ensure --env {env_name} {env_key}"
+        )
+    return value
+
+
+def _gns3_api_json(url: str, username: str, password: str) -> Any:
+    token = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Basic {token}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return json.load(response)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ValueError("GNS3 console discovery API request failed") from exc
+
+
+def _discover_gns3_consoles(
+    local_api_port: int,
+    username: str,
+    password: str,
+) -> list[tuple[int, str, str]]:
+    root = f"http://127.0.0.1:{local_api_port}/v2"
+    projects = _gns3_api_json(f"{root}/projects", username, password)
+    if not isinstance(projects, list):
+        raise ValueError("GNS3 projects response is invalid")
+    consoles: dict[int, tuple[int, str, str]] = {}
+    local_hosts = {"127.0.0.1", "localhost", "0.0.0.0", "::", "::1"}
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        project_id = str(project.get("project_id") or "").strip()
+        if not project_id:
+            continue
+        encoded_id = urllib.parse.quote(project_id, safe="")
+        nodes = _gns3_api_json(
+            f"{root}/projects/{encoded_id}/nodes",
+            username,
+            password,
+        )
+        if not isinstance(nodes, list):
+            continue
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            host = str(node.get("console_host") or "").strip().lower()
+            console_type = str(node.get("console_type") or "").strip().lower()
+            raw_port = node.get("console")
+            if host not in local_hosts or console_type in {"", "none"}:
+                continue
+            if not isinstance(raw_port, int) or not 1 <= raw_port <= 65535:
+                continue
+            name = str(node.get("name") or node.get("node_id") or "node").strip()
+            consoles[raw_port] = (raw_port, console_type, name)
+    return [consoles[port] for port in sorted(consoles)]
+
+
+def _gns3_console_refresher(
+    *,
+    ssh_base: list[str],
+    ssh_target: str,
+    local_api_port: int,
+    username: str,
+    password: str,
+) -> tuple[Callable[[], None], Callable[[], None]]:
+    forwarded: set[int] = set()
+    processes: dict[int, subprocess.Popen] = {}
+    failed: set[int] = set()
+
+    def refresh() -> None:
+        for port, console_type, name in _discover_gns3_consoles(
+            local_api_port,
+            username,
+            password,
+        ):
+            if port in forwarded:
+                continue
+            proc: subprocess.Popen | None = None
+            try:
+                _require_local_ports_available([port])
+                argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
+                argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{port}"])
+                argv.append(ssh_target)
+                proc = subprocess.Popen(argv, cwd=str(Path.home()))
+                _wait_for_local_port(port, proc, timeout_s=10)
+            except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+                _stop_process(proc)
+                if port not in failed:
+                    print(
+                        f"WARN: {name} console port {port} could not be forwarded: {exc}",
+                        flush=True,
+                    )
+                    failed.add(port)
+                continue
+            processes[port] = proc
+            forwarded.add(port)
+            failed.discard(port)
+            scheme = "spice" if console_type.startswith("spice") else console_type
+            print(
+                f"native console available: {name} "
+                f"({console_type}) {scheme}://127.0.0.1:{port}",
+                flush=True,
+            )
+
+    def stop() -> None:
+        for proc in processes.values():
+            _stop_process(proc)
+        processes.clear()
+
+    return refresh, stop
+
+
+def _print_native_console_client_guidance(mode: str) -> None:
+    if mode == "gns3-api":
+        print("GNS3 node consoles are forwarded to their matching local ports.")
         return
-    print("Windows native consoles require the EVE-NG Windows Client Pack.")
-    print("HTML5 consoles remain available without it.")
+    if is_windows_wsl():
+        print("Windows native consoles require the EVE-NG Windows Client Pack.")
+        print("HTML5 consoles remain available without it.")
+
+
+def _native_console_mode(access: dict[str, Any], enabled: bool) -> str:
+    if not enabled:
+        return ""
+    mode = str(access.get("native_console_mode") or "").strip()
+    if mode not in {"eve-ng-qemu", "gns3-api"}:
+        raise ValueError("blueprint does not declare supported native console access")
+    return mode
 
 
 def _extract_access_host(outputs: dict[str, Any]) -> str:
@@ -2329,10 +2480,12 @@ def run_access(ns) -> int:
                 raise ValueError(
                     _ssh_access_error(identity_check.stderr, known_hosts_file)
                 )
+            native_console_mode = _native_console_mode(
+                access,
+                bool(getattr(ns, "native_consoles", False)),
+            )
             console_ports: list[int] = []
-            if bool(getattr(ns, "native_consoles", False)):
-                if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
-                    raise ValueError("blueprint does not declare native EVE-NG console access")
+            if native_console_mode == "eve-ng-qemu":
                 console_ports = _discover_eve_qemu_console_ports(
                     ssh_base,
                     ssh_target,
@@ -2393,13 +2546,20 @@ def run_access(ns) -> int:
                     automation_session,
                     route_requested=bool(getattr(ns, "route_lab", False)),
                 )
-            if bool(getattr(ns, "native_consoles", False)):
-                _print_native_console_client_guidance()
-                print(_native_console_status(console_ports))
+            if native_console_mode:
+                _print_native_console_client_guidance(native_console_mode)
+                print(
+                    _native_console_status(
+                        console_ports,
+                        mode=native_console_mode,
+                    )
+                )
             proc = subprocess.Popen(argv, cwd=str(Path.home()))
             time.sleep(2)
             if proc.poll() is not None:
                 return OPERATOR_ERROR
+            if native_console_mode == "gns3-api":
+                _wait_for_local_port(port, proc)
             if automation:
                 _wait_for_local_port(socks_port, proc)
             automation_refresh = None
@@ -2416,13 +2576,27 @@ def run_access(ns) -> int:
                     session=automation_session,
                 )
             native_console_refresh = None
-            if bool(getattr(ns, "native_consoles", False)):
+            if native_console_mode == "eve-ng-qemu":
                 native_console_refresh, native_console_stop = _native_console_refresher(
                     ssh_base=ssh_base,
                     ssh_target=ssh_target,
                     known_hosts_file=known_hosts_file,
                     forwarded_ports=console_ports,
                 )
+            elif native_console_mode == "gns3-api":
+                password_env = str(access["native_console_password_env"])
+                native_console_refresh, native_console_stop = _gns3_console_refresher(
+                    ssh_base=ssh_base,
+                    ssh_target=ssh_target,
+                    local_api_port=port,
+                    username=str(access["native_console_username"]),
+                    password=_runtime_access_secret(
+                        paths,
+                        str(getattr(ns, "env", "") or "default"),
+                        password_env,
+                    ),
+                )
+                native_console_refresh()
             maintenance = _combine_maintenance(
                 automation_refresh,
                 native_console_refresh,
@@ -2486,6 +2660,11 @@ def run_access(ns) -> int:
         if not gcloud:
             raise ValueError("gcloud is required; run: hyops setup gcp")
         iap_proc: subprocess.Popen | None = None
+        native_console_mode = _native_console_mode(
+            access,
+            bool(getattr(ns, "native_consoles", False)),
+        )
+        console_ports: list[int] = []
         if str(access.get("type") or "") == "gcp-iap-ssh-forward":
             ssh_user = str(access.get("ssh_user") or "").strip()
             ssh_key = str(Path(str(access.get("ssh_key_file") or "")).expanduser().resolve())
@@ -2519,10 +2698,7 @@ def run_access(ns) -> int:
                 "-p", str(iap_port),
             ]
             ssh_target = f"{ssh_user}@127.0.0.1"
-            console_ports: list[int] = []
-            if bool(getattr(ns, "native_consoles", False)):
-                if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
-                    raise ValueError("blueprint does not declare native EVE-NG console access")
+            if native_console_mode == "eve-ng-qemu":
                 console_ports = _discover_eve_qemu_console_ports(
                     ssh_base,
                     ssh_target,
@@ -2591,14 +2767,21 @@ def run_access(ns) -> int:
         print(f"billing: {'enabled' if enabled else 'disabled'}" if validated else "billing: unable to verify")
         _print_cost_estimate(cost_estimate, state=state)
         if bool(getattr(ns, "native_consoles", False)):
-            _print_native_console_client_guidance()
-            print(_native_console_status(console_ports))
+            _print_native_console_client_guidance(native_console_mode)
+            print(
+                _native_console_status(
+                    console_ports,
+                    mode=native_console_mode,
+                )
+            )
         access_started_at = time.monotonic()
         proc = subprocess.Popen(argv, cwd=str(Path.home()))
         time.sleep(2)
         if proc.poll() is not None:
             _stop_process(iap_proc)
             return OPERATOR_ERROR
+        if native_console_mode == "gns3-api":
+            _wait_for_local_port(port, proc)
         if automation:
             _wait_for_local_port(socks_port, proc)
         automation_refresh = None
@@ -2615,13 +2798,27 @@ def run_access(ns) -> int:
                 session=automation_session,
             )
         native_console_refresh = None
-        if bool(getattr(ns, "native_consoles", False)):
+        if native_console_mode == "eve-ng-qemu":
             native_console_refresh, native_console_stop = _native_console_refresher(
                 ssh_base=ssh_base,
                 ssh_target=ssh_target,
                 known_hosts_file=known_hosts_file,
                 forwarded_ports=console_ports,
             )
+        elif native_console_mode == "gns3-api":
+            password_env = str(access["native_console_password_env"])
+            native_console_refresh, native_console_stop = _gns3_console_refresher(
+                ssh_base=ssh_base,
+                ssh_target=ssh_target,
+                local_api_port=port,
+                username=str(access["native_console_username"]),
+                password=_runtime_access_secret(
+                    paths,
+                    str(getattr(ns, "env", "") or "default"),
+                    password_env,
+                ),
+            )
+            native_console_refresh()
         maintenance = _combine_maintenance(
             automation_refresh,
             native_console_refresh,
