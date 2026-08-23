@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import json
 import os
 import re
 import shlex
@@ -14,8 +15,8 @@ from typing import Any
 
 import yaml
 
-
 _TARGET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+_WEB_SCHEMES = {"http", "https"}
 
 
 def _safe_name(value: str, *, fallback: str = "device") -> str:
@@ -74,6 +75,59 @@ def parse_dnsmasq_leases(text: str, management_cidr: str, *, default_user: str) 
     return sorted(candidates, key=lambda item: ipaddress.ip_address(item["host"]))
 
 
+def parse_containerlab_inspect(
+    text: str,
+    management_cidr: str,
+    *,
+    default_user: str,
+) -> list[dict[str, Any]]:
+    """Return target candidates from Containerlab JSON inspection output."""
+
+    try:
+        payload = json.loads(str(text or "{}"))
+    except json.JSONDecodeError:
+        return []
+    records: list[Any] = []
+    if isinstance(payload, list):
+        records = payload
+    elif isinstance(payload, dict):
+        for value in payload.values():
+            if isinstance(value, list):
+                records.extend(value)
+    network = ipaddress.ip_network(management_cidr, strict=False)
+    candidates: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        raw_address = str(record.get("ipv4_address") or "").split("/", 1)[0]
+        try:
+            address = ipaddress.ip_address(raw_address)
+        except ValueError:
+            continue
+        if address not in network:
+            continue
+        base = _safe_name(str(record.get("name") or f"device-{address}"))
+        name = base
+        suffix = 2
+        while name in used_names:
+            name = f"{base[:58]}-{suffix}"
+            suffix += 1
+        used_names.add(name)
+        candidates.append(
+            {
+                "name": name,
+                "host": str(address),
+                "user": default_user,
+                "port": 22,
+                "mac": "",
+                "source": "containerlab-inspect",
+                "platform": str(record.get("kind") or "").strip(),
+            }
+        )
+    return sorted(candidates, key=lambda item: ipaddress.ip_address(item["host"]))
+
+
 def _load_targets(path: Path, management_cidr: str) -> list[dict[str, Any]]:
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -124,19 +178,41 @@ def _load_targets(path: Path, management_cidr: str) -> list[dict[str, Any]]:
         mac = str(raw.get("mac") or "").strip().lower()
         source = str(raw.get("source") or "").strip()
         platform = str(raw.get("platform") or "").strip()
-        targets.append(
-            {
-                "name": name,
-                "host": str(address),
-                "user": user,
-                "port": port,
-                "identity_file": identity,
-                "groups": list(dict.fromkeys(groups)),
-                "mac": mac,
-                "source": source,
-                "platform": platform,
-            }
-        )
+        web_raw = raw.get("web")
+        web: dict[str, Any] | None = None
+        if web_raw is not None:
+            if not isinstance(web_raw, dict):
+                raise ValueError(f"automation target {name} web must be a mapping")
+            scheme = str(web_raw.get("scheme") or "https").strip().lower()
+            if scheme not in _WEB_SCHEMES:
+                raise ValueError(
+                    f"automation target {name} web scheme must be http or https"
+                )
+            web_port = int(web_raw.get("port") or (443 if scheme == "https" else 80))
+            if not 1 <= web_port <= 65535:
+                raise ValueError(
+                    f"automation target {name} web port must be between 1 and 65535"
+                )
+            web_path = str(web_raw.get("path") or "/").strip()
+            if not web_path.startswith("/") or web_path.startswith("//"):
+                raise ValueError(
+                    f"automation target {name} web path must begin with one /"
+                )
+            web = {"scheme": scheme, "port": web_port, "path": web_path}
+        target = {
+            "name": name,
+            "host": str(address),
+            "user": user,
+            "port": port,
+            "identity_file": identity,
+            "groups": list(dict.fromkeys(groups)),
+            "mac": mac,
+            "source": source,
+            "platform": platform,
+        }
+        if web is not None:
+            target["web"] = web
+        targets.append(target)
     return targets
 
 
@@ -145,6 +221,8 @@ def _target_template(candidates: list[dict[str, Any]], management_label: str) ->
         "# Devices reachable through the HybridOps-managed lab network.",
         f"# Connect a management interface to {management_label}, then set the SSH user.",
         "# identity_file is optional; omit it to use agent, keyboard-interactive, or password auth.",
+        "# Optional web service: web: {scheme: https, port: 443, path: /}",
+        "# device web --all selects only targets that declare web.",
         "version: 1",
         "targets:",
     ]
@@ -158,8 +236,13 @@ def _target_template(candidates: list[dict[str, Any]], management_label: str) ->
                     f"    host: {item['host']}",
                     f"    user: {item['user']}",
                     "    port: 22",
-                    f"    mac: {item['mac']}",
-                    "    source: dhcp-lease",
+                    f"    mac: {item.get('mac', '')}",
+                    f"    source: {item.get('source') or 'static'}",
+                    *(
+                        [f"    platform: {item['platform']}"]
+                        if item.get("platform")
+                        else []
+                    ),
                     "    groups: [network_devices]",
                 ]
             )
@@ -171,7 +254,7 @@ def _merge_discovered_targets(
     candidates: list[dict[str, Any]],
     management_label: str,
 ) -> list[str]:
-    """Add DHCP targets without replacing operator-managed target settings."""
+    """Add discovered targets without replacing operator-managed settings."""
 
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -181,7 +264,7 @@ def _merge_discovered_targets(
         raise ValueError(f"automation target file must contain a targets list: {path}")
 
     targets = payload.get("targets") or []
-    by_mac: dict[str, dict[str, Any]] = {}
+    by_identity: dict[tuple[str, str], dict[str, Any]] = {}
     occupied_hosts: set[str] = set()
     occupied_names: set[str] = set()
     for raw in targets:
@@ -195,14 +278,19 @@ def _merge_discovered_targets(
             occupied_hosts.add(host)
         if name:
             occupied_names.add(name)
-        if mac and source == "dhcp-lease":
-            by_mac[mac] = raw
+        if source == "dhcp-lease" and mac:
+            by_identity[(source, mac)] = raw
+        elif source == "containerlab-inspect" and name:
+            by_identity[(source, name)] = raw
 
     changed = False
     added: list[str] = []
     for candidate in candidates:
         mac = str(candidate.get("mac") or "").lower()
-        existing = by_mac.get(mac)
+        source = str(candidate.get("source") or "").strip()
+        identity_value = mac if source == "dhcp-lease" else str(candidate["name"])
+        identity = (source, identity_value)
+        existing = by_identity.get(identity)
         if existing is not None:
             previous_host = str(existing.get("host") or "").strip()
             current_host = str(candidate["host"])
@@ -227,11 +315,12 @@ def _merge_discovered_targets(
             "user": str(candidate["user"]),
             "port": int(candidate.get("port") or 22),
             "mac": mac,
-            "source": "dhcp-lease",
+            "source": source,
+            "platform": str(candidate.get("platform") or ""),
             "groups": ["network_devices"],
         }
         targets.append(target)
-        by_mac[mac] = target
+        by_identity[identity] = target
         occupied_names.add(name)
         occupied_hosts.add(str(candidate["host"]))
         added.append(name)
@@ -240,7 +329,7 @@ def _merge_discovered_targets(
     if changed:
         content = [
             "# Devices reachable through the HybridOps-managed lab network.",
-            f"# DHCP devices on {management_label} are maintained automatically.",
+            f"# Discovered devices on {management_label} are maintained automatically.",
             "# Add static targets or adjust names and credentials when required.",
             yaml.safe_dump({"version": 1, "targets": targets}, sort_keys=False).rstrip(),
             "",
@@ -395,6 +484,7 @@ def prepare_automation_session(
     gateway: dict[str, Any],
     socks_port: int,
     lease_text: str = "",
+    discovery_text: str = "",
     target_file_override: str = "",
 ) -> dict[str, Any]:
     """Create target configuration and client files for one access session."""
@@ -415,11 +505,18 @@ def prepare_automation_session(
     )
     if target_file_override and not target_file.is_file():
         raise ValueError(f"automation target file does not exist: {target_file}")
-    candidates = parse_dnsmasq_leases(
-        lease_text,
-        automation["management_cidr"],
-        default_user=automation["default_user"],
-    )
+    if automation.get("discovery_mode") == "containerlab-inspect":
+        candidates = parse_containerlab_inspect(
+            discovery_text,
+            automation["management_cidr"],
+            default_user=automation["default_user"],
+        )
+    else:
+        candidates = parse_dnsmasq_leases(
+            lease_text,
+            automation["management_cidr"],
+            default_user=automation["default_user"],
+        )
     if not target_file.exists():
         _write_private(
             target_file,

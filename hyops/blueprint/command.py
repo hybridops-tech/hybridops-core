@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import errno
 import hashlib
 import ipaddress
@@ -15,6 +16,9 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -36,24 +40,17 @@ from hyops.runtime.module_state import (
 )
 from hyops.runtime.operator_output import concise_error
 from hyops.runtime.paths import resolve_runtime_paths
-from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.preflight_decision import (
     complete_preflight_decision,
     new_preflight_decision,
     validate_preflight_bypass,
 )
+from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
+from hyops.runtime.vault import VaultAuth, read_env
 
-from .contracts import (
-    enforce_step_contracts,
-    explicit_step_inputs_changed,
-    module_state_ok,
-    module_state_status,
-    resolved_step_inputs_file,
-    step_state_ref,
-)
 from .automation_access import (
     automation_session_paths,
     build_tunnel_ssh_argv,
@@ -62,14 +59,24 @@ from .automation_access import (
     local_route_conflicts,
     prepare_automation_session,
 )
-from .planner import compute_preflight, run_step_module_command
-from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
+from .contracts import (
+    enforce_step_contracts,
+    explicit_step_inputs_changed,
+    module_state_ok,
+    module_state_status,
+    resolved_step_inputs_file,
+    step_state_ref,
+)
+from .iol_repair import (
+    MODULE_REF as IOL_IMAGES_MODULE_REF,
+)
 from .iol_repair import (
     IolRepairError,
-    MODULE_REF as IOL_IMAGES_MODULE_REF,
     parse_iol_mismatch,
     repair_iol_license,
 )
+from .planner import compute_preflight, run_step_module_command
+from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
 
 
 def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
@@ -831,6 +838,58 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     device_ssh.add_argument("target", help="Discovered or operator-defined device name.")
     device_ssh.set_defaults(_handler=run_device)
 
+    device_web = device_commands.add_parser(
+        "web",
+        help="Open device web interfaces through the managed lab gateway.",
+    )
+    add_device_args(device_web)
+    device_web.add_argument(
+        "target",
+        nargs="*",
+        help="One or more device names or management IPv4 addresses.",
+    )
+    device_web.add_argument(
+        "--all",
+        dest="all_targets",
+        action="store_true",
+        help="Open every target that declares a web service.",
+    )
+    device_web.add_argument(
+        "--scheme",
+        choices=("http", "https"),
+        default=None,
+        help="Override the declared remote web scheme.",
+    )
+    device_web.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Override the declared remote web port.",
+    )
+    device_web.add_argument(
+        "--path",
+        default=None,
+        help="Override the declared URL path.",
+    )
+    device_web.add_argument(
+        "--local-port",
+        type=int,
+        default=0,
+        help="Local loopback port (default: choose an available port).",
+    )
+    browser_mode = device_web.add_mutually_exclusive_group()
+    browser_mode.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not open the default browser.",
+    )
+    browser_mode.add_argument(
+        "--open-all",
+        action="store_true",
+        help="Open every local URL when several targets are selected.",
+    )
+    device_web.set_defaults(_handler=run_device)
+
     device_shell = device_commands.add_parser(
         "shell",
         help="Open a shell configured for the active device session.",
@@ -1119,6 +1178,181 @@ def _resolve_device_target(
     return str(address), None
 
 
+def _device_web_requests(
+    ns,
+    automation: dict[str, Any],
+    targets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    raw_targets = getattr(ns, "target", []) or []
+    if isinstance(raw_targets, str):
+        target_tokens = [raw_targets]
+    else:
+        target_tokens = [str(item) for item in raw_targets]
+    target_tokens = [item.strip() for item in target_tokens if item.strip()]
+    use_all = bool(getattr(ns, "all_targets", False))
+    if use_all and target_tokens:
+        raise ValueError("device web accepts target names or --all, not both")
+    if use_all:
+        selected = [
+            (str(target["host"]), target)
+            for target in targets
+            if isinstance(target.get("web"), dict)
+        ]
+        if not selected:
+            raise ValueError(
+                "no targets declare web access; run device edit and add a web mapping"
+            )
+    else:
+        if not target_tokens:
+            raise ValueError("device web requires at least one target or --all")
+        selected = [
+            _resolve_device_target(token, automation, targets)
+            for token in target_tokens
+        ]
+
+    scheme_override = str(getattr(ns, "scheme", None) or "").strip().lower()
+    if scheme_override and scheme_override not in {"http", "https"}:
+        raise ValueError("--scheme must be http or https")
+    port_override = int(getattr(ns, "port", None) or 0)
+    if port_override and not 1 <= port_override <= 65535:
+        raise ValueError("--port must be between 1 and 65535")
+    path_override = getattr(ns, "path", None)
+    if path_override is not None:
+        path_override = str(path_override or "/")
+        if not path_override.startswith("/") or path_override.startswith("//"):
+            raise ValueError("--path must begin with one /")
+
+    requests: list[dict[str, Any]] = []
+    seen_addresses: set[str] = set()
+    for address, target in selected:
+        if address in seen_addresses:
+            raise ValueError(f"device web target is duplicated: {address}")
+        seen_addresses.add(address)
+        declared = target.get("web") if target else None
+        web = declared if isinstance(declared, dict) else {}
+        scheme = scheme_override or str(web.get("scheme") or "https")
+        remote_port = port_override or int(
+            web.get("port") or (443 if scheme == "https" else 80)
+        )
+        path = str(
+            path_override if path_override is not None else web.get("path") or "/"
+        )
+        requests.append(
+            {
+                "address": address,
+                "label": str(target["name"] if target else address),
+                "scheme": scheme,
+                "remote_port": remote_port,
+                "path": path,
+            }
+        )
+    return requests
+
+
+def _run_device_web(
+    ns,
+    *,
+    ssh: str,
+    ssh_config: Path,
+    gateway_alias: str,
+    automation: dict[str, Any],
+    targets: list[dict[str, Any]],
+) -> int:
+    requests = _device_web_requests(ns, automation, targets)
+    requested_local_port = int(getattr(ns, "local_port", 0) or 0)
+    if requested_local_port and len(requests) > 1:
+        raise ValueError("--local-port is available only with one device web target")
+
+    sessions: list[dict[str, Any]] = []
+    try:
+        for request in requests:
+            local_port = _available_local_port(requested_local_port)
+            _require_local_ports_available([local_port])
+            argv = [
+                ssh,
+                "-F",
+                str(ssh_config),
+                "-N",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-L",
+                (
+                    f"127.0.0.1:{local_port}:{request['address']}:"
+                    f"{request['remote_port']}"
+                ),
+                gateway_alias,
+            ]
+            proc = subprocess.Popen(
+                argv,
+                cwd=str(Path.home()),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                _wait_for_local_port(local_port, proc)
+            except Exception:
+                _stop_process(proc)
+                raise
+            local_url = (
+                f"{request['scheme']}://127.0.0.1:{local_port}{request['path']}"
+            )
+            target_url = (
+                f"{request['scheme']}://{request['address']}:"
+                f"{request['remote_port']}{request['path']}"
+            )
+            sessions.append(
+                {
+                    "label": request["label"],
+                    "local_url": local_url,
+                    "target_url": target_url,
+                    "proc": proc,
+                }
+            )
+
+        if len(sessions) == 1:
+            session = sessions[0]
+            print(f"device web access: {session['label']}")
+            print(f"local URL: {session['local_url']}")
+            print(f"target: {session['target_url']}")
+        else:
+            print(f"device web access: {len(sessions)} targets")
+            for session in sessions:
+                print(
+                    f"- {session['label']}  local={session['local_url']}  "
+                    f"target={session['target_url']}"
+                )
+        print("press Ctrl-C to close access")
+
+        open_all = bool(getattr(ns, "open_all", False))
+        no_browser = bool(getattr(ns, "no_browser", False))
+        if len(sessions) > 1 and not no_browser and not open_all:
+            print("browser: not opened; use --open-all to open every URL")
+        if not no_browser and (len(sessions) == 1 or open_all):
+            for session in sessions:
+                open_operator_url(str(session["local_url"]))
+
+        while True:
+            for session in sessions:
+                proc = session["proc"]
+                return_code = proc.poll()
+                if return_code is None:
+                    continue
+                detail = (proc.stderr.read() if proc.stderr else "").strip()
+                raise ValueError(
+                    detail
+                    or f"device web tunnel for {session['label']} exited with "
+                    f"rc={return_code}"
+                )
+            time.sleep(0.25)
+    except KeyboardInterrupt:
+        print("device web access closed")
+        return 0
+    finally:
+        for session in reversed(sessions):
+            _stop_process(session["proc"])
+
+
 def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
     required = {
         "SSH configuration": Path(material["ssh_config"]),
@@ -1200,9 +1434,13 @@ def run_device(ns) -> int:
                     user = str(target["user"])
                     if source == "DHCP" and user == automation["default_user"]:
                         user += " (default)"
+                    web = target.get("web")
+                    web_summary = ""
+                    if isinstance(web, dict):
+                        web_summary = f"  web={web['scheme']}:{web['port']}"
                     print(
                         f"{target['name']}  {target['host']}  user={user}  "
-                        f"port={target['port']}  {platform}  {source}"
+                        f"port={target['port']}  {platform}  {source}{web_summary}"
                     )
             return 0
 
@@ -1268,6 +1506,15 @@ def run_device(ns) -> int:
                 print(f"device targets: {material['target_file']}")
                 print(f"edit: {_device_edit_command(ns)}")
             return int(result.returncode)
+        if action == "web":
+            return _run_device_web(
+                ns,
+                ssh=ssh,
+                ssh_config=ssh_config,
+                gateway_alias=str(material["gateway_alias"]),
+                automation=automation,
+                targets=targets,
+            )
         if action in {"shell", "run"}:
             environment = _device_process_environment(material)
             if action == "shell":
@@ -1452,7 +1699,7 @@ def _wait_for_local_port(
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"IAP SSH tunnel exited with rc={proc.returncode}")
+            raise RuntimeError(f"SSH tunnel exited with rc={proc.returncode}")
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             probe.bind(("127.0.0.1", port))
@@ -1462,7 +1709,7 @@ def _wait_for_local_port(
         finally:
             probe.close()
         time.sleep(0.25)
-    raise TimeoutError("timed out waiting for the local IAP SSH tunnel")
+    raise TimeoutError("timed out waiting for the local SSH tunnel")
 
 
 def _parse_eve_qemu_console_ports(output: str) -> list[int]:
@@ -1497,17 +1744,233 @@ def _require_local_ports_available(ports: list[int]) -> None:
             sock.close()
 
 
-def _native_console_status(ports: list[int]) -> str:
+def _native_console_status(ports: list[int], *, mode: str = "eve-ng-qemu") -> str:
     if ports:
         return "native console ports: " + ", ".join(str(item) for item in ports)
-    return "native consoles: no active QEMU nodes; web access remains available"
+    if mode == "gns3-api":
+        return "native consoles: waiting for GNS3 nodes"
+    return "native consoles: waiting for active QEMU nodes"
 
 
-def _print_native_console_client_guidance() -> None:
-    if not is_windows_wsl():
+def _discover_eve_qemu_console_ports(
+    ssh_base: list[str],
+    ssh_target: str,
+    known_hosts_file: Path,
+) -> list[int]:
+    probe = subprocess.run(
+        [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
+        cwd=str(Path.home()),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=20,
+        check=False,
+    )
+    if probe.returncode != 0:
+        raise ValueError(
+            "failed to discover native EVE-NG consoles: "
+            + _ssh_access_error(probe.stderr, known_hosts_file)
+        )
+    return _parse_eve_qemu_console_ports(probe.stdout)
+
+
+def _native_console_refresher(
+    *,
+    ssh_base: list[str],
+    ssh_target: str,
+    known_hosts_file: Path,
+    forwarded_ports: list[int],
+) -> tuple[Callable[[], None], Callable[[], None]]:
+    forwarded = set(forwarded_ports)
+    processes: dict[int, subprocess.Popen] = {}
+    failed: set[int] = set()
+
+    def refresh() -> None:
+        active = _discover_eve_qemu_console_ports(
+            ssh_base,
+            ssh_target,
+            known_hosts_file,
+        )
+        for port in active:
+            if port in forwarded:
+                continue
+            proc: subprocess.Popen | None = None
+            try:
+                _require_local_ports_available([port])
+                argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
+                argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{port}"])
+                argv.append(ssh_target)
+                proc = subprocess.Popen(argv, cwd=str(Path.home()))
+                _wait_for_local_port(port, proc, timeout_s=10)
+            except Exception as exc:
+                _stop_process(proc)
+                if port not in failed:
+                    print(
+                        f"WARN: native console port {port} could not be forwarded: {exc}",
+                        flush=True,
+                    )
+                    failed.add(port)
+                continue
+            processes[port] = proc
+            forwarded.add(port)
+            failed.discard(port)
+            print(f"native console available: vnc://127.0.0.1:{port}", flush=True)
+
+    def stop() -> None:
+        for proc in processes.values():
+            _stop_process(proc)
+        processes.clear()
+
+    return refresh, stop
+
+
+def _runtime_access_secret(paths, env_name: str, env_key: str) -> str:
+    value = str(os.environ.get(env_key) or "").strip()
+    if value:
+        return value
+    vault_file = paths.vault_dir / "bootstrap.vault.env"
+    try:
+        values = read_env(vault_file, VaultAuth())
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
+        raise ValueError(
+            f"native console credential {env_key} could not be read from the environment vault"
+        ) from exc
+    value = str(values.get(env_key) or "").strip()
+    if not value:
+        raise ValueError(
+            f"native console credential {env_key} is missing; run: "
+            f"hyops secrets ensure --env {env_name} {env_key}"
+        )
+    return value
+
+
+def _gns3_api_json(url: str, username: str, password: str) -> Any:
+    token = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Basic {token}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return json.load(response)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ValueError("GNS3 console discovery API request failed") from exc
+
+
+def _discover_gns3_consoles(
+    local_api_port: int,
+    username: str,
+    password: str,
+) -> list[tuple[int, str, str]]:
+    root = f"http://127.0.0.1:{local_api_port}/v2"
+    projects = _gns3_api_json(f"{root}/projects", username, password)
+    if not isinstance(projects, list):
+        raise ValueError("GNS3 projects response is invalid")
+    consoles: dict[int, tuple[int, str, str]] = {}
+    local_hosts = {"127.0.0.1", "localhost", "0.0.0.0", "::", "::1"}
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        project_id = str(project.get("project_id") or "").strip()
+        if not project_id:
+            continue
+        encoded_id = urllib.parse.quote(project_id, safe="")
+        nodes = _gns3_api_json(
+            f"{root}/projects/{encoded_id}/nodes",
+            username,
+            password,
+        )
+        if not isinstance(nodes, list):
+            continue
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            host = str(node.get("console_host") or "").strip().lower()
+            console_type = str(node.get("console_type") or "").strip().lower()
+            raw_port = node.get("console")
+            if host not in local_hosts or console_type in {"", "none"}:
+                continue
+            if not isinstance(raw_port, int) or not 1 <= raw_port <= 65535:
+                continue
+            name = str(node.get("name") or node.get("node_id") or "node").strip()
+            consoles[raw_port] = (raw_port, console_type, name)
+    return [consoles[port] for port in sorted(consoles)]
+
+
+def _gns3_console_refresher(
+    *,
+    ssh_base: list[str],
+    ssh_target: str,
+    local_api_port: int,
+    username: str,
+    password: str,
+) -> tuple[Callable[[], None], Callable[[], None]]:
+    forwarded: set[int] = set()
+    processes: dict[int, subprocess.Popen] = {}
+    failed: set[int] = set()
+
+    def refresh() -> None:
+        for port, console_type, name in _discover_gns3_consoles(
+            local_api_port,
+            username,
+            password,
+        ):
+            if port in forwarded:
+                continue
+            proc: subprocess.Popen | None = None
+            try:
+                _require_local_ports_available([port])
+                argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
+                argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{port}"])
+                argv.append(ssh_target)
+                proc = subprocess.Popen(argv, cwd=str(Path.home()))
+                _wait_for_local_port(port, proc, timeout_s=10)
+            except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+                _stop_process(proc)
+                if port not in failed:
+                    print(
+                        f"WARN: {name} console port {port} could not be forwarded: {exc}",
+                        flush=True,
+                    )
+                    failed.add(port)
+                continue
+            processes[port] = proc
+            forwarded.add(port)
+            failed.discard(port)
+            scheme = "spice" if console_type.startswith("spice") else console_type
+            print(
+                f"native console available: {name} "
+                f"({console_type}) {scheme}://127.0.0.1:{port}",
+                flush=True,
+            )
+
+    def stop() -> None:
+        for proc in processes.values():
+            _stop_process(proc)
+        processes.clear()
+
+    return refresh, stop
+
+
+def _print_native_console_client_guidance(mode: str) -> None:
+    if mode == "gns3-api":
+        print("GNS3 node consoles are forwarded to their matching local ports.")
         return
-    print("Windows native consoles require the EVE-NG Windows Client Pack.")
-    print("HTML5 consoles remain available without it.")
+    if is_windows_wsl():
+        print("Windows native consoles require the EVE-NG Windows Client Pack.")
+        print("HTML5 consoles remain available without it.")
+
+
+def _native_console_mode(access: dict[str, Any], enabled: bool) -> str:
+    if not enabled:
+        return ""
+    mode = str(access.get("native_console_mode") or "").strip()
+    if mode not in {"eve-ng-qemu", "gns3-api"}:
+        raise ValueError("blueprint does not declare supported native console access")
+    return mode
 
 
 def _extract_access_host(outputs: dict[str, Any]) -> str:
@@ -1859,6 +2322,21 @@ def _read_automation_leases(
     ssh_target: str,
     automation: dict[str, Any],
 ) -> str:
+    if automation.get("discovery_mode") == "containerlab-inspect":
+        result = subprocess.run(
+            [
+                *ssh_base,
+                ssh_target,
+                "sudo -n containerlab inspect --all -f json",
+            ],
+            cwd=str(Path.home()),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+        return result.stdout if result.returncode == 0 else ""
     lease_file = str(automation.get("lease_file") or "").strip()
     if not lease_file:
         return ""
@@ -1910,6 +2388,7 @@ def _prepare_automation_access(
         gateway=gateway,
         socks_port=socks_port,
         lease_text=lease_text,
+        discovery_text=lease_text,
         target_file_override=str(getattr(ns, "targets", "") or ""),
     )
     return socks_port, session
@@ -1942,6 +2421,7 @@ def _automation_refresher(
             gateway=gateway,
             socks_port=socks_port,
             lease_text=lease_text,
+            discovery_text=lease_text,
         )
         added = list(updated.get("new_targets") or [])
         session.clear()
@@ -1968,7 +2448,10 @@ def _print_automation_access(
         f"{automation['management_network_label']} "
         f"({automation['management_cidr']})"
     )
-    print("device discovery: watching management-network DHCP leases")
+    if automation.get("discovery_mode") == "containerlab-inspect":
+        print("device discovery: reading Containerlab runtime state")
+    else:
+        print("device discovery: watching management-network DHCP leases")
     print("device commands: hyops blueprint device --help")
     if verbose_enabled():
         print(f"device proxy: {session['socks_proxy']}")
@@ -2166,7 +2649,29 @@ def _wait_for_access_processes(
         time.sleep(0.5)
 
 
+def _combine_maintenance(
+    *callbacks: Callable[[], None] | None,
+) -> Callable[[], None] | None:
+    active = tuple(callback for callback in callbacks if callback is not None)
+    if not active:
+        return None
+
+    def run() -> None:
+        first_error: Exception | None = None
+        for callback in active:
+            try:
+                callback()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
+
+    return run
+
+
 def run_access(ns) -> int:
+    native_console_stop: Callable[[], None] | None = None
     try:
         payload = _resolve_and_validate(ns)
         access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
@@ -2235,25 +2740,17 @@ def run_access(ns) -> int:
                 raise ValueError(
                     _ssh_access_error(identity_check.stderr, known_hosts_file)
                 )
+            native_console_mode = _native_console_mode(
+                access,
+                bool(getattr(ns, "native_consoles", False)),
+            )
             console_ports: list[int] = []
-            if bool(getattr(ns, "native_consoles", False)):
-                if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
-                    raise ValueError("blueprint does not declare native EVE-NG console access")
-                probe = subprocess.run(
-                    [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
-                    cwd=str(Path.home()),
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=20,
-                    check=False,
+            if native_console_mode == "eve-ng-qemu":
+                console_ports = _discover_eve_qemu_console_ports(
+                    ssh_base,
+                    ssh_target,
+                    known_hosts_file,
                 )
-                if probe.returncode != 0:
-                    raise ValueError(
-                        "failed to discover native EVE-NG consoles: "
-                        + _ssh_access_error(probe.stderr, known_hosts_file)
-                    )
-                console_ports = _parse_eve_qemu_console_ports(probe.stdout)
                 if console_ports:
                     _require_local_ports_available(console_ports)
 
@@ -2309,15 +2806,20 @@ def run_access(ns) -> int:
                     automation_session,
                     route_requested=bool(getattr(ns, "route_lab", False)),
                 )
-            if bool(getattr(ns, "native_consoles", False)):
-                _print_native_console_client_guidance()
-                print(_native_console_status(console_ports))
-                if not console_ports:
-                    print("native console setup: start a QEMU node, then rerun access with --native-consoles")
+            if native_console_mode:
+                _print_native_console_client_guidance(native_console_mode)
+                print(
+                    _native_console_status(
+                        console_ports,
+                        mode=native_console_mode,
+                    )
+                )
             proc = subprocess.Popen(argv, cwd=str(Path.home()))
             time.sleep(2)
             if proc.poll() is not None:
                 return OPERATOR_ERROR
+            if native_console_mode == "gns3-api":
+                _wait_for_local_port(port, proc)
             if automation:
                 _wait_for_local_port(socks_port, proc)
             automation_refresh = None
@@ -2333,6 +2835,32 @@ def run_access(ns) -> int:
                     socks_port=socks_port,
                     session=automation_session,
                 )
+            native_console_refresh = None
+            if native_console_mode == "eve-ng-qemu":
+                native_console_refresh, native_console_stop = _native_console_refresher(
+                    ssh_base=ssh_base,
+                    ssh_target=ssh_target,
+                    known_hosts_file=known_hosts_file,
+                    forwarded_ports=console_ports,
+                )
+            elif native_console_mode == "gns3-api":
+                password_env = str(access["native_console_password_env"])
+                native_console_refresh, native_console_stop = _gns3_console_refresher(
+                    ssh_base=ssh_base,
+                    ssh_target=ssh_target,
+                    local_api_port=port,
+                    username=str(access["native_console_username"]),
+                    password=_runtime_access_secret(
+                        paths,
+                        str(getattr(ns, "env", "") or "default"),
+                        password_env,
+                    ),
+                )
+                native_console_refresh()
+            maintenance = _combine_maintenance(
+                automation_refresh,
+                native_console_refresh,
+            )
             route_proc: subprocess.Popen | None = None
             route_plan: dict[str, Any] | None = None
             if automation and bool(getattr(ns, "route_lab", False)):
@@ -2345,6 +2873,8 @@ def run_access(ns) -> int:
                     )
                     _print_lab_route_ready(automation)
                 except BaseException:
+                    if native_console_stop is not None:
+                        native_console_stop()
                     _stop_process(proc)
                     raise
             if access_type != "ssh-tcp-forward" and not bool(
@@ -2356,13 +2886,17 @@ def run_access(ns) -> int:
                 rc = _wait_for_access_processes(
                     proc,
                     route_proc,
-                    maintenance=automation_refresh,
+                    maintenance=maintenance,
                 )
                 _stop_lab_route(route_proc, route_plan)
+                if native_console_stop is not None:
+                    native_console_stop()
                 _stop_process(proc)
                 return rc
             except KeyboardInterrupt:
                 _stop_lab_route(route_proc, route_plan)
+                if native_console_stop is not None:
+                    native_console_stop()
                 _stop_process(proc)
                 print("access closed")
                 return _offer_access_close_destroy(ns, payload, state)
@@ -2386,6 +2920,11 @@ def run_access(ns) -> int:
         if not gcloud:
             raise ValueError("gcloud is required; run: hyops setup gcp")
         iap_proc: subprocess.Popen | None = None
+        native_console_mode = _native_console_mode(
+            access,
+            bool(getattr(ns, "native_consoles", False)),
+        )
+        console_ports: list[int] = []
         if str(access.get("type") or "") == "gcp-iap-ssh-forward":
             ssh_user = str(access.get("ssh_user") or "").strip()
             ssh_key = str(Path(str(access.get("ssh_key_file") or "")).expanduser().resolve())
@@ -2419,25 +2958,12 @@ def run_access(ns) -> int:
                 "-p", str(iap_port),
             ]
             ssh_target = f"{ssh_user}@127.0.0.1"
-            console_ports: list[int] = []
-            if bool(getattr(ns, "native_consoles", False)):
-                if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
-                    raise ValueError("blueprint does not declare native EVE-NG console access")
-                probe = subprocess.run(
-                    [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
-                    cwd=str(Path.home()),
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=20,
-                    check=False,
+            if native_console_mode == "eve-ng-qemu":
+                console_ports = _discover_eve_qemu_console_ports(
+                    ssh_base,
+                    ssh_target,
+                    known_hosts_file,
                 )
-                if probe.returncode != 0:
-                    raise ValueError(
-                        "failed to discover native EVE-NG consoles: "
-                        + _ssh_access_error(probe.stderr, known_hosts_file)
-                    )
-                console_ports = _parse_eve_qemu_console_ports(probe.stdout)
                 if console_ports:
                     _require_local_ports_available(console_ports)
             automation_session: dict[str, Any] | None = None
@@ -2501,16 +3027,21 @@ def run_access(ns) -> int:
         print(f"billing: {'enabled' if enabled else 'disabled'}" if validated else "billing: unable to verify")
         _print_cost_estimate(cost_estimate, state=state)
         if bool(getattr(ns, "native_consoles", False)):
-            _print_native_console_client_guidance()
-            print(_native_console_status(console_ports))
-            if not console_ports:
-                print("native console setup: start a QEMU node, then rerun access with --native-consoles")
+            _print_native_console_client_guidance(native_console_mode)
+            print(
+                _native_console_status(
+                    console_ports,
+                    mode=native_console_mode,
+                )
+            )
         access_started_at = time.monotonic()
         proc = subprocess.Popen(argv, cwd=str(Path.home()))
         time.sleep(2)
         if proc.poll() is not None:
             _stop_process(iap_proc)
             return OPERATOR_ERROR
+        if native_console_mode == "gns3-api":
+            _wait_for_local_port(port, proc)
         if automation:
             _wait_for_local_port(socks_port, proc)
         automation_refresh = None
@@ -2526,6 +3057,32 @@ def run_access(ns) -> int:
                 socks_port=socks_port,
                 session=automation_session,
             )
+        native_console_refresh = None
+        if native_console_mode == "eve-ng-qemu":
+            native_console_refresh, native_console_stop = _native_console_refresher(
+                ssh_base=ssh_base,
+                ssh_target=ssh_target,
+                known_hosts_file=known_hosts_file,
+                forwarded_ports=console_ports,
+            )
+        elif native_console_mode == "gns3-api":
+            password_env = str(access["native_console_password_env"])
+            native_console_refresh, native_console_stop = _gns3_console_refresher(
+                ssh_base=ssh_base,
+                ssh_target=ssh_target,
+                local_api_port=port,
+                username=str(access["native_console_username"]),
+                password=_runtime_access_secret(
+                    paths,
+                    str(getattr(ns, "env", "") or "default"),
+                    password_env,
+                ),
+            )
+            native_console_refresh()
+        maintenance = _combine_maintenance(
+            automation_refresh,
+            native_console_refresh,
+        )
         route_proc: subprocess.Popen | None = None
         route_plan: dict[str, Any] | None = None
         if automation and bool(getattr(ns, "route_lab", False)):
@@ -2538,6 +3095,8 @@ def run_access(ns) -> int:
                 )
                 _print_lab_route_ready(automation)
             except BaseException:
+                if native_console_stop is not None:
+                    native_console_stop()
                 _stop_process(proc)
                 _stop_process(iap_proc)
                 raise
@@ -2548,14 +3107,18 @@ def run_access(ns) -> int:
             rc = _wait_for_access_processes(
                 proc,
                 route_proc,
-                maintenance=automation_refresh,
+                maintenance=maintenance,
             )
             _stop_lab_route(route_proc, route_plan)
+            if native_console_stop is not None:
+                native_console_stop()
             _stop_process(proc)
             _stop_process(iap_proc)
             return rc
         except KeyboardInterrupt:
             _stop_lab_route(route_proc, route_plan)
+            if native_console_stop is not None:
+                native_console_stop()
             _stop_process(proc)
             _stop_process(iap_proc)
             print("access closed")
@@ -2568,6 +3131,8 @@ def run_access(ns) -> int:
                 access_started_at=access_started_at,
             )
     except Exception as exc:
+        if native_console_stop is not None:
+            native_console_stop()
         if "iap_proc" in locals():
             _stop_process(iap_proc)
         print(f"ERR: blueprint access failed: {exc}")

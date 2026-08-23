@@ -103,6 +103,13 @@ class CliRoutingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("edit", result.stdout)
 
+    def test_device_web_help_includes_multi_target_controls(self) -> None:
+        result = run_cli("blueprint", "device", "web", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--all", result.stdout)
+        self.assertIn("--open-all", result.stdout)
+        self.assertIn("[target ...]", result.stdout)
+
     def test_mutating_preflight_bypass_help_requires_reason(self) -> None:
         for args in (
             ("apply", "--help"),

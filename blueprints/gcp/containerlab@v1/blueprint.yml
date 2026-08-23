@@ -24,6 +24,13 @@ access:
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
   offer_destroy_on_close: true
+  automation:
+    discovery_mode: "containerlab-inspect"
+    management_network_label: "clab"
+    management_cidr: "172.20.20.0/24"
+    management_gateway: "172.20.20.1"
+    default_user: "admin"
+    local_socks_port: 0
 
 steps:
   - id: gcp_containerlab_network

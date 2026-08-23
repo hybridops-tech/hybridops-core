@@ -102,3 +102,7 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertEqual(access["remote_port"], 22)
         self.assertFalse(access["open_browser"])
         self.assertTrue(access["offer_destroy_on_close"])
+        automation = access["automation"]
+        self.assertEqual(automation["discovery_mode"], "containerlab-inspect")
+        self.assertEqual(automation["management_cidr"], "172.20.20.0/24")
+        self.assertEqual(automation["management_gateway"], "172.20.20.1")

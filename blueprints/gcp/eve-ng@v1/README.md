@@ -57,6 +57,8 @@ hyops blueprint access --env <env> --ref gcp/eve-ng@v1
 
 The access session resolves the current host from HybridOps state and forwards the EVE-NG interface through IAP. The VM and EVE-NG HTTP service remain private.
 
+Add `--native-consoles` to follow active QEMU VNC ports during the session. New node consoles are forwarded on loopback as they start. The workstation must have a VNC handler registered for links opened by EVE-NG.
+
 For direct automation of topology nodes, connect a management interface to `Cloud8` and run:
 
 ```bash
@@ -64,6 +66,21 @@ hyops blueprint access --env <env> --ref gcp/eve-ng@v1 --automation
 ```
 
 HybridOps discovers management leases and produces session-scoped SSH configuration and automation inventory. Linux and WSL can optionally use `--route-lab`; Windows and macOS clients can use the generated SSH configuration or local proxy path.
+
+While that session remains open, expose one device web interface on loopback:
+
+```bash
+hyops blueprint device web --env <env> --ref gcp/eve-ng@v1 <device> --scheme http --port 80
+```
+
+The device may be identified by target name or management IP. For several interfaces, use `hyops blueprint device edit` to declare each target's web service. The generated file documents the available fields. Open named targets together, or every declared service:
+
+```bash
+hyops blueprint device web --env <env> --ref gcp/eve-ng@v1 <device-1> <device-2>
+hyops blueprint device web --env <env> --ref gcp/eve-ng@v1 --all
+```
+
+One Ctrl-C closes every tunnel. Add `--open-all` to open every URL in the workstation browser. Appliance certificates may produce the expected local browser warning.
 
 ## Continuity and compute release
 

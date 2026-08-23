@@ -58,6 +58,8 @@ hyops blueprint access --env <env> --ref gcp/gns3@v1
 
 The access session resolves the current host from HybridOps state and forwards the authenticated GNS3 API/UI endpoint through IAP. The VM and GNS3 service remain private.
 
+Add `--native-consoles` when using the desktop client's Telnet, VNC, SPICE or web console handlers. HybridOps reads node console assignments from the authenticated GNS3 API and maintains matching loopback forwards while access remains open.
+
 For direct automation of topology nodes, map a GNS3 Cloud node to `hyops-mgmt0`, connect device management interfaces to it and run:
 
 ```bash
@@ -65,6 +67,23 @@ hyops blueprint access --env <env> --ref gcp/gns3@v1 --automation
 ```
 
 HybridOps discovers management leases and produces session-scoped SSH configuration, target data and automation inventory. Linux and WSL can optionally use `--route-lab`; Windows and macOS clients can use the generated SSH configuration or local proxy path.
+
+While that session remains open, expose one device web interface on loopback:
+
+```bash
+hyops blueprint device web --env <env> --ref gcp/gns3@v1 <device> --scheme http --port 80
+```
+
+The device may be identified by target name or management IP. For several interfaces, use `hyops blueprint device edit` to declare each target's web service. The generated file documents the available fields. Open named targets together, or every declared service:
+
+```bash
+hyops blueprint device web --env <env> --ref gcp/gns3@v1 <device-1> <device-2>
+hyops blueprint device web --env <env> --ref gcp/gns3@v1 --all
+```
+
+One Ctrl-C closes every tunnel. Add `--open-all` to open every URL in the workstation browser. Appliance certificates may produce the expected local browser warning.
+
+Closing an interactive access session offers the same keep, archive or destroy decision as an explicit blueprint teardown.
 
 ## Continuity and compute release
 

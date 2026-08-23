@@ -3,23 +3,31 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import yaml
 
 from hyops.blueprint.automation_access import (
     build_tunnel_ssh_argv,
     linux_tunnel_plan,
+    load_automation_targets,
+    parse_containerlab_inspect,
     parse_dnsmasq_leases,
     prepare_automation_session,
 )
+from hyops.blueprint.command import (
+    _device_process_environment,
+    _device_web_requests,
+    _read_automation_leases,
+    run_device,
+)
 from hyops.blueprint.schema import load_blueprint, validate_blueprint
-from hyops.blueprint.command import _device_process_environment, run_device
 
 
 class AutomationAccessTests(unittest.TestCase):
@@ -50,6 +58,57 @@ class AutomationAccessTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in leases], ["r1", "device-52"])
         self.assertEqual(leases[0]["host"], "172.29.128.51")
         self.assertEqual(leases[0]["source"], "dhcp-lease")
+
+    def test_containerlab_inspect_targets_are_scoped(self) -> None:
+        discovered = parse_containerlab_inspect(
+            json.dumps(
+                {
+                    "demo": [
+                        {
+                            "name": "clab-demo-r1",
+                            "kind": "nokia_srlinux",
+                            "ipv4_address": "172.20.20.2/24",
+                        },
+                        {
+                            "name": "outside",
+                            "kind": "linux",
+                            "ipv4_address": "192.0.2.2/24",
+                        },
+                    ]
+                }
+            ),
+            "172.20.20.0/24",
+            default_user="admin",
+        )
+
+        self.assertEqual(len(discovered), 1)
+        self.assertEqual(discovered[0]["name"], "clab-demo-r1")
+        self.assertEqual(discovered[0]["host"], "172.20.20.2")
+        self.assertEqual(discovered[0]["source"], "containerlab-inspect")
+        self.assertEqual(discovered[0]["platform"], "nokia_srlinux")
+
+    def test_containerlab_discovery_uses_native_inspect(self) -> None:
+        result = SimpleNamespace(returncode=0, stdout='{"demo": []}')
+        automation = {
+            "discovery_mode": "containerlab-inspect",
+            "management_cidr": "172.20.20.0/24",
+        }
+
+        with patch(
+            "hyops.blueprint.command.subprocess.run",
+            return_value=result,
+        ) as run:
+            output = _read_automation_leases(
+                ["ssh", "-F", "/tmp/ssh_config"],
+                "gateway",
+                automation,
+            )
+
+        self.assertEqual(output, result.stdout)
+        self.assertEqual(
+            run.call_args.args[0][-1],
+            "sudo -n containerlab inspect --all -f json",
+        )
 
     def test_session_writes_ssh_vscode_and_inventory_material(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,6 +176,44 @@ class AutomationAccessTests(unittest.TestCase):
                     socks_port=1080,
                     target_file_override=str(targets),
                 )
+
+    def test_target_web_settings_are_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            targets = Path(tmp) / "targets.yml"
+            targets.write_text(
+                "version: 1\n"
+                "targets:\n"
+                "  - name: f5-ltm\n"
+                "    host: 172.29.128.51\n"
+                "    user: admin\n"
+                "    web:\n"
+                "      scheme: http\n"
+                "      path: /ui/\n",
+                encoding="utf-8",
+            )
+
+            loaded = load_automation_targets(targets, "172.29.128.0/24")
+
+        self.assertEqual(
+            loaded[0]["web"],
+            {"scheme": "http", "port": 80, "path": "/ui/"},
+        )
+
+    def test_target_web_settings_reject_invalid_scheme(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            targets = Path(tmp) / "targets.yml"
+            targets.write_text(
+                "version: 1\n"
+                "targets:\n"
+                "  - name: f5-ltm\n"
+                "    host: 172.29.128.51\n"
+                "    user: admin\n"
+                "    web: {scheme: ftp}\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "scheme must be http or https"):
+                load_automation_targets(targets, "172.29.128.0/24")
 
     def test_dhcp_refresh_updates_address_and_preserves_operator_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -202,6 +299,33 @@ class AutomationAccessTests(unittest.TestCase):
             "r1  172.29.128.51  user=admin (default)  port=22  ios  DHCP",
         )
 
+    def test_device_list_shows_declared_web_service(self) -> None:
+        targets = [
+            {
+                "name": "f5-ltm",
+                "host": "172.29.128.52",
+                "user": "admin",
+                "port": 22,
+                "source": "static",
+                "platform": "f5",
+                "web": {"scheme": "https", "port": 443, "path": "/"},
+            }
+        ]
+        ns = SimpleNamespace(device_cmd="list", json=False)
+        output = io.StringIO()
+
+        with patch(
+            "hyops.blueprint.command._device_context",
+            return_value=(self.automation, {}, targets),
+        ), redirect_stdout(output):
+            rc = run_device(ns)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            output.getvalue().strip(),
+            "f5-ltm  172.29.128.52  user=admin  port=22  f5  static  web=https:443",
+        )
+
     def test_device_edit_opens_and_validates_target_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target_file = Path(tmp) / "targets.yml"
@@ -277,6 +401,363 @@ class AutomationAccessTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("-l", command)
         self.assertIn("admin", command)
+
+    def test_device_web_forwards_target_through_gateway(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ssh_config = root / "ssh_config"
+            ssh_config.write_text("Host gateway\n", encoding="utf-8")
+            target = {
+                "name": "f5-ltm",
+                "host": "172.29.128.51",
+                "user": "admin",
+                "port": 22,
+                "identity_file": "",
+                "source": "static",
+                "platform": "f5",
+            }
+            material = {
+                "ssh_config": ssh_config,
+                "gateway_alias": "hyops-demo-lab-gateway",
+            }
+            ns = SimpleNamespace(
+                device_cmd="web",
+                target="f5-ltm",
+                scheme="https",
+                port=8443,
+                path="/tmui/",
+                local_port=10443,
+                no_browser=False,
+            )
+            proc = MagicMock()
+            proc.poll.side_effect = KeyboardInterrupt
+            output = io.StringIO()
+
+            with patch(
+                "hyops.blueprint.command._device_context",
+                return_value=(self.automation, material, [target]),
+            ), patch(
+                "hyops.blueprint.command.shutil.which",
+                return_value="/usr/bin/ssh",
+            ), patch(
+                "hyops.blueprint.command._available_local_port",
+                return_value=10443,
+            ), patch(
+                "hyops.blueprint.command._require_local_ports_available"
+            ), patch(
+                "hyops.blueprint.command._wait_for_local_port"
+            ), patch(
+                "hyops.blueprint.command.subprocess.Popen",
+                return_value=proc,
+            ) as popen, patch(
+                "hyops.blueprint.command.open_operator_url"
+            ) as open_url, patch(
+                "hyops.blueprint.command._stop_process"
+            ) as stop, redirect_stdout(output):
+                rc = run_device(ns)
+
+        self.assertEqual(rc, 0)
+        command = popen.call_args.args[0]
+        self.assertIn("127.0.0.1:10443:172.29.128.51:8443", command)
+        self.assertEqual(command[-1], "hyops-demo-lab-gateway")
+        open_url.assert_called_once_with("https://127.0.0.1:10443/tmui/")
+        stop.assert_called_once_with(proc)
+        self.assertIn("device web access: f5-ltm", output.getvalue())
+        self.assertIn("device web access closed", output.getvalue())
+
+    def test_device_web_accepts_management_ip_and_does_not_open_browser(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ssh_config = Path(tmp) / "ssh_config"
+            ssh_config.write_text("Host gateway\n", encoding="utf-8")
+            material = {
+                "ssh_config": ssh_config,
+                "gateway_alias": "hyops-demo-lab-gateway",
+            }
+            ns = SimpleNamespace(
+                device_cmd="web",
+                target="172.29.128.80",
+                scheme="http",
+                port=0,
+                path="/",
+                local_port=0,
+                no_browser=True,
+            )
+            proc = MagicMock()
+            proc.poll.side_effect = KeyboardInterrupt
+
+            with patch(
+                "hyops.blueprint.command._device_context",
+                return_value=(self.automation, material, []),
+            ), patch(
+                "hyops.blueprint.command.shutil.which",
+                return_value="/usr/bin/ssh",
+            ), patch(
+                "hyops.blueprint.command._available_local_port",
+                return_value=18080,
+            ), patch(
+                "hyops.blueprint.command._require_local_ports_available"
+            ), patch(
+                "hyops.blueprint.command._wait_for_local_port"
+            ), patch(
+                "hyops.blueprint.command.subprocess.Popen",
+                return_value=proc,
+            ) as popen, patch(
+                "hyops.blueprint.command.open_operator_url"
+            ) as open_url, patch(
+                "hyops.blueprint.command._stop_process"
+            ):
+                rc = run_device(ns)
+
+        self.assertEqual(rc, 0)
+        self.assertIn("127.0.0.1:18080:172.29.128.80:80", popen.call_args.args[0])
+        open_url.assert_not_called()
+
+    def test_device_web_all_uses_declared_services_in_one_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ssh_config = Path(tmp) / "ssh_config"
+            ssh_config.write_text("Host gateway\n", encoding="utf-8")
+            targets = [
+                {
+                    "name": "f5-ltm",
+                    "host": "172.29.128.51",
+                    "user": "admin",
+                    "port": 22,
+                    "identity_file": "",
+                    "source": "static",
+                    "platform": "f5",
+                    "web": {"scheme": "https", "port": 443, "path": "/tmui/"},
+                },
+                {
+                    "name": "grafana",
+                    "host": "172.29.128.52",
+                    "user": "admin",
+                    "port": 22,
+                    "identity_file": "",
+                    "source": "static",
+                    "platform": "linux",
+                    "web": {"scheme": "http", "port": 3000, "path": "/"},
+                },
+                {
+                    "name": "router",
+                    "host": "172.29.128.53",
+                    "user": "admin",
+                    "port": 22,
+                    "identity_file": "",
+                    "source": "static",
+                    "platform": "ios",
+                },
+            ]
+            material = {
+                "ssh_config": ssh_config,
+                "gateway_alias": "hyops-demo-lab-gateway",
+            }
+            ns = SimpleNamespace(
+                device_cmd="web",
+                target=[],
+                all_targets=True,
+                scheme=None,
+                port=None,
+                path=None,
+                local_port=0,
+                no_browser=False,
+                open_all=False,
+            )
+            first = MagicMock()
+            second = MagicMock()
+            first.poll.side_effect = KeyboardInterrupt
+            output = io.StringIO()
+
+            with patch(
+                "hyops.blueprint.command._device_context",
+                return_value=(self.automation, material, targets),
+            ), patch(
+                "hyops.blueprint.command.shutil.which",
+                return_value="/usr/bin/ssh",
+            ), patch(
+                "hyops.blueprint.command._available_local_port",
+                side_effect=[10443, 13000],
+            ), patch(
+                "hyops.blueprint.command._require_local_ports_available"
+            ), patch(
+                "hyops.blueprint.command._wait_for_local_port"
+            ), patch(
+                "hyops.blueprint.command.subprocess.Popen",
+                side_effect=[first, second],
+            ) as popen, patch(
+                "hyops.blueprint.command.open_operator_url"
+            ) as open_url, patch(
+                "hyops.blueprint.command._stop_process"
+            ) as stop, redirect_stdout(output):
+                rc = run_device(ns)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(popen.call_count, 2)
+        self.assertIn(
+            "127.0.0.1:10443:172.29.128.51:443",
+            popen.call_args_list[0].args[0],
+        )
+        self.assertIn(
+            "127.0.0.1:13000:172.29.128.52:3000",
+            popen.call_args_list[1].args[0],
+        )
+        self.assertIn("device web access: 2 targets", output.getvalue())
+        self.assertIn("use --open-all", output.getvalue())
+        self.assertNotIn("router", output.getvalue())
+        open_url.assert_not_called()
+        self.assertEqual(stop.call_count, 2)
+
+    def test_device_web_open_all_opens_each_declared_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ssh_config = Path(tmp) / "ssh_config"
+            ssh_config.write_text("Host gateway\n", encoding="utf-8")
+            targets = [
+                {
+                    "name": "f5-ltm",
+                    "host": "172.29.128.51",
+                    "user": "admin",
+                    "port": 22,
+                    "web": {"scheme": "https", "port": 443, "path": "/"},
+                },
+                {
+                    "name": "grafana",
+                    "host": "172.29.128.52",
+                    "user": "admin",
+                    "port": 22,
+                    "web": {"scheme": "http", "port": 3000, "path": "/"},
+                },
+            ]
+            material = {
+                "ssh_config": ssh_config,
+                "gateway_alias": "hyops-demo-lab-gateway",
+            }
+            ns = SimpleNamespace(
+                device_cmd="web",
+                target=[],
+                all_targets=True,
+                scheme=None,
+                port=None,
+                path=None,
+                local_port=0,
+                no_browser=False,
+                open_all=True,
+            )
+            first = MagicMock()
+            second = MagicMock()
+            first.poll.side_effect = KeyboardInterrupt
+
+            with patch(
+                "hyops.blueprint.command._device_context",
+                return_value=(self.automation, material, targets),
+            ), patch(
+                "hyops.blueprint.command.shutil.which",
+                return_value="/usr/bin/ssh",
+            ), patch(
+                "hyops.blueprint.command._available_local_port",
+                side_effect=[10443, 13000],
+            ), patch(
+                "hyops.blueprint.command._require_local_ports_available"
+            ), patch(
+                "hyops.blueprint.command._wait_for_local_port"
+            ), patch(
+                "hyops.blueprint.command.subprocess.Popen",
+                side_effect=[first, second],
+            ), patch(
+                "hyops.blueprint.command.open_operator_url"
+            ) as open_url, patch(
+                "hyops.blueprint.command._stop_process"
+            ), redirect_stdout(io.StringIO()):
+                rc = run_device(ns)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [call.args[0] for call in open_url.call_args_list],
+            ["https://127.0.0.1:10443/", "http://127.0.0.1:13000/"],
+        )
+
+    def test_device_web_all_requires_declared_services(self) -> None:
+        ns = SimpleNamespace(
+            target=[],
+            all_targets=True,
+            scheme=None,
+            port=None,
+            path=None,
+        )
+        targets = [
+            {
+                "name": "r1",
+                "host": "172.29.128.51",
+                "user": "admin",
+                "port": 22,
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "no targets declare web access"):
+            _device_web_requests(ns, self.automation, targets)
+
+    def test_device_web_rejects_fixed_local_port_for_multiple_targets(self) -> None:
+        ns = SimpleNamespace(
+            device_cmd="web",
+            target=["172.29.128.51", "172.29.128.52"],
+            all_targets=False,
+            scheme="http",
+            port=None,
+            path=None,
+            local_port=8080,
+            no_browser=True,
+            open_all=False,
+        )
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            ssh_config = Path(tmp) / "ssh_config"
+            ssh_config.write_text("Host gateway\n", encoding="utf-8")
+            material = {
+                "ssh_config": ssh_config,
+                "gateway_alias": "gateway",
+            }
+            with patch(
+                "hyops.blueprint.command._device_context",
+                return_value=(self.automation, material, []),
+            ), patch(
+                "hyops.blueprint.command.shutil.which",
+                return_value="/usr/bin/ssh",
+            ), redirect_stdout(output):
+                rc = run_device(ns)
+
+        self.assertNotEqual(rc, 0)
+        self.assertIn(
+            "--local-port is available only with one device web target",
+            output.getvalue(),
+        )
+
+    def test_device_web_rejects_invalid_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ssh_config = Path(tmp) / "ssh_config"
+            ssh_config.write_text("Host gateway\n", encoding="utf-8")
+            ns = SimpleNamespace(
+                device_cmd="web",
+                target="172.29.128.80",
+                scheme="https",
+                port=443,
+                path="admin",
+                local_port=0,
+                no_browser=True,
+            )
+            output = io.StringIO()
+            with patch(
+                "hyops.blueprint.command._device_context",
+                return_value=(
+                    self.automation,
+                    {"ssh_config": ssh_config, "gateway_alias": "gateway"},
+                    [],
+                ),
+            ), patch(
+                "hyops.blueprint.command.shutil.which",
+                return_value="/usr/bin/ssh",
+            ), redirect_stdout(output):
+                rc = run_device(ns)
+
+        self.assertNotEqual(rc, 0)
+        self.assertIn("--path must begin with one /", output.getvalue())
 
     def test_route_command_uses_existing_ssh_boundary(self) -> None:
         plan = linux_tunnel_plan("demo-lab:gcp/eve-ng@v1")

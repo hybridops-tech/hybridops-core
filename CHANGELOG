@@ -6,9 +6,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added live EVE-NG and GNS3 console discovery so native VNC, Telnet, SPICE and web-console forwards follow nodes during an access session.
 - Added targeted Galaxy collection refresh with `hyops setup galaxy --collection <name>`.
 - Added `hyops blueprint init` and `hyops blueprint edit` as the environment-local blueprint workflow. Initialized blueprints are now the default execution source, while `--file` remains an explicit override.
 - Added managed workstation-to-device automation access for EVE-NG and GNS3, including target discovery, scoped SSH configuration, inventory output, proxy settings, client commands, and optional local routing.
+- Added one-session web access for named or declared device sets, with per-target HTTP or HTTPS settings and loopback-only forwards.
 - Added vault-backed EVE-NG IOL and GNS3 IOU licence placement, checksum-verified image registration, and archive exclusion for licence material.
 - Added a private GCP Containerlab blueprint that preserves native topology semantics and combines host provisioning, KVM readiness, health verification, cost context, and verified off-host recovery state.
 - Added a provider-neutral stop-state verifier for destructive lifecycle decisions.
@@ -18,6 +20,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Changed
 
+- Applied the controlled keep, archive or destroy decision when GNS3 access closes.
 - Pinned `hybridops.app` and `hybridops.helper` to `0.1.9` for the Containerlab and device-automation release set.
 - Expanded CI coverage across the public CLI surface and every shipped blueprint.
 - Aligned source package and runtime version metadata with the `v0.1.4` release line and added regression coverage for installed version reporting.
