@@ -75,6 +75,25 @@ class ProgressDisplayTests(unittest.TestCase):
             "| Network  overall 0%\r\x1b[2K✓ Network  overall 20%\n",
         )
 
+    def test_tty_renders_deferred_status_as_pending(self) -> None:
+        output = _Stream(True)
+        display = ProgressDisplay(enabled=True, show_elapsed=False)
+        with redirect_stdout(output), patch.dict(
+            os.environ, {"NO_COLOR": "1"}
+        ), patch.object(display, "_animate"):
+            display.finish(
+                "healthcheck",
+                "healthcheck",
+                "deferred",
+                plain="ignored",
+                detail="awaiting vm, overall 20%",
+            )
+
+        self.assertEqual(
+            output.getvalue(),
+            "\r\x1b[2K○ healthcheck  awaiting vm, overall 20%\n",
+        )
+
     def test_tty_label_can_be_updated(self) -> None:
         output = _Stream(True)
         display = ProgressDisplay(enabled=True)
