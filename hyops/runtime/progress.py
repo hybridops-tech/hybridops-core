@@ -154,6 +154,7 @@ class ProgressDisplay:
         symbol = {
             "ok": "✓",
             "skipped": "○",
+            "deferred": "○",
             "retained": "○",
             "cancelled": "!",
             "failed-optional": "!",
@@ -161,6 +162,7 @@ class ProgressDisplay:
         tone = {
             "ok": "success",
             "skipped": "warning",
+            "deferred": "warning",
             "retained": "warning",
             "cancelled": "warning",
             "failed-optional": "warning",
