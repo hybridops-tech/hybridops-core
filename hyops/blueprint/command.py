@@ -29,7 +29,11 @@ from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.gcp_cost import estimate_gcp_vm_cost
 from hyops.runtime.layout import ensure_layout
-from hyops.runtime.module_state import read_module_state, split_module_state_ref
+from hyops.runtime.module_state import (
+    read_module_state,
+    split_module_state_ref,
+    write_module_state,
+)
 from hyops.runtime.operator_output import concise_error
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.progress import ProgressDisplay, verbose_enabled
@@ -3632,6 +3636,81 @@ def run_destroy(ns) -> int:
         ),
         show_elapsed=False,
     )
+    deferred_by_parent: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
+
+    def finish_subsumed_steps(parent_id: str) -> list[str]:
+        failures: list[str] = []
+        for child_step, child_result in deferred_by_parent.pop(parent_id, []):
+            child_ref, child_instance = split_module_state_ref(
+                child_step["module_ref"],
+                state_instance=child_step.get("state_instance") or None,
+            )
+            try:
+                previous = read_module_state(
+                    paths.state_dir,
+                    child_ref,
+                    state_instance=child_instance,
+                )
+            except FileNotFoundError:
+                previous = {}
+            except Exception as exc:
+                child_result.update(
+                    {
+                        "status": "failed",
+                        "rc": OPERATOR_ERROR,
+                        "reason": f"failed to read deferred state: {exc}",
+                    }
+                )
+                failures.append(child_step["id"])
+                continue
+
+            state_payload = dict(previous)
+            state_payload.update(
+                {
+                    "module_ref": child_ref,
+                    "status": "destroyed",
+                    "updated_at": datetime.now(timezone.utc).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                    "outputs": {},
+                    "output_count": 0,
+                    "destroyed_by_blueprint_step": parent_id,
+                }
+            )
+            for transient_key in (
+                "active_command",
+                "failed_command",
+                "last_error",
+                "mutation_started",
+            ):
+                state_payload.pop(transient_key, None)
+            if child_instance:
+                state_payload["state_instance"] = child_instance
+            try:
+                write_module_state(
+                    paths.state_dir,
+                    child_ref,
+                    state_payload,
+                    state_instance=child_instance,
+                )
+            except Exception as exc:
+                child_result.update(
+                    {
+                        "status": "failed",
+                        "rc": OPERATOR_ERROR,
+                        "reason": f"parent was destroyed but child state update failed: {exc}",
+                    }
+                )
+                failures.append(child_step["id"])
+                continue
+            child_result.update(
+                {
+                    "status": "subsumed",
+                    "rc": 0,
+                    "reason": f"destroyed with parent step {parent_id}",
+                }
+            )
+        return failures
 
     total_steps = len(destroy_order)
     for step_position, step_id in enumerate(destroy_order, start=1):
@@ -3685,6 +3764,32 @@ def run_destroy(ns) -> int:
                 "skipped",
                 plain=f"step={step_id} status=skipped reason={reason}",
                 detail=f"{reason}, {completed_detail}",
+            )
+            if state_status in {"destroyed", "absent"}:
+                required_failures.extend(finish_subsumed_steps(step_id))
+            continue
+
+        destroy_parent = str(step.get("destroy_subsumed_by") or "").strip()
+        if destroy_parent:
+            result = dict(base)
+            result.update(
+                {
+                    "status": "deferred",
+                    "reason": f"destroyed with parent step {destroy_parent}",
+                    "rc": 0,
+                }
+            )
+            step_results.append(result)
+            deferred_by_parent.setdefault(destroy_parent, []).append((step, result))
+            progress.finish(
+                step_id,
+                step_id,
+                "deferred",
+                plain=(
+                    f"step={step_id} status=deferred "
+                    f"reason=destroy-subsumed-by-{destroy_parent}"
+                ),
+                detail=f"awaiting {destroy_parent}, {completed_detail}",
             )
             continue
 
@@ -3744,6 +3849,7 @@ def run_destroy(ns) -> int:
                 plain=f"step={step_id} status=ok progress={progress_after}%",
                 detail=completed_detail,
             )
+            required_failures.extend(finish_subsumed_steps(step_id))
             continue
 
         result = dict(base)
@@ -3787,6 +3893,18 @@ def run_destroy(ns) -> int:
             print(f"error: {failure_detail}", file=sys.stderr)
         if fail_fast:
             break
+
+    for parent_id, pending in deferred_by_parent.items():
+        for child_step, child_result in pending:
+            child_result.update(
+                {
+                    "status": "failed",
+                    "rc": OPERATOR_ERROR,
+                    "reason": f"parent step {parent_id} was not confirmed destroyed",
+                }
+            )
+            if child_step["id"] not in required_failures:
+                required_failures.append(child_step["id"])
 
     final_status = "ok" if not required_failures else "failed"
     if cancelled:

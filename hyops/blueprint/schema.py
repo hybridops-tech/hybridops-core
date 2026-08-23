@@ -459,6 +459,13 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             norm_token = normalize_state_instance(token)
             state_instance = norm_token or ""
 
+        destroy_subsumed_by = ""
+        if step.get("destroy_subsumed_by") is not None:
+            destroy_subsumed_by = as_non_empty_string(
+                step.get("destroy_subsumed_by"),
+                f"steps[{idx}].destroy_subsumed_by",
+            )
+
         presentation: dict[str, Any] = {}
         raw_presentation = step.get("presentation")
         if raw_presentation is not None:
@@ -571,6 +578,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                     step.get("retain_on_destroy"),
                     f"steps[{idx}].retain_on_destroy",
                 ),
+                "destroy_subsumed_by": destroy_subsumed_by,
                 "destroy_gate": bool_field(
                     step.get("destroy_gate"),
                     f"steps[{idx}].destroy_gate",
@@ -585,6 +593,21 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         )
 
     id_set = {s["id"] for s in steps}
+    by_id = {s["id"]: s for s in steps}
+
+    def depends_on(step_id: str, required_id: str) -> bool:
+        pending = list(by_id[step_id]["requires"])
+        visited: set[str] = set()
+        while pending:
+            candidate = pending.pop()
+            if candidate == required_id:
+                return True
+            if candidate in visited or candidate not in by_id:
+                continue
+            visited.add(candidate)
+            pending.extend(by_id[candidate]["requires"])
+        return False
+
     for step in steps:
         for req in step["requires"]:
             if req not in id_set:
@@ -597,6 +620,22 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             if step["optional"] or step["retain_on_destroy"]:
                 raise ValueError(
                     f"step '{step['id']}' destroy_gate cannot be optional or retained"
+                )
+        destroy_parent = step["destroy_subsumed_by"]
+        if destroy_parent:
+            if destroy_parent not in id_set:
+                raise ValueError(
+                    f"step '{step['id']}' destroy_subsumed_by references unknown step "
+                    f"'{destroy_parent}'"
+                )
+            if not depends_on(step["id"], destroy_parent):
+                raise ValueError(
+                    f"step '{step['id']}' destroy_subsumed_by must reference an "
+                    "upstream dependency"
+                )
+            if step["retain_on_destroy"] or step["destroy_gate"]:
+                raise ValueError(
+                    f"step '{step['id']}' destroy_subsumed_by cannot be retained or a destroy gate"
                 )
 
     order = topological_order(steps)

@@ -125,6 +125,7 @@ steps:
       - gcp_gns3_vm
     with_deps: false
     skip_if_state_ok: false
+    destroy_subsumed_by: gcp_gns3_vm
     contracts:
       addressing_mode: "static"
     inputs:
@@ -155,6 +156,7 @@ steps:
       - gcp_gns3_server
     with_deps: false
     skip_if_state_ok: false
+    destroy_subsumed_by: gcp_gns3_vm
     contracts:
       addressing_mode: "static"
     inputs:
@@ -200,6 +202,7 @@ steps:
       - gcp_gns3_images
     with_deps: false
     skip_if_state_ok: false
+    destroy_subsumed_by: gcp_gns3_vm
     contracts:
       addressing_mode: "static"
     inputs:
@@ -225,6 +228,7 @@ steps:
       - gcp_gns3_starter_lab
     with_deps: false
     skip_if_state_ok: false
+    destroy_subsumed_by: gcp_gns3_vm
     contracts:
       addressing_mode: "static"
     inputs:

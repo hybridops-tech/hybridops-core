@@ -26,6 +26,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Allowed disposable GNS3 guest operations to be cleared with their parent VM when guest SSH is unavailable during teardown.
 - Preserved concise module failure details after a blueprint progress step fails.
 - Surfaced EVE-NG IOL licence mismatches with the target hostname and Linux host ID before any image changes.
 - Reported the complete configured EVE-NG image set, including operator-supplied IOL images, in blueprint progress output.

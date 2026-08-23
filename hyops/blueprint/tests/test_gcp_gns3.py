@@ -30,6 +30,10 @@ class GCPGNS3BlueprintTest(TestCase):
         for step in self.blueprint["steps"][2:]:
             self.assertEqual(step["inputs"]["ssh_access_mode"], "gcp-iap")
 
+    def test_guest_operations_are_destroyed_with_disposable_vm(self) -> None:
+        for step in self.blueprint["steps"][2:]:
+            self.assertEqual(step["destroy_subsumed_by"], "gcp_gns3_vm")
+
     def test_access_uses_loopback_iap_forward(self) -> None:
         access = self.blueprint["access"]
         self.assertEqual(access["type"], "gcp-iap-ssh-forward")
