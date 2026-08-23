@@ -840,26 +840,36 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
 
     device_web = device_commands.add_parser(
         "web",
-        help="Open a device web interface through the managed lab gateway.",
+        help="Open device web interfaces through the managed lab gateway.",
     )
     add_device_args(device_web)
-    device_web.add_argument("target", help="Device name or management IPv4 address.")
+    device_web.add_argument(
+        "target",
+        nargs="*",
+        help="One or more device names or management IPv4 addresses.",
+    )
+    device_web.add_argument(
+        "--all",
+        dest="all_targets",
+        action="store_true",
+        help="Open every target that declares a web service.",
+    )
     device_web.add_argument(
         "--scheme",
         choices=("http", "https"),
-        default="https",
-        help="Remote web scheme (default: https).",
+        default=None,
+        help="Override the declared remote web scheme.",
     )
     device_web.add_argument(
         "--port",
         type=int,
-        default=0,
-        help="Remote web port (default: 443 for https or 80 for http).",
+        default=None,
+        help="Override the declared remote web port.",
     )
     device_web.add_argument(
         "--path",
-        default="/",
-        help="URL path to open (default: /).",
+        default=None,
+        help="Override the declared URL path.",
     )
     device_web.add_argument(
         "--local-port",
@@ -867,10 +877,16 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default=0,
         help="Local loopback port (default: choose an available port).",
     )
-    device_web.add_argument(
+    browser_mode = device_web.add_mutually_exclusive_group()
+    browser_mode.add_argument(
         "--no-browser",
         action="store_true",
         help="Do not open the default browser.",
+    )
+    browser_mode.add_argument(
+        "--open-all",
+        action="store_true",
+        help="Open every local URL when several targets are selected.",
     )
     device_web.set_defaults(_handler=run_device)
 
@@ -1162,6 +1178,181 @@ def _resolve_device_target(
     return str(address), None
 
 
+def _device_web_requests(
+    ns,
+    automation: dict[str, Any],
+    targets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    raw_targets = getattr(ns, "target", []) or []
+    if isinstance(raw_targets, str):
+        target_tokens = [raw_targets]
+    else:
+        target_tokens = [str(item) for item in raw_targets]
+    target_tokens = [item.strip() for item in target_tokens if item.strip()]
+    use_all = bool(getattr(ns, "all_targets", False))
+    if use_all and target_tokens:
+        raise ValueError("device web accepts target names or --all, not both")
+    if use_all:
+        selected = [
+            (str(target["host"]), target)
+            for target in targets
+            if isinstance(target.get("web"), dict)
+        ]
+        if not selected:
+            raise ValueError(
+                "no targets declare web access; run device edit and add a web mapping"
+            )
+    else:
+        if not target_tokens:
+            raise ValueError("device web requires at least one target or --all")
+        selected = [
+            _resolve_device_target(token, automation, targets)
+            for token in target_tokens
+        ]
+
+    scheme_override = str(getattr(ns, "scheme", None) or "").strip().lower()
+    if scheme_override and scheme_override not in {"http", "https"}:
+        raise ValueError("--scheme must be http or https")
+    port_override = int(getattr(ns, "port", None) or 0)
+    if port_override and not 1 <= port_override <= 65535:
+        raise ValueError("--port must be between 1 and 65535")
+    path_override = getattr(ns, "path", None)
+    if path_override is not None:
+        path_override = str(path_override or "/")
+        if not path_override.startswith("/") or path_override.startswith("//"):
+            raise ValueError("--path must begin with one /")
+
+    requests: list[dict[str, Any]] = []
+    seen_addresses: set[str] = set()
+    for address, target in selected:
+        if address in seen_addresses:
+            raise ValueError(f"device web target is duplicated: {address}")
+        seen_addresses.add(address)
+        declared = target.get("web") if target else None
+        web = declared if isinstance(declared, dict) else {}
+        scheme = scheme_override or str(web.get("scheme") or "https")
+        remote_port = port_override or int(
+            web.get("port") or (443 if scheme == "https" else 80)
+        )
+        path = str(
+            path_override if path_override is not None else web.get("path") or "/"
+        )
+        requests.append(
+            {
+                "address": address,
+                "label": str(target["name"] if target else address),
+                "scheme": scheme,
+                "remote_port": remote_port,
+                "path": path,
+            }
+        )
+    return requests
+
+
+def _run_device_web(
+    ns,
+    *,
+    ssh: str,
+    ssh_config: Path,
+    gateway_alias: str,
+    automation: dict[str, Any],
+    targets: list[dict[str, Any]],
+) -> int:
+    requests = _device_web_requests(ns, automation, targets)
+    requested_local_port = int(getattr(ns, "local_port", 0) or 0)
+    if requested_local_port and len(requests) > 1:
+        raise ValueError("--local-port is available only with one device web target")
+
+    sessions: list[dict[str, Any]] = []
+    try:
+        for request in requests:
+            local_port = _available_local_port(requested_local_port)
+            _require_local_ports_available([local_port])
+            argv = [
+                ssh,
+                "-F",
+                str(ssh_config),
+                "-N",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-L",
+                (
+                    f"127.0.0.1:{local_port}:{request['address']}:"
+                    f"{request['remote_port']}"
+                ),
+                gateway_alias,
+            ]
+            proc = subprocess.Popen(
+                argv,
+                cwd=str(Path.home()),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                _wait_for_local_port(local_port, proc)
+            except Exception:
+                _stop_process(proc)
+                raise
+            local_url = (
+                f"{request['scheme']}://127.0.0.1:{local_port}{request['path']}"
+            )
+            target_url = (
+                f"{request['scheme']}://{request['address']}:"
+                f"{request['remote_port']}{request['path']}"
+            )
+            sessions.append(
+                {
+                    "label": request["label"],
+                    "local_url": local_url,
+                    "target_url": target_url,
+                    "proc": proc,
+                }
+            )
+
+        if len(sessions) == 1:
+            session = sessions[0]
+            print(f"device web access: {session['label']}")
+            print(f"local URL: {session['local_url']}")
+            print(f"target: {session['target_url']}")
+        else:
+            print(f"device web access: {len(sessions)} targets")
+            for session in sessions:
+                print(
+                    f"- {session['label']}  local={session['local_url']}  "
+                    f"target={session['target_url']}"
+                )
+        print("press Ctrl-C to close access")
+
+        open_all = bool(getattr(ns, "open_all", False))
+        no_browser = bool(getattr(ns, "no_browser", False))
+        if len(sessions) > 1 and not no_browser and not open_all:
+            print("browser: not opened; use --open-all to open every URL")
+        if not no_browser and (len(sessions) == 1 or open_all):
+            for session in sessions:
+                open_operator_url(str(session["local_url"]))
+
+        while True:
+            for session in sessions:
+                proc = session["proc"]
+                return_code = proc.poll()
+                if return_code is None:
+                    continue
+                detail = (proc.stderr.read() if proc.stderr else "").strip()
+                raise ValueError(
+                    detail
+                    or f"device web tunnel for {session['label']} exited with "
+                    f"rc={return_code}"
+                )
+            time.sleep(0.25)
+    except KeyboardInterrupt:
+        print("device web access closed")
+        return 0
+    finally:
+        for session in reversed(sessions):
+            _stop_process(session["proc"])
+
+
 def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
     required = {
         "SSH configuration": Path(material["ssh_config"]),
@@ -1243,9 +1434,13 @@ def run_device(ns) -> int:
                     user = str(target["user"])
                     if source == "DHCP" and user == automation["default_user"]:
                         user += " (default)"
+                    web = target.get("web")
+                    web_summary = ""
+                    if isinstance(web, dict):
+                        web_summary = f"  web={web['scheme']}:{web['port']}"
                     print(
                         f"{target['name']}  {target['host']}  user={user}  "
-                        f"port={target['port']}  {platform}  {source}"
+                        f"port={target['port']}  {platform}  {source}{web_summary}"
                     )
             return 0
 
@@ -1312,55 +1507,14 @@ def run_device(ns) -> int:
                 print(f"edit: {_device_edit_command(ns)}")
             return int(result.returncode)
         if action == "web":
-            address, target = _resolve_device_target(ns.target, automation, targets)
-            scheme = str(getattr(ns, "scheme", "https") or "https")
-            remote_port = int(getattr(ns, "port", 0) or (443 if scheme == "https" else 80))
-            if not 1 <= remote_port <= 65535:
-                raise ValueError("--port must be between 1 and 65535")
-            path = str(getattr(ns, "path", "/") or "/")
-            if not path.startswith("/") or path.startswith("//"):
-                raise ValueError("--path must begin with one /")
-            local_port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
-            _require_local_ports_available([local_port])
-            label = str(target["name"] if target else address)
-            argv = [
-                ssh,
-                "-F",
-                str(ssh_config),
-                "-N",
-                "-o",
-                "ExitOnForwardFailure=yes",
-                "-L",
-                f"127.0.0.1:{local_port}:{address}:{remote_port}",
-                str(material["gateway_alias"]),
-            ]
-            proc: subprocess.Popen | None = None
-            try:
-                proc = subprocess.Popen(
-                    argv,
-                    cwd=str(Path.home()),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-                _wait_for_local_port(local_port, proc)
-                local_url = f"{scheme}://127.0.0.1:{local_port}{path}"
-                print(f"device web access: {label}")
-                print(f"local URL: {local_url}")
-                print(f"target: {scheme}://{address}:{remote_port}{path}")
-                print("press Ctrl-C to close access")
-                if not bool(getattr(ns, "no_browser", False)):
-                    open_operator_url(local_url)
-                return_code = proc.wait()
-                if return_code:
-                    detail = (proc.stderr.read() if proc.stderr else "").strip()
-                    raise ValueError(detail or f"device web tunnel exited with rc={return_code}")
-                return 0
-            except KeyboardInterrupt:
-                print("device web access closed")
-                return 0
-            finally:
-                _stop_process(proc)
+            return _run_device_web(
+                ns,
+                ssh=ssh,
+                ssh_config=ssh_config,
+                gateway_alias=str(material["gateway_alias"]),
+                automation=automation,
+                targets=targets,
+            )
         if action in {"shell", "run"}:
             environment = _device_process_environment(material)
             if action == "shell":
@@ -1545,7 +1699,7 @@ def _wait_for_local_port(
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"IAP SSH tunnel exited with rc={proc.returncode}")
+            raise RuntimeError(f"SSH tunnel exited with rc={proc.returncode}")
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             probe.bind(("127.0.0.1", port))
@@ -1555,7 +1709,7 @@ def _wait_for_local_port(
         finally:
             probe.close()
         time.sleep(0.25)
-    raise TimeoutError("timed out waiting for the local IAP SSH tunnel")
+    raise TimeoutError("timed out waiting for the local SSH tunnel")
 
 
 def _parse_eve_qemu_console_ports(output: str) -> list[int]:

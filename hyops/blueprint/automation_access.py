@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 _TARGET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+_WEB_SCHEMES = {"http", "https"}
 
 
 def _safe_name(value: str, *, fallback: str = "device") -> str:
@@ -177,19 +178,41 @@ def _load_targets(path: Path, management_cidr: str) -> list[dict[str, Any]]:
         mac = str(raw.get("mac") or "").strip().lower()
         source = str(raw.get("source") or "").strip()
         platform = str(raw.get("platform") or "").strip()
-        targets.append(
-            {
-                "name": name,
-                "host": str(address),
-                "user": user,
-                "port": port,
-                "identity_file": identity,
-                "groups": list(dict.fromkeys(groups)),
-                "mac": mac,
-                "source": source,
-                "platform": platform,
-            }
-        )
+        web_raw = raw.get("web")
+        web: dict[str, Any] | None = None
+        if web_raw is not None:
+            if not isinstance(web_raw, dict):
+                raise ValueError(f"automation target {name} web must be a mapping")
+            scheme = str(web_raw.get("scheme") or "https").strip().lower()
+            if scheme not in _WEB_SCHEMES:
+                raise ValueError(
+                    f"automation target {name} web scheme must be http or https"
+                )
+            web_port = int(web_raw.get("port") or (443 if scheme == "https" else 80))
+            if not 1 <= web_port <= 65535:
+                raise ValueError(
+                    f"automation target {name} web port must be between 1 and 65535"
+                )
+            web_path = str(web_raw.get("path") or "/").strip()
+            if not web_path.startswith("/") or web_path.startswith("//"):
+                raise ValueError(
+                    f"automation target {name} web path must begin with one /"
+                )
+            web = {"scheme": scheme, "port": web_port, "path": web_path}
+        target = {
+            "name": name,
+            "host": str(address),
+            "user": user,
+            "port": port,
+            "identity_file": identity,
+            "groups": list(dict.fromkeys(groups)),
+            "mac": mac,
+            "source": source,
+            "platform": platform,
+        }
+        if web is not None:
+            target["web"] = web
+        targets.append(target)
     return targets
 
 
@@ -198,6 +221,8 @@ def _target_template(candidates: list[dict[str, Any]], management_label: str) ->
         "# Devices reachable through the HybridOps-managed lab network.",
         f"# Connect a management interface to {management_label}, then set the SSH user.",
         "# identity_file is optional; omit it to use agent, keyboard-interactive, or password auth.",
+        "# Optional web service: web: {scheme: https, port: 443, path: /}",
+        "# device web --all selects only targets that declare web.",
         "version: 1",
         "targets:",
     ]

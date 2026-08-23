@@ -138,10 +138,12 @@ Use the private node-management path with:
 ```bash
 hyops blueprint access --env <env> --ref gcp/containerlab@v1 --automation
 hyops blueprint device list --env <env> --ref gcp/containerlab@v1
-hyops blueprint device web --env <env> --ref gcp/containerlab@v1 <device> --scheme https --port 443
+hyops blueprint device web --env <env> --ref gcp/containerlab@v1 <device> --scheme http --port 80
 ```
 
 HybridOps reads running node addresses from Containerlab inspection output. The default management network is `172.20.20.0/24`; change the runtime blueprint when the topology declares another subnet.
+
+For several interfaces, use `hyops blueprint device edit` to declare each target's web service. The generated file documents the available fields. Open named targets together or use `--all`. One Ctrl-C closes every tunnel. Add `--open-all` to open every URL in the workstation browser.
 
 ## Validated lifecycle
 
