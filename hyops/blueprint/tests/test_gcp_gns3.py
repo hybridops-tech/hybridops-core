@@ -39,6 +39,7 @@ class GCPGNS3BlueprintTest(TestCase):
         self.assertEqual(access["type"], "gcp-iap-ssh-forward")
         self.assertEqual(access["remote_port"], 3080)
         self.assertEqual(access["local_port"], 3080)
+        self.assertTrue(access["offer_destroy_on_close"])
         self.assertFalse(access["open_browser"])
         self.assertEqual(
             access["automation"]["management_cidr"],

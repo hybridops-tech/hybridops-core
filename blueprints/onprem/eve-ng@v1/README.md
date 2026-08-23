@@ -86,6 +86,8 @@ Open the private UI:
 hyops blueprint access --env <env> --ref onprem/eve-ng@v1
 ```
 
+Add `--native-consoles` to follow active QEMU VNC ports during the session. New node consoles are forwarded on loopback as they start. The workstation must have a VNC handler registered for links opened by EVE-NG.
+
 Connect a device management interface to `Cloud8`, then add `--automation` to
 open a private workstation-to-device path. HybridOps writes the SSH config,
 device target file and automation inventory under the selected environment.

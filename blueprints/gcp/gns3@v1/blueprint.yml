@@ -20,6 +20,7 @@ access:
   remote_port: 3080
   local_port: 3080
   open_browser: false
+  offer_destroy_on_close: true
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
   automation:

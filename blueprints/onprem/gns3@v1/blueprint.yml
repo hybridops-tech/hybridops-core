@@ -19,6 +19,7 @@ access:
   state_ref: "platform/onprem/platform-vm#gns3_vm"
   remote_port: 3080
   local_port: 3080
+  offer_destroy_on_close: true
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
   automation:

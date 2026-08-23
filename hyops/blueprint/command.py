@@ -1500,7 +1500,79 @@ def _require_local_ports_available(ports: list[int]) -> None:
 def _native_console_status(ports: list[int]) -> str:
     if ports:
         return "native console ports: " + ", ".join(str(item) for item in ports)
-    return "native consoles: no active QEMU nodes; web access remains available"
+    return "native consoles: waiting for active QEMU nodes"
+
+
+def _discover_eve_qemu_console_ports(
+    ssh_base: list[str],
+    ssh_target: str,
+    known_hosts_file: Path,
+) -> list[int]:
+    probe = subprocess.run(
+        [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
+        cwd=str(Path.home()),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=20,
+        check=False,
+    )
+    if probe.returncode != 0:
+        raise ValueError(
+            "failed to discover native EVE-NG consoles: "
+            + _ssh_access_error(probe.stderr, known_hosts_file)
+        )
+    return _parse_eve_qemu_console_ports(probe.stdout)
+
+
+def _native_console_refresher(
+    *,
+    ssh_base: list[str],
+    ssh_target: str,
+    known_hosts_file: Path,
+    forwarded_ports: list[int],
+) -> tuple[Callable[[], None], Callable[[], None]]:
+    forwarded = set(forwarded_ports)
+    processes: dict[int, subprocess.Popen] = {}
+    failed: set[int] = set()
+
+    def refresh() -> None:
+        active = _discover_eve_qemu_console_ports(
+            ssh_base,
+            ssh_target,
+            known_hosts_file,
+        )
+        for port in active:
+            if port in forwarded:
+                continue
+            proc: subprocess.Popen | None = None
+            try:
+                _require_local_ports_available([port])
+                argv = [*ssh_base, "-N", "-o", "ExitOnForwardFailure=yes"]
+                argv.extend(["-L", f"127.0.0.1:{port}:127.0.0.1:{port}"])
+                argv.append(ssh_target)
+                proc = subprocess.Popen(argv, cwd=str(Path.home()))
+                _wait_for_local_port(port, proc, timeout_s=10)
+            except Exception as exc:
+                _stop_process(proc)
+                if port not in failed:
+                    print(
+                        f"WARN: native console port {port} could not be forwarded: {exc}",
+                        flush=True,
+                    )
+                    failed.add(port)
+                continue
+            processes[port] = proc
+            forwarded.add(port)
+            failed.discard(port)
+            print(f"native console available: vnc://127.0.0.1:{port}", flush=True)
+
+    def stop() -> None:
+        for proc in processes.values():
+            _stop_process(proc)
+        processes.clear()
+
+    return refresh, stop
 
 
 def _print_native_console_client_guidance() -> None:
@@ -2166,7 +2238,29 @@ def _wait_for_access_processes(
         time.sleep(0.5)
 
 
+def _combine_maintenance(
+    *callbacks: Callable[[], None] | None,
+) -> Callable[[], None] | None:
+    active = tuple(callback for callback in callbacks if callback is not None)
+    if not active:
+        return None
+
+    def run() -> None:
+        first_error: Exception | None = None
+        for callback in active:
+            try:
+                callback()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
+
+    return run
+
+
 def run_access(ns) -> int:
+    native_console_stop: Callable[[], None] | None = None
     try:
         payload = _resolve_and_validate(ns)
         access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
@@ -2239,21 +2333,11 @@ def run_access(ns) -> int:
             if bool(getattr(ns, "native_consoles", False)):
                 if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
                     raise ValueError("blueprint does not declare native EVE-NG console access")
-                probe = subprocess.run(
-                    [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
-                    cwd=str(Path.home()),
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=20,
-                    check=False,
+                console_ports = _discover_eve_qemu_console_ports(
+                    ssh_base,
+                    ssh_target,
+                    known_hosts_file,
                 )
-                if probe.returncode != 0:
-                    raise ValueError(
-                        "failed to discover native EVE-NG consoles: "
-                        + _ssh_access_error(probe.stderr, known_hosts_file)
-                    )
-                console_ports = _parse_eve_qemu_console_ports(probe.stdout)
                 if console_ports:
                     _require_local_ports_available(console_ports)
 
@@ -2312,8 +2396,6 @@ def run_access(ns) -> int:
             if bool(getattr(ns, "native_consoles", False)):
                 _print_native_console_client_guidance()
                 print(_native_console_status(console_ports))
-                if not console_ports:
-                    print("native console setup: start a QEMU node, then rerun access with --native-consoles")
             proc = subprocess.Popen(argv, cwd=str(Path.home()))
             time.sleep(2)
             if proc.poll() is not None:
@@ -2333,6 +2415,18 @@ def run_access(ns) -> int:
                     socks_port=socks_port,
                     session=automation_session,
                 )
+            native_console_refresh = None
+            if bool(getattr(ns, "native_consoles", False)):
+                native_console_refresh, native_console_stop = _native_console_refresher(
+                    ssh_base=ssh_base,
+                    ssh_target=ssh_target,
+                    known_hosts_file=known_hosts_file,
+                    forwarded_ports=console_ports,
+                )
+            maintenance = _combine_maintenance(
+                automation_refresh,
+                native_console_refresh,
+            )
             route_proc: subprocess.Popen | None = None
             route_plan: dict[str, Any] | None = None
             if automation and bool(getattr(ns, "route_lab", False)):
@@ -2345,6 +2439,8 @@ def run_access(ns) -> int:
                     )
                     _print_lab_route_ready(automation)
                 except BaseException:
+                    if native_console_stop is not None:
+                        native_console_stop()
                     _stop_process(proc)
                     raise
             if access_type != "ssh-tcp-forward" and not bool(
@@ -2356,13 +2452,17 @@ def run_access(ns) -> int:
                 rc = _wait_for_access_processes(
                     proc,
                     route_proc,
-                    maintenance=automation_refresh,
+                    maintenance=maintenance,
                 )
                 _stop_lab_route(route_proc, route_plan)
+                if native_console_stop is not None:
+                    native_console_stop()
                 _stop_process(proc)
                 return rc
             except KeyboardInterrupt:
                 _stop_lab_route(route_proc, route_plan)
+                if native_console_stop is not None:
+                    native_console_stop()
                 _stop_process(proc)
                 print("access closed")
                 return _offer_access_close_destroy(ns, payload, state)
@@ -2423,21 +2523,11 @@ def run_access(ns) -> int:
             if bool(getattr(ns, "native_consoles", False)):
                 if str(access.get("native_console_mode") or "") != "eve-ng-qemu":
                     raise ValueError("blueprint does not declare native EVE-NG console access")
-                probe = subprocess.run(
-                    [*ssh_base, ssh_target, "sudo -n ss -H -lntp"],
-                    cwd=str(Path.home()),
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=20,
-                    check=False,
+                console_ports = _discover_eve_qemu_console_ports(
+                    ssh_base,
+                    ssh_target,
+                    known_hosts_file,
                 )
-                if probe.returncode != 0:
-                    raise ValueError(
-                        "failed to discover native EVE-NG consoles: "
-                        + _ssh_access_error(probe.stderr, known_hosts_file)
-                    )
-                console_ports = _parse_eve_qemu_console_ports(probe.stdout)
                 if console_ports:
                     _require_local_ports_available(console_ports)
             automation_session: dict[str, Any] | None = None
@@ -2503,8 +2593,6 @@ def run_access(ns) -> int:
         if bool(getattr(ns, "native_consoles", False)):
             _print_native_console_client_guidance()
             print(_native_console_status(console_ports))
-            if not console_ports:
-                print("native console setup: start a QEMU node, then rerun access with --native-consoles")
         access_started_at = time.monotonic()
         proc = subprocess.Popen(argv, cwd=str(Path.home()))
         time.sleep(2)
@@ -2526,6 +2614,18 @@ def run_access(ns) -> int:
                 socks_port=socks_port,
                 session=automation_session,
             )
+        native_console_refresh = None
+        if bool(getattr(ns, "native_consoles", False)):
+            native_console_refresh, native_console_stop = _native_console_refresher(
+                ssh_base=ssh_base,
+                ssh_target=ssh_target,
+                known_hosts_file=known_hosts_file,
+                forwarded_ports=console_ports,
+            )
+        maintenance = _combine_maintenance(
+            automation_refresh,
+            native_console_refresh,
+        )
         route_proc: subprocess.Popen | None = None
         route_plan: dict[str, Any] | None = None
         if automation and bool(getattr(ns, "route_lab", False)):
@@ -2538,6 +2638,8 @@ def run_access(ns) -> int:
                 )
                 _print_lab_route_ready(automation)
             except BaseException:
+                if native_console_stop is not None:
+                    native_console_stop()
                 _stop_process(proc)
                 _stop_process(iap_proc)
                 raise
@@ -2548,14 +2650,18 @@ def run_access(ns) -> int:
             rc = _wait_for_access_processes(
                 proc,
                 route_proc,
-                maintenance=automation_refresh,
+                maintenance=maintenance,
             )
             _stop_lab_route(route_proc, route_plan)
+            if native_console_stop is not None:
+                native_console_stop()
             _stop_process(proc)
             _stop_process(iap_proc)
             return rc
         except KeyboardInterrupt:
             _stop_lab_route(route_proc, route_plan)
+            if native_console_stop is not None:
+                native_console_stop()
             _stop_process(proc)
             _stop_process(iap_proc)
             print("access closed")
@@ -2568,6 +2674,8 @@ def run_access(ns) -> int:
                 access_started_at=access_started_at,
             )
     except Exception as exc:
+        if native_console_stop is not None:
+            native_console_stop()
         if "iap_proc" in locals():
             _stop_process(iap_proc)
         print(f"ERR: blueprint access failed: {exc}")

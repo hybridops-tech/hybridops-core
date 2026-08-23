@@ -66,6 +66,8 @@ hyops blueprint access --env <env> --ref gcp/gns3@v1 --automation
 
 HybridOps discovers management leases and produces session-scoped SSH configuration, target data and automation inventory. Linux and WSL can optionally use `--route-lab`; Windows and macOS clients can use the generated SSH configuration or local proxy path.
 
+Closing an interactive access session offers the same keep, archive or destroy decision as an explicit blueprint teardown.
+
 ## Continuity and compute release
 
 The blueprint declares `platform/linux/gns3-lab-archive` as its archive-before-release contract.

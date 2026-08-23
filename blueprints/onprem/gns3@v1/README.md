@@ -71,7 +71,7 @@ password from the environment vault:
 hyops secrets show --env gns3-lab --raw GNS3_SERVER_PASSWORD
 ```
 
-Press Ctrl-C in the access terminal to close the tunnel.
+Press Ctrl-C in the access terminal to close the tunnel. HybridOps then offers to keep the environment, archive its projects before teardown, or destroy without an archive.
 
 ## Default VM
 

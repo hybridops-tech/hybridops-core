@@ -57,6 +57,8 @@ hyops blueprint access --env <env> --ref gcp/eve-ng@v1
 
 The access session resolves the current host from HybridOps state and forwards the EVE-NG interface through IAP. The VM and EVE-NG HTTP service remain private.
 
+Add `--native-consoles` to follow active QEMU VNC ports during the session. New node consoles are forwarded on loopback as they start. The workstation must have a VNC handler registered for links opened by EVE-NG.
+
 For direct automation of topology nodes, connect a management interface to `Cloud8` and run:
 
 ```bash

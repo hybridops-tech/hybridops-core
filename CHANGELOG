@@ -6,6 +6,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added live EVE-NG QEMU console discovery so native VNC forwards follow nodes started during an access session.
 - Added targeted Galaxy collection refresh with `hyops setup galaxy --collection <name>`.
 - Added `hyops blueprint init` and `hyops blueprint edit` as the environment-local blueprint workflow. Initialized blueprints are now the default execution source, while `--file` remains an explicit override.
 - Added managed workstation-to-device automation access for EVE-NG and GNS3, including target discovery, scoped SSH configuration, inventory output, proxy settings, client commands, and optional local routing.
@@ -18,6 +19,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Changed
 
+- Applied the controlled keep, archive or destroy decision when GNS3 access closes.
 - Pinned `hybridops.app` and `hybridops.helper` to `0.1.9` for the Containerlab and device-automation release set.
 - Expanded CI coverage across the public CLI surface and every shipped blueprint.
 - Aligned source package and runtime version metadata with the `v0.1.4` release line and added regression coverage for installed version reporting.

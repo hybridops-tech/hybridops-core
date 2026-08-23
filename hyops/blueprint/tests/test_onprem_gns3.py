@@ -54,6 +54,7 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(access["state_ref"], "platform/onprem/platform-vm#gns3_vm")
         self.assertEqual(access["remote_port"], 3080)
         self.assertEqual(access["local_port"], 3080)
+        self.assertTrue(access["offer_destroy_on_close"])
         self.assertEqual(
             access["automation"]["management_cidr"],
             "172.29.130.0/24",
