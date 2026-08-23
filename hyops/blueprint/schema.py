@@ -266,6 +266,14 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
         raw_automation = raw_access.get("automation")
         if raw_automation is not None:
             automation = as_mapping(raw_automation, "access.automation")
+            discovery_mode = str(
+                automation.get("discovery_mode") or "dnsmasq-leases"
+            ).strip()
+            if discovery_mode not in {"dnsmasq-leases", "containerlab-inspect"}:
+                raise ValueError(
+                    "access.automation.discovery_mode must be dnsmasq-leases or "
+                    "containerlab-inspect"
+                )
             management_cidr = as_non_empty_string(
                 automation.get("management_cidr"),
                 "access.automation.management_cidr",
@@ -290,42 +298,47 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 raise ValueError(
                     "access.automation.management_gateway must be inside management_cidr"
                 )
-            management_dhcp_range = as_non_empty_string(
-                automation.get("management_dhcp_range"),
-                "access.automation.management_dhcp_range",
-            )
-            try:
-                dhcp_start_raw, dhcp_end_raw = management_dhcp_range.split("-", 1)
-                dhcp_start = ipaddress.ip_address(dhcp_start_raw.strip())
-                dhcp_end = ipaddress.ip_address(dhcp_end_raw.strip())
-            except ValueError as exc:
-                raise ValueError(
-                    "access.automation.management_dhcp_range must be START-END"
-                ) from exc
-            reserved_addresses = {
-                management_network.network_address,
-                management_network.broadcast_address,
-            }
-            if (
-                dhcp_start.version != 4
-                or dhcp_end.version != 4
-                or dhcp_start not in management_network
-                or dhcp_end not in management_network
-                or int(dhcp_start) > int(dhcp_end)
-                or dhcp_start in reserved_addresses
-                or dhcp_end in reserved_addresses
-                or int(dhcp_start) <= int(gateway_address) <= int(dhcp_end)
-            ):
-                raise ValueError(
-                    "access.automation.management_dhcp_range must contain an "
-                    "ordered, usable range inside management_cidr"
+            management_dhcp_range = ""
+            lease_file = ""
+            if discovery_mode == "dnsmasq-leases":
+                management_dhcp_range = as_non_empty_string(
+                    automation.get("management_dhcp_range"),
+                    "access.automation.management_dhcp_range",
                 )
-            lease_file = as_non_empty_string(
-                automation.get("lease_file"),
-                "access.automation.lease_file",
-            )
-            if not lease_file.startswith("/"):
-                raise ValueError("access.automation.lease_file must be an absolute path")
+                try:
+                    dhcp_start_raw, dhcp_end_raw = management_dhcp_range.split("-", 1)
+                    dhcp_start = ipaddress.ip_address(dhcp_start_raw.strip())
+                    dhcp_end = ipaddress.ip_address(dhcp_end_raw.strip())
+                except ValueError as exc:
+                    raise ValueError(
+                        "access.automation.management_dhcp_range must be START-END"
+                    ) from exc
+                reserved_addresses = {
+                    management_network.network_address,
+                    management_network.broadcast_address,
+                }
+                if (
+                    dhcp_start.version != 4
+                    or dhcp_end.version != 4
+                    or dhcp_start not in management_network
+                    or dhcp_end not in management_network
+                    or int(dhcp_start) > int(dhcp_end)
+                    or dhcp_start in reserved_addresses
+                    or dhcp_end in reserved_addresses
+                    or int(dhcp_start) <= int(gateway_address) <= int(dhcp_end)
+                ):
+                    raise ValueError(
+                        "access.automation.management_dhcp_range must contain an "
+                        "ordered, usable range inside management_cidr"
+                    )
+                lease_file = as_non_empty_string(
+                    automation.get("lease_file"),
+                    "access.automation.lease_file",
+                )
+                if not lease_file.startswith("/"):
+                    raise ValueError(
+                        "access.automation.lease_file must be an absolute path"
+                    )
             local_socks_port = int(automation.get("local_socks_port") or 0)
             if local_socks_port and not 1 <= local_socks_port <= 65535:
                 raise ValueError(
@@ -338,8 +351,9 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 ),
                 "management_cidr": str(management_network),
                 "management_gateway": str(gateway_address),
-                "management_dhcp_range": f"{dhcp_start}-{dhcp_end}",
+                "management_dhcp_range": management_dhcp_range,
                 "lease_file": lease_file,
+                "discovery_mode": discovery_mode,
                 "default_user": str(
                     automation.get("default_user") or "admin"
                 ).strip()

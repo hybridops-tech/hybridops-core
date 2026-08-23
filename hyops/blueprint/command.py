@@ -838,6 +838,42 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     device_ssh.add_argument("target", help="Discovered or operator-defined device name.")
     device_ssh.set_defaults(_handler=run_device)
 
+    device_web = device_commands.add_parser(
+        "web",
+        help="Open a device web interface through the managed lab gateway.",
+    )
+    add_device_args(device_web)
+    device_web.add_argument("target", help="Device name or management IPv4 address.")
+    device_web.add_argument(
+        "--scheme",
+        choices=("http", "https"),
+        default="https",
+        help="Remote web scheme (default: https).",
+    )
+    device_web.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help="Remote web port (default: 443 for https or 80 for http).",
+    )
+    device_web.add_argument(
+        "--path",
+        default="/",
+        help="URL path to open (default: /).",
+    )
+    device_web.add_argument(
+        "--local-port",
+        type=int,
+        default=0,
+        help="Local loopback port (default: choose an available port).",
+    )
+    device_web.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not open the default browser.",
+    )
+    device_web.set_defaults(_handler=run_device)
+
     device_shell = device_commands.add_parser(
         "shell",
         help="Open a shell configured for the active device session.",
@@ -1275,6 +1311,56 @@ def run_device(ns) -> int:
                 print(f"device targets: {material['target_file']}")
                 print(f"edit: {_device_edit_command(ns)}")
             return int(result.returncode)
+        if action == "web":
+            address, target = _resolve_device_target(ns.target, automation, targets)
+            scheme = str(getattr(ns, "scheme", "https") or "https")
+            remote_port = int(getattr(ns, "port", 0) or (443 if scheme == "https" else 80))
+            if not 1 <= remote_port <= 65535:
+                raise ValueError("--port must be between 1 and 65535")
+            path = str(getattr(ns, "path", "/") or "/")
+            if not path.startswith("/") or path.startswith("//"):
+                raise ValueError("--path must begin with one /")
+            local_port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
+            _require_local_ports_available([local_port])
+            label = str(target["name"] if target else address)
+            argv = [
+                ssh,
+                "-F",
+                str(ssh_config),
+                "-N",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-L",
+                f"127.0.0.1:{local_port}:{address}:{remote_port}",
+                str(material["gateway_alias"]),
+            ]
+            proc: subprocess.Popen | None = None
+            try:
+                proc = subprocess.Popen(
+                    argv,
+                    cwd=str(Path.home()),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                _wait_for_local_port(local_port, proc)
+                local_url = f"{scheme}://127.0.0.1:{local_port}{path}"
+                print(f"device web access: {label}")
+                print(f"local URL: {local_url}")
+                print(f"target: {scheme}://{address}:{remote_port}{path}")
+                print("press Ctrl-C to close access")
+                if not bool(getattr(ns, "no_browser", False)):
+                    open_operator_url(local_url)
+                return_code = proc.wait()
+                if return_code:
+                    detail = (proc.stderr.read() if proc.stderr else "").strip()
+                    raise ValueError(detail or f"device web tunnel exited with rc={return_code}")
+                return 0
+            except KeyboardInterrupt:
+                print("device web access closed")
+                return 0
+            finally:
+                _stop_process(proc)
         if action in {"shell", "run"}:
             environment = _device_process_environment(material)
             if action == "shell":
@@ -2082,6 +2168,21 @@ def _read_automation_leases(
     ssh_target: str,
     automation: dict[str, Any],
 ) -> str:
+    if automation.get("discovery_mode") == "containerlab-inspect":
+        result = subprocess.run(
+            [
+                *ssh_base,
+                ssh_target,
+                "sudo -n containerlab inspect --all -f json",
+            ],
+            cwd=str(Path.home()),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+        return result.stdout if result.returncode == 0 else ""
     lease_file = str(automation.get("lease_file") or "").strip()
     if not lease_file:
         return ""
@@ -2133,6 +2234,7 @@ def _prepare_automation_access(
         gateway=gateway,
         socks_port=socks_port,
         lease_text=lease_text,
+        discovery_text=lease_text,
         target_file_override=str(getattr(ns, "targets", "") or ""),
     )
     return socks_port, session
@@ -2165,6 +2267,7 @@ def _automation_refresher(
             gateway=gateway,
             socks_port=socks_port,
             lease_text=lease_text,
+            discovery_text=lease_text,
         )
         added = list(updated.get("new_targets") or [])
         session.clear()
@@ -2191,7 +2294,10 @@ def _print_automation_access(
         f"{automation['management_network_label']} "
         f"({automation['management_cidr']})"
     )
-    print("device discovery: watching management-network DHCP leases")
+    if automation.get("discovery_mode") == "containerlab-inspect":
+        print("device discovery: reading Containerlab runtime state")
+    else:
+        print("device discovery: watching management-network DHCP leases")
     print("device commands: hyops blueprint device --help")
     if verbose_enabled():
         print(f"device proxy: {session['socks_proxy']}")

@@ -133,6 +133,16 @@ The estimate provides lifecycle decision context. GCP billing remains authoritat
 127.0.0.1:2222
 ```
 
+Use the private node-management path with:
+
+```bash
+hyops blueprint access --env <env> --ref gcp/containerlab@v1 --automation
+hyops blueprint device list --env <env> --ref gcp/containerlab@v1
+hyops blueprint device web --env <env> --ref gcp/containerlab@v1 <device> --scheme https --port 443
+```
+
+HybridOps reads running node addresses from Containerlab inspection output. The default management network is `172.20.20.0/24`; change the runtime blueprint when the topology declares another subnet.
+
 ## Validated lifecycle
 
 The GCP acceptance path established that:

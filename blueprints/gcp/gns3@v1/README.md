@@ -68,6 +68,14 @@ hyops blueprint access --env <env> --ref gcp/gns3@v1 --automation
 
 HybridOps discovers management leases and produces session-scoped SSH configuration, target data and automation inventory. Linux and WSL can optionally use `--route-lab`; Windows and macOS clients can use the generated SSH configuration or local proxy path.
 
+While that session remains open, expose a device web interface on loopback:
+
+```bash
+hyops blueprint device web --env <env> --ref gcp/gns3@v1 <device> --scheme https --port 443
+```
+
+The device may be identified by target name or management IP. Appliance certificates may produce the expected local browser warning.
+
 Closing an interactive access session offers the same keep, archive or destroy decision as an explicit blueprint teardown.
 
 ## Continuity and compute release
