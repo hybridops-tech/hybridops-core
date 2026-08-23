@@ -44,6 +44,10 @@ class OnPremGNS3BlueprintTest(TestCase):
         self.assertEqual(server_step["inputs"]["gns3_server_port"], 3080)
         self.assertTrue(server_step["inputs"]["gns3_server_require_kvm"])
 
+    def test_guest_operations_are_destroyed_with_disposable_vm(self) -> None:
+        for step in self.blueprint["steps"][2:]:
+            self.assertEqual(step["destroy_subsumed_by"], "gns3_vm")
+
     def test_desktop_client_access_uses_private_tcp_forward(self) -> None:
         access = self.blueprint["access"]
         self.assertEqual(access["type"], "ssh-tcp-forward")

@@ -97,6 +97,7 @@ steps:
     action: "deploy"
     phase: "operations"
     with_deps: false
+    destroy_subsumed_by: gns3_vm
     requires:
       - gns3_vm
     contracts:
@@ -123,6 +124,7 @@ steps:
     action: "deploy"
     phase: "operations"
     with_deps: false
+    destroy_subsumed_by: gns3_vm
     requires:
       - gns3_server
     contracts:
@@ -164,6 +166,7 @@ steps:
     action: "deploy"
     phase: "operations"
     with_deps: false
+    destroy_subsumed_by: gns3_vm
     requires:
       - gns3_images
     contracts:
@@ -185,6 +188,7 @@ steps:
     action: "deploy"
     phase: "operations"
     with_deps: false
+    destroy_subsumed_by: gns3_vm
     requires:
       - gns3_starter_lab
     contracts:
