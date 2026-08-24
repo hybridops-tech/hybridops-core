@@ -18,6 +18,27 @@ They package repeatable outcomes, not implementation details.
 - `contracts`: per-step delivery contracts (`addressing_mode`, required upstream state).
 - `verification`: probes remain module-level and run records remain deterministic.
 
+### Completion boundary
+
+A successful step proves only the lifecycle that its module or native controller
+owns. It does not automatically prove that the blueprint's requested outcome is
+ready for use.
+
+For example, an infrastructure controller can finish provisioning a host while
+the service or cluster role intended for that host is still not ready. The
+controller's reported state remains authoritative for provisioning. If a later
+system owns role readiness, represent that condition as a required downstream
+step or module-owned probe instead of reinterpreting the provisioning state.
+
+A blueprint is complete only after its required chain and the readiness or
+verification checks declared by those modules succeed. This keeps the outer
+operation boundary useful without creating a second control loop around the
+native systems.
+
+This distinction was clarified through the Contract Runtime review in
+[#269](https://github.com/hybridops-tech/hybridops-core/issues/269) and the
+resulting [Metal3 community discussion](https://groups.google.com/g/metal3-dev/c/pv9Is4TbQnI?pli=1).
+
 `netbox_live_api_check` notes:
 - Default: `false` (state-based NetBox authority gate only).
 - When `true`, blueprint preflight/deploy also probes live NetBox API reachability and token validity for steps that require NetBox authority/IPAM.
