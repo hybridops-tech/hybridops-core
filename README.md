@@ -50,7 +50,7 @@ See the full [reference scenario library](https://docs.hybridops.tech/reference-
 
 For installation, workstation setup, target initialisation, and first-run guidance, see the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/).
 
-Inspect a shipped blueprint locally:
+You can inspect blueprints locally without cloud credentials or a live environment. These commands validate the manifest and display the execution plan:
 
 ```bash
 hyops blueprint validate --ref onprem/authoritative-foundation@v1
