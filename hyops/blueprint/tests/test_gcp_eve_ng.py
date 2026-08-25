@@ -25,6 +25,14 @@ class GcpEveNgBlueprintTest(TestCase):
             validated["metadata"]["ready_message"],
             "EVE-NG network emulation lab ready",
         )
+        archive = validated["archive_before_destroy"]
+        self.assertTrue(archive["inputs"]["load_vault_env"])
+        self.assertEqual(
+            archive["inputs"]["required_env"], ["EVENG_ADMIN_PASSWORD"]
+        )
+        self.assertTrue(
+            archive["inputs"]["eveng_lab_archive_capture_device_configs"]
+        )
 
         self.assertEqual(
             validated["order"],

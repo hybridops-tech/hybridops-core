@@ -362,6 +362,23 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(selected, "archive")
         self.assertEqual(prompt.call_count, 3)
 
+    def test_archive_choice_describes_preservation_without_extra_mode(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = {"archive_before_destroy": {"module_ref": "platform/test/archive"}}
+
+        with (
+            patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+            patch("hyops.blueprint.command.input", return_value="1"),
+            patch("builtins.print") as output,
+        ):
+            selected = _select_archive_destroy_mode(ns, payload, "test")
+
+        self.assertEqual(selected, "keep")
+        output.assert_any_call("  2. Preserve saved lab state, then destroy")
+        output.assert_any_call("  3. Destroy without preserving lab state")
+
     def test_archive_choice_interrupt_is_a_distinct_cancellation(self):
         ns = _namespace()
         ns.yes = False
@@ -468,6 +485,41 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertIn("archive saved: lab definitions", output)
         self.assertNotIn(str(archive_path), output)
         self.assertNotIn(checksum, output)
+
+    def test_archive_reports_saved_device_configurations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "labs.tar.gz"
+            archive_path.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            payload = {
+                "archive_before_destroy": {
+                    "module_ref": "platform/test/archive",
+                    "state_instance": "lab_archive",
+                    "inputs": {},
+                }
+            }
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive_path),
+                    "eveng_lab_archive_sha256": checksum,
+                    "eveng_lab_archive_device_configs_captured": True,
+                }
+            }
+            stdout = io.StringIO()
+
+            with (
+                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch("hyops.blueprint.command.read_module_state", return_value=state),
+                patch("hyops.blueprint.command.sys.stdout", stdout),
+            ):
+                rc = _run_archive_before_destroy(_namespace(), payload, paths)
+
+        self.assertEqual(rc, 0)
+        self.assertIn(
+            "archive saved: lab definitions, saved device configurations",
+            stdout.getvalue(),
+        )
 
     def test_failed_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))

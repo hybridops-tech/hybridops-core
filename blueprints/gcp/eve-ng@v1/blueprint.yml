@@ -51,7 +51,11 @@ archive_before_destroy:
     target_port: 22
     ssh_private_key_file: "~/.ssh/id_ed25519"
     ssh_access_mode: "gcp-iap"
+    load_vault_env: true
+    required_env:
+      - "EVENG_ADMIN_PASSWORD"
     eveng_lab_archive_action: "export"
+    eveng_lab_archive_capture_device_configs: true
     eveng_lab_archive_include_node_state: true
     eveng_lab_archive_stop_running_nodes: true
 

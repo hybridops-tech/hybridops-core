@@ -5,7 +5,7 @@ module_ref: "platform/linux/eve-ng-lab-archive"
 
 metadata:
   title: "Linux EVE-NG Lab Archive"
-  description: "Export or restore portable EVE-NG lab definitions without retaining the workload VM."
+  description: "Export or restore portable EVE-NG lab definitions, saved configurations and stopped QEMU state without retaining the workload VM."
 
 requirements:
   credentials: []
@@ -57,6 +57,11 @@ inputs:
     eveng_lab_archive_node_state_path: ""
     eveng_lab_archive_node_state_expected_sha256: ""
     eveng_lab_archive_qemu_img: "/opt/qemu/bin/qemu-img"
+    eveng_lab_archive_capture_device_configs: false
+    eveng_lab_archive_api_base_url: "http://127.0.0.1"
+    eveng_lab_archive_api_username: "admin"
+    eveng_lab_archive_api_password_env: "EVENG_ADMIN_PASSWORD"
+    eveng_lab_archive_api_validate_certs: false
 
 execution:
   driver: "config/ansible"
@@ -73,6 +78,8 @@ outputs:
     - eveng_lab_archive_sha256
     - eveng_lab_archive_created_at
     - eveng_lab_archive_folders
+    - eveng_lab_archive_device_configs_captured
+    - eveng_lab_archive_device_config_labs
     - eveng_lab_archive_node_state_included
     - eveng_lab_archive_node_state_archive_path
     - eveng_lab_archive_node_state_sha256

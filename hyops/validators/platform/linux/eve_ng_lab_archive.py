@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import PurePath
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from hyops.validators.common import (
     normalize_required_env,
@@ -101,6 +102,36 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError(
             "inputs.eveng_lab_archive_stop_running_nodes requires an export "
             "that includes node state"
+        )
+    capture_device_configs = data.get("eveng_lab_archive_capture_device_configs")
+    if not isinstance(capture_device_configs, bool):
+        raise ValueError(
+            "inputs.eveng_lab_archive_capture_device_configs must be a boolean"
+        )
+    if capture_device_configs and action != "export":
+        raise ValueError(
+            "inputs.eveng_lab_archive_capture_device_configs requires an export"
+        )
+    api_base_url = require_non_empty_str(
+        data.get("eveng_lab_archive_api_base_url"),
+        "inputs.eveng_lab_archive_api_base_url",
+    )
+    parsed_api_url = urlparse(api_base_url)
+    if parsed_api_url.scheme not in {"http", "https"} or not parsed_api_url.netloc:
+        raise ValueError(
+            "inputs.eveng_lab_archive_api_base_url must be an HTTP or HTTPS URL"
+        )
+    require_non_empty_str(
+        data.get("eveng_lab_archive_api_username"),
+        "inputs.eveng_lab_archive_api_username",
+    )
+    require_non_empty_str(
+        data.get("eveng_lab_archive_api_password_env"),
+        "inputs.eveng_lab_archive_api_password_env",
+    )
+    if not isinstance(data.get("eveng_lab_archive_api_validate_certs"), bool):
+        raise ValueError(
+            "inputs.eveng_lab_archive_api_validate_certs must be a boolean"
         )
     node_state_root = require_non_empty_str(
         data.get("eveng_lab_archive_node_state_root"),
