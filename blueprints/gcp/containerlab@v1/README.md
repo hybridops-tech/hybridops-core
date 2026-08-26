@@ -133,6 +133,13 @@ The estimate provides lifecycle decision context. GCP billing remains authoritat
 127.0.0.1:2222
 ```
 
+Use `--session-minutes <minutes> --on-expiry protected-release` to set a
+planned access limit. The foreground process supervises the limit; the expiry
+action does not continue after that process exits. At expiry, Core runs the
+declared recovery gate before teardown. A failed recovery gate retains the
+environment. Use `hyops blueprint session` to inspect, extend or cancel the
+expiry action.
+
 Use the private node-management path with:
 
 ```bash

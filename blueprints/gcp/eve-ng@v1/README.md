@@ -55,6 +55,25 @@ Open the EVE-NG interface through the managed private path:
 hyops blueprint access --env <env> --ref gcp/eve-ng@v1
 ```
 
+Set a planned session limit when the environment must not remain active:
+
+```bash
+hyops blueprint access \
+  --env <env> \
+  --ref gcp/eve-ng@v1 \
+  --session-minutes 120 \
+  --on-expiry protected-release
+```
+
+The foreground access process supervises the limit and shows the UTC deadline
+and warning intervals. The expiry action does not continue after that process
+exits. At expiry, Core verifies the declared lab archive before teardown. A
+failed archive retains the environment.
+
+Use `hyops blueprint session status`, `hyops blueprint session extend` or
+`hyops blueprint session cancel` with the same environment and blueprint
+reference. Extension also requires `--minutes <minutes>`.
+
 The access session resolves the current host from HybridOps state and forwards the EVE-NG interface through IAP. The VM and EVE-NG HTTP service remain private.
 
 Add `--native-consoles` to follow active QEMU VNC ports during the session. New node consoles are forwarded on loopback as they start. The workstation must have a VNC handler registered for links opened by EVE-NG.
