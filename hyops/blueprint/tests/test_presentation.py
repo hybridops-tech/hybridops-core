@@ -12,6 +12,7 @@ from hyops.blueprint.command import (
     _destroy_preview_label,
     _gcp_cost_estimate_with_progress,
     _new_step_failure_detail,
+    _prompt_yes_no,
     _step_failure_state,
     _step_display_label,
     _step_presentation,
@@ -21,6 +22,23 @@ from hyops.runtime.module_state import write_module_state
 
 
 class BlueprintPresentationTest(TestCase):
+    def test_yes_no_prompt_retries_invalid_input(self):
+        output = io.StringIO()
+
+        with (
+            patch("builtins.input", side_effect=["1", "y"]) as prompt,
+            patch("sys.stdout", output),
+        ):
+            confirmed = _prompt_yes_no("Proceed? [y/N]: ")
+
+        self.assertTrue(confirmed)
+        self.assertEqual(prompt.call_count, 2)
+        self.assertEqual(output.getvalue(), "invalid response; enter y or n\n")
+
+    def test_yes_no_prompt_keeps_no_as_default(self):
+        with patch("builtins.input", return_value=""):
+            self.assertFalse(_prompt_yes_no("Proceed? [y/N]: "))
+
     def test_surfaces_new_module_failure_from_state(self):
         step = {
             "id": "images",
