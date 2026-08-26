@@ -3151,6 +3151,7 @@ def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
             lifecycle.get("restore_overwrite_default", False)
         ),
         "path_output": f"{prefix}_path",
+        "previous_path_output": f"{prefix}_previous_path",
         "sha256_output": f"{prefix}_sha256",
         "node_included_output": f"{prefix}_node_state_included",
         "node_path_output": f"{prefix}_node_state_archive_path",
@@ -4020,6 +4021,11 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         print("ERR: lab archive checksum verification failed; no resources were destroyed")
         return OPERATOR_ERROR
     archive_contents = [contract["contents_label"]]
+    previous_archive_path = Path(
+        str(outputs.get(contract["previous_path_output"]) or "")
+    ).expanduser()
+    if previous_archive_path.is_file():
+        archive_contents.append("previous generation retained")
     verbose = bool(os.getenv("HYOPS_VERBOSE"))
     if verbose:
         print(f"lab archive: {archive_path}")
