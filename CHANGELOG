@@ -29,6 +29,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Reported GCP zonal capacity failures from streamed provider evidence with a
+  concise zone-selection recovery command.
 - Rendered parent-managed destroy steps as pending rather than failed while the parent step is still running.
 - Allowed disposable GNS3 guest operations to be cleared with their parent VM when guest SSH is unavailable during teardown.
 - Preserved concise module failure details after a blueprint progress step fails.
