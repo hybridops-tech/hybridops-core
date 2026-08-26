@@ -65,6 +65,35 @@ class AnsibleResultHintTests(unittest.TestCase):
             "No images were changed.",
         )
 
+    def test_gns3_images_reports_iou_hostname_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            (evidence_dir / "ansible_apply.stdout.txt").write_text(
+                "fatal: [gns3-01]: FAILED! => {\n"
+                '  "msg": "The supplied iourc document does not contain a valid '
+                "licence entry for this GNS3 host. Hostname: "
+                "platform-gns3-lab-gns3-01. Host ID: 007f0100. Obtain an authorised "
+                "iourc for this host, update GNS3_IOU_LICENSE, and rerun.\"\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            hint = ansible_error_hint(
+                command_name="apply",
+                module_ref="platform/linux/gns3-images",
+                inputs={},
+                evidence_dir=evidence_dir,
+                label="ansible_apply",
+            )
+
+        self.assertEqual(
+            hint,
+            "IOU licence does not match this GNS3 host. "
+            "Hostname: platform-gns3-lab-gns3-01. Host ID: 007f0100. "
+            "Update GNS3_IOU_LICENSE with an authorised iourc for this host, then rerun. "
+            "No images were changed.",
+        )
+
     def test_eve_ng_archive_reports_running_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             evidence_dir = Path(tmp)
