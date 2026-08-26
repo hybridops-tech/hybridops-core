@@ -90,6 +90,12 @@ class EveNgLabArchiveValidatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires an export"):
             validate(inputs)
 
+    def test_saved_configuration_activation_must_be_boolean(self) -> None:
+        inputs = valid_inputs()
+        inputs["eveng_lab_archive_activate_saved_configs"] = "yes"
+        with self.assertRaisesRegex(ValueError, "must be a boolean"):
+            validate(inputs)
+
     def test_saved_configuration_api_url_must_be_http(self) -> None:
         inputs = valid_inputs()
         inputs["eveng_lab_archive_api_base_url"] = "file:///tmp/eve"

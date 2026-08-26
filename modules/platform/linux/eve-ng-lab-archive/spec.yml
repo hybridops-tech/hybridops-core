@@ -58,6 +58,7 @@ inputs:
     eveng_lab_archive_node_state_expected_sha256: ""
     eveng_lab_archive_qemu_img: "/opt/qemu/bin/qemu-img"
     eveng_lab_archive_capture_device_configs: false
+    eveng_lab_archive_activate_saved_configs: true
     eveng_lab_archive_api_base_url: "http://127.0.0.1"
     eveng_lab_archive_api_username: "admin"
     eveng_lab_archive_api_password_env: "EVENG_ADMIN_PASSWORD"

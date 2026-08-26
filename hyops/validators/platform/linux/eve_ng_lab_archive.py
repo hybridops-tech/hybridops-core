@@ -112,6 +112,10 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError(
             "inputs.eveng_lab_archive_capture_device_configs requires an export"
         )
+    if not isinstance(data.get("eveng_lab_archive_activate_saved_configs"), bool):
+        raise ValueError(
+            "inputs.eveng_lab_archive_activate_saved_configs must be a boolean"
+        )
     api_base_url = require_non_empty_str(
         data.get("eveng_lab_archive_api_base_url"),
         "inputs.eveng_lab_archive_api_base_url",
