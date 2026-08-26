@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -15,6 +16,276 @@ from hyops.runtime.module_state import read_module_state
 from hyops.runtime.terraform_cloud import preflight_cloud_backend
 
 from .netbox import hydrate_netbox_env, netbox_state_status
+
+
+_GCP_VM_MODULE = "platform/gcp/platform-vm"
+_GCP_GLOBAL_CPU_QUOTA = "CPUS_ALL_REGIONS"
+_GCP_QUOTA_ACTIVE_STATUSES = {
+    "PROVISIONING",
+    "REPAIRING",
+    "RUNNING",
+    "STAGING",
+    "STOPPING",
+}
+
+
+def _gcloud_json(args: list[str], *, env: dict[str, str]) -> tuple[Any | None, str]:
+    command = ["gcloud", *args, "--format=json"]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    except FileNotFoundError:
+        return None, "gcloud is unavailable"
+    except Exception as exc:
+        return None, f"gcloud could not be executed: {exc}"
+    if completed.returncode != 0:
+        detail = str(completed.stderr or completed.stdout or "").strip()
+        return None, detail or f"gcloud exited with status {completed.returncode}"
+    try:
+        return json.loads(completed.stdout or "null"), ""
+    except json.JSONDecodeError:
+        return None, "gcloud returned invalid JSON"
+
+
+def _gcp_resource_name(value: Any) -> str:
+    return str(value or "").rstrip("/").rsplit("/", 1)[-1]
+
+
+def _gcp_vm_name(prefix: str, context_id: str, key: str) -> str:
+    prefix_raw = "-".join(token for token in (prefix.strip(), context_id.strip()) if token)
+    normalized_prefix = re.sub(r"[^0-9a-z-]", "-", prefix_raw).lower()
+    normalized_prefix = re.sub(r"-+", "-", normalized_prefix).strip("-")
+    raw = f"{normalized_prefix}-{key}" if normalized_prefix else key
+    name = re.sub(r"[^0-9a-z-]", "-", raw).lower()
+    name = re.sub(r"-+", "-", name).strip("-")
+    if name and not name[0].isalpha():
+        name = f"v-{name}"
+    return name[:63].rstrip("-")
+
+
+def _planned_gcp_vms(inputs: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
+    vms = inputs.get("vms")
+    if not isinstance(vms, dict) or not vms:
+        return [], "GCP CPU quota preflight failed: inputs.vms must contain at least one VM"
+
+    default_machine_type = str(inputs.get("machine_type") or "").strip()
+    default_zone = str(inputs.get("zone") or "").strip()
+    prefix = str(inputs.get("name_prefix") or "")
+    context_id = str(inputs.get("context_id") or "")
+    planned: list[dict[str, str]] = []
+    for key in sorted(vms):
+        raw_config = vms.get(key)
+        config = raw_config if isinstance(raw_config, dict) else {}
+        machine_type = str(config.get("machine_type") or default_machine_type).strip()
+        zone = str(config.get("zone") or default_zone).strip()
+        name = _gcp_vm_name(prefix, context_id, str(key))
+        if not name or not machine_type or not zone:
+            return [], (
+                "GCP CPU quota preflight failed: each planned VM requires a resolvable "
+                "name, machine type, and zone"
+            )
+        planned.append({"name": name, "machine_type": machine_type, "zone": zone})
+    return planned, ""
+
+
+def _quota_number(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return -1.0
+
+
+def _format_quota_number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:g}"
+
+
+def _preflight_gcp_vm_cpu_quota(
+    *,
+    lifecycle_command: str,
+    module_ref: str,
+    profile_ref: str,
+    runtime: dict[str, Any],
+    inputs: dict[str, Any],
+    env: dict[str, str],
+) -> tuple[str, dict[str, Any]]:
+    if str(module_ref or "").strip() != _GCP_VM_MODULE:
+        return "", {}
+    if not str(profile_ref or "").strip().lower().startswith("gcp"):
+        return "", {}
+    if str(lifecycle_command or "").strip().lower() not in {"apply", "deploy"}:
+        return "", {}
+
+    project_id = _resolve_gcp_project_id(runtime=runtime, inputs=inputs)
+    if not project_id:
+        return (
+            "GCP CPU quota preflight failed: project id could not be resolved from "
+            "module inputs or init credentials",
+            {},
+        )
+
+    planned, planned_error = _planned_gcp_vms(inputs)
+    if planned_error:
+        return planned_error, {}
+
+    instances_payload, instances_error = _gcloud_json(
+        ["compute", "instances", "list", "--project", project_id],
+        env=env,
+    )
+    if instances_error or not isinstance(instances_payload, list):
+        return (
+            f"GCP CPU quota preflight failed: could not list instances in project "
+            f"{project_id}: {instances_error or 'unexpected response'}",
+            {},
+        )
+    instances = {
+        (
+            _gcp_resource_name(item.get("zone")),
+            str(item.get("name") or "").strip(),
+        ): item
+        for item in instances_payload
+        if isinstance(item, dict)
+        and _gcp_resource_name(item.get("zone"))
+        and str(item.get("name") or "").strip()
+    }
+
+    project_payload, project_error = _gcloud_json(
+        ["compute", "project-info", "describe", "--project", project_id],
+        env=env,
+    )
+    quotas = project_payload.get("quotas") if isinstance(project_payload, dict) else None
+    if project_error or not isinstance(quotas, list):
+        return (
+            f"GCP CPU quota preflight failed: could not inspect project quota for "
+            f"{project_id}: {project_error or 'unexpected response'}",
+            {},
+        )
+    quota = next(
+        (
+            item
+            for item in quotas
+            if isinstance(item, dict)
+            and str(item.get("metric") or "").strip().upper() == _GCP_GLOBAL_CPU_QUOTA
+        ),
+        None,
+    )
+    limit = _quota_number(quota.get("limit") if isinstance(quota, dict) else None)
+    usage = _quota_number(quota.get("usage") if isinstance(quota, dict) else None)
+    if limit < 0 or usage < 0:
+        return (
+            f"GCP CPU quota preflight failed: project {project_id} did not return a "
+            f"valid {_GCP_GLOBAL_CPU_QUOTA} quota",
+            {},
+        )
+
+    cpu_cache: dict[tuple[str, str], int] = {}
+
+    def machine_cpus(zone: str, machine_type: str) -> tuple[int, str]:
+        key = (zone, machine_type)
+        if key in cpu_cache:
+            return cpu_cache[key], ""
+        payload, detail = _gcloud_json(
+            [
+                "compute",
+                "machine-types",
+                "describe",
+                machine_type,
+                "--project",
+                project_id,
+                "--zone",
+                zone,
+            ],
+            env=env,
+        )
+        try:
+            cpus = int(payload.get("guestCpus")) if isinstance(payload, dict) else 0
+        except (TypeError, ValueError):
+            cpus = 0
+        if detail or cpus < 1:
+            return 0, detail or "machine type response did not contain guestCpus"
+        cpu_cache[key] = cpus
+        return cpus, ""
+
+    planned_additional = 0
+    for vm in planned:
+        desired_cpus, shape_error = machine_cpus(vm["zone"], vm["machine_type"])
+        if shape_error:
+            return (
+                f"GCP CPU quota preflight failed: could not resolve {vm['machine_type']} "
+                f"in {vm['zone']}: {shape_error}",
+                {},
+            )
+        existing = instances.get((vm["zone"], vm["name"]))
+        if not isinstance(existing, dict):
+            planned_additional += desired_cpus
+            continue
+        current_zone = _gcp_resource_name(existing.get("zone")) or vm["zone"]
+        current_machine_type = _gcp_resource_name(existing.get("machineType"))
+        current_cpus, current_error = machine_cpus(current_zone, current_machine_type)
+        if current_error:
+            return (
+                f"GCP CPU quota preflight failed: could not resolve the current machine "
+                f"type for {vm['name']}: {current_error}",
+                {},
+            )
+        planned_additional += max(0, desired_cpus - current_cpus)
+
+    available = max(0.0, limit - usage)
+    shortfall = max(0.0, float(planned_additional) - available)
+    active_instances: list[dict[str, str]] = []
+    for (zone, name), item in sorted(instances.items()):
+        status = str(item.get("status") or "").strip().upper()
+        if status not in _GCP_QUOTA_ACTIVE_STATUSES:
+            continue
+        labels = item.get("labels") if isinstance(item.get("labels"), dict) else {}
+        active_instances.append(
+            {
+                "name": name,
+                "zone": zone,
+                "machine_type": _gcp_resource_name(item.get("machineType")) or "unknown-shape",
+                "status": status,
+                "role": str(labels.get("role") or "").strip(),
+                "workload": str(labels.get("workload") or "").strip(),
+            }
+        )
+
+    summary = {
+        "project_id": project_id,
+        "metric": _GCP_GLOBAL_CPU_QUOTA,
+        "limit": limit,
+        "usage": usage,
+        "available": available,
+        "planned_additional": planned_additional,
+        "shortfall": shortfall,
+        "active_instances": active_instances,
+    }
+    if shortfall <= 0:
+        return "", summary
+
+    consumers: list[str] = []
+    for item in active_instances:
+        ownership = f", role={item['role']}" if item["role"] else ""
+        consumers.append(
+            f"{item['name']} ({item['machine_type']}, {item['status']}{ownership})"
+        )
+    consumer_detail = "; ".join(consumers[:5]) or "none visible to the active identity"
+    if len(consumers) > 5:
+        consumer_detail += f"; and {len(consumers) - 5} more"
+
+    return (
+        f"GCP CPU quota preflight failed: project={project_id} "
+        f"metric={_GCP_GLOBAL_CPU_QUOTA} limit={_format_quota_number(limit)} "
+        f"used={_format_quota_number(usage)} available={_format_quota_number(available)} "
+        f"planned_additional={planned_additional} shortfall={_format_quota_number(shortfall)}. "
+        f"Active instances: {consumer_detail}. No resources were changed. "
+        "Release an existing VM through its owning HybridOps environment, choose a "
+        "smaller machine type, or request more global CPU quota, then rerun preflight.",
+        summary,
+    )
 
 
 def _resolve_gke_project_id(*, runtime_root: Path, inputs: dict[str, Any]) -> str:
@@ -212,6 +483,21 @@ def run_preflight_phase(
     if billing_error:
         return True, billing_error
 
+    quota_error, quota_summary = _preflight_gcp_vm_cpu_quota(
+        lifecycle_command=str(runtime.get("lifecycle_command") or ""),
+        module_ref=module_ref,
+        profile_ref=profile_ref,
+        runtime=runtime,
+        inputs=inputs,
+        env=env,
+    )
+    if quota_summary:
+        normalized = result.setdefault("normalized_outputs", {})
+        preflight_output = normalized.setdefault("preflight", {})
+        preflight_output["gcp_cpu_quota"] = quota_summary
+    if quota_error:
+        return True, quota_error
+
     if module_ref == "platform/gcp/gke-cluster":
         gke_default_sa_error = _preflight_gke_default_compute_sa(
             runtime_root=runtime_root,
@@ -291,13 +577,14 @@ def run_preflight_phase(
             )
 
     result["status"] = "ok"
-    result["normalized_outputs"] = {
-        "preflight": {
+    preflight_output = result.setdefault("normalized_outputs", {}).setdefault("preflight", {})
+    preflight_output.update(
+        {
             "module_ref": module_ref,
             "profile_ref": profile_ref,
             "pack_id": pack_id,
             "required_credentials": required_credentials,
             "effective_zone_name": str(inputs.get("zone_name") or ""),
         }
-    }
+    )
     return True, ""
