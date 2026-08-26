@@ -345,7 +345,9 @@ def _step_presentation(
     if not isinstance(outputs, dict):
         outputs = {}
 
-    image_count = outputs.get("eveng_images_requested_count")
+    image_count = outputs.get("eveng_images_installed_count")
+    if not isinstance(image_count, int):
+        image_count = outputs.get("eveng_images_requested_count")
     if isinstance(image_count, int) and image_count >= 0:
         details.append(f"{image_count} images")
 

@@ -202,7 +202,10 @@ class BlueprintPresentationTest(TestCase):
                 step["module_ref"],
                 {
                     "status": "ok",
-                    "outputs": {"eveng_images_requested_count": 2},
+                    "outputs": {
+                        "eveng_images_requested_count": 3,
+                        "eveng_images_installed_count": 2,
+                    },
                 },
                 state_instance=step["state_instance"],
             )

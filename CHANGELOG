@@ -29,6 +29,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Required file-backed EVE-NG and GNS3 licence secrets to be imported rather than generated, and verified installed EVE-NG image counts before reporting readiness.
 - Rendered parent-managed destroy steps as pending rather than failed while the parent step is still running.
 - Allowed disposable GNS3 guest operations to be cleared with their parent VM when guest SSH is unavailable during teardown.
 - Preserved concise module failure details after a blueprint progress step fails.
