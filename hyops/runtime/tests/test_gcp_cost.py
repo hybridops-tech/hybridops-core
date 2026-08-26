@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
 from hyops.runtime.cost import CostEstimate, format_money
-from hyops.runtime.gcp_cost import estimate_gcp_vm_cost
+from hyops.runtime.gcp_cost import estimate_gcp_vm_cost, gcp_vm_lifecycle_started_at
 
 
 def _sku(
@@ -43,6 +44,65 @@ def _sku(
 
 
 class GcpCostTests(unittest.TestCase):
+    def test_reads_stable_vm_generation_start_from_gcp(self) -> None:
+        created_at = datetime.now(timezone.utc) - timedelta(hours=2, minutes=15)
+        state = {
+            "outputs": {
+                "vms": {
+                    "eve-ng-01": {
+                        "vm_id": (
+                            "projects/student-project/zones/europe-west2-b/"
+                            "instances/eve-ng-01"
+                        )
+                    }
+                }
+            }
+        }
+        with patch(
+            "hyops.runtime.gcp_cost._capture",
+            return_value=(0, created_at.isoformat(), ""),
+        ) as capture:
+            started_at = gcp_vm_lifecycle_started_at(state)
+
+        self.assertEqual(started_at, created_at)
+        capture.assert_called_once_with(
+            [
+                "gcloud",
+                "compute",
+                "instances",
+                "describe",
+                "eve-ng-01",
+                "--project",
+                "student-project",
+                "--zone",
+                "europe-west2-b",
+                "--format=value(creationTimestamp)",
+            ]
+        )
+
+    def test_uses_earliest_embedded_vm_generation_start(self) -> None:
+        state = {
+            "outputs": {
+                "vms": {
+                    "first": {
+                        "vm_id": "projects/p/zones/z/instances/first",
+                        "creation_timestamp": "2026-08-26T10:00:00Z",
+                    },
+                    "second": {
+                        "vm_id": "projects/p/zones/z/instances/second",
+                        "creation_timestamp": "2026-08-26T10:05:00Z",
+                    },
+                }
+            }
+        }
+
+        started_at = gcp_vm_lifecycle_started_at(state)
+
+        self.assertEqual(
+            started_at,
+            datetime(2026, 8, 26, 10, 0, tzinfo=timezone.utc),
+        )
+
     def test_formats_estimated_amount(self) -> None:
         estimate = CostEstimate(True, hourly=Decimal("0.5"), currency="USD")
         self.assertEqual(estimate.amount_for_seconds(5400), Decimal("0.75"))

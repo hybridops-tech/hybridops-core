@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,63 @@ def _capture(argv: list[str]) -> tuple[int, str, str]:
     except OSError as exc:
         return 127, "", str(exc)
     return proc.returncode, str(proc.stdout or "").strip(), str(proc.stderr or "").strip()
+
+
+def gcp_vm_lifecycle_started_at(state: dict[str, Any]) -> datetime | None:
+    """Return the earliest creation time for the current VM generation."""
+
+    outputs = state.get("outputs")
+    vms = outputs.get("vms") if isinstance(outputs, dict) else None
+    if not isinstance(vms, dict):
+        return None
+
+    started_at: list[datetime] = []
+    for vm in vms.values():
+        if not isinstance(vm, dict):
+            continue
+        raw_id = str(vm.get("vm_id") or "").strip()
+        parts = raw_id.split("/")
+        if (
+            len(parts) != 6
+            or parts[0] != "projects"
+            or parts[2] != "zones"
+            or parts[4] != "instances"
+        ):
+            continue
+        project_id, zone, instance = parts[1], parts[3], parts[5]
+        raw_created = str(
+            vm.get("creation_timestamp")
+            or vm.get("creationTimestamp")
+            or vm.get("created_at")
+            or ""
+        ).strip()
+        if not raw_created:
+            rc, stdout, _stderr = _capture(
+                [
+                    "gcloud",
+                    "compute",
+                    "instances",
+                    "describe",
+                    instance,
+                    "--project",
+                    project_id,
+                    "--zone",
+                    zone,
+                    "--format=value(creationTimestamp)",
+                ]
+            )
+            if rc != 0:
+                continue
+            raw_created = stdout
+        try:
+            created = datetime.fromisoformat(raw_created.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        started_at.append(created.astimezone(timezone.utc))
+
+    return min(started_at) if started_at else None
 
 
 def _read_inputs(state: dict[str, Any]) -> dict[str, Any]:
