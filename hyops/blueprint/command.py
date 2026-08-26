@@ -3983,17 +3983,26 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         os.environ["HYOPS_PROGRESS_CHILD"] = "1"
     try:
         rc = run_step_module_command(archive_step, payload, ns, paths)
+    except KeyboardInterrupt:
+        rc = CANCELLED
     finally:
         if previous_child is None:
             os.environ.pop("HYOPS_PROGRESS_CHILD", None)
         else:
             os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+    archive_status = "cancelled" if int(rc) == CANCELLED else (
+        "ok" if rc == 0 else "failed"
+    )
     progress.finish(
         archive_step["id"],
         "Lab archive",
-        "ok" if rc == 0 else "failed",
-        plain=f"lab_archive status={'ok' if rc == 0 else 'failed'}",
+        archive_status,
+        plain=f"lab_archive status={archive_status}",
     )
+    if int(rc) == CANCELLED:
+        print("Archive interrupted. Resources were retained.")
+        print("Some lab nodes may have been stopped. Check the lab before continuing.")
+        return CANCELLED
     if rc != 0:
         print("ERR: lab export failed; no resources were destroyed")
         return int(rc)

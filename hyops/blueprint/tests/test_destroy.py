@@ -548,6 +548,67 @@ class ResumableBlueprintDestroyTest(TestCase):
         command.assert_called_once()
         self.assertEqual(command.call_args.args[0]["id"], "archive_before_destroy")
 
+    def test_interrupted_archive_reports_retained_resources_and_stopped_nodes(self):
+        payload = {
+            "archive_before_destroy": {
+                "module_ref": "platform/test/archive",
+                "state_instance": "lab_archive",
+                "inputs": {},
+            }
+        }
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+        stdout = io.StringIO()
+
+        with (
+            patch(
+                "hyops.blueprint.command.run_step_module_command",
+                side_effect=KeyboardInterrupt,
+            ),
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+        ):
+            rc = _run_archive_before_destroy(_namespace(), payload, paths)
+
+        self.assertEqual(rc, CANCELLED)
+        output = stdout.getvalue()
+        self.assertIn("Archive interrupted. Resources were retained.", output)
+        self.assertIn(
+            "Some lab nodes may have been stopped. Check the lab before continuing.",
+            output,
+        )
+
+    def test_cancelled_archive_stops_before_resource_destroy(self):
+        paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        payload = _payload()
+        payload["archive_before_destroy"] = {
+            "module_ref": "platform/test/archive",
+            "state_instance": "lab_archive",
+            "inputs": {"archive_action": "export"},
+        }
+        ns = _namespace()
+        ns.archive_before_destroy = True
+        stdout = io.StringIO()
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command.require_runtime_writable"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+            patch(
+                "hyops.blueprint.command.run_step_module_command",
+                return_value=CANCELLED,
+            ) as command,
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+        ):
+            rc = run_destroy(ns)
+
+        self.assertEqual(rc, CANCELLED)
+        command.assert_called_once()
+        self.assertEqual(command.call_args.args[0]["id"], "archive_before_destroy")
+        self.assertIn("Archive interrupted. Resources were retained.", stdout.getvalue())
+
     def test_non_interactive_destroy_requires_explicit_yes(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
         ns = _namespace()
