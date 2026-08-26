@@ -108,3 +108,14 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 ## License
 
 [MIT-0](LICENSE)
+
+## 📖 Glossary of Terms
+
+To help new contributors and users, here are the core concepts of HybridOps:
+
+| Term | Definition |
+| :--- | :--- |
+| Inspection-First | The philosophy of validating and planning infrastructure changes locally before connecting to cloud providers or executing code. |
+| Blueprint | A contract-driven template that defines the desired state of a specific infrastructure component. |
+| Contract-Driven | An approach where automation is governed by strict metadata definitions (contracts) rather than loose scripts. |
+| Runtime Root | The local directory where HybridOps stores execution records, logs, and temporary state files. |
