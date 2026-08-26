@@ -317,49 +317,50 @@ class SetupCommandTests(unittest.TestCase):
 
     def test_targeted_collection_install_has_no_yaml_runtime_dependency(self) -> None:
         installer = REPO_ROOT / "tools" / "setup" / "setup-ansible.sh"
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            runtime = root / "runtime"
-            bin_dir = root / "bin"
-            invocation_log = root / "ansible-galaxy.args"
-            bin_dir.mkdir()
+        for collection in ("helper", "app"):
+            with self.subTest(collection=collection), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                runtime = root / "runtime"
+                bin_dir = root / "bin"
+                invocation_log = root / "ansible-galaxy.args"
+                bin_dir.mkdir()
 
-            (bin_dir / "python3").write_text(
-                f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n',
-                encoding="utf-8",
-            )
-            (bin_dir / "ansible-galaxy").write_text(
-                '#!/bin/sh\nprintf "%s\\n" "$@" > "$HYOPS_TEST_INVOCATION_LOG"\n',
-                encoding="utf-8",
-            )
-            (bin_dir / "python3").chmod(0o755)
-            (bin_dir / "ansible-galaxy").chmod(0o755)
+                (bin_dir / "python3").write_text(
+                    f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n',
+                    encoding="utf-8",
+                )
+                (bin_dir / "ansible-galaxy").write_text(
+                    '#!/bin/sh\nprintf "%s\\n" "$@" > "$HYOPS_TEST_INVOCATION_LOG"\n',
+                    encoding="utf-8",
+                )
+                (bin_dir / "python3").chmod(0o755)
+                (bin_dir / "ansible-galaxy").chmod(0o755)
 
-            env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
-            env["HYOPS_TEST_INVOCATION_LOG"] = str(invocation_log)
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(installer),
-                    "--root",
-                    str(runtime),
-                    "--collection",
-                    "helper",
-                ],
-                capture_output=True,
-                check=False,
-                env=env,
-                text=True,
-            )
-            invocation = (
-                invocation_log.read_text(encoding="utf-8")
-                if invocation_log.exists()
-                else ""
-            )
+                env = os.environ.copy()
+                env["PATH"] = f"{bin_dir}:{env['PATH']}"
+                env["HYOPS_TEST_INVOCATION_LOG"] = str(invocation_log)
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(installer),
+                        "--root",
+                        str(runtime),
+                        "--collection",
+                        collection,
+                    ],
+                    capture_output=True,
+                    check=False,
+                    env=env,
+                    text=True,
+                )
+                invocation = (
+                    invocation_log.read_text(encoding="utf-8")
+                    if invocation_log.exists()
+                    else ""
+                )
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("hybridops.helper:0.1.9", invocation)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"hybridops.{collection}:0.1.10", invocation)
 
     def test_collection_is_rejected_for_non_galaxy_setup(self) -> None:
         output = io.StringIO()

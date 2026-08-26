@@ -21,7 +21,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 ### Changed
 
 - Applied the controlled keep, archive or destroy decision when GNS3 access closes.
-- Pinned `hybridops.app` and `hybridops.helper` to `0.1.9` for the Containerlab and device-automation release set.
+- Pinned `hybridops.app` and `hybridops.helper` to `0.1.10` for the network-lab lifecycle release set.
 - Expanded CI coverage across the public CLI surface and every shipped blueprint.
 - Aligned source package and runtime version metadata with the `v0.1.4` release line and added regression coverage for installed version reporting.
 - Kept lifecycle output independent of the selected execution tool and simplified GCP initialization and vault readiness output.
