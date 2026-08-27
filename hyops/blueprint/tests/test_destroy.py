@@ -362,6 +362,23 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(selected, "archive")
         self.assertEqual(prompt.call_count, 3)
 
+    def test_archive_choice_describes_preservation_without_extra_mode(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = {"archive_before_destroy": {"module_ref": "platform/test/archive"}}
+
+        with (
+            patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+            patch("hyops.blueprint.command.input", return_value="1"),
+            patch("builtins.print") as output,
+        ):
+            selected = _select_archive_destroy_mode(ns, payload, "test")
+
+        self.assertEqual(selected, "keep")
+        output.assert_any_call("  2. Preserve saved lab state, then destroy")
+        output.assert_any_call("  3. Destroy without preserving lab state")
+
     def test_archive_choice_interrupt_is_a_distinct_cancellation(self):
         ns = _namespace()
         ns.yes = False
@@ -469,6 +486,41 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertNotIn(str(archive_path), output)
         self.assertNotIn(checksum, output)
 
+    def test_archive_reports_saved_device_configurations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "labs.tar.gz"
+            archive_path.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            payload = {
+                "archive_before_destroy": {
+                    "module_ref": "platform/test/archive",
+                    "state_instance": "lab_archive",
+                    "inputs": {},
+                }
+            }
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive_path),
+                    "eveng_lab_archive_sha256": checksum,
+                    "eveng_lab_archive_device_configs_captured": True,
+                }
+            }
+            stdout = io.StringIO()
+
+            with (
+                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch("hyops.blueprint.command.read_module_state", return_value=state),
+                patch("hyops.blueprint.command.sys.stdout", stdout),
+            ):
+                rc = _run_archive_before_destroy(_namespace(), payload, paths)
+
+        self.assertEqual(rc, 0)
+        self.assertIn(
+            "archive saved: lab definitions, saved device configurations",
+            stdout.getvalue(),
+        )
+
     def test_failed_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
         payload = _payload()
@@ -495,6 +547,67 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(rc, 2)
         command.assert_called_once()
         self.assertEqual(command.call_args.args[0]["id"], "archive_before_destroy")
+
+    def test_interrupted_archive_reports_retained_resources_and_stopped_nodes(self):
+        payload = {
+            "archive_before_destroy": {
+                "module_ref": "platform/test/archive",
+                "state_instance": "lab_archive",
+                "inputs": {},
+            }
+        }
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+        stdout = io.StringIO()
+
+        with (
+            patch(
+                "hyops.blueprint.command.run_step_module_command",
+                side_effect=KeyboardInterrupt,
+            ),
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+        ):
+            rc = _run_archive_before_destroy(_namespace(), payload, paths)
+
+        self.assertEqual(rc, CANCELLED)
+        output = stdout.getvalue()
+        self.assertIn("Archive interrupted. Resources were retained.", output)
+        self.assertIn(
+            "Some lab nodes may have been stopped. Check the lab before continuing.",
+            output,
+        )
+
+    def test_cancelled_archive_stops_before_resource_destroy(self):
+        paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        payload = _payload()
+        payload["archive_before_destroy"] = {
+            "module_ref": "platform/test/archive",
+            "state_instance": "lab_archive",
+            "inputs": {"archive_action": "export"},
+        }
+        ns = _namespace()
+        ns.archive_before_destroy = True
+        stdout = io.StringIO()
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command.require_runtime_writable"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+            patch(
+                "hyops.blueprint.command.run_step_module_command",
+                return_value=CANCELLED,
+            ) as command,
+            patch("hyops.blueprint.command.sys.stdout", stdout),
+        ):
+            rc = run_destroy(ns)
+
+        self.assertEqual(rc, CANCELLED)
+        command.assert_called_once()
+        self.assertEqual(command.call_args.args[0]["id"], "archive_before_destroy")
+        self.assertIn("Archive interrupted. Resources were retained.", stdout.getvalue())
 
     def test_non_interactive_destroy_requires_explicit_yes(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))

@@ -3157,6 +3157,7 @@ def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
         "node_included_output": f"{prefix}_node_state_included",
         "node_path_output": f"{prefix}_node_state_archive_path",
         "node_sha256_output": f"{prefix}_node_state_sha256",
+        "device_configs_captured_output": f"{prefix}_device_configs_captured",
     }
 
 
@@ -3296,6 +3297,9 @@ def _run_lab_restore(
             or contract["restore_overwrite_default"],
         }
     )
+    capture_key = f"{prefix}_capture_device_configs"
+    if capture_key in restore_inputs:
+        restore_inputs[capture_key] = False
     if contract["node_state"]:
         restore_inputs.update(
             {
@@ -3924,8 +3928,8 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
 
     print("lab data:")
     print("  1. Keep the environment running")
-    print("  2. Export labs, verify the archive, then destroy")
-    print("  3. Destroy without exporting labs")
+    print("  2. Preserve saved lab state, then destroy")
+    print("  3. Destroy without preserving lab state")
     choices = {"1": "keep", "2": "archive", "3": "skip"}
     while True:
         try:
@@ -3960,7 +3964,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "with_deps": False,
         "inputs": archive.get("inputs") or {},
     }
-    print("preparing lab archive; active nodes will be stopped and saved state verified")
+    print("preparing saved lab state; active nodes will be stopped")
     print("this may take several minutes, depending on lab size")
     progress = ProgressDisplay(
         enabled=bool(
@@ -3981,17 +3985,26 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         os.environ["HYOPS_PROGRESS_CHILD"] = "1"
     try:
         rc = run_step_module_command(archive_step, payload, ns, paths)
+    except KeyboardInterrupt:
+        rc = CANCELLED
     finally:
         if previous_child is None:
             os.environ.pop("HYOPS_PROGRESS_CHILD", None)
         else:
             os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+    archive_status = "cancelled" if int(rc) == CANCELLED else (
+        "ok" if rc == 0 else "failed"
+    )
     progress.finish(
         archive_step["id"],
         "Lab archive",
-        "ok" if rc == 0 else "failed",
-        plain=f"lab_archive status={'ok' if rc == 0 else 'failed'}",
+        archive_status,
+        plain=f"lab_archive status={archive_status}",
     )
+    if int(rc) == CANCELLED:
+        print("Archive interrupted. Resources were retained.")
+        print("Some lab nodes may have been stopped. Check the lab before continuing.")
+        return CANCELLED
     if rc != 0:
         print("ERR: lab export failed; no resources were destroyed")
         return int(rc)
@@ -4022,6 +4035,8 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         print("ERR: lab archive checksum verification failed; no resources were destroyed")
         return OPERATOR_ERROR
     archive_contents = [contract["contents_label"]]
+    if bool(outputs.get(contract["device_configs_captured_output"], False)):
+        archive_contents.append("saved device configurations")
     verbose = bool(os.getenv("HYOPS_VERBOSE"))
     if verbose:
         print(f"lab archive: {archive_path}")

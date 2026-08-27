@@ -97,9 +97,11 @@ static devices must use `172.29.128.1`. On Linux or WSL, optional
 conflict locally. Windows and macOS applications use the generated SSH
 configuration or local proxy.
 
-When access closes, HybridOps offers to keep the environment, export its lab
-definitions before teardown, or destroy without an export. Direct interactive
-destroy uses the same choices. Automation must pass either
+When access closes, HybridOps offers to keep the environment, preserve saved
+lab state before teardown, or destroy without preservation. Preservation
+refreshes saved device configurations in the lab definitions and includes
+stopped QEMU overlay state when present. Direct interactive destroy uses the
+same choices. Automation must pass either
 `--archive-before-destroy` or `--skip-archive` with `--yes`.
 
 After redeployment, an interactive deploy offers to restore a verified archive.

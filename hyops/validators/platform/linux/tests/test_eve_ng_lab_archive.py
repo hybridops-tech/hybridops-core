@@ -72,6 +72,36 @@ class EveNgLabArchiveValidatorTests(unittest.TestCase):
         inputs["eveng_lab_archive_stop_running_nodes"] = True
         validate(inputs)
 
+    def test_saved_configuration_capture_is_valid_for_export(self) -> None:
+        inputs = valid_inputs()
+        inputs["eveng_lab_archive_capture_device_configs"] = True
+        validate(inputs)
+
+    def test_saved_configuration_capture_is_rejected_for_restore(self) -> None:
+        inputs = valid_inputs()
+        inputs.update(
+            {
+                "eveng_lab_archive_action": "restore",
+                "eveng_lab_archive_path": "/tmp/labs.tar.gz",
+                "eveng_lab_archive_expected_sha256": "a" * 64,
+                "eveng_lab_archive_capture_device_configs": True,
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "requires an export"):
+            validate(inputs)
+
+    def test_saved_configuration_activation_must_be_boolean(self) -> None:
+        inputs = valid_inputs()
+        inputs["eveng_lab_archive_activate_saved_configs"] = "yes"
+        with self.assertRaisesRegex(ValueError, "must be a boolean"):
+            validate(inputs)
+
+    def test_saved_configuration_api_url_must_be_http(self) -> None:
+        inputs = valid_inputs()
+        inputs["eveng_lab_archive_api_base_url"] = "file:///tmp/eve"
+        with self.assertRaisesRegex(ValueError, "HTTP or HTTPS"):
+            validate(inputs)
+
     def test_node_state_restore_requires_companion_checksum(self) -> None:
         inputs = valid_inputs()
         inputs.update(
