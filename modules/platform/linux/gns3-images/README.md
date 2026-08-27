@@ -1,9 +1,10 @@
 # platform/linux/gns3-images
 
 Install declared QEMU or IOU images and register them as templates on an
-authenticated GNS3 server. Every URL requires a SHA-256 checksum. Existing
-matching templates are retained; conflicting template names fail without
-replacement.
+authenticated GNS3 server. HTTP, HTTPS and MEGA sources may be raw images or
+archives. A SHA-256 checksum is optional and is verified when supplied.
+Existing matching templates are retained; conflicting template names fail
+without replacement.
 
 ```bash
 hyops apply --env lab \

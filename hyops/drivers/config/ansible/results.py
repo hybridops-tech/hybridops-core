@@ -18,6 +18,11 @@ _IOL_HOST_IDENTIFIER = re.compile(
     r"Host ID:\s*([A-Za-z0-9][A-Za-z0-9_.:-]*)",
     re.IGNORECASE,
 )
+_GNS3_IOU_HOST_MISMATCH = re.compile(
+    r"does not contain a valid licence entry for this GNS3 host\.\s+Hostname:\s*"
+    r"([A-Za-z0-9][A-Za-z0-9_.-]*)",
+    re.IGNORECASE,
+)
 
 
 def ansible_error_hint(
@@ -60,6 +65,25 @@ def ansible_error_hint(
             "IOL licence does not match this EVE-NG host. "
             f"Hostname: {hostname}.{host_identifier} "
             "Update EVENG_IOL_LICENSE with an authorised iourc for this host, then rerun. "
+            "No images were changed."
+        )
+
+    gns3_iou_host_mismatch = _GNS3_IOU_HOST_MISMATCH.search(tail)
+    if (
+        module_ref.strip().lower() == "platform/linux/gns3-images"
+        and gns3_iou_host_mismatch
+    ):
+        hostname = gns3_iou_host_mismatch.group(1).rstrip(".")
+        host_identifier_match = _IOL_HOST_IDENTIFIER.search(tail)
+        host_identifier = (
+            f" Host ID: {host_identifier_match.group(1).rstrip('.')}."
+            if host_identifier_match
+            else ""
+        )
+        return (
+            "IOU licence does not match this GNS3 host. "
+            f"Hostname: {hostname}.{host_identifier} "
+            "Update GNS3_IOU_LICENSE with an authorised iourc for this host, then rerun. "
             "No images were changed."
         )
 
