@@ -48,6 +48,10 @@
             'gns3_lab_archive_path': gns3_lab_archive_results.archive_path,
             'gns3_lab_archive_manifest_path':
               gns3_lab_archive_results.manifest_path | default(''),
+            'gns3_lab_archive_previous_path':
+              gns3_lab_archive_results.previous_archive_path | default(''),
+            'gns3_lab_archive_previous_manifest_path':
+              gns3_lab_archive_results.previous_manifest_path | default(''),
             'gns3_lab_archive_sha256': gns3_lab_archive_results.sha256,
             'gns3_lab_archive_created_at':
               gns3_lab_archive_results.created_at | default(''),

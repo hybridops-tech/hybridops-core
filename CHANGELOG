@@ -29,6 +29,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Retained one verified previous EVE-NG or GNS3 lab archive generation when a
+  new export is promoted.
 - Required file-backed EVE-NG and GNS3 licence secrets to be imported rather than generated, and verified installed EVE-NG image counts before reporting readiness.
 - Aligned GNS3 image validation with compact archive declarations, optional checksums, secondary QEMU disks, and host-bound IOU licence diagnostics.
 - Rendered parent-managed destroy steps as pending rather than failed while the parent step is still running.

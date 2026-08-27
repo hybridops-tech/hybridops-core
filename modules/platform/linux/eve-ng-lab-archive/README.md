@@ -13,6 +13,9 @@ artifacts/eveng/labs/eve-ng-labs.tar.gz
 ```
 
 The module publishes the archive path, manifest, creation time and SHA-256.
+A new archive replaces the current generation only after verification. The
+preceding verified generation is retained as a fallback. A failed export leaves
+the current archive unchanged.
 
 For stopped-QEMU state, enable:
 

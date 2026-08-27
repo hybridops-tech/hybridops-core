@@ -72,6 +72,8 @@ outputs:
     - gns3_lab_archive_action
     - gns3_lab_archive_path
     - gns3_lab_archive_manifest_path
+    - gns3_lab_archive_previous_path
+    - gns3_lab_archive_previous_manifest_path
     - gns3_lab_archive_sha256
     - gns3_lab_archive_created_at
     - gns3_lab_archive_members

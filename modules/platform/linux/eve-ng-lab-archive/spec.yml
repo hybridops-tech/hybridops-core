@@ -76,6 +76,9 @@ outputs:
     - eveng_lab_archive_action
     - eveng_lab_archive_path
     - eveng_lab_archive_manifest_path
+    - eveng_lab_archive_previous_path
+    - eveng_lab_archive_previous_manifest_path
+    - eveng_lab_archive_previous_node_state_path
     - eveng_lab_archive_sha256
     - eveng_lab_archive_created_at
     - eveng_lab_archive_folders
