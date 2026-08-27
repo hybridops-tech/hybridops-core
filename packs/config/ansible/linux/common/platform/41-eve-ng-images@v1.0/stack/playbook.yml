@@ -10,7 +10,7 @@
     _hyops_input_eveng_images_download: "{{ vars.get('eveng_images_download', true) | bool }}"
     _hyops_input_eveng_images_install: "{{ vars.get('eveng_images_install', true) | bool }}"
     _hyops_input_eveng_images_cache_dir: "{{ vars.get('eveng_images_cache_dir', '/tmp/eveng_images_cache') | string }}"
-    _hyops_input_eveng_images_keep_cache: "{{ vars.get('eveng_images_keep_cache', false) | bool }}"
+    _hyops_input_eveng_images_keep_cache: "{{ vars.get('eveng_images_keep_cache', true) | bool }}"
     _hyops_input_eveng_images_raw_qemu_layout: "{{ vars.get('eveng_images_raw_qemu_layout', 'foldered') | string }}"
     _hyops_input_eveng_images_raw_qemu_disk_name: "{{ vars.get('eveng_images_raw_qemu_disk_name', 'virtioa.qcow2') | string }}"
     _hyops_input_eveng_images_iol_license_env: "{{ vars.get('eveng_images_iol_license_env', 'EVENG_IOL_LICENSE') | string }}"
@@ -62,6 +62,27 @@
         eveng_images_remote_path: "{{ _hyops_input_eveng_images_remote_path }}"
 
   post_tasks:
+    - name: Require verified EVE-NG image installation
+      ansible.builtin.assert:
+        that:
+          - eveng_images_install_ready | default(false) | bool
+          - >-
+            (eveng_images_installed_count | default(0) | int)
+            == ((_hyops_input_eveng_images_list | default([])) | length)
+        fail_msg: >-
+          The image role did not verify every requested image in the EVE-NG
+          addons layout. Install the pinned hybridops.helper collection and rerun.
+      when: _hyops_input_eveng_images_install | bool
+
+    - name: Require verified IOL licence installation
+      ansible.builtin.assert:
+        that:
+          - eveng_images_iol_license_ready | default(false) | bool
+        fail_msg: >-
+          The IOL licence was not validated and installed. Store an authorised
+          iourc with hyops secrets set --from-file and rerun.
+      when: _hyops_input_eveng_images_iol_license_required | bool
+
     - name: Write HyOps outputs
       delegate_to: localhost
       become: false
@@ -73,6 +94,7 @@
             'cap.lab.eveng.images': 'ready',
             'eveng_images_source': (eveng_images_source | default('url')),
             'eveng_images_requested_count': ((eveng_images_list | default([])) | length),
+            'eveng_images_installed_count': (eveng_images_installed_count | default(0) | int),
             'eveng_images_iol_license_ready': (
               eveng_images_iol_license_ready | default(false) | bool
             )

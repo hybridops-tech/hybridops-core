@@ -21,7 +21,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 ### Changed
 
 - Applied the controlled keep, archive or destroy decision when GNS3 access closes.
-- Pinned `hybridops.app` and `hybridops.helper` to `0.1.9` for the Containerlab and device-automation release set.
+- Pinned `hybridops.app` and `hybridops.helper` to `0.1.10` for the network-lab lifecycle release set.
 - Expanded CI coverage across the public CLI surface and every shipped blueprint.
 - Aligned source package and runtime version metadata with the `v0.1.4` release line and added regression coverage for installed version reporting.
 - Kept lifecycle output independent of the selected execution tool and simplified GCP initialization and vault readiness output.
@@ -30,6 +30,10 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 ### Fixed
 
 - Retried invalid interactive yes/no and exact destroy confirmations without treating a typing error as an operator decision.
+- Retained one verified previous EVE-NG or GNS3 lab archive generation when a
+  new export is promoted.
+- Required file-backed EVE-NG and GNS3 licence secrets to be imported rather than generated, and verified installed EVE-NG image counts before reporting readiness.
+- Aligned GNS3 image validation with compact archive declarations, optional checksums, secondary QEMU disks, and host-bound IOU licence diagnostics.
 - Rendered parent-managed destroy steps as pending rather than failed while the parent step is still running.
 - Allowed disposable GNS3 guest operations to be cleared with their parent VM when guest SSH is unavailable during teardown.
 - Preserved concise module failure details after a blueprint progress step fails.

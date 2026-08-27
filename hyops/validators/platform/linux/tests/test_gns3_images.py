@@ -39,12 +39,16 @@ class GNS3ImagesValidatorTests(unittest.TestCase):
                     "disk_type": "hda",
                 }
             ],
-            "missing checksum": [
+            "missing name and label": [
                 {
-                    "name": "test",
                     "url": "https://example.test/image.qcow2",
                     "filename": "image.qcow2",
-                    "disk_type": "hda",
+                }
+            ],
+            "missing source filename": [
+                {
+                    "label": "Test image",
+                    "url": "https://example.test/download",
                 }
             ],
             "unsupported URL": [
@@ -64,17 +68,48 @@ class GNS3ImagesValidatorTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate(inputs)
 
-    def test_duplicate_names_and_filenames_are_rejected(self) -> None:
-        for key in ("name", "filename"):
-            with self.subTest(key=key):
-                inputs = valid_inputs()
-                duplicate = deepcopy(inputs["gns3_images_items"][0])
-                duplicate["name"] = "Another image"
-                duplicate["filename"] = "another.iso"
-                duplicate[key] = inputs["gns3_images_items"][0][key]
-                inputs["gns3_images_items"].append(duplicate)
-                with self.assertRaises(ValueError):
-                    validate(inputs)
+    def test_duplicate_template_names_are_rejected(self) -> None:
+        inputs = valid_inputs()
+        duplicate = deepcopy(inputs["gns3_images_items"][0])
+        duplicate["filename"] = "another.iso"
+        inputs["gns3_images_items"].append(duplicate)
+        with self.assertRaisesRegex(ValueError, "duplicate template name"):
+            validate(inputs)
+
+    def test_compact_iol_archive_declaration_is_valid(self) -> None:
+        inputs = valid_inputs()
+        inputs["required_env"].append("GNS3_IOU_LICENSE")
+        inputs["gns3_images_items"] = [
+            {
+                "url": "https://example.test/iol-router.tar.gz",
+                "name": "iol-router.tar.gz",
+                "type": "iol",
+                "label": "Authorised IOL router",
+            }
+        ]
+        validate(inputs)
+
+    def test_label_and_explicit_filename_declaration_is_valid(self) -> None:
+        inputs = valid_inputs()
+        inputs["gns3_images_items"] = [
+            {
+                "label": "Test appliance",
+                "url": "https://example.test/download",
+                "filename": "appliance.qcow2",
+                "template": {"hdb_disk_interface": "virtio"},
+            }
+        ]
+        validate(inputs)
+
+    def test_checksum_remains_optional_but_is_validated_when_present(self) -> None:
+        inputs = valid_inputs()
+        image = inputs["gns3_images_items"][0]
+        image.pop("checksum")
+        validate(inputs)
+
+        image["checksum"] = "sha256:not-a-digest"
+        with self.assertRaisesRegex(ValueError, "checksum must use sha256"):
+            validate(inputs)
 
     def test_iou_image_requires_a_preflighted_license(self) -> None:
         inputs = valid_inputs()
