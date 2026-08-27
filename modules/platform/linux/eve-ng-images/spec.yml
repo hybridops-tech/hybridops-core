@@ -46,7 +46,7 @@ inputs:
     eveng_images_download: true
     eveng_images_install: true
     eveng_images_cache_dir: "/tmp/eveng_images_cache"
-    eveng_images_keep_cache: false
+    eveng_images_keep_cache: true
     eveng_images_raw_qemu_layout: "foldered"
     eveng_images_raw_qemu_disk_name: "virtioa.qcow2"
     eveng_images_iol_license_env: "EVENG_IOL_LICENSE"
@@ -75,6 +75,7 @@ outputs:
     - cap.lab.eveng.images
     - eveng_images_source
     - eveng_images_requested_count
+    - eveng_images_installed_count
     - eveng_images_iol_license_ready
 
 probes: []

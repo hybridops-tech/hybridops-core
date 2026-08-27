@@ -10,6 +10,56 @@ from hyops.drivers.config.ansible.results import ansible_error_hint
 
 
 class AnsibleResultHintTests(unittest.TestCase):
+    def test_image_module_reports_mega_transfer_quota(self) -> None:
+        for module_ref in (
+            "platform/linux/eve-ng-images",
+            "platform/linux/gns3-images",
+        ):
+            with self.subTest(module_ref=module_ref), tempfile.TemporaryDirectory() as tmp:
+                evidence_dir = Path(tmp)
+                (evidence_dir / "ansible_apply.stdout.txt").write_text(
+                    "You have reached your bandwidth quota. Try again later.\n",
+                    encoding="utf-8",
+                )
+
+                hint = ansible_error_hint(
+                    command_name="apply",
+                    module_ref=module_ref,
+                    inputs={},
+                    evidence_dir=evidence_dir,
+                    label="ansible_apply",
+                )
+
+            self.assertEqual(
+                hint,
+                "MEGA transfer quota reached. Completed downloads remain cached. "
+                "Retry after the quota resets or use another authorised source URL.",
+            )
+
+    def test_eve_ng_images_reports_invalid_iourc_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            (evidence_dir / "ansible_apply.stdout.txt").write_text(
+                'fatal: [eve-ng-01]: FAILED! => {"msg": "The supplied IOL '
+                'licence file is not a valid iourc document."}\n',
+                encoding="utf-8",
+            )
+
+            hint = ansible_error_hint(
+                command_name="apply",
+                module_ref="platform/linux/eve-ng-images",
+                inputs={},
+                evidence_dir=evidence_dir,
+                label="ansible_apply",
+            )
+
+        self.assertEqual(
+            hint,
+            "IOL licence content is not a valid iourc document. "
+            "Store an authorised iourc with hyops secrets set --from-file, then rerun. "
+            "No images were changed.",
+        )
+
     def test_eve_ng_images_reports_iol_hostname_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             evidence_dir = Path(tmp)

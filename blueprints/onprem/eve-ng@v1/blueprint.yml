@@ -172,6 +172,8 @@ steps:
       # required_env: ["EVENG_IOL_LICENSE"]
       # eveng_images_iol_license_env: "EVENG_IOL_LICENSE"
       # eveng_images_iol_license_required: true
+      # Downloads are cached on the host. Readiness requires the installed
+      # EVE-NG image path to exist.
       eveng_images_list:
         - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/LhBG1ZQI"
           name: "linux-alpine-3.21.3.tar.gz"

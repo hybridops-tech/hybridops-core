@@ -52,6 +52,28 @@ def ansible_error_hint(
         return ""
     lowered_tail = tail.lower()
 
+    if module_ref.strip().lower() in {
+        "platform/linux/eve-ng-images",
+        "platform/linux/gns3-images",
+    } and (
+        "reached your bandwidth quota" in lowered_tail
+        or "mega transfer quota reached" in lowered_tail
+    ):
+        return (
+            "MEGA transfer quota reached. Completed downloads remain cached. "
+            "Retry after the quota resets or use another authorised source URL."
+        )
+
+    if (
+        module_ref.strip().lower() == "platform/linux/eve-ng-images"
+        and "supplied iol licence file is not a valid iourc document" in lowered_tail
+    ):
+        return (
+            "IOL licence content is not a valid iourc document. "
+            "Store an authorised iourc with hyops secrets set --from-file, then rerun. "
+            "No images were changed."
+        )
+
     iol_host_mismatch = _IOL_HOST_MISMATCH.search(tail)
     if module_ref.strip().lower() == "platform/linux/eve-ng-images" and iol_host_mismatch:
         hostname = iol_host_mismatch.group(1).rstrip(".")
