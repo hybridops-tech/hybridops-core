@@ -6,6 +6,8 @@ import io
 import socket
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,8 +15,10 @@ from unittest.mock import Mock, patch
 
 from hyops.blueprint.command import (
     _access_known_hosts_file,
+    _access_resource_generation,
     _combine_maintenance,
     _discover_gns3_consoles,
+    _expire_access_session,
     _extract_access_host,
     _gns3_console_refresher,
     _native_console_refresher,
@@ -24,11 +28,16 @@ from hyops.blueprint.command import (
     _print_native_console_client_guidance,
     _require_local_ports_available,
     _runtime_access_secret,
+    _session_options,
+    _session_warning_seconds,
     _ssh_access_error,
     _ssh_access_trust_options,
     _wait_for_local_port,
+    _wait_for_managed_access,
 )
+from hyops.blueprint.schema import load_blueprint
 from hyops.runtime.cost import CostEstimate
+from hyops.runtime.exitcodes import OPERATOR_ERROR
 
 
 class _TTY(io.StringIO):
@@ -37,6 +46,260 @@ class _TTY(io.StringIO):
 
 
 class BlueprintAccessTests(unittest.TestCase):
+    def test_session_limit_requires_explicit_protected_release(self) -> None:
+        payload = {"blueprint_ref": "gcp/eve-ng@v1"}
+        self.assertEqual(
+            _session_options(
+                SimpleNamespace(
+                    session_minutes=90,
+                    on_expiry="protected-release",
+                ),
+                payload,
+            ),
+            (5400, "protected-release"),
+        )
+        self.assertEqual(
+            _session_options(
+                SimpleNamespace(session_minutes=0, on_expiry=""),
+                payload,
+            ),
+            (0, ""),
+        )
+        with self.assertRaisesRegex(ValueError, "requires --on-expiry"):
+            _session_options(
+                SimpleNamespace(session_minutes=90, on_expiry=""),
+                payload,
+            )
+        with self.assertRaisesRegex(ValueError, "between 0 and 10080"):
+            _session_options(
+                SimpleNamespace(
+                    session_minutes=10081,
+                    on_expiry="protected-release",
+                ),
+                payload,
+            )
+        with self.assertRaisesRegex(ValueError, "supported for the GCP"):
+            _session_options(
+                SimpleNamespace(
+                    session_minutes=90,
+                    on_expiry="protected-release",
+                ),
+                {"blueprint_ref": "onprem/eve-ng@v1"},
+            )
+
+    def test_session_warning_schedule_is_deterministic(self) -> None:
+        self.assertEqual(_session_warning_seconds(3600), (1800, 600, 300, 60))
+        self.assertEqual(_session_warning_seconds(600), (300, 60))
+
+    def test_managed_access_stops_waiting_at_the_deadline(self) -> None:
+        process = Mock()
+        process.poll.return_value = None
+        record = {
+            "session_id": "session-one",
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "status": "active",
+            "deadline_at": "2026-08-26T12:00:00Z",
+            "duration_seconds": 3600,
+        }
+        with (
+            patch("hyops.blueprint.command.load_session", return_value=dict(record)),
+            patch(
+                "hyops.blueprint.command.utc_now",
+                return_value=datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc),
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
+            rc = _wait_for_managed_access(
+                process,
+                None,
+                maintenance=None,
+                paths=SimpleNamespace(),
+                session_record=record,
+            )
+
+        self.assertIsNone(rc)
+
+    def test_managed_access_observes_external_cancellation(self) -> None:
+        process = Mock()
+        process.poll.return_value = None
+        record = {
+            "session_id": "session-one",
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "status": "active",
+            "deadline_at": "2026-08-26T13:00:00Z",
+            "duration_seconds": 3600,
+        }
+        cancelled = dict(record, status="cancelled")
+        with (
+            patch("hyops.blueprint.command.load_session", return_value=cancelled),
+            patch(
+                "hyops.blueprint.command._wait_for_access_processes",
+                return_value=0,
+            ) as wait,
+            redirect_stdout(io.StringIO()),
+        ):
+            rc = _wait_for_managed_access(
+                process,
+                None,
+                maintenance=None,
+                paths=SimpleNamespace(),
+                session_record=record,
+            )
+
+        self.assertEqual(rc, 0)
+        wait.assert_called_once()
+
+    def test_resource_generation_changes_with_runtime_state(self) -> None:
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "access": {"state_ref": "platform/gcp/platform-vm#gcp_eve_ng_vm"},
+        }
+        state = {
+            "run_id": "apply-one",
+            "updated_at": "2026-08-26T12:00:00Z",
+            "outputs": {
+                "vms": {
+                    "eve-ng-01": {
+                        "vm_id": "projects/p/zones/z/instances/eve-ng-01",
+                        "vm_name": "eve-ng-01",
+                        "zone": "z",
+                    }
+                }
+            },
+        }
+        first = _access_resource_generation(payload, state)
+        state["run_id"] = "apply-two"
+        self.assertNotEqual(first, _access_resource_generation(payload, state))
+
+    def test_expired_session_selects_verified_archive_and_destroy(self) -> None:
+        ns = SimpleNamespace(env="demo-lab", archive_before_destroy=False)
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "access": {"state_ref": "platform/test/vm#vm"},
+            "archive_before_destroy": {"module_ref": "platform/test/archive"},
+        }
+        state = {"run_id": "apply-one", "updated_at": "now", "outputs": {"vms": {}}}
+        generation = _access_resource_generation(payload, state)
+        record = {
+            "session_id": "session-one",
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "status": "active",
+            "resource_generation": generation,
+        }
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+        with (
+            patch("hyops.blueprint.command.LifecycleLock"),
+            patch("hyops.blueprint.command.load_session", return_value=record),
+            patch("hyops.blueprint.command.read_module_state", return_value=state),
+            patch("hyops.blueprint.command.save_session"),
+            patch("hyops.blueprint.command.run_destroy", return_value=0) as destroy,
+        ):
+            rc = _expire_access_session(ns, payload, paths, record)
+
+        self.assertEqual(rc, 0)
+        destroy_ns = destroy.call_args.args[0]
+        self.assertTrue(destroy_ns.execute)
+        self.assertTrue(destroy_ns.yes)
+        self.assertTrue(destroy_ns.archive_before_destroy)
+        self.assertFalse(destroy_ns.skip_archive)
+
+    def test_expiry_uses_each_blueprint_preservation_contract(self) -> None:
+        root = Path(__file__).resolve().parents[3]
+        cases = {
+            "gcp/eve-ng@v1": True,
+            "gcp/gns3@v1": True,
+            "gcp/containerlab@v1": False,
+        }
+        for blueprint_ref, expects_archive in cases.items():
+            provider, workload = blueprint_ref.split("/", 1)
+            payload = load_blueprint(root / "blueprints" / provider / workload / "blueprint.yml")
+            ns = SimpleNamespace(env="acceptance", archive_before_destroy=False)
+            state = {"run_id": "apply-one", "updated_at": "now", "outputs": {"vms": {}}}
+            generation = _access_resource_generation(payload, state)
+            record = {
+                "session_id": "session-one",
+                "blueprint_ref": blueprint_ref,
+                "status": "active",
+                "resource_generation": generation,
+            }
+            paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+            with (
+                self.subTest(blueprint_ref=blueprint_ref),
+                patch("hyops.blueprint.command.LifecycleLock"),
+                patch("hyops.blueprint.command.load_session", return_value=record),
+                patch("hyops.blueprint.command.read_module_state", return_value=state),
+                patch("hyops.blueprint.command.save_session"),
+                patch("hyops.blueprint.command.run_destroy", return_value=0) as destroy,
+                redirect_stdout(io.StringIO()),
+            ):
+                rc = _expire_access_session(ns, payload, paths, record)
+
+            self.assertEqual(rc, 0)
+            destroy_ns = destroy.call_args.args[0]
+            self.assertEqual(destroy_ns.archive_before_destroy, expects_archive)
+            self.assertTrue(destroy_ns.yes)
+
+    def test_expiry_retains_environment_when_preservation_fails(self) -> None:
+        ns = SimpleNamespace(env="demo-lab", archive_before_destroy=False)
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "access": {"state_ref": "platform/test/vm#vm"},
+            "archive_before_destroy": {"module_ref": "platform/test/archive"},
+        }
+        state = {"run_id": "apply-one", "updated_at": "now", "outputs": {"vms": {}}}
+        record = {
+            "session_id": "session-one",
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "status": "active",
+            "resource_generation": _access_resource_generation(payload, state),
+        }
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+        with (
+            patch("hyops.blueprint.command.LifecycleLock"),
+            patch("hyops.blueprint.command.load_session", return_value=record),
+            patch("hyops.blueprint.command.read_module_state", return_value=state),
+            patch("hyops.blueprint.command.save_session"),
+            patch(
+                "hyops.blueprint.command.run_destroy",
+                return_value=OPERATOR_ERROR,
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
+            rc = _expire_access_session(ns, payload, paths, record)
+
+        self.assertEqual(rc, OPERATOR_ERROR)
+        self.assertEqual(record["status"], "retained-after-failure")
+        self.assertFalse(record["outcome"]["resources_released"])
+
+    def test_expiry_rejects_a_changed_resource_generation(self) -> None:
+        ns = SimpleNamespace(env="demo-lab", archive_before_destroy=False)
+        payload = {
+            "blueprint_ref": "gcp/gns3@v1",
+            "access": {"state_ref": "platform/test/vm#vm"},
+        }
+        state = {"run_id": "apply-two", "updated_at": "now", "outputs": {"vms": {}}}
+        record = {
+            "session_id": "session-one",
+            "blueprint_ref": "gcp/gns3@v1",
+            "status": "active",
+            "resource_generation": "older-generation",
+        }
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+        with (
+            patch("hyops.blueprint.command.LifecycleLock"),
+            patch("hyops.blueprint.command.load_session", return_value=record),
+            patch("hyops.blueprint.command.read_module_state", return_value=state),
+            patch("hyops.blueprint.command.save_session"),
+            patch("hyops.blueprint.access_session.save_session"),
+            patch("hyops.blueprint.command.run_destroy") as destroy,
+            redirect_stdout(io.StringIO()),
+        ):
+            rc = _expire_access_session(ns, payload, paths, record)
+
+        self.assertEqual(rc, OPERATOR_ERROR)
+        self.assertEqual(record["status"], "stale-generation")
+        destroy.assert_not_called()
+
     def test_host_key_alarm_is_replaced_with_operator_guidance(self) -> None:
         message = _ssh_access_error(
             "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed.",

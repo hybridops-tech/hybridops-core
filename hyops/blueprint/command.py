@@ -60,6 +60,19 @@ from .automation_access import (
     local_route_conflicts,
     prepare_automation_session,
 )
+from .access_session import (
+    LifecycleBusy,
+    LifecycleLock,
+    effective_status as effective_session_status,
+    extend_session,
+    format_utc,
+    load_session,
+    parse_utc,
+    save_session,
+    set_session_status,
+    start_session,
+    utc_now,
+)
 from .contracts import (
     enforce_step_contracts,
     explicit_step_inputs_changed,
@@ -796,7 +809,57 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Route the declared management subnet through a Linux TUN interface.",
     )
+    a.add_argument(
+        "--session-minutes",
+        type=int,
+        default=0,
+        help="Set a foreground-supervised access limit in minutes.",
+    )
+    a.add_argument(
+        "--on-expiry",
+        choices=("protected-release",),
+        default="",
+        help="Action authorised when the access-session limit expires.",
+    )
     a.set_defaults(_handler=run_access)
+
+    session = ssp.add_parser(
+        "session",
+        help="Inspect or change a time-bounded access session.",
+    )
+    session_commands = session.add_subparsers(dest="session_cmd", required=True)
+
+    def add_session_args(sub: argparse.ArgumentParser) -> None:
+        add_common_args(sub)
+        sub.add_argument("--root", default=None, help="Override runtime root.")
+        sub.add_argument("--env", default=None, help="Runtime environment namespace.")
+
+    session_status = session_commands.add_parser(
+        "status",
+        help="Show the current access-session state.",
+    )
+    add_session_args(session_status)
+    session_status.set_defaults(_handler=run_session)
+
+    session_extend = session_commands.add_parser(
+        "extend",
+        help="Extend an active access-session deadline.",
+    )
+    add_session_args(session_extend)
+    session_extend.add_argument(
+        "--minutes",
+        type=int,
+        required=True,
+        help="Minutes to add to the current deadline.",
+    )
+    session_extend.set_defaults(_handler=run_session)
+
+    session_cancel = session_commands.add_parser(
+        "cancel",
+        help="Cancel the expiry action without closing access.",
+    )
+    add_session_args(session_cancel)
+    session_cancel.set_defaults(_handler=run_session)
 
     device = ssp.add_parser(
         "device",
@@ -2404,6 +2467,214 @@ def _offer_access_close_destroy(
     return run_destroy(destroy_ns)
 
 
+def _expire_access_session(
+    ns,
+    payload: dict[str, Any],
+    paths,
+    session_record: dict[str, Any],
+    *,
+    cost_estimate: CostEstimate | None = None,
+) -> int:
+    print("access session expired; preserving declared state before teardown")
+    try:
+        with LifecycleLock(paths, "access-session protected release"):
+            current = load_session(paths, str(payload["blueprint_ref"]))
+            if current is None or str(current.get("session_id") or "") != str(
+                session_record.get("session_id") or ""
+            ):
+                raise ValueError("access-session authority record changed before expiry")
+            if str(current.get("status") or "") != "active":
+                raise ValueError(
+                    f"access-session expiry is not authorised in state "
+                    f"{current.get('status', 'unknown')}"
+                )
+            access = payload.get("access")
+            state_ref = str((access if isinstance(access, dict) else {}).get("state_ref") or "")
+            module_ref, state_instance = split_module_state_ref(state_ref)
+            state = read_module_state(
+                paths.state_dir,
+                module_ref,
+                state_instance=state_instance,
+            )
+            generation = _access_resource_generation(payload, state)
+            if generation != str(current.get("resource_generation") or ""):
+                set_session_status(
+                    paths,
+                    current,
+                    "stale-generation",
+                    reason="resource generation changed before expiry",
+                )
+                print("ERR: access-session generation changed; environment retained")
+                return OPERATOR_ERROR
+
+            current["status"] = "executing"
+            current["executing_at"] = format_utc(utc_now())
+            save_session(paths, current)
+            destroy_ns = argparse.Namespace(**vars(ns))
+            destroy_ns.execute = True
+            destroy_ns.yes = True
+            destroy_ns.archive_before_destroy = bool(
+                payload.get("archive_before_destroy")
+            )
+            destroy_ns.skip_archive = False
+            destroy_ns._cost_estimate = cost_estimate
+            destroy_ns._lifecycle_lock_held = True
+            rc = run_destroy(destroy_ns)
+            current["status"] = "released" if rc == 0 else "retained-after-failure"
+            current["outcome"] = {
+                "destroy_rc": int(rc),
+                "resources_released": rc == 0,
+            }
+            if rc != 0:
+                current["outcome"]["reason"] = "protected lifecycle did not complete"
+            current["completed_at"] = format_utc(utc_now())
+            save_session(paths, current)
+    except LifecycleBusy as exc:
+        print(f"ERR: protected release did not start: {exc}")
+        print("review the active lifecycle operation before releasing the environment")
+        return OPERATOR_ERROR
+    except Exception as exc:
+        try:
+            current = load_session(paths, str(payload["blueprint_ref"]))
+            if current is not None and str(current.get("session_id") or "") == str(
+                session_record.get("session_id") or ""
+            ):
+                set_session_status(
+                    paths,
+                    current,
+                    "retained-after-failure",
+                    reason=str(exc),
+                )
+        except (OSError, ValueError):
+            pass
+        print(f"ERR: protected release did not complete: {exc}")
+        print("environment retained")
+        return OPERATOR_ERROR
+    if rc != 0:
+        print("ERR: scheduled teardown did not complete; review the session run record")
+    return rc
+
+
+def _close_access_session(
+    paths,
+    session_record: dict[str, Any] | None,
+    status: str,
+    *,
+    reason: str = "",
+) -> None:
+    if session_record is None:
+        return
+    try:
+        with LifecycleLock(paths, f"access-session {status}"):
+            current = load_session(paths, str(session_record["blueprint_ref"]))
+            if current is None or str(current.get("session_id") or "") != str(
+                session_record.get("session_id") or ""
+            ):
+                return
+            if str(current.get("status") or "") != "active":
+                return
+            set_session_status(paths, current, status, reason=reason)
+    except (LifecycleBusy, OSError, ValueError):
+        return
+
+
+def _current_access_generation(payload: dict[str, Any], paths) -> str:
+    access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+    state_ref = str(access.get("state_ref") or "").strip()
+    module_ref, state_instance = split_module_state_ref(state_ref)
+    state = read_module_state(
+        paths.state_dir,
+        module_ref,
+        state_instance=state_instance,
+    )
+    return _access_resource_generation(payload, state)
+
+
+def _session_output(record: dict[str, Any]) -> dict[str, Any]:
+    output = dict(record)
+    output["effective_status"] = effective_session_status(record)
+    return output
+
+
+def _print_session(output: dict[str, Any]) -> None:
+    print(f"session={output.get('session_id', '')}")
+    print(f"status={output.get('effective_status', output.get('status', 'unknown'))}")
+    print(f"blueprint={output.get('blueprint_ref', '')}")
+    print(f"deadline={output.get('deadline_at', '')}")
+    print(f"expiry_action={output.get('expiry_action', '')}")
+    outcome = output.get("outcome")
+    if isinstance(outcome, dict) and outcome:
+        if "resources_released" in outcome:
+            print(
+                "resources_released="
+                f"{'yes' if bool(outcome['resources_released']) else 'no'}"
+            )
+        if outcome.get("reason"):
+            print(f"reason={outcome['reason']}")
+    print(f"run record: {output.get('run_record', '')}")
+
+
+def run_session(ns) -> int:
+    try:
+        payload = _resolve_and_validate(ns)
+        require_runtime_selection(
+            ns.root,
+            getattr(ns, "env", None),
+            command_label="hyops blueprint session",
+        )
+        paths = resolve_runtime_paths(ns.root, getattr(ns, "env", None))
+        blueprint_ref = str(payload["blueprint_ref"])
+        record = load_session(paths, blueprint_ref)
+        if record is None:
+            raise ValueError("no access-session record exists for this blueprint")
+
+        command = str(getattr(ns, "session_cmd", "") or "")
+        if command == "status":
+            output = _session_output(record)
+        else:
+            with LifecycleLock(paths, f"access-session {command}"):
+                record = load_session(paths, blueprint_ref)
+                if record is None:
+                    raise ValueError("access-session record disappeared")
+                if command == "extend":
+                    minutes = int(getattr(ns, "minutes", 0) or 0)
+                    if minutes < 1 or minutes > 7 * 24 * 60:
+                        raise ValueError("--minutes must be between 1 and 10080")
+                    if effective_session_status(record) != "active":
+                        raise ValueError("only a supervised active session can be extended")
+                    if _current_access_generation(payload, paths) != str(
+                        record.get("resource_generation") or ""
+                    ):
+                        set_session_status(
+                            paths,
+                            record,
+                            "stale-generation",
+                            reason="resource generation changed before extension",
+                        )
+                        raise ValueError("resource generation changed; session not extended")
+                    extend_session(paths, record, seconds=minutes * 60)
+                elif command == "cancel":
+                    if str(record.get("status") or "") != "active":
+                        raise ValueError("only an active session can be cancelled")
+                    set_session_status(
+                        paths,
+                        record,
+                        "cancelled",
+                        reason="expiry cancelled by operator",
+                    )
+                else:
+                    raise ValueError(f"unsupported session command: {command}")
+                output = _session_output(record)
+        if bool(getattr(ns, "json", False)):
+            print(json.dumps(output, indent=2, sort_keys=True))
+        else:
+            _print_session(output)
+        return 0
+    except (LifecycleBusy, OSError, ValueError) as exc:
+        print(f"ERR: blueprint session failed: {exc}")
+        return OPERATOR_ERROR
+
+
 def _destroyed_blueprint_cost_cleared(payload: dict[str, Any], paths) -> bool:
     """Return true only when every declared step has terminal resource state."""
 
@@ -2810,6 +3081,140 @@ def _wait_for_access_processes(
         time.sleep(0.5)
 
 
+def _session_options(ns, payload: dict[str, Any]) -> tuple[int, str]:
+    minutes = int(getattr(ns, "session_minutes", 0) or 0)
+    if minutes < 0 or minutes > 7 * 24 * 60:
+        raise ValueError("--session-minutes must be between 0 and 10080")
+    action = str(getattr(ns, "on_expiry", "") or "").strip()
+    if minutes == 0 and action:
+        raise ValueError("--on-expiry requires --session-minutes")
+    if minutes > 0 and not action:
+        raise ValueError(
+            "--session-minutes requires --on-expiry protected-release"
+        )
+    if minutes == 0:
+        return 0, ""
+    if str(payload.get("blueprint_ref") or "") not in {
+        "gcp/eve-ng@v1",
+        "gcp/gns3@v1",
+        "gcp/containerlab@v1",
+    }:
+        raise ValueError(
+            "time-bounded access is supported for the GCP EVE-NG, GNS3, "
+            "and Containerlab blueprints"
+        )
+    return minutes * 60, action
+
+
+def _access_resource_generation(
+    payload: dict[str, Any],
+    state: dict[str, Any],
+) -> str:
+    access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+    outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
+    vms = outputs.get("vms") if isinstance(outputs.get("vms"), dict) else {}
+    identities: dict[str, dict[str, str]] = {}
+    for name, raw in sorted(vms.items()):
+        vm = raw if isinstance(raw, dict) else {}
+        identities[str(name)] = {
+            key: str(vm.get(key) or "")
+            for key in ("vm_id", "vm_name", "zone")
+        }
+    material = {
+        "blueprint_ref": str(payload.get("blueprint_ref") or ""),
+        "state_ref": str(access.get("state_ref") or ""),
+        "state_run_id": str(state.get("run_id") or ""),
+        "state_updated_at": str(state.get("updated_at") or ""),
+        "vms": identities,
+    }
+    encoded = json.dumps(material, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _session_warning_seconds(duration_seconds: int) -> tuple[int, ...]:
+    return tuple(
+        threshold
+        for threshold in (1800, 600, 300, 60)
+        if threshold < duration_seconds
+    )
+
+
+def _wait_for_managed_access(
+    access_proc: subprocess.Popen,
+    route_proc: subprocess.Popen | None,
+    *,
+    maintenance: Callable[[], None] | None,
+    paths,
+    session_record: dict[str, Any] | None,
+) -> int | None:
+    if session_record is None:
+        return _wait_for_access_processes(
+            access_proc,
+            route_proc,
+            maintenance=maintenance,
+        )
+
+    session_id = str(session_record["session_id"])
+    duration_seconds = int(session_record["duration_seconds"])
+    warned: set[tuple[str, int]] = set()
+    next_maintenance = time.monotonic() + 3
+    while True:
+        access_rc = access_proc.poll()
+        if access_rc is not None:
+            return int(access_rc)
+        if route_proc is not None:
+            route_rc = route_proc.poll()
+            if route_rc is not None:
+                return int(route_rc)
+
+        current = load_session(paths, str(session_record["blueprint_ref"]))
+        if current is None or str(current.get("session_id") or "") != session_id:
+            print("session supervision replaced; access remains open without expiry")
+            return _wait_for_access_processes(
+                access_proc,
+                route_proc,
+                maintenance=maintenance,
+            )
+        session_record.clear()
+        session_record.update(current)
+        status = str(session_record.get("status") or "")
+        if status == "cancelled":
+            print("session expiry cancelled; access remains open")
+            return _wait_for_access_processes(
+                access_proc,
+                route_proc,
+                maintenance=maintenance,
+            )
+        if status != "active":
+            return _wait_for_access_processes(
+                access_proc,
+                route_proc,
+                maintenance=maintenance,
+            )
+
+        deadline = parse_utc(str(session_record["deadline_at"]))
+        now = utc_now()
+        remaining = (deadline - now).total_seconds()
+        if remaining <= 0:
+            print("access session limit reached")
+            return None
+        deadline_key = str(session_record["deadline_at"])
+        for threshold in _session_warning_seconds(duration_seconds):
+            warning = (deadline_key, threshold)
+            if remaining <= threshold and warning not in warned:
+                print(f"session expires in {threshold // 60} minutes")
+                warned.add(warning)
+
+        if maintenance is not None and time.monotonic() >= next_maintenance:
+            try:
+                maintenance()
+            except Exception as exc:
+                if verbose_enabled():
+                    print(f"WARN: device discovery refresh failed: {exc}")
+            next_maintenance = time.monotonic() + 8
+        time.sleep(0.5)
+
+
 def _combine_maintenance(
     *callbacks: Callable[[], None] | None,
 ) -> Callable[[], None] | None:
@@ -2833,8 +3238,11 @@ def _combine_maintenance(
 
 def run_access(ns) -> int:
     native_console_stop: Callable[[], None] | None = None
+    session_record: dict[str, Any] | None = None
+    paths = None
     try:
         payload = _resolve_and_validate(ns)
+        session_seconds, expiry_action = _session_options(ns, payload)
         access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
         if not access:
             raise ValueError("blueprint does not declare an access path")
@@ -2843,6 +3251,21 @@ def run_access(ns) -> int:
         state_ref = str(access.get("state_ref") or "").strip()
         module_ref, state_instance = split_module_state_ref(state_ref)
         state = read_module_state(paths.state_dir, module_ref, state_instance=state_instance)
+        if session_seconds:
+            env_name = str(getattr(ns, "env", None) or paths.root.name).strip()
+            with LifecycleLock(paths, "start access session"):
+                session_record = start_session(
+                    paths,
+                    env_name=env_name,
+                    blueprint_ref=str(payload["blueprint_ref"]),
+                    state_ref=state_ref,
+                    resource_generation=_access_resource_generation(payload, state),
+                    duration_seconds=session_seconds,
+                    expiry_action=expiry_action,
+                )
+            print(f"session deadline: {session_record['deadline_at']}")
+            print(f"expiry action: {session_record['expiry_action']}")
+            print(f"session run record: {session_record['run_record']}")
         outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
         vms = outputs.get("vms") if isinstance(outputs.get("vms"), dict) else {}
         if not vms:
@@ -2978,6 +3401,12 @@ def run_access(ns) -> int:
             proc = subprocess.Popen(argv, cwd=str(Path.home()))
             time.sleep(2)
             if proc.poll() is not None:
+                _close_access_session(
+                    paths,
+                    session_record,
+                    "interrupted",
+                    reason=f"access tunnel exited during startup with rc={proc.returncode}",
+                )
                 return OPERATOR_ERROR
             if native_console_mode == "gns3-api":
                 _wait_for_local_port(port, proc)
@@ -3044,15 +3473,31 @@ def run_access(ns) -> int:
                 open_operator_url(url)
             print("press Ctrl-C to close access")
             try:
-                rc = _wait_for_access_processes(
+                rc = _wait_for_managed_access(
                     proc,
                     route_proc,
                     maintenance=maintenance,
+                    paths=paths,
+                    session_record=session_record,
                 )
                 _stop_lab_route(route_proc, route_plan)
                 if native_console_stop is not None:
                     native_console_stop()
                 _stop_process(proc)
+                if rc is None:
+                    print("access closed")
+                    return _expire_access_session(
+                        ns,
+                        payload,
+                        paths,
+                        session_record,
+                    )
+                _close_access_session(
+                    paths,
+                    session_record,
+                    "completed",
+                    reason=f"access process exited with rc={rc}",
+                )
                 return rc
             except KeyboardInterrupt:
                 _stop_lab_route(route_proc, route_plan)
@@ -3060,6 +3505,12 @@ def run_access(ns) -> int:
                     native_console_stop()
                 _stop_process(proc)
                 print("access closed")
+                _close_access_session(
+                    paths,
+                    session_record,
+                    "cancelled",
+                    reason="access closed by operator",
+                )
                 return _offer_access_close_destroy(ns, payload, state)
 
         vm_id = str(vm.get("vm_id") or "").strip()
@@ -3200,6 +3651,12 @@ def run_access(ns) -> int:
         time.sleep(2)
         if proc.poll() is not None:
             _stop_process(iap_proc)
+            _close_access_session(
+                paths,
+                session_record,
+                "interrupted",
+                reason=f"access tunnel exited during startup with rc={proc.returncode}",
+            )
             return OPERATOR_ERROR
         if native_console_mode == "gns3-api":
             _wait_for_local_port(port, proc)
@@ -3265,16 +3722,33 @@ def run_access(ns) -> int:
             open_operator_url(url)
         print("press Ctrl-C to close access")
         try:
-            rc = _wait_for_access_processes(
+            rc = _wait_for_managed_access(
                 proc,
                 route_proc,
                 maintenance=maintenance,
+                paths=paths,
+                session_record=session_record,
             )
             _stop_lab_route(route_proc, route_plan)
             if native_console_stop is not None:
                 native_console_stop()
             _stop_process(proc)
             _stop_process(iap_proc)
+            if rc is None:
+                print("access closed")
+                return _expire_access_session(
+                    ns,
+                    payload,
+                    paths,
+                    session_record,
+                    cost_estimate=cost_estimate,
+                )
+            _close_access_session(
+                paths,
+                session_record,
+                "completed",
+                reason=f"access process exited with rc={rc}",
+            )
             return rc
         except KeyboardInterrupt:
             _stop_lab_route(route_proc, route_plan)
@@ -3283,6 +3757,12 @@ def run_access(ns) -> int:
             _stop_process(proc)
             _stop_process(iap_proc)
             print("access closed")
+            _close_access_session(
+                paths,
+                session_record,
+                "cancelled",
+                reason="access closed by operator",
+            )
             return _offer_access_close_destroy(
                 ns,
                 payload,
@@ -3291,11 +3771,39 @@ def run_access(ns) -> int:
                 cost_estimate=cost_estimate,
                 access_started_at=access_started_at,
             )
+    except KeyboardInterrupt:
+        if native_console_stop is not None:
+            native_console_stop()
+        if "route_proc" in locals():
+            _stop_lab_route(route_proc, route_plan)
+        if "proc" in locals():
+            _stop_process(proc)
+        if "iap_proc" in locals():
+            _stop_process(iap_proc)
+        if paths is not None:
+            _close_access_session(
+                paths,
+                session_record,
+                "cancelled",
+                reason="access interrupted by operator",
+            )
+        raise
     except Exception as exc:
         if native_console_stop is not None:
             native_console_stop()
+        if "route_proc" in locals():
+            _stop_lab_route(route_proc, route_plan)
+        if "proc" in locals():
+            _stop_process(proc)
         if "iap_proc" in locals():
             _stop_process(iap_proc)
+        if paths is not None:
+            _close_access_session(
+                paths,
+                session_record,
+                "interrupted",
+                reason=str(exc),
+            )
         print(f"ERR: blueprint access failed: {exc}")
         return OPERATOR_ERROR
 
@@ -4241,6 +4749,33 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
 
 
 def run_destroy(ns) -> int:
+    if not bool(getattr(ns, "execute", False)) or bool(
+        getattr(ns, "_lifecycle_lock_held", False)
+    ):
+        return _run_destroy_unlocked(ns)
+    try:
+        require_runtime_selection(
+            getattr(ns, "root", None),
+            getattr(ns, "env", None),
+            command_label="hyops blueprint destroy",
+        )
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None),
+            getattr(ns, "env", None),
+        )
+        ensure_layout(paths)
+        with LifecycleLock(paths, "blueprint destroy"):
+            setattr(ns, "_lifecycle_lock_held", True)
+            try:
+                return _run_destroy_unlocked(ns)
+            finally:
+                setattr(ns, "_lifecycle_lock_held", False)
+    except (LifecycleBusy, OSError, ValueError) as exc:
+        print(f"ERR: blueprint destroy failed: {exc}")
+        return OPERATOR_ERROR
+
+
+def _run_destroy_unlocked(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
     except Exception as exc:
@@ -4824,6 +5359,33 @@ def run_destroy(ns) -> int:
 
 
 def run_rebuild(ns) -> int:
+    if not bool(getattr(ns, "execute", False)) or bool(
+        getattr(ns, "_lifecycle_lock_held", False)
+    ):
+        return _run_rebuild_unlocked(ns)
+    try:
+        require_runtime_selection(
+            getattr(ns, "root", None),
+            getattr(ns, "env", None),
+            command_label="hyops blueprint rebuild",
+        )
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None),
+            getattr(ns, "env", None),
+        )
+        ensure_layout(paths)
+        with LifecycleLock(paths, "blueprint rebuild"):
+            setattr(ns, "_lifecycle_lock_held", True)
+            try:
+                return _run_rebuild_unlocked(ns)
+            finally:
+                setattr(ns, "_lifecycle_lock_held", False)
+    except (LifecycleBusy, OSError, ValueError) as exc:
+        print(f"ERR: blueprint rebuild failed: {exc}")
+        return OPERATOR_ERROR
+
+
+def _run_rebuild_unlocked(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
     except Exception as exc:
@@ -4965,6 +5527,7 @@ __all__ = [
     "run_validate",
     "run_preflight",
     "run_plan",
+    "run_session",
     "run_deploy",
     "run_destroy",
     "run_rebuild",

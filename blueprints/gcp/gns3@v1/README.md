@@ -56,6 +56,25 @@ Open the GNS3 server through the managed private path:
 hyops blueprint access --env <env> --ref gcp/gns3@v1
 ```
 
+Set a planned session limit when the environment must not remain active:
+
+```bash
+hyops blueprint access \
+  --env <env> \
+  --ref gcp/gns3@v1 \
+  --session-minutes 120 \
+  --on-expiry protected-release
+```
+
+The foreground access process supervises the limit and shows the UTC deadline
+and warning intervals. The expiry action does not continue after that process
+exits. At expiry, Core verifies the declared project archive before teardown.
+A failed archive retains the environment.
+
+Use `hyops blueprint session status`, `hyops blueprint session extend` or
+`hyops blueprint session cancel` with the same environment and blueprint
+reference. Extension also requires `--minutes <minutes>`.
+
 The access session resolves the current host from HybridOps state and forwards the authenticated GNS3 API/UI endpoint through IAP. The VM and GNS3 service remain private.
 
 Add `--native-consoles` when using the desktop client's Telnet, VNC, SPICE or web console handlers. HybridOps reads node console assignments from the authenticated GNS3 API and maintains matching loopback forwards while access remains open.

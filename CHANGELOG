@@ -6,6 +6,9 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added opt-in, time-bounded GCP lab access sessions with generation-bound
+  protected release, deterministic warnings, extension, cancellation and
+  persistent outcomes for EVE-NG, GNS3 and Containerlab.
 - Added live EVE-NG and GNS3 console discovery so native VNC, Telnet, SPICE and web-console forwards follow nodes during an access session.
 - Added targeted Galaxy collection refresh with `hyops setup galaxy --collection <name>`.
 - Added `hyops blueprint init` and `hyops blueprint edit` as the environment-local blueprint workflow. Initialized blueprints are now the default execution source, while `--file` remains an explicit override.
