@@ -23,6 +23,19 @@ _GCP_QUOTA_ERROR = re.compile(
     flags=re.IGNORECASE,
 )
 
+_ERROR_EVIDENCE_LIMIT_BYTES = 128 * 1024
+
+
+def _read_evidence_tail(path: Path) -> str:
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, 2)
+            size = stream.tell()
+            stream.seek(max(0, size - _ERROR_EVIDENCE_LIMIT_BYTES))
+            return stream.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
 
 def translate_gcp_capacity_error(
     *,
@@ -88,15 +101,15 @@ def translate_gcp_capacity_error(
     machine_type = str(machine_match.group(1) if machine_match else "").strip()
 
     location = f" in {zone}" if zone else ""
-    request = f" for {machine_type}" if machine_type else ""
+    request = f"{machine_type}" if machine_type else "requested VM"
     env_name = str(env.get("HYOPS_ENV") or "").strip() or "<env>"
-    init_command = f"hyops init gcp --env {shlex.quote(env_name)} --force"
+    init_command = (
+        f"hyops init gcp --env {shlex.quote(env_name)} --with-cli-login --force"
+    )
 
     return (
-        f"GCP compute capacity is temporarily unavailable{location}{request}. "
-        "The requested VM was not created.\n"
-        f"hint: run `{init_command}`, choose a different compute location, "
-        "then run the blueprint deploy command again."
+        f"GCP capacity unavailable: {request}{location}; VM not created.\n"
+        f"hint: run `{init_command}`, choose another zone, then retry deployment."
     )
 
 
@@ -209,10 +222,16 @@ def run_terragrunt_operation(
         stream=True,
     )
     if r_exec.rc != 0:
+        stdout = str(r_exec.stdout or "")
+        stderr = str(r_exec.stderr or "")
+        if not stdout.strip():
+            stdout = _read_evidence_tail(evidence_dir / f"{exec_label}.stdout.txt")
+        if not stderr.strip():
+            stderr = _read_evidence_tail(evidence_dir / f"{exec_label}.stderr.txt")
         capacity_error = translate_gcp_capacity_error(
             command_name=command_name,
-            stdout=str(r_exec.stdout or ""),
-            stderr=str(r_exec.stderr or ""),
+            stdout=stdout,
+            stderr=stderr,
             env=env,
         )
         if capacity_error:

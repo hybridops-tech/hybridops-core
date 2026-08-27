@@ -29,6 +29,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Reported GCP zonal capacity failures from streamed provider evidence with a
+  concise zone-selection recovery command.
 - Retried invalid interactive yes/no and exact destroy confirmations without treating a typing error as an operator decision.
 - Retained one verified previous EVE-NG or GNS3 lab archive generation when a
   new export is promoted.
