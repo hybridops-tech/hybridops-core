@@ -601,6 +601,20 @@ def _collect_deploy_risk_signals(payload: dict[str, Any], paths) -> list[dict[st
     return signals
 
 
+def _prompt_yes_no(prompt: str) -> bool | None:
+    while True:
+        try:
+            answer = input(prompt).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"", "n", "no"}:
+            return False
+        print("invalid response; enter y or n")
+
+
 def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
     if bool(getattr(ns, "yes", False)):
         return 0
@@ -633,12 +647,10 @@ def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
         print("WARN: non-interactive session detected; proceeding without prompt (use --yes to silence).")
         return 0
 
-    try:
-        answer = input("Proceed with blueprint deploy? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
+    confirmed = _prompt_yes_no("Proceed with blueprint deploy? [y/N]: ")
+    if confirmed is None:
         return CANCELLED
-    if answer not in {"y", "yes"}:
+    if not confirmed:
         print("ERR: blueprint deploy cancelled by operator")
         return OPERATOR_ERROR
     return 0
@@ -3270,12 +3282,10 @@ def _select_lab_restore_mode(
     print(f"lab archive available: {archive[0]}")
     if archive[2] is not None:
         print(f"stopped node state available: {archive[2]}")
-    try:
-        answer = input("Restore archived labs? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
+    confirmed = _prompt_yes_no("Restore archived labs? [y/N]: ")
+    if confirmed is None:
         return "skip", archive
-    return ("restore" if answer in {"y", "yes"} else "skip"), archive
+    return ("restore" if confirmed else "skip"), archive
 
 
 def _run_lab_restore(
@@ -3944,14 +3954,17 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
         print("invalid choice; enter exactly 1, 2, or 3")
 
 
-def _confirm_archive_destroy(env_name: str) -> bool:
+def _confirm_archive_destroy(env_name: str) -> bool | None:
     confirmation = f"destroy {env_name}"
-    try:
-        typed = input(f'Type "{confirmation}" to confirm: ').strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return False
-    return typed == confirmation
+    while True:
+        try:
+            typed = input(f'Type "{confirmation}" to confirm: ').strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if typed == confirmation:
+            return True
+        print(f'confirmation did not match; type exactly "{confirmation}"')
 
 
 def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
@@ -4189,16 +4202,15 @@ def run_destroy(ns) -> int:
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
         if payload.get("archive_before_destroy"):
-            if not _confirm_archive_destroy(env_name):
-                print("destroy cancelled; confirmation did not match")
+            if _confirm_archive_destroy(env_name) is not True:
+                print("destroy cancelled")
+                print("environment retained")
                 return CANCELLED
         elif sys.stdin.isatty() and sys.stdout.isatty():
-            try:
-                answer = input("Proceed with blueprint destroy? [y/N]: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                print()
+            confirmed = _prompt_yes_no("Proceed with blueprint destroy? [y/N]: ")
+            if confirmed is None:
                 return CANCELLED
-            if answer not in {"y", "yes"}:
+            if not confirmed:
                 print("ERR: blueprint destroy cancelled by operator")
                 return OPERATOR_ERROR
         else:
@@ -4617,12 +4629,10 @@ def run_rebuild(ns) -> int:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             print("ERR: non-interactive rebuild requires --yes")
             return OPERATOR_ERROR
-        try:
-            answer = input("Proceed with blueprint rebuild? [y/N]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
+        confirmed = _prompt_yes_no("Proceed with blueprint rebuild? [y/N]: ")
+        if confirmed is None:
             return CANCELLED
-        if answer not in {"y", "yes"}:
+        if not confirmed:
             print("ERR: blueprint rebuild cancelled by operator")
             return CANCELLED
 

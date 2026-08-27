@@ -29,6 +29,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Retried invalid interactive yes/no and exact destroy confirmations without treating a typing error as an operator decision.
 - Retained one verified previous EVE-NG or GNS3 lab archive generation when a
   new export is promoted.
 - Required file-backed EVE-NG and GNS3 licence secrets to be imported rather than generated, and verified installed EVE-NG image counts before reporting readiness.

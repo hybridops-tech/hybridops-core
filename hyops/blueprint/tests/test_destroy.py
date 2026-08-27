@@ -8,6 +8,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from hyops.blueprint.command import (
+    _confirm_archive_destroy,
     _destroyed_blueprint_cost_cleared,
     _gcp_blueprint_cost_estimate,
     _run_archive_before_destroy,
@@ -55,6 +56,25 @@ def _namespace():
 
 
 class ResumableBlueprintDestroyTest(TestCase):
+    def test_archive_destroy_confirmation_reprompts_until_exact_match(self):
+        with patch(
+            "hyops.blueprint.command.input",
+            side_effect=["test", "destroy test"],
+        ) as prompt:
+            confirmed = _confirm_archive_destroy("test")
+
+        self.assertTrue(confirmed)
+        self.assertEqual(prompt.call_count, 2)
+
+    def test_archive_destroy_confirmation_interrupt_cancels(self):
+        with patch(
+            "hyops.blueprint.command.input",
+            side_effect=KeyboardInterrupt,
+        ):
+            confirmed = _confirm_archive_destroy("test")
+
+        self.assertIsNone(confirmed)
+
     def test_standalone_destroy_resolves_cost_from_access_state(self):
         payload = {
             "blueprint_ref": "gcp/eve-ng@v1",
