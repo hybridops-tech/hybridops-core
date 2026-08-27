@@ -5,7 +5,7 @@ module_ref: "platform/linux/gns3-images"
 
 metadata:
   title: "Linux GNS3 Images"
-  description: "Install checksum-verified QEMU images and register usable GNS3 templates."
+  description: "Install declared QEMU or IOU images and register usable GNS3 templates."
 
 requirements:
   credentials: []
