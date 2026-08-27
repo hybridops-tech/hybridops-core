@@ -15,6 +15,9 @@ artifacts/gns3/labs/gns3-labs.tar.gz
 ```
 
 Export publishes the archive path, manifest, creation time, member list and SHA-256.
+A new archive replaces the current generation only after verification. The
+preceding verified generation is retained as a fallback. A failed export leaves
+the current archive unchanged.
 
 Restore requires the recorded checksum and verifies it before applying the retained project and controller state:
 

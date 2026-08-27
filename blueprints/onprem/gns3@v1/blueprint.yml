@@ -149,6 +149,8 @@ steps:
       # load_vault_env: true
       # required_env: ["GNS3_SERVER_PASSWORD", "GNS3_IOU_LICENSE"]
       # gns3_images_iou_license_env: "GNS3_IOU_LICENSE"
+      # filename is required. checksum is optional. An archive must contain one
+      # image payload for registration.
       gns3_images_items:
         - name: "Alpine Linux 3.24"
           url: "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-virt-3.24.1-x86_64.iso"

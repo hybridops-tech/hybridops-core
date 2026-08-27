@@ -346,7 +346,9 @@ def _step_presentation(
     if not isinstance(outputs, dict):
         outputs = {}
 
-    image_count = outputs.get("eveng_images_requested_count")
+    image_count = outputs.get("eveng_images_installed_count")
+    if not isinstance(image_count, int):
+        image_count = outputs.get("eveng_images_requested_count")
     if isinstance(image_count, int) and image_count >= 0:
         details.append(f"{image_count} images")
 
@@ -600,6 +602,20 @@ def _collect_deploy_risk_signals(payload: dict[str, Any], paths) -> list[dict[st
     return signals
 
 
+def _prompt_yes_no(prompt: str) -> bool | None:
+    while True:
+        try:
+            answer = input(prompt).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"", "n", "no"}:
+            return False
+        print("invalid response; enter y or n")
+
+
 def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
     if bool(getattr(ns, "yes", False)):
         return 0
@@ -632,12 +648,10 @@ def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
         print("WARN: non-interactive session detected; proceeding without prompt (use --yes to silence).")
         return 0
 
-    try:
-        answer = input("Proceed with blueprint deploy? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
+    confirmed = _prompt_yes_no("Proceed with blueprint deploy? [y/N]: ")
+    if confirmed is None:
         return CANCELLED
-    if answer not in {"y", "yes"}:
+    if not confirmed:
         print("ERR: blueprint deploy cancelled by operator")
         return OPERATOR_ERROR
     return 0
@@ -3298,10 +3312,12 @@ def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
             lifecycle.get("restore_overwrite_default", False)
         ),
         "path_output": f"{prefix}_path",
+        "previous_path_output": f"{prefix}_previous_path",
         "sha256_output": f"{prefix}_sha256",
         "node_included_output": f"{prefix}_node_state_included",
         "node_path_output": f"{prefix}_node_state_archive_path",
         "node_sha256_output": f"{prefix}_node_state_sha256",
+        "device_configs_captured_output": f"{prefix}_device_configs_captured",
     }
 
 
@@ -3413,12 +3429,10 @@ def _select_lab_restore_mode(
     print(f"lab archive available: {archive[0]}")
     if archive[2] is not None:
         print(f"stopped node state available: {archive[2]}")
-    try:
-        answer = input("Restore archived labs? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
+    confirmed = _prompt_yes_no("Restore archived labs? [y/N]: ")
+    if confirmed is None:
         return "skip", archive
-    return ("restore" if answer in {"y", "yes"} else "skip"), archive
+    return ("restore" if confirmed else "skip"), archive
 
 
 def _run_lab_restore(
@@ -3441,6 +3455,9 @@ def _run_lab_restore(
             or contract["restore_overwrite_default"],
         }
     )
+    capture_key = f"{prefix}_capture_device_configs"
+    if capture_key in restore_inputs:
+        restore_inputs[capture_key] = False
     if contract["node_state"]:
         restore_inputs.update(
             {
@@ -4069,8 +4086,8 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
 
     print("lab data:")
     print("  1. Keep the environment running")
-    print("  2. Export labs, verify the archive, then destroy")
-    print("  3. Destroy without exporting labs")
+    print("  2. Preserve saved lab state, then destroy")
+    print("  3. Destroy without preserving lab state")
     choices = {"1": "keep", "2": "archive", "3": "skip"}
     while True:
         try:
@@ -4084,14 +4101,17 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
         print("invalid choice; enter exactly 1, 2, or 3")
 
 
-def _confirm_archive_destroy(env_name: str) -> bool:
+def _confirm_archive_destroy(env_name: str) -> bool | None:
     confirmation = f"destroy {env_name}"
-    try:
-        typed = input(f'Type "{confirmation}" to confirm: ').strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return False
-    return typed == confirmation
+    while True:
+        try:
+            typed = input(f'Type "{confirmation}" to confirm: ').strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if typed == confirmation:
+            return True
+        print(f'confirmation did not match; type exactly "{confirmation}"')
 
 
 def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
@@ -4105,7 +4125,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "with_deps": False,
         "inputs": archive.get("inputs") or {},
     }
-    print("preparing lab archive; active nodes will be stopped and saved state verified")
+    print("preparing saved lab state; active nodes will be stopped")
     print("this may take several minutes, depending on lab size")
     progress = ProgressDisplay(
         enabled=bool(
@@ -4126,17 +4146,26 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         os.environ["HYOPS_PROGRESS_CHILD"] = "1"
     try:
         rc = run_step_module_command(archive_step, payload, ns, paths)
+    except KeyboardInterrupt:
+        rc = CANCELLED
     finally:
         if previous_child is None:
             os.environ.pop("HYOPS_PROGRESS_CHILD", None)
         else:
             os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+    archive_status = "cancelled" if int(rc) == CANCELLED else (
+        "ok" if rc == 0 else "failed"
+    )
     progress.finish(
         archive_step["id"],
         "Lab archive",
-        "ok" if rc == 0 else "failed",
-        plain=f"lab_archive status={'ok' if rc == 0 else 'failed'}",
+        archive_status,
+        plain=f"lab_archive status={archive_status}",
     )
+    if int(rc) == CANCELLED:
+        print("Archive interrupted. Resources were retained.")
+        print("Some lab nodes may have been stopped. Check the lab before continuing.")
+        return CANCELLED
     if rc != 0:
         print("ERR: lab export failed; no resources were destroyed")
         return int(rc)
@@ -4167,6 +4196,13 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         print("ERR: lab archive checksum verification failed; no resources were destroyed")
         return OPERATOR_ERROR
     archive_contents = [contract["contents_label"]]
+    if bool(outputs.get(contract["device_configs_captured_output"], False)):
+        archive_contents.append("saved device configurations")
+    previous_archive_path = Path(
+        str(outputs.get(contract["previous_path_output"]) or "")
+    ).expanduser()
+    if previous_archive_path.is_file():
+        archive_contents.append("previous generation retained")
     verbose = bool(os.getenv("HYOPS_VERBOSE"))
     if verbose:
         print(f"lab archive: {archive_path}")
@@ -4388,8 +4424,8 @@ def run_destroy(ns) -> int:
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
         if payload.get("archive_before_destroy"):
-            if not _confirm_archive_destroy(env_name):
-                print("destroy cancelled; confirmation did not match")
+            if _confirm_archive_destroy(env_name) is not True:
+                print("destroy cancelled")
                 print("environment retained")
                 lifecycle = record_destroy_outcome(
                     "cancelled",
@@ -4400,10 +4436,8 @@ def run_destroy(ns) -> int:
                 print_destroy_record()
                 return CANCELLED
         elif sys.stdin.isatty() and sys.stdout.isatty():
-            try:
-                answer = input("Proceed with blueprint destroy? [y/N]: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                print()
+            confirmed = _prompt_yes_no("Proceed with blueprint destroy? [y/N]: ")
+            if confirmed is None:
                 lifecycle = record_destroy_outcome(
                     "cancelled",
                     archive="not-applicable",
@@ -4412,7 +4446,7 @@ def run_destroy(ns) -> int:
                 _print_destroy_lifecycle_summary(lifecycle)
                 print_destroy_record()
                 return CANCELLED
-            if answer not in {"y", "yes"}:
+            if not confirmed:
                 print("ERR: blueprint destroy cancelled by operator")
                 lifecycle = record_destroy_outcome(
                     "cancelled",
@@ -4859,12 +4893,10 @@ def run_rebuild(ns) -> int:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             print("ERR: non-interactive rebuild requires --yes")
             return OPERATOR_ERROR
-        try:
-            answer = input("Proceed with blueprint rebuild? [y/N]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
+        confirmed = _prompt_yes_no("Proceed with blueprint rebuild? [y/N]: ")
+        if confirmed is None:
             return CANCELLED
-        if answer not in {"y", "yes"}:
+        if not confirmed:
             print("ERR: blueprint rebuild cancelled by operator")
             return CANCELLED
 

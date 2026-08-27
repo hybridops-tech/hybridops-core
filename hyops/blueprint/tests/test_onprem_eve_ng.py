@@ -23,6 +23,14 @@ class OnPremEveNgBlueprintTest(TestCase):
             validated["archive_before_destroy"]["module_ref"],
             "platform/linux/eve-ng-lab-archive",
         )
+        archive_inputs = validated["archive_before_destroy"]["inputs"]
+        self.assertTrue(archive_inputs["load_vault_env"])
+        self.assertEqual(
+            archive_inputs["required_env"], ["EVENG_ADMIN_PASSWORD"]
+        )
+        self.assertTrue(
+            archive_inputs["eveng_lab_archive_capture_device_configs"]
+        )
         self.assertEqual(len(validated["steps"]), 5)
         vm_step = next(
             step for step in validated["steps"] if step["id"] == "eve_ng_vm"

@@ -53,7 +53,13 @@ archive_before_destroy:
     ssh_proxy_jump_user: "root"
     become: true
     become_user: "root"
+    load_vault_env: true
+    required_env:
+      - "EVENG_ADMIN_PASSWORD"
     eveng_lab_archive_action: "export"
+    # Refresh supported saved device configurations before archiving the lab.
+    # Save intended device changes to startup configuration first.
+    eveng_lab_archive_capture_device_configs: true
     eveng_lab_archive_include_node_state: true
     eveng_lab_archive_stop_running_nodes: true
 
@@ -172,6 +178,8 @@ steps:
       # required_env: ["EVENG_IOL_LICENSE"]
       # eveng_images_iol_license_env: "EVENG_IOL_LICENSE"
       # eveng_images_iol_license_required: true
+      # Downloads are cached on the host. Readiness requires the installed
+      # EVE-NG image path to exist.
       eveng_images_list:
         - url: "https://mega.nz/folder/30p3TKob#42_S__9wwPVO0zHIfC4xow/file/LhBG1ZQI"
           name: "linux-alpine-3.21.3.tar.gz"

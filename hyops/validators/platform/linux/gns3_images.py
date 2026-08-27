@@ -39,6 +39,7 @@ def _validate_template(value: Any, label: str) -> None:
         "category",
         "console_type",
         "hda_disk_interface",
+        "hdb_disk_interface",
         "platform",
         "qemu_path",
         "symbol",
@@ -71,16 +72,39 @@ def _validate_images(value: Any) -> bool:
     if not isinstance(value, list) or not value:
         raise ValueError("inputs.gns3_images_items must be a non-empty list")
 
-    names: set[str] = set()
-    filenames: set[str] = set()
+    template_names: set[str] = set()
     iou_requested = False
     for index, raw in enumerate(value, start=1):
         label = f"inputs.gns3_images_items[{index}]"
         item = require_mapping(raw, label)
-        name = require_non_empty_str(item.get("name"), f"{label}.name")
+        name_value = item.get("name")
+        filename_value = item.get("filename")
+        template_label_value = item.get("label")
+        if name_value is None and template_label_value is None:
+            raise ValueError(f"{label} requires name or label")
+        if name_value is None and filename_value is None:
+            raise ValueError(f"{label} requires name or filename")
+        name = (
+            require_non_empty_str(name_value, f"{label}.name")
+            if name_value is not None
+            else None
+        )
+        template_name = (
+            require_non_empty_str(template_label_value, f"{label}.label")
+            if template_label_value is not None
+            else re.sub(r"(?i)\.(tar\.gz|tgz|zip|gz)$", "", name or "")
+        )
         url = require_non_empty_str(item.get("url"), f"{label}.url")
-        filename = require_non_empty_str(item.get("filename"), f"{label}.filename")
-        checksum = require_non_empty_str(item.get("checksum"), f"{label}.checksum")
+        filename = (
+            require_non_empty_str(filename_value, f"{label}.filename")
+            if filename_value is not None
+            else None
+        )
+        checksum = (
+            require_non_empty_str(item.get("checksum"), f"{label}.checksum")
+            if item.get("checksum") is not None
+            else None
+        )
         image_type = require_non_empty_str(
             item.get("type", "qemu"), f"{label}.type"
         )
@@ -88,13 +112,20 @@ def _validate_images(value: Any) -> bool:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError(f"{label}.url must be an HTTP or HTTPS URL")
-        if filename != PurePath(filename).name or filename in {".", ".."}:
+        if name is not None and (
+            name != PurePath(name).name or name in {".", ".."}
+        ):
+            raise ValueError(f"{label}.name must be a safe basename")
+        if filename is not None and (
+            filename != PurePath(filename).name or filename in {".", ".."}
+        ):
             raise ValueError(f"{label}.filename must be a safe basename")
-        if not _SHA256_RE.fullmatch(checksum):
+        if checksum is not None and not _SHA256_RE.fullmatch(checksum):
             raise ValueError(f"{label}.checksum must use sha256:<64 hex characters>")
-        if image_type not in {"qemu", "iou"}:
-            raise ValueError(f"{label}.type must be qemu or iou")
-        if image_type == "qemu":
+        if image_type not in {"qemu", "iou", "iol"}:
+            raise ValueError(f"{label}.type must be qemu, iou, or iol")
+        normalized_type = "iou" if image_type in {"iou", "iol"} else "qemu"
+        if normalized_type == "qemu":
             disk_type = require_non_empty_str(
                 item.get("disk_type", "hda"), f"{label}.disk_type"
             ).lower()
@@ -102,30 +133,26 @@ def _validate_images(value: Any) -> bool:
                 raise ValueError(f"{label}.disk_type must be hda or cdrom")
         else:
             iou_requested = True
-            if not filename.endswith(".bin"):
-                raise ValueError(f"{label}.filename must end with .bin for IOU")
             if "disk_type" in item:
                 raise ValueError(f"{label}.disk_type is not valid for IOU")
+            source_name = filename or name or ""
             architecture = require_non_empty_str(
                 item.get(
                     "architecture",
-                    "i386" if filename.lower().startswith("i86bi") else "x86_64",
+                    "i386" if "i86bi" in source_name.lower() else "x86_64",
                 ),
                 f"{label}.architecture",
             )
             if architecture not in {"i386", "x86_64"}:
                 raise ValueError(f"{label}.architecture must be i386 or x86_64")
-        if name in names:
-            raise ValueError(f"{label}.name duplicates an earlier declaration")
-        if filename in filenames:
-            raise ValueError(f"{label}.filename duplicates an earlier declaration")
-        names.add(name)
-        filenames.add(filename)
+        if template_name in template_names:
+            raise ValueError(f"{label} resolves to a duplicate template name")
+        template_names.add(template_name)
 
         if item.get("timeout") is not None:
             _positive_int(item["timeout"], f"{label}.timeout")
         if item.get("template") is not None:
-            if image_type == "iou":
+            if normalized_type == "iou":
                 _validate_iou_template(item["template"], f"{label}.template")
             else:
                 _validate_template(item["template"], f"{label}.template")
