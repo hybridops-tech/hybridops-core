@@ -34,6 +34,7 @@ def _payload():
             "inputs": {
                 "inventory_state_ref": "platform/test/vm#lab_vm",
                 "eveng_lab_archive_action": "export",
+                "eveng_lab_archive_capture_device_configs": True,
                 "eveng_lab_archive_include_node_state": True,
                 "eveng_lab_archive_stop_running_nodes": True,
             },
@@ -175,6 +176,9 @@ class BlueprintLabRestoreTest(TestCase):
             "b" * 64,
         )
         self.assertFalse(step["inputs"]["eveng_lab_archive_overwrite"])
+        self.assertFalse(
+            step["inputs"]["eveng_lab_archive_capture_device_configs"]
+        )
         self.assertFalse(step["inputs"]["eveng_lab_archive_include_node_state"])
         self.assertFalse(step["inputs"]["eveng_lab_archive_stop_running_nodes"])
 

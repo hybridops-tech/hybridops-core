@@ -2,7 +2,7 @@
 
 Preserves EVE-NG lab continuity independently of the execution host and restores verified state after reconstruction.
 
-The primary archive contains learner-created lab definitions from `/opt/unetlab/labs`. A companion archive can also preserve stopped QEMU overlay state when the selected continuity policy requires writable node state to survive.
+The primary archive contains learner-created lab definitions from `/opt/unetlab/labs`. Before export, the module can ask EVE-NG to write saved device configurations into those definitions. A companion archive can preserve stopped QEMU overlay state.
 
 ## Export
 
@@ -25,6 +25,16 @@ eveng_lab_archive_stop_running_nodes: true
 ```
 
 The archive role stops running QEMU nodes, validates their overlay disks and creates a separately checksummed node-state companion archive. Base images remain independently managed and are paired with the restored overlays on the reconstructed host.
+
+To refresh saved device configurations before export, enable:
+
+```yaml
+load_vault_env: true
+required_env: ["EVENG_ADMIN_PASSWORD"]
+eveng_lab_archive_capture_device_configs: true
+```
+
+Capture uses the EVE-NG API on the target host. Failure stops the archive step and leaves the execution host in place.
 
 ## Restore
 

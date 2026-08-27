@@ -88,10 +88,11 @@ The blueprint declares `platform/linux/eve-ng-lab-archive` as its archive-before
 
 The retained set can contain:
 
-- learner-created lab definitions under `/opt/unetlab/labs`; and
+- learner-created lab definitions under `/opt/unetlab/labs`;
+- device configurations saved through EVE-NG's native export; and
 - stopped QEMU overlay state when node-state preservation is selected by the blueprint.
 
-Before overlay capture, running QEMU nodes are stopped. Each retained archive is checksummed on the controller. Base images remain separately managed, so restored QEMU overlays reconnect to matching installed base images rather than copying those bases into the checkpoint.
+Save intended device changes to startup configuration before teardown. Before overlay capture, running QEMU nodes are stopped. Each retained archive is checksummed on the controller. Base images remain separately managed, so restored QEMU overlays reconnect to matching installed base images rather than copying those bases into the checkpoint.
 
 For an explicit protected destroy:
 
