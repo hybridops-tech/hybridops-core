@@ -17,6 +17,11 @@ _GCP_CAPACITY_MARKERS = (
     "zone_resource_pool_exhausted",
     "resource pool exhausted",
 )
+_GCP_QUOTA_ERROR = re.compile(
+    r"Quota\s+['\"]?([A-Za-z0-9_-]+)['\"]?\s+exceeded\.\s*"
+    r"Limit:\s*([0-9]+(?:\.[0-9]+)?)",
+    flags=re.IGNORECASE,
+)
 
 _ERROR_EVIDENCE_LIMIT_BYTES = 128 * 1024
 
@@ -39,12 +44,43 @@ def translate_gcp_capacity_error(
     stderr: str,
     env: dict[str, str],
 ) -> str:
-    """Return operator guidance for a GCP zonal capacity failure."""
+    """Return operator guidance for a GCP quota or zonal capacity failure."""
     if command_name != "apply":
         return ""
 
     combined = f"{stderr}\n{stdout}"
     lowered = combined.lower()
+    quota_match = _GCP_QUOTA_ERROR.search(combined)
+    if quota_match is not None:
+        metric = quota_match.group(1).upper()
+        limit_raw = quota_match.group(2)
+        try:
+            limit_value = float(limit_raw)
+            limit = str(int(limit_value)) if limit_value.is_integer() else f"{limit_value:g}"
+        except ValueError:
+            limit = limit_raw
+        machine_match = re.search(
+            r'\bmachine_type\s*=\s*"([a-z][a-z0-9-]+)"',
+            combined,
+            flags=re.IGNORECASE,
+        )
+        project_match = re.search(
+            r'\bproject\s*=\s*"([a-z][a-z0-9:-]+)"',
+            combined,
+            flags=re.IGNORECASE,
+        )
+        machine = str(machine_match.group(1) if machine_match else "").strip()
+        project = str(project_match.group(1) if project_match else "").strip()
+        shape_detail = f" for {machine}" if machine else ""
+        project_detail = f" in project {project}" if project else ""
+        env_name = str(env.get("HYOPS_ENV") or "").strip() or "<env>"
+        return (
+            f"GCP compute quota {metric} is insufficient{project_detail}{shape_detail} "
+            f"(limit={limit}). The requested VM was not created.\n"
+            "hint: release an existing VM through its owning HybridOps environment, "
+            f"choose a smaller machine type, or request more {metric} quota; then rerun "
+            f"blueprint preflight and deploy for env={env_name}."
+        )
     if not any(marker in lowered for marker in _GCP_CAPACITY_MARKERS):
         return ""
 

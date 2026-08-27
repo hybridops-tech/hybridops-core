@@ -11,6 +11,31 @@ from hyops.runtime.proc import ProcResult
 
 
 class GcpCapacityErrorTest(TestCase):
+    def test_translates_global_cpu_quota_failure(self):
+        stderr = (
+            "Error waiting for instance to create: Quota 'CPUS_ALL_REGIONS' "
+            "exceeded. Limit: 12.0 globally."
+        )
+        stdout = (
+            'machine_type = "n2-standard-8"\n'
+            'project = "student-project"\n'
+        )
+
+        message = translate_gcp_capacity_error(
+            command_name="apply",
+            stdout=stdout,
+            stderr=stderr,
+            env={"HYOPS_ENV": "demo-lab2"},
+        )
+
+        self.assertIn("quota CPUS_ALL_REGIONS is insufficient", message)
+        self.assertIn("project student-project", message)
+        self.assertIn("for n2-standard-8", message)
+        self.assertIn("limit=12", message)
+        self.assertIn("requested VM was not created", message)
+        self.assertIn("owning HybridOps environment", message)
+        self.assertIn("env=demo-lab2", message)
+
     def test_translates_zonal_capacity_failure(self):
         stderr = (
             "The zone 'projects/student-project/zones/europe-west2-a' does not "

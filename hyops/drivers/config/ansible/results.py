@@ -18,6 +18,11 @@ _IOL_HOST_IDENTIFIER = re.compile(
     r"Host ID:\s*([A-Za-z0-9][A-Za-z0-9_.:-]*)",
     re.IGNORECASE,
 )
+_GNS3_IOU_HOST_MISMATCH = re.compile(
+    r"does not contain a valid licence entry for this GNS3 host\.\s+Hostname:\s*"
+    r"([A-Za-z0-9][A-Za-z0-9_.-]*)",
+    re.IGNORECASE,
+)
 
 
 def ansible_error_hint(
@@ -47,6 +52,28 @@ def ansible_error_hint(
         return ""
     lowered_tail = tail.lower()
 
+    if module_ref.strip().lower() in {
+        "platform/linux/eve-ng-images",
+        "platform/linux/gns3-images",
+    } and (
+        "reached your bandwidth quota" in lowered_tail
+        or "mega transfer quota reached" in lowered_tail
+    ):
+        return (
+            "MEGA transfer quota reached. Completed downloads remain cached. "
+            "Retry after the quota resets or use another authorised source URL."
+        )
+
+    if (
+        module_ref.strip().lower() == "platform/linux/eve-ng-images"
+        and "supplied iol licence file is not a valid iourc document" in lowered_tail
+    ):
+        return (
+            "IOL licence content is not a valid iourc document. "
+            "Store an authorised iourc with hyops secrets set --from-file, then rerun. "
+            "No images were changed."
+        )
+
     iol_host_mismatch = _IOL_HOST_MISMATCH.search(tail)
     if module_ref.strip().lower() == "platform/linux/eve-ng-images" and iol_host_mismatch:
         hostname = iol_host_mismatch.group(1).rstrip(".")
@@ -60,6 +87,25 @@ def ansible_error_hint(
             "IOL licence does not match this EVE-NG host. "
             f"Hostname: {hostname}.{host_identifier} "
             "Update EVENG_IOL_LICENSE with an authorised iourc for this host, then rerun. "
+            "No images were changed."
+        )
+
+    gns3_iou_host_mismatch = _GNS3_IOU_HOST_MISMATCH.search(tail)
+    if (
+        module_ref.strip().lower() == "platform/linux/gns3-images"
+        and gns3_iou_host_mismatch
+    ):
+        hostname = gns3_iou_host_mismatch.group(1).rstrip(".")
+        host_identifier_match = _IOL_HOST_IDENTIFIER.search(tail)
+        host_identifier = (
+            f" Host ID: {host_identifier_match.group(1).rstrip('.')}."
+            if host_identifier_match
+            else ""
+        )
+        return (
+            "IOU licence does not match this GNS3 host. "
+            f"Hostname: {hostname}.{host_identifier} "
+            "Update GNS3_IOU_LICENSE with an authorised iourc for this host, then rerun. "
             "No images were changed."
         )
 
