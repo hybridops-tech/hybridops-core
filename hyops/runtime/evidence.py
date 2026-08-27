@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-import secrets
+import os
 
 from hyops.runtime.layout import ensure_parent
 from hyops.runtime.redact import redact_text
@@ -18,7 +18,7 @@ from hyops.runtime.state import write_json_atomic
 
 def new_run_id(prefix: str) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"{prefix}-{ts}-{secrets.token_hex(4)}"
+    return f"{prefix}-{ts}-{os.urandom(4).hex()}"
 
 
 def init_evidence_dir(root: Path, run_id: str) -> Path:

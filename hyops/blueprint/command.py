@@ -20,6 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
@@ -31,7 +32,7 @@ from hyops.runtime.cost import CostEstimate, format_money
 from hyops.runtime.evidence import EvidenceWriter, new_run_id
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.gcp import diagnose_project_billing
-from hyops.runtime.gcp_cost import estimate_gcp_vm_cost
+from hyops.runtime.gcp_cost import estimate_gcp_vm_cost, gcp_vm_lifecycle_started_at
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state import (
     read_module_state,
@@ -2061,7 +2062,11 @@ def _state_age(updated_at: Any) -> str:
         seconds = max(0, int((datetime.now(timezone.utc) - recorded).total_seconds()))
     except ValueError:
         return "unknown"
-    minutes = seconds // 60
+    return _duration_text(seconds)
+
+
+def _duration_text(seconds: int) -> str:
+    minutes = max(0, int(seconds)) // 60
     hours, remaining_minutes = divmod(minutes, 60)
     days, remaining_hours = divmod(hours, 24)
     if days:
@@ -2162,6 +2167,22 @@ def _gcp_blueprint_cost_estimate(
     payload: dict[str, Any],
     paths,
 ) -> CostEstimate | None:
+    context = _gcp_blueprint_cost_context(payload, paths)
+    if context is None:
+        return None
+    state, project_id, zone = context
+    return _gcp_cost_estimate_with_progress(
+        project_id=project_id,
+        zone=zone,
+        state=state,
+        paths=paths,
+    )
+
+
+def _gcp_blueprint_cost_context(
+    payload: dict[str, Any],
+    paths,
+) -> tuple[dict[str, Any], str, str] | None:
     if not str(payload.get("blueprint_ref") or "").startswith("gcp/"):
         return None
     access = payload.get("access")
@@ -2191,12 +2212,138 @@ def _gcp_blueprint_cost_estimate(
     if not match:
         return None
     project_id, zone, _instance = match.groups()
-    return _gcp_cost_estimate_with_progress(
-        project_id=project_id,
-        zone=zone,
-        state=state,
-        paths=paths,
+    return state, project_id, zone
+
+
+def _destroy_lifecycle_snapshot(
+    payload: dict[str, Any],
+    paths,
+    *,
+    estimate: CostEstimate | None = None,
+    observed_at: datetime | None = None,
+) -> dict[str, Any] | None:
+    context = _gcp_blueprint_cost_context(payload, paths)
+    if context is None:
+        return None
+    state, _project_id, _zone = context
+    observed = observed_at or datetime.now(timezone.utc)
+    started = gcp_vm_lifecycle_started_at(state)
+    if started is None:
+        raw_updated = str(state.get("updated_at") or "").strip()
+        try:
+            started = datetime.fromisoformat(raw_updated.replace("Z", "+00:00"))
+        except ValueError:
+            started = None
+        if started is not None and started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+    if started is not None:
+        started = started.astimezone(timezone.utc)
+        duration_seconds: int | None = max(
+            0,
+            int((observed - started).total_seconds()),
+        )
+    else:
+        duration_seconds = None
+    resolved_estimate = estimate
+    if resolved_estimate is None:
+        resolved_estimate = _gcp_blueprint_cost_estimate(payload, paths)
+    estimate_available = bool(
+        isinstance(resolved_estimate, CostEstimate) and resolved_estimate.available
     )
+    return {
+        "provider": "gcp",
+        "resource_generation_started_at": (
+            started.isoformat().replace("+00:00", "Z") if started else None
+        ),
+        "observed_at": observed.isoformat().replace("+00:00", "Z"),
+        "duration_seconds": duration_seconds,
+        "estimate": {
+            "available": estimate_available,
+            "currency": (
+                resolved_estimate.currency if estimate_available else "USD"
+            ),
+            "fixed_hourly": (
+                str(resolved_estimate.hourly) if estimate_available else None
+            ),
+            "fixed_total": (
+                str(resolved_estimate.amount_for_seconds(duration_seconds))
+                if estimate_available and duration_seconds is not None
+                else None
+            ),
+            "basis": (
+                resolved_estimate.basis if estimate_available else "unavailable"
+            ),
+            "classification": (
+                "public list-price estimate; not a GCP invoice or billing total"
+            ),
+        },
+    }
+
+
+def _complete_destroy_lifecycle(
+    snapshot: dict[str, Any] | None,
+    *,
+    archive: str,
+    resources: str,
+) -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    lifecycle = dict(snapshot)
+    lifecycle["archive"] = archive
+    lifecycle["resources"] = resources
+    estimate = dict(lifecycle["estimate"])
+    if resources == "released":
+        estimate["ongoing_hourly"] = "0.00"
+        lifecycle["released_at"] = datetime.now(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        )
+    elif resources == "retained" and estimate["available"]:
+        estimate["ongoing_hourly"] = estimate["fixed_hourly"]
+    else:
+        estimate["ongoing_hourly"] = None
+    lifecycle["estimate"] = estimate
+    return lifecycle
+
+
+def _print_destroy_lifecycle_summary(lifecycle: dict[str, Any] | None) -> None:
+    if lifecycle is None:
+        return
+    resources = str(lifecycle.get("resources") or "unverified")
+    if resources == "retained":
+        duration_label = "resource duration so far"
+        cost_label = "estimated fixed cost so far"
+    elif resources == "released":
+        duration_label = "resource duration at release"
+        cost_label = "estimated fixed cost before release"
+    else:
+        duration_label = "resource duration at teardown attempt"
+        cost_label = "estimated fixed cost at teardown attempt"
+    duration_seconds = lifecycle.get("duration_seconds")
+    if isinstance(duration_seconds, int):
+        print(f"{duration_label}: {_duration_text(duration_seconds)}")
+    else:
+        print(f"{duration_label}: unavailable")
+    estimate = lifecycle["estimate"]
+    currency = str(estimate["currency"])
+    fixed_total = estimate.get("fixed_total")
+    if fixed_total is None:
+        print(f"{cost_label}: unavailable")
+    else:
+        print(
+            f"{cost_label}: "
+            f"{format_money(Decimal(str(fixed_total)), currency)}"
+        )
+    ongoing = estimate.get("ongoing_hourly")
+    if ongoing is None:
+        print("estimated ongoing rate: unverified")
+    else:
+        print(
+            "estimated ongoing rate: "
+            f"{format_money(Decimal(str(ongoing)), currency)}/hour"
+        )
+    if estimate.get("basis") and estimate["basis"] != "unavailable":
+        print(f"pricing basis: {estimate['basis']}")
+    print("estimate only; not a GCP invoice or billing total")
 
 
 def _offer_access_close_destroy(
@@ -4157,6 +4304,54 @@ def run_destroy(ns) -> int:
         str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip()
         or "default"
     )
+    lifecycle_snapshot = _destroy_lifecycle_snapshot(
+        payload,
+        paths,
+        estimate=getattr(ns, "_cost_estimate", None),
+    )
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", payload["blueprint_ref"])
+    run_id = new_run_id("destroy")
+    logs_dir = getattr(paths, "logs_dir", None)
+    record_dir = Path(logs_dir) / "blueprint" / token / run_id if logs_dir else None
+    if record_dir is not None:
+        record_dir.mkdir(parents=True, exist_ok=True)
+    record_writer = EvidenceWriter(record_dir) if record_dir is not None else None
+
+    def record_destroy_outcome(
+        status: str,
+        *,
+        archive: str,
+        resources: str,
+        steps: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        lifecycle = _complete_destroy_lifecycle(
+            lifecycle_snapshot,
+            archive=archive,
+            resources=resources,
+        )
+        if record_writer is not None:
+            record_writer.write_json(
+                "destroy.json",
+                {
+                    "blueprint_ref": payload["blueprint_ref"],
+                    "env": env_name,
+                    "run_id": run_id,
+                    "status": status,
+                    "lifecycle": lifecycle,
+                    "steps": steps or [],
+                },
+            )
+        return lifecycle
+
+    def print_destroy_record() -> None:
+        if record_dir is not None:
+            print(f"run record: {record_dir}")
+
+    record_destroy_outcome(
+        "running",
+        archive="pending",
+        resources="active",
+    )
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
         print(f"WARN: destroy resources in env={env_name}.")
@@ -4177,11 +4372,18 @@ def run_destroy(ns) -> int:
                     f"state={status} ref={state_ref}"
                 )
         cost_estimate = getattr(ns, "_cost_estimate", None)
-        if cost_estimate is None:
-            cost_estimate = _gcp_blueprint_cost_estimate(payload, paths)
+        if cost_estimate is None and lifecycle_snapshot is not None:
+            estimate_payload = lifecycle_snapshot["estimate"]
+            if estimate_payload["available"]:
+                cost_estimate = CostEstimate(
+                    True,
+                    hourly=Decimal(str(estimate_payload["fixed_hourly"])),
+                    currency=str(estimate_payload["currency"]),
+                    basis=str(estimate_payload["basis"]),
+                )
         if isinstance(cost_estimate, CostEstimate) and cost_estimate.available:
             print(
-                "estimated fixed cost while retained: "
+                "estimated ongoing rate before destroy: "
                 f"{format_money(cost_estimate.hourly, cost_estimate.currency)}/hour"
             )
 
@@ -4189,15 +4391,35 @@ def run_destroy(ns) -> int:
         archive_mode = _select_archive_destroy_mode(ns, payload, env_name)
     except ValueError as exc:
         print(f"ERR: {exc}")
+        record_destroy_outcome(
+            "blocked",
+            archive="not-selected",
+            resources="retained",
+        )
+        print_destroy_record()
         return OPERATOR_ERROR
 
     if archive_mode == "cancel":
         print("destroy cancelled")
         print("environment retained")
+        lifecycle = record_destroy_outcome(
+            "cancelled",
+            archive="not-started",
+            resources="retained",
+        )
+        _print_destroy_lifecycle_summary(lifecycle)
+        print_destroy_record()
         return CANCELLED
 
     if archive_mode == "keep":
         print("environment retained")
+        lifecycle = record_destroy_outcome(
+            "retained",
+            archive="not-requested",
+            resources="retained",
+        )
+        _print_destroy_lifecycle_summary(lifecycle)
+        print_destroy_record()
         return 0
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
@@ -4205,22 +4427,58 @@ def run_destroy(ns) -> int:
             if _confirm_archive_destroy(env_name) is not True:
                 print("destroy cancelled")
                 print("environment retained")
+                lifecycle = record_destroy_outcome(
+                    "cancelled",
+                    archive="not-started",
+                    resources="retained",
+                )
+                _print_destroy_lifecycle_summary(lifecycle)
+                print_destroy_record()
                 return CANCELLED
         elif sys.stdin.isatty() and sys.stdout.isatty():
             confirmed = _prompt_yes_no("Proceed with blueprint destroy? [y/N]: ")
             if confirmed is None:
+                lifecycle = record_destroy_outcome(
+                    "cancelled",
+                    archive="not-applicable",
+                    resources="retained",
+                )
+                _print_destroy_lifecycle_summary(lifecycle)
+                print_destroy_record()
                 return CANCELLED
             if not confirmed:
                 print("ERR: blueprint destroy cancelled by operator")
+                lifecycle = record_destroy_outcome(
+                    "cancelled",
+                    archive="not-applicable",
+                    resources="retained",
+                )
+                _print_destroy_lifecycle_summary(lifecycle)
+                print_destroy_record()
                 return OPERATOR_ERROR
         else:
             print("ERR: non-interactive blueprint destroy requires --yes")
+            record_destroy_outcome(
+                "blocked",
+                archive="not-started",
+                resources="retained",
+            )
+            print_destroy_record()
             return OPERATOR_ERROR
 
+    archive_result = "skipped" if archive_mode == "skip" else "not-applicable"
     if archive_mode == "archive":
         archive_rc = _run_archive_before_destroy(ns, payload, paths)
         if archive_rc != 0:
+            lifecycle = record_destroy_outcome(
+                "archive-failed",
+                archive="failed",
+                resources="retained",
+            )
+            _print_destroy_lifecycle_summary(lifecycle)
+            print_destroy_record()
             return archive_rc
+        archive_result = "verified"
 
     fail_fast = bool(payload["policy"].get("fail_fast", True))
     step_results: list[dict[str, Any]] = []
@@ -4523,19 +4781,26 @@ def run_destroy(ns) -> int:
     cost_cleared = False
     if final_status == "ok" and str(payload["blueprint_ref"]).startswith("gcp/"):
         cost_cleared = _destroyed_blueprint_cost_cleared(payload, paths)
-        output["cost"] = (
-            {
-                "status": "cleared",
-                "estimated_ongoing_hourly": "0.00",
-                "currency": "USD",
-                "scope": "declared blueprint resources",
-            }
-            if cost_cleared
-            else {
-                "status": "unverified",
-                "scope": "declared blueprint resources",
-            }
-        )
+    resources_result = "released" if cost_cleared else "unverified"
+    lifecycle = record_destroy_outcome(
+        final_status,
+        archive=archive_result,
+        resources=resources_result,
+        steps=step_results,
+    )
+    if lifecycle is not None:
+        output["lifecycle"] = lifecycle
+        estimate_payload = lifecycle["estimate"]
+        output["cost"] = {
+            "status": "cleared" if cost_cleared else "unverified",
+            "estimated_ongoing_hourly": estimate_payload["ongoing_hourly"],
+            "estimated_fixed_total": estimate_payload["fixed_total"],
+            "currency": estimate_payload["currency"],
+            "basis": estimate_payload["basis"],
+            "scope": "declared blueprint resources",
+        }
+    if record_dir is not None:
+        output["run_record"] = str(record_dir)
 
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
@@ -4548,11 +4813,10 @@ def run_destroy(ns) -> int:
             print(f"required_failures: {', '.join(required_failures)}")
         if optional_failures:
             print(f"optional_failures: {', '.join(optional_failures)}")
-        if final_status == "ok" and str(payload["blueprint_ref"]).startswith("gcp/"):
-            if cost_cleared:
-                print("estimated ongoing blueprint cost: USD 0.00/hour")
-            else:
-                print("ongoing blueprint cost: verify remaining resources")
+        if archive_result in {"verified", "skipped"}:
+            print(f"lab preservation: {archive_result}")
+        _print_destroy_lifecycle_summary(lifecycle)
+        print_destroy_record()
 
     if cancelled:
         return CANCELLED
