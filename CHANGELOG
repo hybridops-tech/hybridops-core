@@ -2,7 +2,7 @@
 
 This changelog records significant operator-facing capabilities, lifecycle changes, compatibility fixes, and release engineering updates. Individual commits and maintenance-only changes remain available through the linked comparisons.
 
-## [v0.1.4 pre-release][v0.1.4 candidate] (current candidate) - 2026-08-20
+## [v0.1.4] - 2026-08-28
 
 ### Added
 
@@ -147,7 +147,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 - Hardened destroy-time validation, replay safety, validator cleanup, image and template flows, database services, edge networking, and release installation.
 - Added shell, Python, YAML, infrastructure, installation, and release quality gates.
 
-[v0.1.4 candidate]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.3...main
+[v0.1.4]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.3...v0.1.4
 [v0.1.3]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.2...v0.1.3
 [v0.1.2]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.1...v0.1.2
 [v0.1.1]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.0...v0.1.1
