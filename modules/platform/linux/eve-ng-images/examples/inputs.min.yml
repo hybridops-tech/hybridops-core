@@ -2,7 +2,10 @@ target_host: "CHANGE_ME_TARGET_HOST"
 target_user: "opsadmin"
 ssh_private_key_file: "~/.ssh/id_ed25519"
 
+# Select "url" for eveng_images_list or "local" for one controller folder.
 eveng_images_source: "url"
+# Local folder scanning is recursive.
+# eveng_images_local_path: "/path/to/eve-ng-images"
 # Optional for authorised IOL images on EVE-NG Community Edition:
 # load_vault_env: true
 # required_env: ["EVENG_IOL_LICENSE"]

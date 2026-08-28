@@ -188,7 +188,12 @@ steps:
       target_port: 22
       ssh_private_key_file: "~/.ssh/id_ed25519"
       ssh_access_mode: "gcp-iap"
+      # Select one source. "url" installs eveng_images_list. To import every
+      # supported file from one workstation folder, use "local" and set the
+      # path below. The URL list is ignored in local mode.
       eveng_images_source: "url"
+      # Local folder scanning is recursive.
+      # eveng_images_local_path: "/path/to/eve-ng-images"
       eveng_images_logging_enabled: true
       eveng_images_generate_report: true
       # Keep authorised IOL licence content in the environment vault, not in
