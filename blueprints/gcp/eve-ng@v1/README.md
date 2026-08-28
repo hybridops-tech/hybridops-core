@@ -1,22 +1,8 @@
-# EVE-NG network lab
+# EVE-NG on GCP
 
-`gcp/eve-ng@v1` delivers a private EVE-NG execution environment with governed access, health verification, device automation access, continuity preservation, rebuild and compute release.
+`gcp/eve-ng@v1` deploys a private EVE-NG environment on nested-virtualisation-capable GCP compute. The VM has no public address; configuration and access use IAP.
 
-The blueprint uses shared EVE-NG capability modules that are also used by the Proxmox path. Provider-specific infrastructure supplies the execution host; EVE-NG remains authoritative for topology and node behavior.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the lifecycle and ownership model.
-
-## What it delivers
-
-- private nested-virtualization-capable execution compute with no public VM address
-- EVE-NG installation and configuration through `platform/linux/eve-ng`
-- declared starter images through `platform/linux/eve-ng-images`
-- guest internet access through the EVE-NG `Cloud9` network
-- private topology-node management through `Cloud8`
-- service, database, API and KVM health verification
-- archive-before-release through `platform/linux/eve-ng-lab-archive`
-- verified restoration of lab definitions and selected stopped-QEMU overlay state
-- structured run records and resource-age/cost context
+EVE-NG remains authoritative for topology and node behaviour. HybridOps manages host readiness, declared images, health verification, private access, lab preservation, reconstruction and compute release.
 
 ## Execution chain
 
@@ -28,121 +14,16 @@ private network
   -> EVE-NG health verification
 ```
 
-The executable contract is [blueprint.yml](blueprint.yml).
-
-## Prepare and deploy
+The executable contract is [blueprint.yml](blueprint.yml). Initialise an environment copy before changing image sources, host sizing or optional licence inputs:
 
 ```bash
-hyops setup gcp
-hyops init gcp --env <env>
-hyops secrets ensure --env <env> EVENG_ROOT_PASSWORD EVENG_ADMIN_PASSWORD
-
-ref=gcp/eve-ng@v1
-hyops blueprint init --env <env> --ref "$ref"
-hyops blueprint validate --env <env> --ref "$ref"
-hyops blueprint plan --env <env> --ref "$ref"
-hyops blueprint preflight --env <env> --ref "$ref"
-hyops blueprint deploy --env <env> --ref "$ref" --execute
+hyops blueprint init --env <env> --ref gcp/eve-ng@v1 --edit
 ```
 
-The shipped host profile uses an `n2-standard-8` VM with 32 GB RAM, a 256 GB disk, Ubuntu 22.04 and nested virtualization. It is a reference profile that can be adjusted through the environment blueprint.
+EVE-NG credentials and authorised IOL licence content belong in the encrypted environment vault, not in the blueprint.
 
-## Private access
+## Documentation
 
-Open the EVE-NG interface through the managed private path:
-
-```bash
-hyops blueprint access --env <env> --ref gcp/eve-ng@v1
-```
-
-Set a planned session limit when the environment must not remain active:
-
-```bash
-hyops blueprint access \
-  --env <env> \
-  --ref gcp/eve-ng@v1 \
-  --session-minutes 120 \
-  --on-expiry protected-release
-```
-
-The foreground access process supervises the limit and shows the UTC deadline
-and warning intervals. The expiry action does not continue after that process
-exits. At expiry, Core verifies the declared lab archive before teardown. A
-failed archive retains the environment.
-
-Use `hyops blueprint session status`, `hyops blueprint session extend` or
-`hyops blueprint session cancel` with the same environment and blueprint
-reference. Extension also requires `--minutes <minutes>`.
-
-The access session resolves the current host from HybridOps state and forwards the EVE-NG interface through IAP. The VM and EVE-NG HTTP service remain private.
-
-Add `--native-consoles` to follow active QEMU VNC ports during the session. New node consoles are forwarded on loopback as they start. The workstation must have a VNC handler registered for links opened by EVE-NG.
-
-For direct automation of topology nodes, connect a management interface to `Cloud8` and run:
-
-```bash
-hyops blueprint access --env <env> --ref gcp/eve-ng@v1 --automation
-```
-
-HybridOps discovers management leases and produces session-scoped SSH configuration and automation inventory. Linux and WSL can optionally use `--route-lab`; Windows and macOS clients can use the generated SSH configuration or local proxy path.
-
-While that session remains open, expose one device web interface on loopback:
-
-```bash
-hyops blueprint device web --env <env> --ref gcp/eve-ng@v1 <device> --scheme http --port 80
-```
-
-The device may be identified by target name or management IP. For several interfaces, use `hyops blueprint device edit` to declare each target's web service. The generated file documents the available fields. Open named targets together, or every declared service:
-
-```bash
-hyops blueprint device web --env <env> --ref gcp/eve-ng@v1 <device-1> <device-2>
-hyops blueprint device web --env <env> --ref gcp/eve-ng@v1 --all
-```
-
-One Ctrl-C closes every tunnel. Add `--open-all` to open every URL in the workstation browser. Appliance certificates may produce the expected local browser warning.
-
-## Continuity and compute release
-
-The blueprint declares `platform/linux/eve-ng-lab-archive` as its archive-before-release contract.
-
-The retained set can contain:
-
-- learner-created lab definitions under `/opt/unetlab/labs`;
-- device configurations saved through EVE-NG's native export; and
-- stopped QEMU overlay state when node-state preservation is selected by the blueprint.
-
-Save intended device changes to startup configuration before teardown. Before overlay capture, running QEMU nodes are stopped. Each retained archive is checksummed on the controller. Base images remain separately managed, so restored QEMU overlays reconnect to matching installed base images rather than copying those bases into the checkpoint.
-
-For an explicit protected destroy:
-
-```bash
-hyops blueprint destroy --env <env> --ref gcp/eve-ng@v1 --execute --yes \
-  --archive-before-destroy
-```
-
-A later deployment can restore the latest verified set:
-
-```bash
-hyops blueprint deploy --env <env> --ref gcp/eve-ng@v1 --execute --restore-labs
-```
-
-Restore verifies the lab archive and any node-state companion checksum before applying retained state. Existing content remains protected unless replacement is explicitly authorised.
-
-## Rebuild
-
-```bash
-hyops blueprint rebuild --env <env> --ref gcp/eve-ng@v1 --execute
-```
-
-Rebuild applies the same lifecycle boundary: preserve the selected continuity state, release the current execution resources, recreate the host, restore verified state and return the lab through the normal EVE-NG readiness path.
-
-## Shared implementation
-
-The lab-platform layer is composed from:
-
-- [EVE-NG configuration](../../../modules/platform/linux/eve-ng)
-- [EVE-NG images](../../../modules/platform/linux/eve-ng-images)
-- [EVE-NG health check](../../../modules/platform/linux/eve-ng-healthcheck)
-- [EVE-NG lab archive](../../../modules/platform/linux/eve-ng-lab-archive)
-
-The sibling [Proxmox implementation](../../onprem/eve-ng@v1) uses the same EVE-NG, health, access and archive contracts around a different execution-host lifecycle.
+- [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-eve-ng/)
+- [Lifecycle and ownership](ARCHITECTURE.md)
+- [Proxmox blueprint](../../onprem/eve-ng@v1/blueprint.yml)

@@ -159,6 +159,8 @@ steps:
       # Native Containerlab-generated clab-* runtime artifacts stay outside the
       # authoritative source tree so source preservation does not absorb them.
       containerlab_lab_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+      # Container images remain native references from the topology. List
+      # required references here for an explicit availability check.
       containerlab_lab_required_images: []
       containerlab_lab_pull_missing_images: false
       containerlab_lab_restore_latest: true
