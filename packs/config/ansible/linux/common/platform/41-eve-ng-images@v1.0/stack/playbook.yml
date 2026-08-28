@@ -68,10 +68,9 @@
           - eveng_images_install_ready | default(false) | bool
           - >-
             (eveng_images_installed_count | default(0) | int)
-            == ((_hyops_input_eveng_images_list | default([])) | length)
+            == (eveng_images_requested_count | default(0) | int)
         fail_msg: >-
-          The image role did not verify every requested image in the EVE-NG
-          addons layout. Install the pinned hybridops.helper collection and rerun.
+          EVE-NG image installation did not verify every discovered image.
       when: _hyops_input_eveng_images_install | bool
 
     - name: Require verified IOL licence installation
@@ -93,7 +92,11 @@
           {{ {
             'cap.lab.eveng.images': 'ready',
             'eveng_images_source': (eveng_images_source | default('url')),
-            'eveng_images_requested_count': ((eveng_images_list | default([])) | length),
+            'eveng_images_requested_count': (
+              eveng_images_requested_count
+              | default((_hyops_input_eveng_images_list | default([])) | length)
+              | int
+            ),
             'eveng_images_installed_count': (eveng_images_installed_count | default(0) | int),
             'eveng_images_iol_license_ready': (
               eveng_images_iol_license_ready | default(false) | bool
