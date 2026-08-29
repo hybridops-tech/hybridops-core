@@ -39,3 +39,10 @@ include = ["hyops*"]
 
 [project.scripts]
 hyops = "hyops.cli:main"
+
+[project.urls]
+"Homepage" = "https://hybridops.tech"
+"Documentation" = "https://docs.hybridops.tech"
+"Bug Tracker" = "https://github.com/hybridops-tech/hybridops-core/issues"
+"Repository" = "https://github.com/hybridops-tech/hybridops-core"
+"Changelog" = "https://github.com/hybridops-tech/hybridops-core/blob/main/CHANGELOG"
