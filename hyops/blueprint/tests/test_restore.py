@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -181,6 +182,34 @@ class BlueprintLabRestoreTest(TestCase):
         )
         self.assertFalse(step["inputs"]["eveng_lab_archive_include_node_state"])
         self.assertFalse(step["inputs"]["eveng_lab_archive_stop_running_nodes"])
+
+    def test_restore_hides_nested_progress_and_elapsed_time(self):
+        archive = (Path("/tmp/labs.tar.gz"), "b" * 64, None, "")
+
+        def run_restore(*_args):
+            self.assertEqual(os.environ.get("HYOPS_PROGRESS_CHILD"), "1")
+            return 0
+
+        with (
+            patch(
+                "hyops.blueprint.command.run_step_module_command",
+                side_effect=run_restore,
+            ),
+            patch("hyops.blueprint.command.ProgressDisplay") as progress_class,
+        ):
+            os.environ.pop("HYOPS_PROGRESS_CHILD", None)
+            try:
+                rc = _run_lab_restore(
+                    _namespace(restore_labs=True),
+                    _payload(),
+                    SimpleNamespace(),
+                    archive,
+                )
+            finally:
+                self.assertNotIn("HYOPS_PROGRESS_CHILD", os.environ)
+
+        self.assertEqual(rc, 0)
+        self.assertFalse(progress_class.call_args.kwargs["show_elapsed"])
 
     def test_restore_includes_verified_node_state(self):
         archive = (

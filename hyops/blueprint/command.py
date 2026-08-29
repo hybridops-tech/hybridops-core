@@ -3991,7 +3991,44 @@ def _run_lab_restore(
         "inputs": restore_inputs,
     }
     print(f"restoring lab archive: {archive_path}")
-    rc = int(run_step_module_command(restore_step, payload, ns, paths))
+    progress = ProgressDisplay(
+        enabled=bool(
+            sys.stdout
+            and sys.stdout.isatty()
+            and not bool(getattr(ns, "json", False))
+            and not os.getenv("HYOPS_VERBOSE")
+        ),
+        show_elapsed=False,
+    )
+    progress.start(
+        restore_step["id"],
+        "Lab restore",
+        plain="lab_restore status=running",
+    )
+    previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
+    if not os.getenv("HYOPS_VERBOSE"):
+        os.environ["HYOPS_PROGRESS_CHILD"] = "1"
+    try:
+        rc = int(run_step_module_command(restore_step, payload, ns, paths))
+    except KeyboardInterrupt:
+        rc = CANCELLED
+    finally:
+        if previous_child is None:
+            os.environ.pop("HYOPS_PROGRESS_CHILD", None)
+        else:
+            os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
+    restore_status = "cancelled" if rc == CANCELLED else (
+        "ok" if rc == 0 else "failed"
+    )
+    progress.finish(
+        restore_step["id"],
+        "Lab restore",
+        restore_status,
+        plain=f"lab_restore status={restore_status}",
+    )
+    if rc == CANCELLED:
+        print("Lab restore interrupted. Deployed resources were retained.")
+        return rc
     if rc != 0:
         print("ERR: lab restore failed; deployed resources were retained")
         return rc
