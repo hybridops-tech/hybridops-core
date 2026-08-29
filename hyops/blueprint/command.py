@@ -650,10 +650,13 @@ def _collect_deploy_risk_signals(payload: dict[str, Any], paths) -> list[dict[st
 def _prompt_yes_no(prompt: str) -> bool | None:
     while True:
         try:
-            answer = input(prompt).strip().lower()
+            answer = input(prompt)
         except (EOFError, KeyboardInterrupt):
             print()
             return None
+        answer = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", answer)
+        answer = "".join(character for character in answer if character.isprintable())
+        answer = answer.strip().casefold()
         if answer in {"y", "yes"}:
             return True
         if answer in {"", "n", "no"}:

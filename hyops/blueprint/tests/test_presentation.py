@@ -39,6 +39,10 @@ class BlueprintPresentationTest(TestCase):
         with patch("builtins.input", return_value=""):
             self.assertFalse(_prompt_yes_no("Proceed? [y/N]: "))
 
+    def test_yes_no_prompt_accepts_bracketed_terminal_input(self):
+        with patch("builtins.input", return_value="\x1b[200~y\x1b[201~"):
+            self.assertTrue(_prompt_yes_no("Proceed? [y/N]: "))
+
     def test_surfaces_new_module_failure_from_state(self):
         step = {
             "id": "images",
