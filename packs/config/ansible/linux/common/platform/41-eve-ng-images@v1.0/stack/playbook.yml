@@ -98,6 +98,9 @@
               | int
             ),
             'eveng_images_installed_count': (eveng_images_installed_count | default(0) | int),
+            'eveng_images_installed_names': (
+              eveng_images_installed_names | default([]) | list
+            ),
             'eveng_images_iol_license_ready': (
               eveng_images_iol_license_ready | default(false) | bool
             )

@@ -76,6 +76,7 @@ outputs:
     - eveng_images_source
     - eveng_images_requested_count
     - eveng_images_installed_count
+    - eveng_images_installed_names
     - eveng_images_iol_license_ready
 
 probes: []

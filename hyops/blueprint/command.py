@@ -335,6 +335,34 @@ def _configured_eveng_image_labels(step: dict[str, Any]) -> list[str]:
     return labels
 
 
+def _published_eveng_image_labels(
+    step: dict[str, Any],
+    outputs: dict[str, Any],
+) -> list[str]:
+    published = outputs.get("eveng_images_installed_names")
+    if not isinstance(published, list):
+        return []
+
+    configured_labels: dict[str, str] = {}
+    inputs = step.get("inputs")
+    configured = inputs.get("eveng_images_list") if isinstance(inputs, dict) else None
+    if isinstance(configured, list):
+        for entry in configured:
+            if not isinstance(entry, dict):
+                continue
+            name = Path(str(entry.get("name") or "").strip()).name
+            label = str(entry.get("label") or "").strip()
+            if name and label:
+                configured_labels[name] = label
+
+    labels: list[str] = []
+    for value in published:
+        name = Path(str(value).strip()).name
+        if name:
+            labels.append(configured_labels.get(name) or _eveng_image_display_name(name))
+    return labels
+
+
 def _step_presentation(
     step: dict[str, Any],
     *,
@@ -371,7 +399,11 @@ def _step_presentation(
 
     details.append(f"overall {progress_after}%")
 
-    items = _configured_eveng_image_labels(step) or presentation.get("items")
+    items = (
+        _published_eveng_image_labels(step, outputs)
+        or _configured_eveng_image_labels(step)
+        or presentation.get("items")
+    )
     item_line = ""
     if isinstance(items, list) and items:
         item_values = [str(item).strip() for item in items if str(item).strip()]

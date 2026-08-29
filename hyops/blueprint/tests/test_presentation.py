@@ -363,6 +363,72 @@ class BlueprintPresentationTest(TestCase):
             "    - Cisco IOL L2 15.2d",
         )
 
+    def test_lists_every_published_local_image_instead_of_url_defaults(self):
+        step = {
+            "id": "images",
+            "module_ref": "platform/linux/eve-ng-images",
+            "state_instance": "images",
+            "presentation": {
+                "label": "Lab images",
+                "success": "ready",
+                "items_label": "images",
+                "items": ["Alpine Linux", "NETem"],
+            },
+            "inputs": {
+                "eveng_images_source": "local",
+                "eveng_images_list": [
+                    {
+                        "name": "linux-alpine-3.21.3.tar.gz",
+                        "label": "Alpine Linux",
+                    },
+                    {
+                        "name": "linux-netem.tar.gz",
+                        "label": "NETem",
+                    },
+                ],
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            write_module_state(
+                state_dir,
+                step["module_ref"],
+                {
+                    "status": "ok",
+                    "outputs": {
+                        "eveng_images_installed_count": 6,
+                        "eveng_images_installed_names": [
+                            "linux-alpine-3.21.3.tar.gz",
+                            "linux-netem.tar.gz",
+                            "linux-ubuntu-24.04-server.tar.gz",
+                            "iol-i86bi-linux-l2-adventerprisek9-15.2d.tar.gz",
+                            "veos-lab-4.34.2F.tar.gz",
+                            "vios-adventerprisek9-m.SPA.159-3.M6.tar.gz",
+                        ],
+                    },
+                },
+                state_instance=step["state_instance"],
+            )
+
+            _, detail, item_line = _step_presentation(
+                step,
+                state_dir=state_dir,
+                progress_after=80,
+            )
+
+        self.assertEqual(detail, "ready, 6 images, overall 80%")
+        self.assertEqual(
+            item_line,
+            "  images:\n"
+            "    - Alpine Linux\n"
+            "    - NETem\n"
+            "    - Ubuntu Server\n"
+            "    - iol-i86bi-linux-l2-adventerprisek9-15.2d\n"
+            "    - veos-lab-4.34.2F\n"
+            "    - vios-adventerprisek9-m.SPA.159-3.M6",
+        )
+
     def test_cost_estimate_progress_does_not_show_elapsed_time(self):
         paths = type("Paths", (), {"meta_dir": Path("/tmp/meta")})()
         estimate = CostEstimate(True)
