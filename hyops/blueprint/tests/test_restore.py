@@ -241,6 +241,45 @@ class BlueprintLabRestoreTest(TestCase):
             "c" * 64,
         )
 
+    def test_restore_retains_verified_node_state_after_prior_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "labs.tar.gz"
+            archive.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            node_archive = Path(tmp) / "labs.tar.gz.node-state.tar.gz"
+            node_archive.write_bytes(b"qemu overlays")
+            node_checksum = hashlib.sha256(node_archive.read_bytes()).hexdigest()
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive),
+                    "eveng_lab_archive_sha256": checksum,
+                    "eveng_lab_archive_node_state_included": False,
+                    "eveng_lab_archive_node_state_archive_path": str(node_archive),
+                    "eveng_lab_archive_node_state_sha256": node_checksum,
+                }
+            }
+            with patch(
+                "hyops.blueprint.command.read_module_state",
+                return_value=state,
+            ):
+                mode, selected = _select_lab_restore_mode(
+                    _namespace(restore_labs=True),
+                    _payload(),
+                    paths,
+                )
+
+        self.assertEqual(mode, "restore")
+        self.assertEqual(
+            selected,
+            (
+                archive.resolve(),
+                checksum,
+                node_archive.resolve(),
+                node_checksum,
+            ),
+        )
+
     def test_gns3_restore_uses_declared_archive_contract(self):
         payload = {
             "archive_before_destroy": {

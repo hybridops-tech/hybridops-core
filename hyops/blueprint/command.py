@@ -3896,15 +3896,20 @@ def _verified_lab_archive(
 
     node_archive: Path | None = None
     node_checksum = ""
-    if contract["node_state"] and bool(
-        outputs.get(contract["node_included_output"], False)
-    ):
-        candidate = Path(
-            str(outputs.get(contract["node_path_output"]) or "")
-        ).expanduser()
+    if contract["node_state"]:
+        candidate_value = str(
+            outputs.get(contract["node_path_output"]) or ""
+        ).strip()
         candidate_checksum = str(
             outputs.get(contract["node_sha256_output"]) or ""
         ).strip().lower()
+        node_state_declared = bool(
+            outputs.get(contract["node_included_output"], False)
+        )
+        node_state_metadata_present = bool(candidate_value or candidate_checksum)
+        if not (node_state_declared or node_state_metadata_present):
+            return archive_path.resolve(), expected, None, ""
+        candidate = Path(candidate_value).expanduser()
         if not candidate.is_file() or not re.fullmatch(
             r"[0-9a-f]{64}", candidate_checksum
         ):
