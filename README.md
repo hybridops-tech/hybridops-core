@@ -59,6 +59,17 @@ hyops blueprint plan --ref onprem/authoritative-foundation@v1
 
 See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/) or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
 
+### Verify Installation
+Run a "smoke test" to ensure the CLI is correctly installed and the core logic is functional:
+
+```bash
+# Check version
+hyops --version
+
+# Validate a core blueprint (requires no credentials)
+hyops blueprint validate --ref onprem/authoritative-foundation@v1
+```
+
 ## Execution model
 
 ```mermaid
