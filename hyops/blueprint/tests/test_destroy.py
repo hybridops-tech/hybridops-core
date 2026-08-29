@@ -575,6 +575,38 @@ class ResumableBlueprintDestroyTest(TestCase):
             stdout.getvalue(),
         )
 
+    def test_archive_reports_absent_qemu_node_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "labs.tar.gz"
+            archive_path.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            payload = {
+                "archive_before_destroy": {
+                    "module_ref": "platform/test/archive",
+                    "state_instance": "lab_archive",
+                    "inputs": {},
+                }
+            }
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive_path),
+                    "eveng_lab_archive_sha256": checksum,
+                    "eveng_lab_archive_node_state_included": False,
+                }
+            }
+            stdout = io.StringIO()
+
+            with (
+                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch("hyops.blueprint.command.read_module_state", return_value=state),
+                patch("hyops.blueprint.command.sys.stdout", stdout),
+            ):
+                rc = _run_archive_before_destroy(_namespace(), payload, paths)
+
+        self.assertEqual(rc, 0)
+        self.assertIn("node state: no QEMU overlays found", stdout.getvalue())
+
     def test_failed_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
         payload = _payload()

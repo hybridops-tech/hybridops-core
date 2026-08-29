@@ -4744,6 +4744,8 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         if verbose:
             print(f"stopped node state: {node_archive_path}")
             print(f"sha256: {node_actual}")
+    elif contract["node_state"]:
+        print("node state: no QEMU overlays found")
     print(f"archive saved: {', '.join(archive_contents)}")
     return 0
 
