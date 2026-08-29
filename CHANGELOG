@@ -2,7 +2,7 @@
 
 This changelog records significant operator-facing capabilities, lifecycle changes, compatibility fixes, and release engineering updates. Individual commits and maintenance-only changes remain available through the linked comparisons.
 
-## [v0.1.4] - 2026-08-28
+## [v0.1.4] - 2026-08-29
 
 ### Added
 
@@ -44,6 +44,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 - Preserved concise module failure details after a blueprint progress step fails.
 - Surfaced EVE-NG IOL licence mismatches with the target hostname and Linux host ID before any image changes.
 - Reported the complete configured EVE-NG image set, including operator-supplied IOL images, in blueprint progress output.
+- Preserved EVE-NG QEMU node-state evidence across repeated restore and
+  archive cycles, including archives created before the corrected state marker.
+- Normalised pasted interactive responses before evaluating confirmation
+  prompts and removed elapsed counters from indeterminate archive operations.
+- Reported an absent EVE-NG node-state archive as absent rather than as saved.
 - Protected Containerlab destroy and rebuild from proceeding without the required recovery result.
 - Tightened permissions on existing runtime directories during installation and setup.
 - Fixed deletion-only Proxmox VM-set shrink operations and external-replica DMS cleanup.
