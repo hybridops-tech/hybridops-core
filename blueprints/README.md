@@ -148,11 +148,12 @@ runbook.
 
 ## Existing lab migration
 
-Existing EVE-NG and GNS3 labs can be inspected and staged before a new
-HybridOps-managed host is deployed. Migration remains within the same lab
-platform. The source host is not modified.
+Existing EVE-NG, GNS3 and Containerlab labs can be inspected and staged before
+a new HybridOps-managed host is deployed. Migration remains within the same
+lab platform. The source host is not modified.
 
-Save intended device configurations and stop the source nodes before capture:
+For EVE-NG and GNS3, save intended device configurations and stop the source
+nodes before capture:
 
 ```bash
 hyops lab migrate capture \
@@ -174,6 +175,26 @@ For EVE-NG, `--include-images` creates a separate archive containing only the
 base images referenced by the captured labs. For GNS3, it includes the image
 library in the primary archive. Capture uses `pigz -1` when available and
 otherwise uses `gzip -1`. Sparse virtual disks remain sparse in the archive.
+
+For Containerlab, identify the authoritative source tree and topology:
+
+```bash
+hyops lab migrate capture \
+  --platform containerlab \
+  --host <existing-host> \
+  --user <ssh-user> \
+  --source-root /srv/containerlab/<lab> \
+  --topology-relpath lab.clab.yml \
+  --output ./containerlab-lab.tar.gz
+```
+
+Capture retains the source tree and asks Containerlab to copy supported saved
+configurations into it. Generated top-level `clab-*` runtime directories are
+excluded. Container images remain topology references and must be available to
+the target host through their authorised registry or image-loading process.
+Use `--source-labdir-base` only when the existing host overrides Containerlab's
+native lab-data location. `--target-labdir-base` must match the target blueprint
+when its managed default has been changed.
 
 Inspect an archive first:
 
@@ -206,6 +227,27 @@ hyops blueprint deploy \
 Existing lab definitions and base images are protected independently. Add
 `--overwrite-labs` to replace lab definitions or `--overwrite-images` to
 replace referenced base images. Neither flag is required on a new host.
+
+A Containerlab import must match the target topology path and native lab-data
+base. It publishes the verified archive through the existing latest-recovery
+contract, and the next normal blueprint deployment restores it automatically.
+
+```bash
+hyops lab migrate inspect \
+  --platform containerlab \
+  --archive ./containerlab-lab.tar.gz
+
+hyops lab migrate import \
+  --env <env> \
+  --ref gcp/containerlab@v1 \
+  --platform containerlab \
+  --archive ./containerlab-lab.tar.gz
+
+hyops blueprint deploy \
+  --env <env> \
+  --ref gcp/containerlab@v1 \
+  --execute
+```
 
 The EVE-NG primary archive must be relative to `/opt/unetlab/labs`. Its
 optional node-state companion contains stopped QEMU overlays using the EVE-NG

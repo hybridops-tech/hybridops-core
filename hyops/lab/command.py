@@ -26,6 +26,7 @@ _CAPTURE_LABELS = {
     "assessment": "Assessing source",
     "lab_definitions": "Lab definitions",
     "gns3_projects": "GNS3 projects",
+    "containerlab_source": "Containerlab source",
     "node_state": "Node state",
     "referenced_images": "Referenced images",
     "verification": "Archive verification",
@@ -127,7 +128,7 @@ def _add_archive_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--platform",
         required=True,
-        choices=("eve-ng", "gns3"),
+        choices=("eve-ng", "gns3", "containerlab"),
         help="Source lab platform.",
     )
     parser.add_argument("--archive", required=True, help="Portable lab archive path.")
@@ -170,12 +171,12 @@ def add_lab_subparser(sp: argparse._SubParsersAction) -> None:
 
     capture_parser = migration_commands.add_parser(
         "capture",
-        help="Capture a stopped existing lab through SSH without changing its host.",
+        help="Capture an existing lab through SSH without changing its source tree.",
     )
     capture_parser.add_argument(
         "--platform",
         required=True,
-        choices=("eve-ng", "gns3"),
+        choices=("eve-ng", "gns3", "containerlab"),
         help="Source lab platform.",
     )
     capture_parser.add_argument("--host", required=True, help="SSH host or alias.")
@@ -190,6 +191,29 @@ def add_lab_subparser(sp: argparse._SubParsersAction) -> None:
         ),
     )
     capture_parser.add_argument("--output", required=True, help="Local archive path.")
+    capture_parser.add_argument(
+        "--source-root",
+        default="",
+        help="Authoritative source directory for Containerlab capture.",
+    )
+    capture_parser.add_argument(
+        "--topology-relpath",
+        default="lab.clab.yml",
+        help="Containerlab topology path relative to --source-root.",
+    )
+    capture_parser.add_argument(
+        "--source-labdir-base",
+        default="",
+        help=(
+            "Optional native labdir base used by the existing Containerlab host. "
+            "Omit it to use Containerlab's default."
+        ),
+    )
+    capture_parser.add_argument(
+        "--target-labdir-base",
+        default="/var/lib/hybridops/containerlab/labdirs",
+        help="Native labdir base declared by the target Containerlab blueprint.",
+    )
     capture_parser.add_argument(
         "--become",
         action="store_true",
@@ -276,6 +300,13 @@ def _print_inspection(report: dict[str, Any]) -> None:
         print("images=included")
     else:
         print("images=absent")
+    containerlab = report.get("containerlab")
+    if isinstance(containerlab, dict):
+        print(f"topology={containerlab['topology_relpath']}")
+        print(
+            "native_config_save="
+            f"{'ok' if containerlab.get('native_config_save_rc') == 0 else 'unavailable'}"
+        )
     for warning in report.get("warnings") or []:
         print(f"WARN: {warning}")
 
@@ -295,6 +326,10 @@ def run_capture(ns) -> int:
             node_state_output=ns.node_state_output or None,
             include_images=ns.include_images,
             images_output=ns.images_output or None,
+            source_root=ns.source_root,
+            topology_relpath=ns.topology_relpath,
+            source_labdir_base=ns.source_labdir_base,
+            target_labdir_base=ns.target_labdir_base,
             force=ns.force,
             progress=progress,
         )

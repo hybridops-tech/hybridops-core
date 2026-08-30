@@ -1,4 +1,4 @@
-"""Verified intake for existing EVE-NG and GNS3 lab archives."""
+"""Verified intake for existing network-lab archives."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from typing import Any, Callable, Iterable
 
 SCHEMA_VERSION = 1
 RECORD_KIND = "hybridops/lab-migration"
-SUPPORTED_PLATFORMS = ("eve-ng", "gns3")
+SUPPORTED_PLATFORMS = ("eve-ng", "gns3", "containerlab")
 CaptureProgress = Callable[[dict[str, Any]], None]
 _MAX_DEFINITION_BYTES = 32 * 1024 * 1024
 _MAX_MEMBERS = 200_000
@@ -156,6 +156,318 @@ command = [
 file_list = b"".join(os.fsencode(path) + b"\0" for path in selected)
 result = subprocess.run(command, input=file_list, stdout=sys.stdout.buffer, check=False)
 raise SystemExit(result.returncode)
+"""
+
+_CONTAINERLAB_CAPTURE_PROGRAM = r"""
+import hashlib
+import io
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+mode = sys.argv[1]
+source_root = Path(sys.argv[2])
+topology_relpath = sys.argv[3]
+source_labdir_base = sys.argv[4]
+target_labdir_base = sys.argv[5]
+
+
+def fail(message, status=24):
+    print(message, file=sys.stderr)
+    raise SystemExit(status)
+
+
+def safe_relative(value):
+    if (
+        not value
+        or value in {".", ".."}
+        or value.startswith("/")
+        or "\\" in value
+        or ".." in PurePosixPath(value).parts
+        or any(ord(character) < 32 for character in value)
+    ):
+        fail(f"Containerlab topology path is unsafe: {value!r}")
+    return PurePosixPath(value).as_posix()
+
+
+def source_files(root):
+    resolved = root.resolve(strict=True)
+    selected = []
+    for current, directories, files in os.walk(resolved, topdown=True, followlinks=False):
+        current_path = Path(current)
+        relative_current = current_path.relative_to(resolved)
+        kept_directories = []
+        for name in sorted(directories):
+            path = current_path / name
+            relative = relative_current / name
+            if len(relative.parts) == 1 and name.startswith("clab-"):
+                continue
+            if path.is_symlink():
+                fail(f"Containerlab source contains a symbolic link: {relative}")
+            if not path.is_dir():
+                fail(f"Containerlab source contains an unsupported entry: {relative}")
+            kept_directories.append(name)
+        directories[:] = kept_directories
+        for name in sorted(files):
+            path = current_path / name
+            relative = relative_current / name
+            if path.is_symlink():
+                fail(f"Containerlab source contains a symbolic link: {relative}")
+            file_stat = path.stat()
+            if not stat.S_ISREG(file_stat.st_mode):
+                fail(f"Containerlab source contains an unsupported entry: {relative}")
+            selected.append((path, PurePosixPath(relative.as_posix()), file_stat))
+    return selected
+
+
+def image_references(topology, inspection):
+    references = set()
+    try:
+        text = topology.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    for match in re.finditer(r"(?m)^\s*image:\s*[\"']?([^#\"'\s]+)", text):
+        references.add(match.group(1).strip())
+
+    def walk(value, key=""):
+        if isinstance(value, dict):
+            for child_key, child in value.items():
+                walk(child, str(child_key).lower())
+        elif isinstance(value, list):
+            for child in value:
+                walk(child, key)
+        elif isinstance(value, str) and "image" in key and value.strip():
+            references.add(value.strip())
+
+    if inspection:
+        try:
+            walk(json.loads(inspection))
+        except (json.JSONDecodeError, RecursionError):
+            pass
+    return sorted(references)
+
+
+def add_bytes(handle, name, payload, file_mode=0o640):
+    member = tarfile.TarInfo(name=name)
+    member.size = len(payload)
+    member.mode = file_mode
+    member.uid = 0
+    member.gid = 0
+    member.uname = "root"
+    member.gname = "root"
+    member.mtime = 0
+    handle.addfile(member, io.BytesIO(payload))
+
+
+def add_directory(handle, name, directory_mode=0o750):
+    member = tarfile.TarInfo(name=name.rstrip("/") + "/")
+    member.type = tarfile.DIRTYPE
+    member.mode = directory_mode
+    member.uid = 0
+    member.gid = 0
+    member.uname = "root"
+    member.gname = "root"
+    member.mtime = 0
+    handle.addfile(member)
+
+
+def add_file(handle, source, name, file_stat):
+    member = tarfile.TarInfo(name=name)
+    member.size = file_stat.st_size
+    member.mode = stat.S_IMODE(file_stat.st_mode) & 0o777
+    member.uid = 0
+    member.gid = 0
+    member.uname = "root"
+    member.gname = "root"
+    member.mtime = 0
+    with source.open("rb") as source_handle:
+        handle.addfile(member, source_handle)
+
+
+topology_relpath = safe_relative(topology_relpath)
+try:
+    source_resolved = source_root.resolve(strict=True)
+except FileNotFoundError:
+    fail(f"Containerlab source root was not found: {source_root}", 20)
+if not source_resolved.is_dir():
+    fail(f"Containerlab source root is not a directory: {source_root}", 20)
+if source_resolved in {Path("/"), Path("/var/lib/docker")}:
+    fail(f"Containerlab source root is too broad: {source_resolved}")
+for label, value in (
+    ("source", source_labdir_base),
+    ("target", target_labdir_base),
+):
+    if not value and label == "source":
+        continue
+    if (
+        not value.startswith("/")
+        or "\\" in value
+        or ".." in PurePosixPath(value).parts
+        or any(ord(character) < 32 for character in value)
+    ):
+        fail(f"Containerlab {label} labdir base is invalid: {value!r}")
+
+topology = source_resolved / topology_relpath
+try:
+    topology.resolve(strict=True).relative_to(source_resolved)
+except (FileNotFoundError, ValueError):
+    fail(f"Containerlab topology was not found under the source root: {topology_relpath}", 20)
+if topology.is_symlink() or not topology.is_file():
+    fail(f"Containerlab topology is not a regular file: {topology_relpath}", 20)
+
+files = source_files(source_resolved)
+if mode == "assess":
+    allocated = sum(item[2].st_blocks * 512 for item in files)
+    print(allocated)
+    raise SystemExit(0)
+if mode != "capture":
+    fail("Unsupported Containerlab capture mode")
+
+version_payload = ""
+inspection_payload = ""
+save_rc = 127
+with tempfile.TemporaryDirectory(prefix="hyops-containerlab-") as temporary:
+    saved_configs = Path(temporary) / "startup-configs"
+    saved_configs.mkdir(mode=0o750)
+    containerlab_environment = {
+        **os.environ,
+        "CLAB_VERSION_CHECK": "disable",
+    }
+    if source_labdir_base:
+        containerlab_environment["CLAB_LABDIR_BASE"] = source_labdir_base
+    try:
+        saved = subprocess.run(
+            [
+                "containerlab",
+                "save",
+                "-t",
+                str(topology),
+                "--copy",
+                str(saved_configs),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env=containerlab_environment,
+            timeout=300,
+        )
+        save_rc = saved.returncode
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        save_rc = 127
+
+    try:
+        version = subprocess.run(
+            ["containerlab", "version", "--json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            text=True,
+            timeout=15,
+        )
+        if version.returncode == 0:
+            version_payload = version.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    try:
+        inspection = subprocess.run(
+            ["containerlab", "inspect", "-t", str(topology), "-f", "json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env=containerlab_environment,
+            text=True,
+            timeout=60,
+        )
+        if inspection.returncode == 0:
+            inspection_payload = inspection.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    topology_sha256 = hashlib.sha256(topology.read_bytes()).hexdigest()
+    try:
+        version_value = json.loads(version_payload).get("version", "") if version_payload else ""
+    except (AttributeError, json.JSONDecodeError):
+        version_value = ""
+    manifest = {
+        "schema": "hybridops.containerlab.recovery/v1",
+        "mode": "rebuild",
+        "topology_relpath": topology_relpath,
+        "topology_sha256": topology_sha256,
+        "source_root_included": True,
+        "containerlab_version": str(version_value),
+        "image_refs": image_references(topology, inspection_payload),
+        "labdir_base": target_labdir_base,
+        "native_config_save_attempted": True,
+        "native_config_save_rc": save_rc,
+        "native_snapshots_requested": False,
+        "lab_directory_included": False,
+        "additional_paths_count": 0,
+    }
+
+    bundle = "containerlab-migration"
+    source_prefix = f"{bundle}/lab-source"
+    saved_files = source_files(saved_configs)
+    archive_files = {
+        relative.as_posix(): (source, relative, file_stat)
+        for source, relative, file_stat in files
+    }
+    if save_rc == 0:
+        for source, relative, file_stat in saved_files:
+            archive_relative = PurePosixPath("startup-configs") / relative
+            archive_files[archive_relative.as_posix()] = (
+                source,
+                archive_relative,
+                file_stat,
+            )
+    with tarfile.open(
+        fileobj=sys.stdout.buffer,
+        mode="w|gz",
+        compresslevel=1,
+        format=tarfile.PAX_FORMAT,
+    ) as archive:
+        add_directory(archive, bundle)
+        add_directory(archive, source_prefix)
+        directories = set()
+        for _, relative, _ in archive_files.values():
+            for parent in relative.parents:
+                if str(parent) not in {"", "."}:
+                    directories.add(parent.as_posix())
+        for directory in sorted(directories, key=lambda item: (item.count("/"), item)):
+            add_directory(archive, f"{source_prefix}/{directory}")
+        for source, relative, file_stat in sorted(
+            archive_files.values(),
+            key=lambda item: item[1].as_posix(),
+        ):
+            add_file(
+                archive,
+                source,
+                f"{source_prefix}/{relative.as_posix()}",
+                file_stat,
+            )
+        add_bytes(
+            archive,
+            f"{bundle}/hybridops-recovery-manifest.json",
+            (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+        if version_payload:
+            add_bytes(
+                archive,
+                f"{bundle}/containerlab-version.json",
+                (version_payload + "\n").encode("utf-8"),
+            )
+        if inspection_payload:
+            add_bytes(
+                archive,
+                f"{bundle}/containerlab-inspect.json",
+                (inspection_payload + "\n").encode("utf-8"),
+            )
 """
 
 
@@ -352,6 +664,113 @@ def _gns3_image_references(
     return sorted(references)
 
 
+def _inspect_containerlab_archive(
+    handle: tarfile.TarFile,
+    members: list[tuple[tarfile.TarInfo, str]],
+) -> dict[str, Any]:
+    named_members = {name: member for member, name in members if name}
+    roots = {
+        PurePosixPath(name).parts[0]
+        for name in named_members
+        if PurePosixPath(name).parts
+    }
+    if len(roots) != 1:
+        raise ValueError("Containerlab archive must contain one recovery bundle root")
+    bundle_root = next(iter(roots))
+    manifest_name = f"{bundle_root}/hybridops-recovery-manifest.json"
+    manifest_member = named_members.get(manifest_name)
+    if manifest_member is None or not manifest_member.isfile():
+        raise ValueError("Containerlab archive has no recovery manifest")
+    try:
+        manifest = json.loads(_read_definition(handle, manifest_member))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("Containerlab recovery manifest is invalid") from exc
+    if not isinstance(manifest, dict):
+        raise ValueError("Containerlab recovery manifest is invalid")
+    if manifest.get("schema") != "hybridops.containerlab.recovery/v1":
+        raise ValueError("Containerlab recovery manifest schema is unsupported")
+    if manifest.get("mode") not in {"ephemeral", "rebuild", "snapshot"}:
+        raise ValueError("Containerlab recovery mode is unsupported")
+
+    topology_relpath = str(manifest.get("topology_relpath") or "").strip()
+    if (
+        not topology_relpath
+        or topology_relpath.startswith("/")
+        or "\\" in topology_relpath
+        or ".." in PurePosixPath(topology_relpath).parts
+        or any(ord(character) < 32 for character in topology_relpath)
+    ):
+        raise ValueError("Containerlab recovery topology path is unsafe")
+    topology_relpath = PurePosixPath(topology_relpath).as_posix()
+
+    source_root_included = manifest.get("source_root_included")
+    if not isinstance(source_root_included, bool):
+        raise ValueError("Containerlab recovery source-root flag is invalid")
+    source_prefix = f"{bundle_root}/lab-source" if source_root_included else bundle_root
+    topology_name = f"{source_prefix}/{topology_relpath}"
+    topology_member = named_members.get(topology_name)
+    if topology_member is None or not topology_member.isfile():
+        raise ValueError("Containerlab recovery topology is missing")
+    topology_sha256 = str(manifest.get("topology_sha256") or "").strip().lower()
+    if not _SHA256_RE.fullmatch(topology_sha256):
+        raise ValueError("Containerlab recovery topology checksum is invalid")
+    topology_payload = _read_definition(handle, topology_member)
+    if hashlib.sha256(topology_payload).hexdigest() != topology_sha256:
+        raise ValueError("Containerlab recovery topology checksum does not match")
+
+    labdir_base = str(manifest.get("labdir_base") or "").strip()
+    if (
+        not labdir_base.startswith("/")
+        or "\\" in labdir_base
+        or ".." in PurePosixPath(labdir_base).parts
+        or any(ord(character) < 32 for character in labdir_base)
+    ):
+        raise ValueError("Containerlab recovery labdir base is invalid")
+    image_refs = manifest.get("image_refs")
+    if not isinstance(image_refs, list) or len(image_refs) > 10_000:
+        raise ValueError("Containerlab recovery image references are invalid")
+    references: list[str] = []
+    for value in image_refs:
+        reference = str(value or "").strip() if isinstance(value, str) else ""
+        if (
+            not reference
+            or len(reference) > 1024
+            or any(ord(character) < 32 for character in reference)
+        ):
+            raise ValueError("Containerlab recovery image reference is invalid")
+        references.append(reference)
+    native_config_save_attempted = manifest.get("native_config_save_attempted", False)
+    if not isinstance(native_config_save_attempted, bool):
+        raise ValueError("Containerlab native configuration-save flag is invalid")
+    native_config_save_rc = manifest.get("native_config_save_rc")
+    if native_config_save_rc is not None and (
+        isinstance(native_config_save_rc, bool)
+        or not isinstance(native_config_save_rc, int)
+    ):
+        raise ValueError("Containerlab native configuration-save result is invalid")
+    if native_config_save_attempted != (native_config_save_rc is not None):
+        raise ValueError("Containerlab native configuration-save state is inconsistent")
+
+    files = [(member, name) for member, name in members if member.isfile()]
+    return {
+        "definition_count": 1,
+        "expanded_size_bytes": sum(member.size for member, _ in files),
+        "image_references": sorted(set(references)),
+        "images_included": False,
+        "member_count": len(members),
+        "containerlab": {
+            "bundle_root": bundle_root,
+            "mode": str(manifest["mode"]),
+            "topology_relpath": topology_relpath,
+            "topology_sha256": topology_sha256,
+            "source_root_included": source_root_included,
+            "labdir_base": labdir_base,
+            "native_config_save_attempted": native_config_save_attempted,
+            "native_config_save_rc": native_config_save_rc,
+        },
+    }
+
+
 def _inspect_primary(path: Path, platform: str) -> dict[str, Any]:
     try:
         with tarfile.open(path, mode="r:*") as handle:
@@ -377,6 +796,9 @@ def _inspect_primary(path: Path, platform: str) -> dict[str, Any]:
                     "images_included": False,
                     "member_count": len(members),
                 }
+
+            if platform == "containerlab":
+                return _inspect_containerlab_archive(handle, members)
 
             allowed_roots = {
                 "projects",
@@ -605,9 +1027,24 @@ def inspect_migration_archive(
     warnings: list[str] = []
     images_included = bool(primary["images_included"] or image_report)
     if primary["image_references"] and not images_included:
-        warnings.append("referenced base images must be available on the target")
+        if platform_name == "containerlab":
+            warnings.append(
+                "referenced container images must be available on the target"
+            )
+        else:
+            warnings.append("referenced base images must be available on the target")
     if platform_name == "eve-ng" and node_report is None:
         warnings.append("writable QEMU node state is not included")
+    containerlab_metadata = primary.get("containerlab")
+    if (
+        platform_name == "containerlab"
+        and isinstance(containerlab_metadata, dict)
+        and containerlab_metadata.get("native_config_save_attempted")
+        and containerlab_metadata.get("native_config_save_rc") != 0
+    ):
+        warnings.append(
+            "Containerlab native configuration save did not complete; the source tree is retained"
+        )
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -626,6 +1063,7 @@ def inspect_migration_archive(
         "images_included": images_included,
         "images": image_report,
         "node_state": node_report,
+        "containerlab": containerlab_metadata,
         "warnings": warnings,
     }
 
@@ -636,6 +1074,10 @@ def _remote_capture_script(
     node_state: bool = False,
     image_state: bool = False,
     include_images: bool = False,
+    source_root: str = "",
+    topology_relpath: str = "",
+    source_labdir_base: str = "",
+    target_labdir_base: str = "",
     output_available_bytes: int,
 ) -> str:
     usable_bytes = max(0, output_available_bytes - _FREE_SPACE_RESERVE_BYTES)
@@ -646,6 +1088,34 @@ if [ "$required" -gt "$capacity" ]; then
   exit 23
 fi
 """
+    if platform == "containerlab":
+        capture_command = " ".join(
+            [
+                "python3 -c",
+                shlex.quote(_CONTAINERLAB_CAPTURE_PROGRAM),
+                "capture",
+                shlex.quote(source_root),
+                shlex.quote(topology_relpath),
+                shlex.quote(source_labdir_base),
+                shlex.quote(target_labdir_base),
+            ]
+        )
+        assessment_command = " ".join(
+            [
+                "python3 -c",
+                shlex.quote(_CONTAINERLAB_CAPTURE_PROGRAM),
+                "assess",
+                shlex.quote(source_root),
+                shlex.quote(topology_relpath),
+                shlex.quote(source_labdir_base),
+                shlex.quote(target_labdir_base),
+            ]
+        )
+        return f"""set -eu
+required=$({assessment_command})
+{capacity_check}exec {capture_command}
+"""
+
     if platform == "eve-ng":
         compressor = "compressor='gzip -1'\ncommand -v pigz >/dev/null 2>&1 && compressor='pigz -1'"
         if image_state:
@@ -725,7 +1195,28 @@ def _remote_capture_assessment_script(
     *,
     include_node_state: bool = False,
     include_images: bool = False,
+    source_root: str = "",
+    topology_relpath: str = "",
+    source_labdir_base: str = "",
+    target_labdir_base: str = "",
 ) -> str:
+    if platform == "containerlab":
+        assessment_command = " ".join(
+            [
+                "python3 -c",
+                shlex.quote(_CONTAINERLAB_CAPTURE_PROGRAM),
+                "assess",
+                shlex.quote(source_root),
+                shlex.quote(topology_relpath),
+                shlex.quote(source_labdir_base),
+                shlex.quote(target_labdir_base),
+            ]
+        )
+        return f"""set -eu
+primary_bytes=$({assessment_command})
+printf 'primary_bytes=%s\nnode_state_bytes=0\nimage_bytes=0\n' "$primary_bytes"
+"""
+
     if platform == "eve-ng":
         node_state_assessment = "node_state_bytes=0"
         image_assessment = "image_bytes=0"
@@ -1062,6 +1553,10 @@ def capture_existing_lab(
     node_state_output: str | Path | None = None,
     include_images: bool = False,
     images_output: str | Path | None = None,
+    source_root: str = "",
+    topology_relpath: str = "lab.clab.yml",
+    source_labdir_base: str = "",
+    target_labdir_base: str = "/var/lib/hybridops/containerlab/labdirs",
     force: bool = False,
     progress: CaptureProgress | None = None,
 ) -> dict[str, Any]:
@@ -1074,6 +1569,21 @@ def capture_existing_lab(
         raise ValueError("--node-state-output requires --include-node-state")
     if images_output and not (include_images and platform_name == "eve-ng"):
         raise ValueError("--images-output requires EVE-NG --include-images")
+    if platform_name == "containerlab":
+        if not str(source_root or "").strip():
+            raise ValueError("Containerlab capture requires --source-root")
+        if include_images:
+            raise ValueError(
+                "Containerlab migration retains image references; --include-images is not supported"
+            )
+        if not str(topology_relpath or "").strip():
+            raise ValueError("Containerlab capture requires --topology-relpath")
+        if not str(target_labdir_base or "").strip():
+            raise ValueError("Containerlab capture requires --target-labdir-base")
+    elif source_root or source_labdir_base:
+        raise ValueError(
+            "--source-root and --source-labdir-base are only valid for Containerlab"
+        )
 
     destination = _capture_destination(output, "output")
     node_destination: Path | None = None
@@ -1122,6 +1632,10 @@ def capture_existing_lab(
                 platform_name,
                 include_node_state=include_node_state,
                 include_images=include_images,
+                source_root=source_root,
+                topology_relpath=topology_relpath,
+                source_labdir_base=source_labdir_base,
+                target_labdir_base=target_labdir_base,
             ),
             control_path=control_path,
         )
@@ -1154,13 +1668,19 @@ def capture_existing_lab(
             script=_remote_capture_script(
                 platform_name,
                 include_images=include_images,
+                source_root=source_root,
+                topology_relpath=topology_relpath,
+                source_labdir_base=source_labdir_base,
+                target_labdir_base=target_labdir_base,
                 output_available_bytes=_available_disk_bytes(destination.parent),
             ),
             control_path=control_path,
         )
-        primary_stage = (
-            "lab_definitions" if platform_name == "eve-ng" else "gns3_projects"
-        )
+        primary_stage = {
+            "eve-ng": "lab_definitions",
+            "gns3": "gns3_projects",
+            "containerlab": "containerlab_source",
+        }[platform_name]
         _capture_stream(
             primary_argv,
             primary_candidate,
@@ -1253,6 +1773,15 @@ def capture_existing_lab(
         if isinstance(report.get("images"), dict) and image_destination is not None:
             report["images"]["path"] = str(image_destination)
         report["source"] = {"host": host, "user": user or None}
+        if platform_name == "containerlab":
+            report["source"].update(
+                {
+                    "source_root": str(source_root),
+                    "topology_relpath": str(topology_relpath),
+                    "source_labdir_base": str(source_labdir_base) or None,
+                    "target_labdir_base": str(target_labdir_base),
+                }
+            )
         return report
     finally:
         _close_ssh_control(
@@ -1272,14 +1801,20 @@ def capture_existing_lab(
 
 def platform_for_blueprint(payload: dict[str, Any]) -> str:
     lifecycle = payload.get("archive_before_destroy")
-    if not isinstance(lifecycle, dict) or not lifecycle:
-        raise ValueError("target blueprint does not declare a lab archive lifecycle")
-    module_ref = str(lifecycle.get("module_ref") or "").strip()
-    prefix = str(lifecycle.get("contract_prefix") or "").strip()
-    if module_ref.endswith("/eve-ng-lab-archive") or prefix.startswith("eveng_"):
-        return "eve-ng"
-    if module_ref.endswith("/gns3-lab-archive") or prefix.startswith("gns3_"):
-        return "gns3"
+    if isinstance(lifecycle, dict) and lifecycle:
+        module_ref = str(lifecycle.get("module_ref") or "").strip()
+        prefix = str(lifecycle.get("contract_prefix") or "").strip()
+        if module_ref.endswith("/eve-ng-lab-archive") or prefix.startswith("eveng_"):
+            return "eve-ng"
+        if module_ref.endswith("/gns3-lab-archive") or prefix.startswith("gns3_"):
+            return "gns3"
+    steps = payload.get("steps")
+    if isinstance(steps, list) and any(
+        str(step.get("module_ref") or "").endswith("/containerlab-lab")
+        for step in steps
+        if isinstance(step, dict)
+    ):
+        return "containerlab"
     raise ValueError("target blueprint does not support lab migration intake")
 
 
@@ -1294,6 +1829,89 @@ def _record_slug(blueprint_ref: str) -> str:
 
 def migration_record_path(paths, blueprint_ref: str) -> Path:
     return paths.state_dir / "lab-migrations" / f"{_record_slug(blueprint_ref)}.json"
+
+
+def _containerlab_target_contract(payload: dict[str, Any]) -> tuple[str, str]:
+    for step in payload.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if not str(step.get("module_ref") or "").endswith("/containerlab-lab"):
+            continue
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), dict) else {}
+        topology_relpath = str(
+            inputs.get("containerlab_lab_topology_relpath") or ""
+        ).strip()
+        labdir_base = str(inputs.get("containerlab_lab_labdir_base") or "").strip()
+        if not topology_relpath or not labdir_base:
+            raise ValueError(
+                "target Containerlab blueprint has an incomplete recovery contract"
+            )
+        return topology_relpath, labdir_base
+    raise ValueError("target blueprint has no Containerlab lab step")
+
+
+def _publish_containerlab_latest(
+    *,
+    paths,
+    archive_path: Path,
+    checksum: str,
+    metadata: dict[str, Any],
+    image_references: list[str],
+    force: bool,
+) -> dict[str, Any]:
+    from hyops.runtime.state import write_json_atomic, write_text_atomic
+
+    recovery_dir = paths.root / "artifacts" / "containerlab" / "recovery"
+    recovery_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(recovery_dir, 0o700)
+    latest = recovery_dir / "latest.tar.gz"
+    if latest.exists() and latest.is_dir():
+        raise ValueError(f"Containerlab latest recovery path is a directory: {latest}")
+    latest_checksum = latest.with_name(latest.name + ".sha256")
+    latest_metadata = latest.with_name(latest.name + ".json")
+    markers = (latest, latest_checksum, latest_metadata)
+    if any(path.exists() or path.is_symlink() for path in markers):
+        complete = all(path.exists() or path.is_symlink() for path in markers)
+        existing_checksum = ""
+        if latest_checksum.is_file():
+            existing_checksum = latest_checksum.read_text(encoding="utf-8").strip()
+        if (not complete or existing_checksum != checksum) and not force:
+            raise ValueError(
+                "a different or incomplete Containerlab latest recovery set exists; "
+                "use --force to replace it"
+            )
+    write_text_atomic(latest_checksum, checksum + "\n", mode=0o600)
+    write_json_atomic(
+        latest_metadata,
+        {
+            "schema": "hybridops.containerlab.latest/v1",
+            "archive_sha256": checksum,
+            "topology_sha256": metadata["topology_sha256"],
+            "mode": metadata["mode"],
+            "image_refs": image_references,
+            "labdir_base": metadata["labdir_base"],
+            "timestamp_archive": str(archive_path.resolve()),
+        },
+        mode=0o600,
+    )
+    fd, candidate_name = tempfile.mkstemp(
+        prefix=".latest.",
+        suffix=".candidate",
+        dir=str(recovery_dir),
+    )
+    os.close(fd)
+    candidate = Path(candidate_name)
+    candidate.unlink()
+    try:
+        os.symlink(str(archive_path.resolve()), candidate)
+        os.replace(candidate, latest)
+    finally:
+        candidate.unlink(missing_ok=True)
+    return {
+        "latest_path": str(latest),
+        "sha256_path": str(latest_checksum),
+        "metadata_path": str(latest_metadata),
+    }
 
 
 def _copy_verified(source: Path, destination: Path, checksum: str) -> None:
@@ -1370,6 +1988,25 @@ def stage_migration_archive(
         node_state_expected_sha256=node_state_expected_sha256,
         images_expected_sha256=images_expected_sha256,
     )
+    containerlab_metadata = inspection.get("containerlab")
+    if platform_name == "containerlab":
+        if not isinstance(containerlab_metadata, dict):
+            raise ValueError("Containerlab migration archive has no recovery metadata")
+        target_topology_relpath, target_labdir_base = _containerlab_target_contract(
+            payload
+        )
+        if containerlab_metadata["topology_relpath"] != target_topology_relpath:
+            raise ValueError(
+                "Containerlab topology path does not match the target blueprint: "
+                f"archive={containerlab_metadata['topology_relpath']} "
+                f"target={target_topology_relpath}"
+            )
+        if containerlab_metadata["labdir_base"] != target_labdir_base:
+            raise ValueError(
+                "Containerlab labdir base does not match the target blueprint: "
+                f"archive={containerlab_metadata['labdir_base']} "
+                f"target={target_labdir_base}"
+            )
 
     blueprint_ref = str(payload.get("blueprint_ref") or "").strip()
     record_path = migration_record_path(paths, blueprint_ref)
@@ -1504,6 +2141,7 @@ def stage_migration_archive(
         "definition_count": inspection["definition_count"],
         "image_references": inspection["image_references"],
         "images_included": inspection["images_included"],
+        "containerlab": containerlab_metadata,
         "warnings": inspection["warnings"],
     }
     record["archive"]["path"] = str(archive_destination)
@@ -1522,6 +2160,15 @@ def stage_migration_archive(
             "images_sha256": existing_image_checksum,
             "imported_at": str(existing.get("imported_at") or ""),
         }
+    if platform_name == "containerlab":
+        record["containerlab_latest"] = _publish_containerlab_latest(
+            paths=paths,
+            archive_path=archive_destination,
+            checksum=record["archive"]["sha256"],
+            metadata=containerlab_metadata,
+            image_references=record["image_references"],
+            force=force,
+        )
     _write_record(record_path, record)
     return record
 

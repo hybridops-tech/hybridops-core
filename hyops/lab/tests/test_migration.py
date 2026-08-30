@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -13,6 +14,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from hyops.lab.migration import (
+    _CONTAINERLAB_CAPTURE_PROGRAM,
     _EVE_IMAGE_CAPTURE_PROGRAM,
     _capture_requirements,
     _capture_stream,
@@ -23,6 +25,7 @@ from hyops.lab.migration import (
     load_migration_archive,
     load_migration_images,
     migration_record_path,
+    platform_for_blueprint,
     stage_migration_archive,
 )
 from hyops.runtime.layout import ensure_layout
@@ -66,6 +69,55 @@ def _gns3_payload() -> dict:
             "contract_prefix": "gns3_lab_archive",
         },
     }
+
+
+def _containerlab_payload() -> dict:
+    return {
+        "blueprint_ref": "gcp/containerlab@v1",
+        "steps": [
+            {
+                "module_ref": "platform/linux/containerlab-lab",
+                "inputs": {
+                    "containerlab_lab_topology_relpath": "lab.clab.yml",
+                    "containerlab_lab_labdir_base": (
+                        "/var/lib/hybridops/containerlab/labdirs"
+                    ),
+                },
+            }
+        ],
+    }
+
+
+def _write_containerlab_archive(path: Path, topology: bytes | None = None) -> None:
+    topology_payload = topology or (
+        b"name: test\ntopology:\n  nodes:\n    r1:\n"
+        b"      kind: linux\n      image: alpine:3.20\n"
+    )
+    topology_checksum = hashlib.sha256(topology_payload).hexdigest()
+    manifest = json.dumps(
+        {
+            "schema": "hybridops.containerlab.recovery/v1",
+            "mode": "rebuild",
+            "topology_relpath": "lab.clab.yml",
+            "topology_sha256": topology_checksum,
+            "source_root_included": True,
+            "containerlab_version": "0.78.0",
+            "image_refs": ["alpine:3.20"],
+            "labdir_base": "/var/lib/hybridops/containerlab/labdirs",
+            "native_config_save_attempted": True,
+            "native_config_save_rc": 0,
+            "native_snapshots_requested": False,
+            "lab_directory_included": False,
+            "additional_paths_count": 0,
+        }
+    ).encode()
+    _write_tar(
+        path,
+        {
+            "containerlab-migration/lab-source/lab.clab.yml": topology_payload,
+            "containerlab-migration/hybridops-recovery-manifest.json": manifest,
+        },
+    )
 
 
 class LabMigrationInspectionTest(TestCase):
@@ -287,6 +339,50 @@ class LabMigrationInspectionTest(TestCase):
         self.assertEqual(report["image_references"], ["vios.qcow2"])
         self.assertFalse(report["images_included"])
 
+    def test_inspects_containerlab_recovery_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "containerlab.tar.gz"
+            _write_containerlab_archive(archive)
+
+            report = inspect_migration_archive(
+                platform="containerlab",
+                archive=archive,
+            )
+
+        self.assertEqual(report["definition_count"], 1)
+        self.assertEqual(report["image_references"], ["alpine:3.20"])
+        self.assertEqual(
+            report["containerlab"]["topology_relpath"],
+            "lab.clab.yml",
+        )
+        self.assertFalse(report["images_included"])
+
+    def test_rejects_containerlab_topology_checksum_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "containerlab.tar.gz"
+            _write_containerlab_archive(archive)
+            with tarfile.open(archive, mode="r:gz") as source:
+                manifest_member = source.getmember(
+                    "containerlab-migration/hybridops-recovery-manifest.json"
+                )
+                manifest = json.loads(source.extractfile(manifest_member).read())
+            manifest["topology_sha256"] = "a" * 64
+            _write_tar(
+                archive,
+                {
+                    "containerlab-migration/lab-source/lab.clab.yml": b"name: test\n",
+                    "containerlab-migration/hybridops-recovery-manifest.json": (
+                        json.dumps(manifest).encode()
+                    ),
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "checksum does not match"):
+                inspect_migration_archive(
+                    platform="containerlab",
+                    archive=archive,
+                )
+
     def test_expected_checksum_is_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             archive = Path(tmp) / "eve.tar.gz"
@@ -487,6 +583,107 @@ class LabMigrationStagingTest(TestCase):
     def test_gns3_payload_helper_is_valid(self) -> None:
         self.assertEqual(_gns3_payload()["blueprint_ref"], "gcp/gns3@v1")
 
+    def test_stages_containerlab_as_latest_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = RuntimePaths.from_root(Path(tmp) / "runtime")
+            ensure_layout(paths)
+            archive = Path(tmp) / "containerlab.tar.gz"
+            _write_containerlab_archive(archive)
+
+            record = stage_migration_archive(
+                paths=paths,
+                payload=_containerlab_payload(),
+                platform="containerlab",
+                archive=archive,
+            )
+
+            latest = paths.root / "artifacts/containerlab/recovery/latest.tar.gz"
+            self.assertTrue(latest.is_symlink())
+            self.assertTrue(latest.resolve().is_file())
+            self.assertEqual(
+                latest.resolve(),
+                Path(record["archive"]["path"]).resolve(),
+            )
+            self.assertEqual(
+                latest.with_name(latest.name + ".sha256").read_text().strip(),
+                record["archive"]["sha256"],
+            )
+            metadata = json.loads(latest.with_name(latest.name + ".json").read_text())
+            self.assertEqual(
+                metadata["topology_sha256"],
+                record["containerlab"]["topology_sha256"],
+            )
+
+    def test_containerlab_latest_recovery_replacement_requires_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = RuntimePaths.from_root(Path(tmp) / "runtime")
+            ensure_layout(paths)
+            recovery = paths.root / "artifacts/containerlab/recovery"
+            recovery.mkdir(parents=True)
+            latest = recovery / "latest.tar.gz"
+            latest.write_bytes(b"old archive")
+            latest.with_name(latest.name + ".sha256").write_text(
+                "a" * 64 + "\n",
+                encoding="utf-8",
+            )
+            latest.with_name(latest.name + ".json").write_text(
+                "{}\n",
+                encoding="utf-8",
+            )
+            archive = Path(tmp) / "containerlab.tar.gz"
+            _write_containerlab_archive(archive)
+
+            with self.assertRaisesRegex(ValueError, "latest recovery set"):
+                stage_migration_archive(
+                    paths=paths,
+                    payload=_containerlab_payload(),
+                    platform="containerlab",
+                    archive=archive,
+                )
+
+    def test_containerlab_import_requires_matching_topology_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = RuntimePaths.from_root(Path(tmp) / "runtime")
+            ensure_layout(paths)
+            archive = Path(tmp) / "containerlab.tar.gz"
+            _write_containerlab_archive(archive)
+            payload = _containerlab_payload()
+            payload["steps"][0]["inputs"]["containerlab_lab_topology_relpath"] = (
+                "other.clab.yml"
+            )
+
+            with self.assertRaisesRegex(ValueError, "topology path does not match"):
+                stage_migration_archive(
+                    paths=paths,
+                    payload=payload,
+                    platform="containerlab",
+                    archive=archive,
+                )
+
+    def test_containerlab_import_requires_matching_labdir_base(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = RuntimePaths.from_root(Path(tmp) / "runtime")
+            ensure_layout(paths)
+            archive = Path(tmp) / "containerlab.tar.gz"
+            _write_containerlab_archive(archive)
+            payload = _containerlab_payload()
+            payload["steps"][0]["inputs"]["containerlab_lab_labdir_base"] = (
+                "/var/lib/containerlab"
+            )
+
+            with self.assertRaisesRegex(ValueError, "labdir base does not match"):
+                stage_migration_archive(
+                    paths=paths,
+                    payload=payload,
+                    platform="containerlab",
+                    archive=archive,
+                )
+
+    def test_containerlab_blueprint_platform_is_detected_from_lab_step(self) -> None:
+        self.assertEqual(
+            platform_for_blueprint(_containerlab_payload()), "containerlab"
+        )
+
     def test_import_rejects_insufficient_controller_disk_space(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = RuntimePaths.from_root(Path(tmp) / "runtime")
@@ -531,6 +728,144 @@ class LabMigrationCaptureTest(TestCase):
         self.assertIn("primary_bytes=", script)
         self.assertIn("node_state_bytes=", script)
         self.assertNotIn("tar --", script)
+
+    def test_containerlab_assessment_uses_declared_source(self) -> None:
+        script = _remote_capture_assessment_script(
+            "containerlab",
+            source_root="/srv/labs/demo",
+            topology_relpath="lab.clab.yml",
+            source_labdir_base="",
+            target_labdir_base="/var/lib/hybridops/containerlab/labdirs",
+        )
+
+        self.assertIn("/srv/labs/demo", script)
+        self.assertIn("primary_bytes=", script)
+        self.assertNotIn("tar --", script)
+
+    def test_containerlab_capture_requires_a_source_root(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires --source-root"):
+            capture_existing_lab(
+                platform="containerlab",
+                host="containerlab.example.test",
+                output="containerlab.tar.gz",
+            )
+
+    def test_containerlab_capture_rejects_image_export(self) -> None:
+        with self.assertRaisesRegex(ValueError, "image references"):
+            capture_existing_lab(
+                platform="containerlab",
+                host="containerlab.example.test",
+                output="containerlab.tar.gz",
+                source_root="/srv/labs/demo",
+                include_images=True,
+            )
+
+    def test_remote_containerlab_capture_builds_recovery_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "lab.clab.yml").write_text(
+                "name: test\ntopology:\n  nodes:\n    r1:\n"
+                "      kind: linux\n      image: alpine:3.20\n",
+                encoding="utf-8",
+            )
+            runtime = source / "clab-test"
+            runtime.mkdir()
+            (runtime / "transient").write_text("runtime", encoding="utf-8")
+
+            capture = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _CONTAINERLAB_CAPTURE_PROGRAM,
+                    "capture",
+                    str(source),
+                    "lab.clab.yml",
+                    "",
+                    "/var/lib/hybridops/containerlab/labdirs",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(capture.returncode, 0, capture.stderr.decode())
+            archive = Path(tmp) / "containerlab.tar.gz"
+            archive.write_bytes(capture.stdout)
+            report = inspect_migration_archive(
+                platform="containerlab",
+                archive=archive,
+            )
+            with tarfile.open(archive, mode="r:gz") as handle:
+                names = handle.getnames()
+
+        self.assertEqual(report["image_references"], ["alpine:3.20"])
+        self.assertFalse(any("clab-test" in name for name in names))
+
+    def test_remote_containerlab_capture_merges_native_saved_configs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            existing_configs = source / "startup-configs"
+            existing_configs.mkdir(parents=True)
+            (existing_configs / "existing.cfg").write_text(
+                "existing\n",
+                encoding="utf-8",
+            )
+            (source / "lab.clab.yml").write_text(
+                "name: test\ntopology:\n  nodes:\n    r1:\n"
+                "      kind: linux\n      image: alpine:3.20\n",
+                encoding="utf-8",
+            )
+            executable = root / "containerlab"
+            executable.write_text(
+                "#!/bin/sh\n"
+                'case "$1" in\n'
+                "  save)\n"
+                '    [ "$CLAB_LABDIR_BASE" = '
+                '"/srv/containerlab/runtime" ] || exit 9\n'
+                "    for destination do :; done\n"
+                '    mkdir -p "$destination"\n'
+                '    printf "saved\\n" >"$destination/saved.cfg"\n'
+                "    ;;\n"
+                '  version) printf \'{"version":"0.78.0"}\\n\' ;;\n'
+                "  inspect) printf '[]\\n' ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = f"{root}:{environment.get('PATH', '')}"
+
+            capture = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _CONTAINERLAB_CAPTURE_PROGRAM,
+                    "capture",
+                    str(source),
+                    "lab.clab.yml",
+                    "/srv/containerlab/runtime",
+                    "/var/lib/hybridops/containerlab/labdirs",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env=environment,
+            )
+            self.assertEqual(capture.returncode, 0, capture.stderr.decode())
+            archive = Path(tmp) / "containerlab.tar.gz"
+            archive.write_bytes(capture.stdout)
+            with tarfile.open(archive, mode="r:gz") as handle:
+                names = set(handle.getnames())
+
+        self.assertIn(
+            "containerlab-migration/lab-source/startup-configs/existing.cfg",
+            names,
+        )
+        self.assertIn(
+            "containerlab-migration/lab-source/startup-configs/saved.cfg",
+            names,
+        )
 
     def test_parses_capture_assessment(self) -> None:
         with patch(

@@ -26,5 +26,6 @@ Container images remain native references in the topology. The blueprint can ver
 ## Documentation
 
 - [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-containerlab/)
+- [Existing lab migration](../../../README.md#existing-lab-migration)
 - [Lifecycle and ownership](ARCHITECTURE.md)
 - [Acceptance record](VALIDATION.md)

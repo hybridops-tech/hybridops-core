@@ -119,6 +119,10 @@ On fresh compute, HybridOps:
 8. performs one native Containerlab deployment
 9. runs the independent health check
 
+A verified existing-lab migration import publishes the same latest pointer,
+checksum and metadata contract. The rebuild path therefore restores an
+imported source tree without a separate deployment mode.
+
 ## Recovery modes
 
 `rebuild` keeps the source tree and native configuration-save output produced by the topology. Automatic configuration reuse follows the topology's existing startup-config references.
