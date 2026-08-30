@@ -160,7 +160,8 @@ hyops lab migrate capture \
   --host <existing-host> \
   --user <ssh-user> \
   --output ./eve-ng-labs.tar.gz \
-  --include-node-state
+  --include-node-state \
+  --include-images
 ```
 
 OpenSSH uses its configured agent or keys and prompts for the account password
@@ -169,7 +170,10 @@ password. Capture assesses all requested streams before transferring data.
 
 Capture refuses to proceed while EVE-NG QEMU nodes or the GNS3 server are
 running. Use `--become` when the SSH account has passwordless sudo access.
-GNS3 images remain separate unless `--include-images` is selected.
+For EVE-NG, `--include-images` creates a separate archive containing only the
+base images referenced by the captured labs. For GNS3, it includes the image
+library in the primary archive. Capture uses `pigz -1` when available and
+otherwise uses `gzip -1`. Sparse virtual disks remain sparse in the archive.
 
 Inspect an archive first:
 
@@ -177,7 +181,8 @@ Inspect an archive first:
 hyops lab migrate inspect \
   --platform eve-ng \
   --archive ./eve-ng-labs.tar.gz \
-  --node-state ./eve-ng-labs.node-state.tar.gz
+  --node-state ./eve-ng-labs.node-state.tar.gz \
+  --images ./eve-ng-labs.images.tar.gz
 ```
 
 Stage the verified bundle for an initialized environment:
@@ -188,7 +193,8 @@ hyops lab migrate import \
   --ref gcp/eve-ng@v1 \
   --platform eve-ng \
   --archive ./eve-ng-labs.tar.gz \
-  --node-state ./eve-ng-labs.node-state.tar.gz
+  --node-state ./eve-ng-labs.node-state.tar.gz \
+  --images ./eve-ng-labs.images.tar.gz
 
 hyops blueprint deploy \
   --env <env> \
@@ -199,10 +205,10 @@ hyops blueprint deploy \
 
 The EVE-NG primary archive must be relative to `/opt/unetlab/labs`. Its
 optional node-state companion contains stopped QEMU overlays using the EVE-NG
-tenant, lab and node path layout. A GNS3 archive must be relative to its data
-root and contain `projects/` state. Base images and licence material remain
-separately managed. Use `--expected-sha256` and
-`--node-state-expected-sha256` when checksums were recorded at the source.
+tenant, lab and node path layout. Its optional image companion contains only
+referenced QEMU, IOL or Dynamips bases. Licence material is never included. A
+GNS3 archive must be relative to its data root and contain `projects/` state.
+Use the matching checksum options when checksums were recorded at the source.
 Capture and import retain 64 MiB free on the controller filesystem. Restore
 checks the target filesystem before existing lab data is replaced.
 

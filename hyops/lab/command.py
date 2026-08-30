@@ -34,6 +34,11 @@ def _add_archive_args(parser: argparse.ArgumentParser) -> None:
         help="Optional EVE-NG QEMU node-state companion archive.",
     )
     parser.add_argument(
+        "--images",
+        default="",
+        help="Optional EVE-NG referenced-image companion archive.",
+    )
+    parser.add_argument(
         "--expected-sha256",
         default="",
         help="Expected SHA-256 for the primary archive.",
@@ -42,6 +47,11 @@ def _add_archive_args(parser: argparse.ArgumentParser) -> None:
         "--node-state-expected-sha256",
         default="",
         help="Expected SHA-256 for the node-state archive.",
+    )
+    parser.add_argument(
+        "--images-expected-sha256",
+        default="",
+        help="Expected SHA-256 for the image archive.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
 
@@ -95,7 +105,15 @@ def add_lab_subparser(sp: argparse._SubParsersAction) -> None:
     capture_parser.add_argument(
         "--include-images",
         action="store_true",
-        help="Include the GNS3 image library.",
+        help=(
+            "Capture referenced EVE-NG base images as a companion archive, "
+            "or include the GNS3 image library."
+        ),
+    )
+    capture_parser.add_argument(
+        "--images-output",
+        default="",
+        help="Optional EVE-NG referenced-image output path.",
     )
     capture_parser.add_argument("--force", action="store_true", help="Replace outputs.")
     capture_parser.add_argument("--json", action="store_true", help="Emit JSON output.")
@@ -146,6 +164,13 @@ def _print_inspection(report: dict[str, Any]) -> None:
         print(f"node_state=present overlays={node_state['overlay_count']}")
     else:
         print("node_state=absent")
+    images = report.get("images")
+    if isinstance(images, dict):
+        print(f"images=present referenced={images['image_count']}")
+    elif report.get("images_included"):
+        print("images=included")
+    else:
+        print("images=absent")
     for warning in report.get("warnings") or []:
         print(f"WARN: {warning}")
 
@@ -163,6 +188,7 @@ def run_capture(ns) -> int:
             include_node_state=ns.include_node_state,
             node_state_output=ns.node_state_output or None,
             include_images=ns.include_images,
+            images_output=ns.images_output or None,
             force=ns.force,
         )
     except (OSError, ValueError) as exc:
@@ -181,8 +207,10 @@ def run_inspect(ns) -> int:
             platform=ns.platform,
             archive=ns.archive,
             node_state=ns.node_state or None,
+            images=ns.images or None,
             expected_sha256=ns.expected_sha256,
             node_state_expected_sha256=ns.node_state_expected_sha256,
+            images_expected_sha256=ns.images_expected_sha256,
         )
     except (OSError, ValueError) as exc:
         print(f"ERR: lab migration inspection failed: {exc}")
@@ -221,8 +249,10 @@ def run_import(ns) -> int:
             platform=ns.platform,
             archive=ns.archive,
             node_state=ns.node_state or None,
+            images=ns.images or None,
             expected_sha256=ns.expected_sha256,
             node_state_expected_sha256=ns.node_state_expected_sha256,
+            images_expected_sha256=ns.images_expected_sha256,
             force=ns.force,
         )
     except (OSError, ValueError) as exc:

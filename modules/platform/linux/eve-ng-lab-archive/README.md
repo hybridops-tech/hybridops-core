@@ -48,4 +48,16 @@ eveng_lab_archive_node_state_expected_sha256: <sha256>
 
 Existing lab content and runtime disks remain protected unless overwrite is explicitly enabled.
 
+A staged migration can also supply a checksummed image companion. The runtime
+restores those referenced bases before lab definitions and QEMU overlays:
+
+```yaml
+eveng_lab_archive_restore_images: true
+eveng_lab_archive_images_path: <verified-image-archive>
+eveng_lab_archive_images_expected_sha256: <sha256>
+```
+
+Image companions contain referenced QEMU, IOL or Dynamips bases only. They do
+not contain IOL licence material.
+
 EVE-NG blueprints use this contract as their archive-before-release path. A later deployment with `--restore-labs` selects and verifies the retained environment archive before restoration.

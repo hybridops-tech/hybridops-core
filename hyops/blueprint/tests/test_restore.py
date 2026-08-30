@@ -116,7 +116,10 @@ class BlueprintLabRestoreTest(TestCase):
                 )
 
         self.assertEqual(mode, "restore")
-        self.assertEqual(selected, (archive.resolve(), checksum, None, ""))
+        self.assertEqual(
+            selected,
+            (archive.resolve(), checksum, None, "", None, ""),
+        )
 
     def test_explicit_restore_requires_an_archive(self):
         paths = SimpleNamespace(state_dir=Path("/tmp/state"))
@@ -134,7 +137,14 @@ class BlueprintLabRestoreTest(TestCase):
             )
 
     def test_explicit_restore_accepts_staged_migration_archive(self):
-        imported = (Path("/tmp/imported.tar.gz"), "d" * 64, None, "")
+        imported = (
+            Path("/tmp/imported.tar.gz"),
+            "d" * 64,
+            None,
+            "",
+            None,
+            "",
+        )
         paths = SimpleNamespace(state_dir=Path("/tmp/state"))
         with patch(
             "hyops.blueprint.command.read_module_state",
@@ -174,7 +184,14 @@ class BlueprintLabRestoreTest(TestCase):
                 )
 
     def test_restore_reuses_target_contract_and_protects_existing_labs(self):
-        archive = (Path("/tmp/labs.tar.gz"), "b" * 64, None, "")
+        archive = (
+            Path("/tmp/labs.tar.gz"),
+            "b" * 64,
+            None,
+            "",
+            None,
+            "",
+        )
         with patch(
             "hyops.blueprint.command.run_step_module_command",
             return_value=0,
@@ -206,7 +223,14 @@ class BlueprintLabRestoreTest(TestCase):
         self.assertFalse(step["inputs"]["eveng_lab_archive_stop_running_nodes"])
 
     def test_restore_hides_nested_progress_and_elapsed_time(self):
-        archive = (Path("/tmp/labs.tar.gz"), "b" * 64, None, "")
+        archive = (
+            Path("/tmp/labs.tar.gz"),
+            "b" * 64,
+            None,
+            "",
+            None,
+            "",
+        )
 
         def run_restore(*_args):
             self.assertEqual(os.environ.get("HYOPS_PROGRESS_CHILD"), "1")
@@ -239,6 +263,8 @@ class BlueprintLabRestoreTest(TestCase):
             "b" * 64,
             Path("/tmp/labs.tar.gz.node-state.tar.gz"),
             "c" * 64,
+            None,
+            "",
         )
         with patch(
             "hyops.blueprint.command.run_step_module_command",
@@ -299,7 +325,41 @@ class BlueprintLabRestoreTest(TestCase):
                 checksum,
                 node_archive.resolve(),
                 node_checksum,
+                None,
+                "",
             ),
+        )
+
+    def test_restore_includes_verified_referenced_images(self):
+        archive = (
+            Path("/tmp/labs.tar.gz"),
+            "b" * 64,
+            None,
+            "",
+            Path("/tmp/labs.images.tar.gz"),
+            "e" * 64,
+        )
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=0,
+        ) as command:
+            rc = _run_lab_restore(
+                _namespace(restore_labs=True),
+                _payload(),
+                SimpleNamespace(),
+                archive,
+            )
+
+        self.assertEqual(rc, 0)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertTrue(inputs["eveng_lab_archive_restore_images"])
+        self.assertEqual(
+            inputs["eveng_lab_archive_images_path"],
+            "/tmp/labs.images.tar.gz",
+        )
+        self.assertEqual(
+            inputs["eveng_lab_archive_images_expected_sha256"],
+            "e" * 64,
         )
 
     def test_gns3_restore_uses_declared_archive_contract(self):
@@ -316,7 +376,14 @@ class BlueprintLabRestoreTest(TestCase):
                 },
             }
         }
-        archive = (Path("/tmp/gns3-labs.tar.gz"), "d" * 64, None, "")
+        archive = (
+            Path("/tmp/gns3-labs.tar.gz"),
+            "d" * 64,
+            None,
+            "",
+            None,
+            "",
+        )
         with patch(
             "hyops.blueprint.command.run_step_module_command",
             return_value=0,

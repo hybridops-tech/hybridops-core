@@ -11,6 +11,13 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   selected blueprint reference and restored through the existing lifecycle.
 - Added capacity gates for lab capture, migration import and target restore so
   insufficient disk space is reported before existing lab data is replaced.
+- Added optional, checksummed migration of EVE-NG base images referenced by
+  captured lab definitions. Licence material remains outside the archive.
+
+### Changed
+
+- Preferred sparse-aware, parallel level-one compression for remote lab capture
+  when `pigz` is available, with `gzip -1` as the portable fallback.
 
 ### Fixed
 

@@ -3867,7 +3867,7 @@ def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
 def _verified_lab_archive(
     payload: dict[str, Any],
     paths,
-) -> tuple[Path, str, Path | None, str] | None:
+) -> tuple[Path, str, Path | None, str, Path | None, str] | None:
     lifecycle = payload.get("archive_before_destroy")
     if not isinstance(lifecycle, dict) or not lifecycle:
         return None
@@ -3913,7 +3913,7 @@ def _verified_lab_archive(
         )
         node_state_metadata_present = bool(candidate_value or candidate_checksum)
         if not (node_state_declared or node_state_metadata_present):
-            return archive_path.resolve(), expected, None, ""
+            return archive_path.resolve(), expected, None, "", None, ""
         candidate = Path(candidate_value).expanduser()
         if not candidate.is_file() or not re.fullmatch(
             r"[0-9a-f]{64}", candidate_checksum
@@ -3929,7 +3929,7 @@ def _verified_lab_archive(
             )
         node_archive = candidate.resolve()
         node_checksum = candidate_checksum
-    return archive_path.resolve(), expected, node_archive, node_checksum
+    return archive_path.resolve(), expected, node_archive, node_checksum, None, ""
 
 
 def _automatic_lab_restore_eligible(payload: dict[str, Any], paths) -> bool:
@@ -3952,7 +3952,10 @@ def _select_lab_restore_mode(
     paths,
     *,
     automatic_restore_eligible: bool = True,
-) -> tuple[str, tuple[Path, str, Path | None, str] | None]:
+) -> tuple[
+    str,
+    tuple[Path, str, Path | None, str, Path | None, str] | None,
+]:
     lifecycle = payload.get("archive_before_destroy")
     requested = bool(getattr(ns, "restore_labs", False))
     skipped = bool(getattr(ns, "skip_lab_restore", False))
@@ -3982,6 +3985,8 @@ def _select_lab_restore_mode(
     print(f"lab archive available: {archive[0]}")
     if archive[2] is not None:
         print(f"stopped node state available: {archive[2]}")
+    if archive[4] is not None:
+        print(f"referenced base images available: {archive[4]}")
     confirmed = _prompt_yes_no("Restore archived labs? [y/N]: ")
     if confirmed is None:
         return "skip", archive
@@ -3992,12 +3997,19 @@ def _run_lab_restore(
     ns,
     payload: dict[str, Any],
     paths,
-    archive: tuple[Path, str, Path | None, str],
+    archive: tuple[Path, str, Path | None, str, Path | None, str],
 ) -> int:
     lifecycle = payload["archive_before_destroy"]
     contract = _lab_archive_contract(lifecycle)
     prefix = contract["prefix"]
-    archive_path, checksum, node_archive_path, node_checksum = archive
+    (
+        archive_path,
+        checksum,
+        node_archive_path,
+        node_checksum,
+        image_archive_path,
+        image_checksum,
+    ) = archive
     restore_inputs = dict(lifecycle.get("inputs") or {})
     restore_inputs.update(
         {
@@ -4024,6 +4036,14 @@ def _run_lab_restore(
                 f"{prefix}_restore_node_state": True,
                 f"{prefix}_node_state_path": str(node_archive_path),
                 f"{prefix}_node_state_expected_sha256": node_checksum,
+            }
+        )
+    if image_archive_path is not None:
+        restore_inputs.update(
+            {
+                f"{prefix}_restore_images": True,
+                f"{prefix}_images_path": str(image_archive_path),
+                f"{prefix}_images_expected_sha256": image_checksum,
             }
         )
     restore_step = {

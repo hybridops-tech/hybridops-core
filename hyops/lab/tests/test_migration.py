@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -12,6 +13,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from hyops.lab.migration import (
+    _EVE_IMAGE_CAPTURE_PROGRAM,
     _capture_requirements,
     _capture_stream,
     _format_bytes,
@@ -155,6 +157,54 @@ class LabMigrationInspectionTest(TestCase):
                     node_state=node_state,
                 )
 
+    def test_inspects_referenced_eve_image_companion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "eve.tar.gz"
+            images = Path(tmp) / "images.tar.gz"
+            _write_tar(
+                archive,
+                {
+                    "0/network.unl": (
+                        b'<lab><node type="qemu" image="vios-159" /></lab>'
+                    )
+                },
+            )
+            _write_tar(
+                images,
+                {"qemu/vios-159/virtioa.qcow2": b"base image"},
+            )
+
+            report = inspect_migration_archive(
+                platform="eve-ng",
+                archive=archive,
+                images=images,
+            )
+
+        self.assertTrue(report["images_included"])
+        self.assertEqual(report["images"]["image_count"], 1)
+        self.assertEqual(report["warnings"], ["writable QEMU node state is not included"])
+
+    def test_rejects_incomplete_eve_image_companion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "eve.tar.gz"
+            images = Path(tmp) / "images.tar.gz"
+            _write_tar(
+                archive,
+                {
+                    "0/network.unl": (
+                        b'<lab><node type="qemu" image="vios-159" /></lab>'
+                    )
+                },
+            )
+            _write_tar(images, {"qemu/other/virtioa.qcow2": b"base image"})
+
+            with self.assertRaisesRegex(ValueError, "missing a referenced base"):
+                inspect_migration_archive(
+                    platform="eve-ng",
+                    archive=archive,
+                    images=images,
+                )
+
     def test_inspects_gns3_projects_and_image_references(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             archive = Path(tmp) / "gns3.tar.gz"
@@ -198,8 +248,17 @@ class LabMigrationStagingTest(TestCase):
             ensure_layout(paths)
             archive = Path(tmp) / "eve.tar.gz"
             node_state = Path(tmp) / "nodes.tar.gz"
-            _write_tar(archive, {"0/network.unl": b"<lab />"})
+            images = Path(tmp) / "images.tar.gz"
+            _write_tar(
+                archive,
+                {
+                    "0/network.unl": (
+                        b'<lab><node type="qemu" image="vios-159" /></lab>'
+                    )
+                },
+            )
             _write_tar(node_state, {"0/network/1/virtioa.qcow2": b"overlay"})
+            _write_tar(images, {"qemu/vios-159/virtioa.qcow2": b"base"})
 
             record = stage_migration_archive(
                 paths=paths,
@@ -207,17 +266,30 @@ class LabMigrationStagingTest(TestCase):
                 platform="eve-ng",
                 archive=archive,
                 node_state=node_state,
+                images=images,
             )
             loaded = load_migration_archive(paths=paths, payload=_eve_payload())
 
             self.assertIsNotNone(loaded)
-            primary, checksum, node_path, node_checksum = loaded
+            (
+                primary,
+                checksum,
+                node_path,
+                node_checksum,
+                image_path,
+                image_checksum,
+            ) = loaded
             self.assertTrue(primary.is_file())
             self.assertTrue(node_path.is_file())
             self.assertEqual(checksum, hashlib.sha256(archive.read_bytes()).hexdigest())
             self.assertEqual(
                 node_checksum,
                 hashlib.sha256(node_state.read_bytes()).hexdigest(),
+            )
+            self.assertTrue(image_path.is_file())
+            self.assertEqual(
+                image_checksum,
+                hashlib.sha256(images.read_bytes()).hexdigest(),
             )
             self.assertEqual(record["status"], "verified")
             self.assertTrue(
@@ -399,7 +471,7 @@ class LabMigrationCaptureTest(TestCase):
             return_value=subprocess.CompletedProcess(
                 ["ssh"],
                 0,
-                b"primary_bytes=4096\nnode_state_bytes=8192\n",
+                b"primary_bytes=4096\nnode_state_bytes=8192\nimage_bytes=16384\n",
                 b"",
             ),
         ):
@@ -407,7 +479,11 @@ class LabMigrationCaptureTest(TestCase):
 
         self.assertEqual(
             requirements,
-            {"primary_bytes": 4096, "node_state_bytes": 8192},
+            {
+                "primary_bytes": 4096,
+                "node_state_bytes": 8192,
+                "image_bytes": 16384,
+            },
         )
 
     def test_rejects_invalid_capture_assessment(self) -> None:
@@ -451,6 +527,7 @@ class LabMigrationCaptureTest(TestCase):
             return_value={
                 "primary_bytes": len(primary),
                 "node_state_bytes": len(nodes),
+                "image_bytes": 0,
             },
         ), patch(
             "hyops.lab.migration._close_ssh_control",
@@ -571,6 +648,51 @@ class LabMigrationCaptureTest(TestCase):
             self.assertFalse(output.exists())
             self.assertEqual(list(Path(tmp).glob("*.candidate")), [])
 
+    def test_captures_referenced_eve_images_as_a_companion(self) -> None:
+        primary = _tar_bytes(
+            {
+                "0/network.unl": (
+                    b'<lab><node type="qemu" image="vios-159" /></lab>'
+                )
+            }
+        )
+        images = _tar_bytes(
+            {"qemu/vios-159/virtioa.qcow2": b"base image"}
+        )
+        streams = iter((primary, images))
+
+        def run_capture(argv, *, stdout, stderr, check):
+            stdout.write(next(streams))
+            return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "hyops.lab.migration._capture_requirements",
+            return_value={
+                "primary_bytes": len(primary),
+                "node_state_bytes": 0,
+                "image_bytes": len(images),
+            },
+        ), patch(
+            "hyops.lab.migration._close_ssh_control",
+        ), patch(
+            "hyops.lab.migration.subprocess.run",
+            side_effect=run_capture,
+        ) as run:
+            output = Path(tmp) / "eve.tar.gz"
+            report = capture_existing_lab(
+                platform="eve-ng",
+                host="eve.example.test",
+                output=output,
+                include_images=True,
+            )
+
+            image_output = Path(report["images"]["path"])
+            self.assertTrue(output.is_file())
+            self.assertTrue(image_output.is_file())
+            self.assertEqual(image_output.name, "eve.images.tar.gz")
+            self.assertEqual(report["images"]["image_count"], 1)
+            self.assertEqual(run.call_count, 2)
+
     def test_gns3_image_capture_is_explicit(self) -> None:
         primary = _tar_bytes({"projects/lab/project.gns3": b"{}"})
 
@@ -583,7 +705,11 @@ class LabMigrationCaptureTest(TestCase):
 
         with tempfile.TemporaryDirectory() as tmp, patch(
             "hyops.lab.migration._capture_requirements",
-            return_value={"primary_bytes": len(primary), "node_state_bytes": 0},
+            return_value={
+                "primary_bytes": len(primary),
+                "node_state_bytes": 0,
+                "image_bytes": 0,
+            },
         ), patch(
             "hyops.lab.migration._close_ssh_control",
         ), patch(
@@ -605,7 +731,11 @@ class LabMigrationCaptureTest(TestCase):
             return_value=SimpleNamespace(free=1),
         ), patch(
             "hyops.lab.migration._capture_requirements",
-            return_value={"primary_bytes": 1048576, "node_state_bytes": 0},
+            return_value={
+                "primary_bytes": 1048576,
+                "node_state_bytes": 0,
+                "image_bytes": 0,
+            },
         ), patch(
             "hyops.lab.migration._close_ssh_control",
         ), patch(
@@ -624,3 +754,84 @@ class LabMigrationCaptureTest(TestCase):
 
             self.assertFalse(output.exists())
             capture_stream.assert_not_called()
+
+    def test_remote_eve_image_capture_selects_only_referenced_bases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            labs = root / "labs"
+            addons = root / "addons"
+            labs.mkdir()
+            (labs / "network.unl").write_text(
+                '<lab><node type="qemu" image="vios-159" /></lab>',
+                encoding="utf-8",
+            )
+            selected = addons / "qemu/vios-159"
+            selected.mkdir(parents=True)
+            (selected / "virtioa.qcow2").write_bytes(b"selected")
+            unused = addons / "qemu/unused"
+            unused.mkdir(parents=True)
+            (unused / "virtioa.qcow2").write_bytes(b"unused")
+
+            assessment = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _EVE_IMAGE_CAPTURE_PROGRAM,
+                    "assess",
+                    str(labs),
+                    str(addons),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            capture = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _EVE_IMAGE_CAPTURE_PROGRAM,
+                    "capture",
+                    str(labs),
+                    str(addons),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(assessment.returncode, 0, assessment.stderr.decode())
+            self.assertGreater(int(assessment.stdout), 0)
+            self.assertEqual(capture.returncode, 0, capture.stderr.decode())
+            with tarfile.open(fileobj=io.BytesIO(capture.stdout), mode="r:gz") as handle:
+                members = handle.getnames()
+
+        self.assertIn("qemu/vios-159/virtioa.qcow2", members)
+        self.assertNotIn("qemu/unused/virtioa.qcow2", members)
+
+    def test_remote_eve_image_capture_rejects_symlinked_lab_definition(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            labs = root / "labs"
+            addons = root / "addons"
+            labs.mkdir()
+            addons.mkdir()
+            definition = root / "network.unl"
+            definition.write_text("<lab />", encoding="utf-8")
+            (labs / "network.unl").symlink_to(definition)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _EVE_IMAGE_CAPTURE_PROGRAM,
+                    "assess",
+                    str(labs),
+                    str(addons),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"must not be a symbolic link", result.stderr)
