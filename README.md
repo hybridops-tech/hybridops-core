@@ -91,11 +91,21 @@ Run records are written under stable paths such as:
 - Python >= 3.11
 - Module-specific execution dependencies are documented with the relevant module and runbook
 
-## Research and external review
+## Research and external review.
 
 HybridOps Core is the public reference implementation for ongoing work in platform engineering and infrastructure automation.
 
 See [Research and External Review](RESEARCH.md) for published papers, implementation maps, and external technical reviews.
+
+## Repository Structure
+
+To help you navigate the codebase, here is a breakdown of the core directories:
+
+- [**`blueprints/`**](blueprints/): Contains the high-level lifecycle definitions and governance contracts.
+- [**`packs/`**](packs/): Reusable implementation assets and versioned code logic.
+- [**`src/`**](src/): The core Python source code for the HybridOps platform.
+- [**`tests/`**](tests/): Automated test suites ensuring platform stability.
+- [**`.github/`**](.github/): CI/CD workflows and repository templates
 
 ## Documentation
 
