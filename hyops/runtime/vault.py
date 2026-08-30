@@ -11,11 +11,15 @@ from pathlib import Path
 from typing import Mapping
 
 import os
+import re
 import shlex
 import subprocess
 import tempfile
 
 from hyops.runtime.proc import run as run_proc
+
+
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _ansible_vault_env() -> dict[str, str]:
@@ -226,6 +230,18 @@ class VaultAuth:
                 pass
             raise
 
+    def owns_password_file(self, path: Path | None) -> bool:
+        """Return whether ``path`` was materialized from a password command."""
+        if path is None:
+            return False
+        password_file = (
+            self.password_file
+            or os.environ.get("HYOPS_VAULT_PASSWORD_FILE")
+            or os.environ.get("ANSIBLE_VAULT_PASSWORD_FILE")
+            or ""
+        ).strip()
+        return not password_file and path.name.startswith("hyops.vaultpass.")
+
 
 def _parse_env(text: str) -> dict[str, str]:
     def _unescape_env_value(value: str) -> str:
@@ -254,8 +270,23 @@ def _parse_env(text: str) -> dict[str, str]:
             idx += 2
         return "".join(out)
 
+    def _quoted_value_complete(value: str, quote: str) -> bool:
+        stripped = value.rstrip()
+        if not stripped or stripped[-1] != quote:
+            return False
+        slash_count = 0
+        index = len(stripped) - 2
+        while index >= 0 and stripped[index] == "\\":
+            slash_count += 1
+            index -= 1
+        return slash_count % 2 == 0
+
     out: dict[str, str] = {}
-    for raw in (text or "").splitlines():
+    lines = (text or "").splitlines()
+    index = 0
+    while index < len(lines):
+        raw = lines[index]
+        index += 1
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -264,11 +295,17 @@ def _parse_env(text: str) -> dict[str, str]:
         k, v = line.split("=", 1)
         k = k.strip()
         v = v.strip()
-        if not k:
+        if not _ENV_KEY_RE.fullmatch(k):
             continue
-        # remove surrounding quotes if present
-        if len(v) >= 2 and ((v[0] == v[-1] == '"') or (v[0] == v[-1] == "'")):
-            v = v[1:-1]
+        if v.startswith(('"', "'")):
+            quote = v[0]
+            collected = v[1:]
+            while not _quoted_value_complete(collected, quote):
+                if index >= len(lines):
+                    raise ValueError(f"unterminated quoted value for {k}")
+                collected += "\n" + lines[index]
+                index += 1
+            v = collected.rstrip()[:-1]
         v = _unescape_env_value(v)
         out[k] = v
     return out
@@ -320,7 +357,7 @@ def read_env(vault_file: Path, auth: VaultAuth) -> dict[str, str]:
             raise RuntimeError(f"ansible-vault view failed{suffix}")
         return _parse_env(r.stdout)
     finally:
-        if auth.password_command and pwf and str(pwf).startswith("/tmp/"):
+        if auth.owns_password_file(pwf):
             try:
                 pwf.unlink()
             except FileNotFoundError:
@@ -359,7 +396,7 @@ def write_env(vault_file: Path, auth: VaultAuth, env: Mapping[str, str]) -> None
             tmp_plain_path.unlink()
         except FileNotFoundError:
             pass
-        if auth.password_command and pwf and str(pwf).startswith("/tmp/"):
+        if auth.owns_password_file(pwf):
             try:
                 pwf.unlink()
             except FileNotFoundError:
