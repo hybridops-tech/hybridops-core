@@ -71,7 +71,10 @@ def add_lab_subparser(sp: argparse._SubParsersAction) -> None:
     capture_parser.add_argument(
         "--identity-file",
         default="",
-        help="SSH private key path.",
+        help=(
+            "Optional SSH private key path. Without it, OpenSSH uses its "
+            "configured identities and may prompt for a password."
+        ),
     )
     capture_parser.add_argument("--output", required=True, help="Local archive path.")
     capture_parser.add_argument(

@@ -163,6 +163,10 @@ hyops lab migrate capture \
   --include-node-state
 ```
 
+OpenSSH uses its configured agent or keys and prompts for the account password
+in an interactive terminal when required. HybridOps does not store that
+password. Capture assesses all requested streams before transferring data.
+
 Capture refuses to proceed while EVE-NG QEMU nodes or the GNS3 server are
 running. Use `--become` when the SSH account has passwordless sudo access.
 GNS3 images remain separate unless `--include-images` is selected.

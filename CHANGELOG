@@ -12,6 +12,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 - Added capacity gates for lab capture, migration import and target restore so
   insufficient disk space is reported before existing lab data is replaced.
 
+### Fixed
+
+- Assessed all requested migration streams through one SSH session before
+  transferring archives.
+
 ## [v0.1.4] - 2026-08-29
 
 ### Added

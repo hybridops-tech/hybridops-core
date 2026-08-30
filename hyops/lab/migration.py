@@ -52,14 +52,28 @@ def _available_disk_bytes(path: Path) -> int:
     return shutil.disk_usage(_existing_filesystem_path(path)).free
 
 
+def _format_bytes(value: int) -> str:
+    size = max(0, int(value))
+    for unit, divisor in (
+        ("TiB", 1024**4),
+        ("GiB", 1024**3),
+        ("MiB", 1024**2),
+        ("KiB", 1024),
+    ):
+        if size >= divisor:
+            return f"{size / divisor:.1f} {unit} ({size} bytes)"
+    return f"{size} bytes"
+
+
 def _require_disk_space(path: Path, payload_bytes: int, operation: str) -> None:
     filesystem_path = _existing_filesystem_path(path)
     available = shutil.disk_usage(filesystem_path).free
     required = int(payload_bytes) + _FREE_SPACE_RESERVE_BYTES
     if available < required:
         raise ValueError(
-            f"insufficient disk space for {operation}: required {required} bytes, "
-            f"available {available} bytes on the filesystem containing "
+            f"insufficient disk space for {operation}: "
+            f"required {_format_bytes(required)}, "
+            f"available {_format_bytes(available)} on the filesystem containing "
             f"{filesystem_path}"
         )
 
@@ -144,8 +158,14 @@ def _eve_image_references(
 ) -> list[str]:
     references: set[str] = set()
     for member in definitions:
+        definition = _read_definition(handle, member)
+        if re.search(br"<!\s*(?:DOCTYPE|ENTITY)\b", definition, flags=re.IGNORECASE):
+            raise ValueError(
+                f"EVE-NG lab definition contains a DTD or entity declaration: "
+                f"{member.name}"
+            )
         try:
-            root = ET.fromstring(_read_definition(handle, member))
+            root = ET.fromstring(definition)
         except ET.ParseError as exc:
             raise ValueError(f"invalid EVE-NG lab definition: {member.name}") from exc
         for element in root.iter():
@@ -410,6 +430,57 @@ required=$(du -s --block-size=1 "$@" | awk '{{total += $1}} END {{printf "%.0f\\
 """
 
 
+def _remote_capture_assessment_script(
+    platform: str,
+    *,
+    include_node_state: bool = False,
+    include_images: bool = False,
+) -> str:
+    if platform == "eve-ng":
+        node_state_assessment = "node_state_bytes=0"
+        if include_node_state:
+            node_state_assessment = """node_root=/opt/unetlab/tmp
+test -d "$node_root" || { echo 'EVE-NG node-state root not found' >&2; exit 20; }
+cd "$node_root"
+find . -type f -name '*.qcow2' -printf '%P\\n' -quit | grep -q . || {
+  echo 'No EVE-NG QEMU node state was found' >&2
+  exit 22
+}
+node_state_bytes=$(find . -type f -name '*.qcow2' -printf '%b\\n' | awk '{total += $1} END {printf "%.0f\\n", total * 512}')"""
+        return f"""set -eu
+root=/opt/unetlab/labs
+test -d "$root" || {{ echo 'EVE-NG labs root not found' >&2; exit 20; }}
+if pgrep -af '[/]opt/qemu[^ ]*/bin/qemu-system-' >/dev/null; then
+  echo 'EVE-NG QEMU nodes are running; stop them before capture' >&2
+  exit 21
+fi
+find "$root" -type f -name '*.unl' -print -quit | grep -q . || {{
+  echo 'No EVE-NG lab definitions were found' >&2
+  exit 22
+}}
+primary_bytes=$(find "$root" -type f -printf '%b\\n' | awk '{{total += $1}} END {{printf "%.0f\\n", total * 512}}')
+{node_state_assessment}
+printf 'primary_bytes=%s\\nnode_state_bytes=%s\\n' "$primary_bytes" "$node_state_bytes"
+"""
+
+    image_member = " images" if include_images else ""
+    return f"""set -eu
+root=/var/lib/gns3
+test -d "$root/projects" || {{ echo 'GNS3 projects root not found' >&2; exit 20; }}
+if pgrep -af '[g]ns3server' >/dev/null; then
+  echo 'GNS3 is running; stop it before capture' >&2
+  exit 21
+fi
+cd "$root"
+set -- projects
+for member in appliances symbols .config/GNS3{image_member}; do
+  test -e "$root/$member" && set -- "$@" "$member"
+done
+primary_bytes=$(du -s --block-size=1 "$@" | awk '{{total += $1}} END {{printf "%.0f\\n", total}}')
+printf 'primary_bytes=%s\\nnode_state_bytes=0\\n' "$primary_bytes"
+"""
+
+
 def _ssh_capture_argv(
     *,
     host: str,
@@ -418,6 +489,7 @@ def _ssh_capture_argv(
     identity_file: str | Path | None,
     become: bool,
     script: str,
+    control_path: Path | None = None,
 ) -> list[str]:
     host_name = _ssh_name(host, "host")
     user_name = _ssh_name(user, "user") if user else ""
@@ -425,11 +497,107 @@ def _ssh_capture_argv(
         raise ValueError("SSH port must be between 1 and 65535")
     target = f"{user_name}@{host_name}" if user_name else host_name
     argv = ["ssh", "-T", "-p", str(port)]
+    if control_path is not None:
+        argv.extend(
+            [
+                "-o",
+                "ControlMaster=auto",
+                "-o",
+                "ControlPersist=30",
+                "-o",
+                f"ControlPath={control_path}",
+            ]
+        )
     if identity_file:
         identity = _regular_file(identity_file, "identity file")
         argv.extend(["-i", str(identity)])
     remote = ["sudo", "-n", "sh", "-c", script] if become else ["sh", "-c", script]
     return [*argv, target, shlex.join(remote)]
+
+
+def _capture_error(result: subprocess.CompletedProcess[bytes]) -> ValueError:
+    detail = result.stderr.decode("utf-8", errors="replace").strip()
+    lowered_detail = detail.lower()
+    if "no space left on device" in lowered_detail or "disk quota exceeded" in lowered_detail:
+        return ValueError(
+            "insufficient disk space for lab capture: the output filesystem "
+            "became full while writing the archive"
+        )
+    capacity_match = re.search(
+        r"source requires at least (\d+) bytes; "
+        r"output filesystem has (\d+) bytes available",
+        detail,
+        flags=re.IGNORECASE,
+    )
+    if capacity_match:
+        required = int(capacity_match.group(1))
+        available = int(capacity_match.group(2))
+        return ValueError(
+            "insufficient disk space for lab capture: source requires at least "
+            f"{_format_bytes(required)}; output filesystem has "
+            f"{_format_bytes(available)} available"
+        )
+    lines = [line.strip() for line in detail.splitlines() if line.strip()]
+    concise = "; ".join(lines[-3:])[-800:] or f"ssh exited with status {result.returncode}"
+    return ValueError(f"source capture failed: {concise}")
+
+
+def _capture_requirements(argv: list[str]) -> dict[str, int]:
+    try:
+        result = subprocess.run(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("ssh is not installed or is not available on PATH") from exc
+    if result.returncode != 0:
+        raise _capture_error(result)
+
+    values: dict[str, int] = {}
+    for raw_line in result.stdout.decode("utf-8", errors="replace").splitlines():
+        key, separator, raw_value = raw_line.strip().partition("=")
+        if not separator or key not in {"primary_bytes", "node_state_bytes"}:
+            raise ValueError("source capture assessment returned invalid output")
+        if key in values:
+            raise ValueError("source capture assessment returned a duplicate size")
+        if not raw_value.isdigit():
+            raise ValueError("source capture assessment returned an invalid size")
+        values[key] = int(raw_value)
+    if "primary_bytes" not in values or "node_state_bytes" not in values:
+        raise ValueError("source capture assessment did not return required sizes")
+    return values
+
+
+def _close_ssh_control(
+    *,
+    host: str,
+    user: str,
+    port: int,
+    control_path: Path,
+) -> None:
+    host_name = _ssh_name(host, "host")
+    user_name = _ssh_name(user, "user") if user else ""
+    target = f"{user_name}@{host_name}" if user_name else host_name
+    try:
+        subprocess.run(
+            [
+                "ssh",
+                "-O",
+                "exit",
+                "-S",
+                str(control_path),
+                "-p",
+                str(port),
+                target,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except FileNotFoundError:
+        pass
 
 
 def _capture_stream(argv: list[str], candidate: Path) -> None:
@@ -448,16 +616,31 @@ def _capture_stream(argv: list[str], candidate: Path) -> None:
     if result.returncode == 0:
         os.chmod(candidate, 0o600)
         return
-    detail = result.stderr.decode("utf-8", errors="replace").strip()
-    lowered_detail = detail.lower()
-    if "no space left on device" in lowered_detail or "disk quota exceeded" in lowered_detail:
-        raise ValueError(
-            "insufficient disk space for lab capture: the output filesystem "
-            "became full while writing the archive"
+    raise _capture_error(result)
+
+
+def _require_capture_capacity(
+    *,
+    destination: Path,
+    primary_bytes: int,
+    node_destination: Path | None,
+    node_state_bytes: int,
+) -> None:
+    if node_destination is None:
+        _require_disk_space(destination.parent, primary_bytes, "lab capture")
+        return
+
+    primary_filesystem = _existing_filesystem_path(destination.parent)
+    node_filesystem = _existing_filesystem_path(node_destination.parent)
+    if primary_filesystem.stat().st_dev == node_filesystem.stat().st_dev:
+        _require_disk_space(
+            destination.parent,
+            primary_bytes + node_state_bytes,
+            "lab capture",
         )
-    lines = [line.strip() for line in detail.splitlines() if line.strip()]
-    concise = "; ".join(lines[-3:])[-800:] or f"ssh exited with status {result.returncode}"
-    raise ValueError(f"source capture failed: {concise}")
+        return
+    _require_disk_space(destination.parent, primary_bytes, "lab capture")
+    _require_disk_space(node_destination.parent, node_state_bytes, "node-state capture")
 
 
 def _capture_destination(raw: str | Path, field: str) -> Path:
@@ -535,10 +718,38 @@ def capture_existing_lab(
 
     primary_candidate: Path | None = None
     node_candidate: Path | None = None
+    control_root = Path(
+        tempfile.mkdtemp(
+            prefix="hyops-ssh-",
+            dir="/tmp" if Path("/tmp").is_dir() else None,
+        )
+    )
+    os.chmod(control_root, 0o700)
+    control_path = control_root / "control"
     try:
         primary_candidate = _capture_candidate(destination, force)
         if node_destination is not None:
             node_candidate = _capture_candidate(node_destination, force)
+        assessment_argv = _ssh_capture_argv(
+            host=host,
+            user=user,
+            port=port,
+            identity_file=identity_file,
+            become=become,
+            script=_remote_capture_assessment_script(
+                platform_name,
+                include_node_state=include_node_state,
+                include_images=include_images,
+            ),
+            control_path=control_path,
+        )
+        requirements = _capture_requirements(assessment_argv)
+        _require_capture_capacity(
+            destination=destination,
+            primary_bytes=requirements["primary_bytes"],
+            node_destination=node_destination,
+            node_state_bytes=requirements["node_state_bytes"],
+        )
         primary_argv = _ssh_capture_argv(
             host=host,
             user=user,
@@ -550,6 +761,7 @@ def capture_existing_lab(
                 include_images=include_images,
                 output_available_bytes=_available_disk_bytes(destination.parent),
             ),
+            control_path=control_path,
         )
         _capture_stream(primary_argv, primary_candidate)
         if node_candidate is not None:
@@ -566,6 +778,7 @@ def capture_existing_lab(
                         node_destination.parent
                     ),
                 ),
+                control_path=control_path,
             )
             _capture_stream(node_argv, node_candidate)
 
@@ -583,10 +796,17 @@ def capture_existing_lab(
         report["source"] = {"host": host, "user": user or None}
         return report
     finally:
+        _close_ssh_control(
+            host=host,
+            user=user,
+            port=port,
+            control_path=control_path,
+        )
         if primary_candidate is not None:
             primary_candidate.unlink(missing_ok=True)
         if node_candidate is not None:
             node_candidate.unlink(missing_ok=True)
+        shutil.rmtree(control_root, ignore_errors=True)
 
 
 def platform_for_blueprint(payload: dict[str, Any]) -> str:
