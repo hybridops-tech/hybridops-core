@@ -587,6 +587,7 @@ class LabMigrationCaptureTest(TestCase):
         primary = _tar_bytes({"0/network.unl": b"<lab />"})
         nodes = _tar_bytes({"0/network/1/virtioa.qcow2": b"overlay"})
         streams = iter((primary, nodes))
+        progress_events = []
 
         def run_capture(argv, *, stdout, stderr, check):
             self.assertEqual(argv[0], "ssh")
@@ -620,6 +621,7 @@ class LabMigrationCaptureTest(TestCase):
                 user="operator",
                 output=output,
                 include_node_state=True,
+                progress=progress_events.append,
             )
 
             self.assertTrue(output.is_file())
@@ -637,6 +639,18 @@ class LabMigrationCaptureTest(TestCase):
                 self.assertNotIn("systemctl stop", remote)
                 self.assertNotIn("rm ", remote)
             self.assertEqual(len(control_paths), 1)
+            self.assertEqual(progress_events[0]["phase"], "assessment_started")
+            self.assertEqual(progress_events[1]["phase"], "assessment_finished")
+            self.assertEqual(
+                [
+                    event["stage"]
+                    for event in progress_events
+                    if event["phase"] == "stream_finished"
+                ],
+                ["lab_definitions", "node_state"],
+            )
+            self.assertEqual(progress_events[-1]["phase"], "verification_finished")
+            self.assertEqual(progress_events[-1]["status"], "ok")
 
     def test_capture_failure_does_not_publish_partial_output(self) -> None:
         with (
@@ -677,6 +691,37 @@ class LabMigrationCaptureTest(TestCase):
                 ),
             ):
                 _capture_stream(["ssh"], candidate)
+
+    def test_capture_stream_reports_written_bytes(self) -> None:
+        events = []
+        payload = b"captured archive"
+
+        def run_capture(argv, *, stdout, stderr, check):
+            stdout.write(payload)
+            return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "hyops.lab.migration.subprocess.run",
+                side_effect=run_capture,
+            ),
+        ):
+            candidate = Path(tmp) / "capture.candidate"
+            _capture_stream(
+                ["ssh"],
+                candidate,
+                stage="node_state",
+                expected_source_bytes=4096,
+                progress=events.append,
+            )
+
+        self.assertEqual(events[0]["phase"], "stream_started")
+        self.assertEqual(events[0]["stage"], "node_state")
+        self.assertEqual(events[0]["expected_source_bytes"], 4096)
+        self.assertEqual(events[-1]["phase"], "stream_finished")
+        self.assertEqual(events[-1]["status"], "ok")
+        self.assertEqual(events[-1]["bytes_written"], len(payload))
 
     def test_capture_translates_remote_capacity_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

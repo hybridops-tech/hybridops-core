@@ -11,15 +11,18 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 SCHEMA_VERSION = 1
 RECORD_KIND = "hybridops/lab-migration"
 SUPPORTED_PLATFORMS = ("eve-ng", "gns3")
+CaptureProgress = Callable[[dict[str, Any]], None]
 _MAX_DEFINITION_BYTES = 32 * 1024 * 1024
 _MAX_MEMBERS = 200_000
 _FREE_SPACE_RESERVE_BYTES = 64 * 1024 * 1024
@@ -288,7 +291,9 @@ def _eve_image_references(
     for member in definitions:
         definition = _read_definition(handle, member)
         if re.search(rb"<!\s*(?:DOCTYPE|ENTITY)\b", definition, flags=re.IGNORECASE):
-            raise ValueError(f"EVE-NG lab definition contains a DTD or entity declaration: {member.name}")
+            raise ValueError(
+                f"EVE-NG lab definition contains a DTD or entity declaration: {member.name}"
+            )
         try:
             root = ET.fromstring(definition)
         except ET.ParseError as exc:
@@ -302,7 +307,9 @@ def _eve_image_references(
                     or "\\" in image
                     or any(ord(character) < 32 for character in image)
                 ):
-                    raise ValueError(f"EVE-NG lab contains an unsafe image reference: {image}")
+                    raise ValueError(
+                        f"EVE-NG lab contains an unsafe image reference: {image}"
+                    )
                 references.add(image)
                 node_type = str(element.attrib.get("type") or "").strip().lower()
                 if node_type == "qemu":
@@ -352,11 +359,15 @@ def _inspect_primary(path: Path, platform: str) -> dict[str, Any]:
             names = [name for _, name in members if name]
             files = [(member, name) for member, name in members if member.isfile()]
             if platform == "eve-ng":
-                definitions = [member for member, name in files if name.lower().endswith(".unl")]
+                definitions = [
+                    member for member, name in files if name.lower().endswith(".unl")
+                ]
                 if not definitions:
                     raise ValueError("EVE-NG archive contains no .unl lab definitions")
                 if any(name.startswith("opt/unetlab/labs/") for name in names):
-                    raise ValueError("EVE-NG archive must be relative to /opt/unetlab/labs")
+                    raise ValueError(
+                        "EVE-NG archive must be relative to /opt/unetlab/labs"
+                    )
                 references, requirements = _eve_image_references(handle, definitions)
                 return {
                     "definition_count": len(definitions),
@@ -376,11 +387,19 @@ def _inspect_primary(path: Path, platform: str) -> dict[str, Any]:
             outside = sorted(
                 name
                 for name in names
-                if name.split("/", 1)[0] not in allowed_roots and name != ".config/GNS3" and not name.startswith(".config/GNS3/")
+                if name.split("/", 1)[0] not in allowed_roots
+                and name != ".config/GNS3"
+                and not name.startswith(".config/GNS3/")
             )
             if outside:
-                raise ValueError(f"GNS3 archive contains an unsupported root: {outside[0]}")
-            definitions = [member for member, name in files if name.startswith("projects/") and name.lower().endswith(".gns3")]
+                raise ValueError(
+                    f"GNS3 archive contains an unsupported root: {outside[0]}"
+                )
+            definitions = [
+                member
+                for member, name in files
+                if name.startswith("projects/") and name.lower().endswith(".gns3")
+            ]
             if not definitions:
                 raise ValueError("GNS3 archive contains no project definitions")
             references = _gns3_image_references(handle, definitions)
@@ -388,7 +407,9 @@ def _inspect_primary(path: Path, platform: str) -> dict[str, Any]:
                 "definition_count": len(definitions),
                 "expanded_size_bytes": sum(member.size for member, _ in files),
                 "image_references": references,
-                "images_included": any(name == "images" or name.startswith("images/") for name in names),
+                "images_included": any(
+                    name == "images" or name.startswith("images/") for name in names
+                ),
                 "member_count": len(members),
             }
     except tarfile.TarError as exc:
@@ -404,14 +425,20 @@ def _inspect_eve_node_state(path: Path) -> dict[str, Any]:
                 raise ValueError("EVE-NG node-state archive contains no files")
             invalid = [name for name in files if not _EVE_NODE_STATE_RE.fullmatch(name)]
             if invalid:
-                raise ValueError(f"EVE-NG node-state member has an invalid path: {invalid[0]}")
+                raise ValueError(
+                    f"EVE-NG node-state member has an invalid path: {invalid[0]}"
+                )
             return {
-                "expanded_size_bytes": sum(member.size for member, _ in members if member.isfile()),
+                "expanded_size_bytes": sum(
+                    member.size for member, _ in members if member.isfile()
+                ),
                 "member_count": len(members),
                 "overlay_count": len(files),
             }
     except tarfile.TarError as exc:
-        raise ValueError(f"node-state archive is not a readable tar archive: {path}") from exc
+        raise ValueError(
+            f"node-state archive is not a readable tar archive: {path}"
+        ) from exc
 
 
 def _inspect_eve_images(
@@ -433,10 +460,18 @@ def _inspect_eve_images(
             )
             invalid = [name for name in files if not name.startswith(allowed)]
             if invalid:
-                raise ValueError(f"EVE-NG image archive contains an unsupported path: {invalid[0]}")
-            licence_files = [name for name in files if name.lower() in {"iol/bin/iourc", "iol/bin/iourc.txt"}]
+                raise ValueError(
+                    f"EVE-NG image archive contains an unsupported path: {invalid[0]}"
+                )
+            licence_files = [
+                name
+                for name in files
+                if name.lower() in {"iol/bin/iourc", "iol/bin/iourc.txt"}
+            ]
             if licence_files:
-                raise ValueError("EVE-NG image archive must not contain IOL licence material")
+                raise ValueError(
+                    "EVE-NG image archive must not contain IOL licence material"
+                )
 
             selected: set[tuple[str, str]] = set()
             invalid_layout: list[str] = []
@@ -451,15 +486,26 @@ def _inspect_eve_images(
                 else:
                     invalid_layout.append(name)
             if invalid_layout:
-                raise ValueError(f"EVE-NG image archive contains an invalid image path: {invalid_layout[0]}")
+                raise ValueError(
+                    f"EVE-NG image archive contains an invalid image path: {invalid_layout[0]}"
+                )
 
             missing: list[str] = []
             allowed_selected: set[tuple[str, str]] = set()
             for root_name, reference in requirements:
-                if not reference or reference in {".", ".."} or PurePosixPath(reference).name != reference or "\\" in reference:
-                    raise ValueError(f"EVE-NG lab contains an unsafe image reference: {reference}")
+                if (
+                    not reference
+                    or reference in {".", ".."}
+                    or PurePosixPath(reference).name != reference
+                    or "\\" in reference
+                ):
+                    raise ValueError(
+                        f"EVE-NG lab contains an unsafe image reference: {reference}"
+                    )
                 if root_name == "*":
-                    matches = {candidate for candidate in selected if candidate[1] == reference}
+                    matches = {
+                        candidate for candidate in selected if candidate[1] == reference
+                    }
                     if not matches:
                         missing.append(reference)
                     allowed_selected.update(matches)
@@ -469,18 +515,26 @@ def _inspect_eve_images(
                         missing.append(f"{root_name}/{reference}")
                     allowed_selected.add(candidate)
             if missing:
-                raise ValueError(f"EVE-NG image archive is missing a referenced base: {missing[0]}")
+                raise ValueError(
+                    f"EVE-NG image archive is missing a referenced base: {missing[0]}"
+                )
             extra = sorted(selected - allowed_selected)
             if extra:
                 root_name, reference = extra[0]
-                raise ValueError(f"EVE-NG image archive contains an unreferenced base: {root_name}/{reference}")
+                raise ValueError(
+                    f"EVE-NG image archive contains an unreferenced base: {root_name}/{reference}"
+                )
             return {
-                "expanded_size_bytes": sum(member.size for member, _ in members if member.isfile()),
+                "expanded_size_bytes": sum(
+                    member.size for member, _ in members if member.isfile()
+                ),
                 "image_count": len(selected),
                 "member_count": len(members),
             }
     except tarfile.TarError as exc:
-        raise ValueError(f"image archive is not a readable tar archive: {path}") from exc
+        raise ValueError(
+            f"image archive is not a readable tar archive: {path}"
+        ) from exc
 
 
 def inspect_migration_archive(
@@ -595,8 +649,16 @@ fi
     if platform == "eve-ng":
         compressor = "compressor='gzip -1'\ncommand -v pigz >/dev/null 2>&1 && compressor='pigz -1'"
         if image_state:
-            image_command = "python3 -c " + shlex.quote(_EVE_IMAGE_CAPTURE_PROGRAM) + " capture /opt/unetlab/labs /opt/unetlab/addons"
-            assessment_command = "python3 -c " + shlex.quote(_EVE_IMAGE_CAPTURE_PROGRAM) + " assess /opt/unetlab/labs /opt/unetlab/addons"
+            image_command = (
+                "python3 -c "
+                + shlex.quote(_EVE_IMAGE_CAPTURE_PROGRAM)
+                + " capture /opt/unetlab/labs /opt/unetlab/addons"
+            )
+            assessment_command = (
+                "python3 -c "
+                + shlex.quote(_EVE_IMAGE_CAPTURE_PROGRAM)
+                + " assess /opt/unetlab/labs /opt/unetlab/addons"
+            )
             return f"""set -eu
 required=$({assessment_command})
 {capacity_check}exec {image_command}
@@ -668,7 +730,11 @@ def _remote_capture_assessment_script(
         node_state_assessment = "node_state_bytes=0"
         image_assessment = "image_bytes=0"
         if include_images:
-            image_command = "python3 -c " + shlex.quote(_EVE_IMAGE_CAPTURE_PROGRAM) + " assess /opt/unetlab/labs /opt/unetlab/addons"
+            image_command = (
+                "python3 -c "
+                + shlex.quote(_EVE_IMAGE_CAPTURE_PROGRAM)
+                + " assess /opt/unetlab/labs /opt/unetlab/addons"
+            )
             image_assessment = f"image_bytes=$({image_command})"
         if include_node_state:
             node_state_assessment = """node_root=/opt/unetlab/tmp
@@ -751,8 +817,13 @@ def _ssh_capture_argv(
 def _capture_error(result: subprocess.CompletedProcess[bytes]) -> ValueError:
     detail = result.stderr.decode("utf-8", errors="replace").strip()
     lowered_detail = detail.lower()
-    if "no space left on device" in lowered_detail or "disk quota exceeded" in lowered_detail:
-        return ValueError("insufficient disk space for lab capture: the output filesystem became full while writing the archive")
+    if (
+        "no space left on device" in lowered_detail
+        or "disk quota exceeded" in lowered_detail
+    ):
+        return ValueError(
+            "insufficient disk space for lab capture: the output filesystem became full while writing the archive"
+        )
     capacity_match = re.search(
         r"source requires at least (\d+) bytes; "
         r"output filesystem has (\d+) bytes available",
@@ -768,7 +839,9 @@ def _capture_error(result: subprocess.CompletedProcess[bytes]) -> ValueError:
             f"{_format_bytes(available)} available"
         )
     lines = [line.strip() for line in detail.splitlines() if line.strip()]
-    concise = "; ".join(lines[-3:])[-800:] or f"ssh exited with status {result.returncode}"
+    concise = (
+        "; ".join(lines[-3:])[-800:] or f"ssh exited with status {result.returncode}"
+    )
     return ValueError(f"source capture failed: {concise}")
 
 
@@ -834,7 +907,46 @@ def _close_ssh_control(
         pass
 
 
-def _capture_stream(argv: list[str], candidate: Path) -> None:
+def _capture_stream(
+    argv: list[str],
+    candidate: Path,
+    *,
+    stage: str = "archive",
+    expected_source_bytes: int = 0,
+    progress: CaptureProgress | None = None,
+) -> None:
+    started = time.monotonic()
+    stopped = threading.Event()
+
+    def emit(phase: str, *, status: str = "running") -> None:
+        if progress is None:
+            return
+        elapsed = max(0.0, time.monotonic() - started)
+        try:
+            written = candidate.stat().st_size
+        except OSError:
+            written = 0
+        progress(
+            {
+                "phase": phase,
+                "stage": stage,
+                "status": status,
+                "bytes_written": written,
+                "expected_source_bytes": max(0, int(expected_source_bytes)),
+                "elapsed_seconds": elapsed,
+                "bytes_per_second": written / elapsed if elapsed > 0 else 0.0,
+            }
+        )
+
+    def monitor() -> None:
+        while not stopped.wait(1.0):
+            emit("stream_progress")
+
+    monitor_thread: threading.Thread | None = None
+    emit("stream_started")
+    if progress is not None:
+        monitor_thread = threading.Thread(target=monitor, daemon=True)
+        monitor_thread.start()
     try:
         with candidate.open("wb") as output:
             result = subprocess.run(
@@ -846,10 +958,17 @@ def _capture_stream(argv: list[str], candidate: Path) -> None:
             output.flush()
             os.fsync(output.fileno())
     except FileNotFoundError as exc:
+        emit("stream_finished", status="failed")
         raise ValueError("ssh is not installed or is not available on PATH") from exc
+    finally:
+        stopped.set()
+        if monitor_thread is not None:
+            monitor_thread.join(timeout=2)
     if result.returncode == 0:
         os.chmod(candidate, 0o600)
+        emit("stream_finished", status="ok")
         return
+    emit("stream_finished", status="failed")
     raise _capture_error(result)
 
 
@@ -896,7 +1015,9 @@ def _capture_candidate(path: Path, force: bool) -> Path:
         if not path.is_file():
             raise ValueError(f"output is not a regular file: {path}")
         if not force:
-            raise ValueError(f"output already exists: {path}; use --force to replace it")
+            raise ValueError(
+                f"output already exists: {path}; use --force to replace it"
+            )
     parent_existed = path.parent.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not parent_existed:
@@ -942,6 +1063,7 @@ def capture_existing_lab(
     include_images: bool = False,
     images_output: str | Path | None = None,
     force: bool = False,
+    progress: CaptureProgress | None = None,
 ) -> dict[str, Any]:
     platform_name = str(platform or "").strip().lower()
     if platform_name not in SUPPORTED_PLATFORMS:
@@ -958,12 +1080,18 @@ def capture_existing_lab(
     image_destination: Path | None = None
     if include_node_state:
         node_destination = (
-            _capture_destination(node_state_output, "node-state output") if node_state_output else _default_node_state_output(destination)
+            _capture_destination(node_state_output, "node-state output")
+            if node_state_output
+            else _default_node_state_output(destination)
         )
         if node_destination == destination:
             raise ValueError("node-state output must differ from the primary output")
     if include_images and platform_name == "eve-ng":
-        image_destination = _capture_destination(images_output, "images output") if images_output else _default_images_output(destination)
+        image_destination = (
+            _capture_destination(images_output, "images output")
+            if images_output
+            else _default_images_output(destination)
+        )
         if image_destination in {destination, node_destination}:
             raise ValueError("images output must differ from other capture outputs")
 
@@ -997,7 +1125,18 @@ def capture_existing_lab(
             ),
             control_path=control_path,
         )
+        if progress is not None:
+            progress({"phase": "assessment_started", "stage": "assessment"})
         requirements = _capture_requirements(assessment_argv)
+        if progress is not None:
+            progress(
+                {
+                    "phase": "assessment_finished",
+                    "primary_bytes": requirements["primary_bytes"],
+                    "node_state_bytes": requirements["node_state_bytes"],
+                    "image_bytes": requirements["image_bytes"],
+                }
+            )
         _require_capture_capacity(
             destination=destination,
             primary_bytes=requirements["primary_bytes"],
@@ -1019,7 +1158,16 @@ def capture_existing_lab(
             ),
             control_path=control_path,
         )
-        _capture_stream(primary_argv, primary_candidate)
+        primary_stage = (
+            "lab_definitions" if platform_name == "eve-ng" else "gns3_projects"
+        )
+        _capture_stream(
+            primary_argv,
+            primary_candidate,
+            stage=primary_stage,
+            expected_source_bytes=requirements["primary_bytes"],
+            progress=progress,
+        )
         if node_candidate is not None:
             node_argv = _ssh_capture_argv(
                 host=host,
@@ -1030,11 +1178,19 @@ def capture_existing_lab(
                 script=_remote_capture_script(
                     platform_name,
                     node_state=True,
-                    output_available_bytes=_available_disk_bytes(node_destination.parent),
+                    output_available_bytes=_available_disk_bytes(
+                        node_destination.parent
+                    ),
                 ),
                 control_path=control_path,
             )
-            _capture_stream(node_argv, node_candidate)
+            _capture_stream(
+                node_argv,
+                node_candidate,
+                stage="node_state",
+                expected_source_bytes=requirements["node_state_bytes"],
+                progress=progress,
+            )
         if image_candidate is not None and image_destination is not None:
             image_argv = _ssh_capture_argv(
                 host=host,
@@ -1045,18 +1201,47 @@ def capture_existing_lab(
                 script=_remote_capture_script(
                     platform_name,
                     image_state=True,
-                    output_available_bytes=_available_disk_bytes(image_destination.parent),
+                    output_available_bytes=_available_disk_bytes(
+                        image_destination.parent
+                    ),
                 ),
                 control_path=control_path,
             )
-            _capture_stream(image_argv, image_candidate)
+            _capture_stream(
+                image_argv,
+                image_candidate,
+                stage="referenced_images",
+                expected_source_bytes=requirements["image_bytes"],
+                progress=progress,
+            )
 
-        report = inspect_migration_archive(
-            platform=platform_name,
-            archive=primary_candidate,
-            node_state=node_candidate,
-            images=image_candidate,
-        )
+        if progress is not None:
+            progress({"phase": "verification_started", "stage": "verification"})
+        try:
+            report = inspect_migration_archive(
+                platform=platform_name,
+                archive=primary_candidate,
+                node_state=node_candidate,
+                images=image_candidate,
+            )
+        except (OSError, ValueError):
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "verification_finished",
+                        "stage": "verification",
+                        "status": "failed",
+                    }
+                )
+            raise
+        if progress is not None:
+            progress(
+                {
+                    "phase": "verification_finished",
+                    "stage": "verification",
+                    "status": "ok",
+                }
+            )
         if node_candidate is not None and node_destination is not None:
             os.replace(node_candidate, node_destination)
         if image_candidate is not None and image_destination is not None:
@@ -1173,7 +1358,9 @@ def stage_migration_archive(
     platform_name = str(platform or "").strip().lower()
     target_platform = platform_for_blueprint(payload)
     if platform_name != target_platform:
-        raise ValueError(f"source platform {platform_name} does not match target blueprint platform {target_platform}")
+        raise ValueError(
+            f"source platform {platform_name} does not match target blueprint platform {target_platform}"
+        )
     inspection = inspect_migration_archive(
         platform=platform_name,
         archive=archive,
@@ -1195,15 +1382,29 @@ def stage_migration_archive(
         if isinstance(loaded, dict):
             existing = loaded
     existing_archive = (existing or {}).get("archive")
-    existing_checksum = str(existing_archive.get("sha256") or "") if isinstance(existing_archive, dict) else ""
+    existing_checksum = (
+        str(existing_archive.get("sha256") or "")
+        if isinstance(existing_archive, dict)
+        else ""
+    )
     node_inspection = inspection.get("node_state")
     node_checksum = str(node_inspection.get("sha256") or "") if node_inspection else ""
     existing_node = (existing or {}).get("node_state")
-    existing_node_checksum = str(existing_node.get("sha256") or "") if isinstance(existing_node, dict) else ""
+    existing_node_checksum = (
+        str(existing_node.get("sha256") or "")
+        if isinstance(existing_node, dict)
+        else ""
+    )
     image_inspection = inspection.get("images")
-    image_checksum = str(image_inspection.get("sha256") or "") if image_inspection else ""
+    image_checksum = (
+        str(image_inspection.get("sha256") or "") if image_inspection else ""
+    )
     existing_images = (existing or {}).get("images")
-    existing_image_checksum = str(existing_images.get("sha256") or "") if isinstance(existing_images, dict) else ""
+    existing_image_checksum = (
+        str(existing_images.get("sha256") or "")
+        if isinstance(existing_images, dict)
+        else ""
+    )
     if (
         existing
         and (
@@ -1218,25 +1419,42 @@ def stage_migration_archive(
         )
         and not force
     ):
-        raise ValueError("a different migration bundle is already staged for this blueprint; use --force to replace the active record")
+        raise ValueError(
+            "a different migration bundle is already staged for this blueprint; use --force to replace the active record"
+        )
 
     bundle_id = _bundle_id(
         inspection["archive"]["sha256"],
         node_checksum,
         image_checksum,
     )
-    destination_root = paths.root / "artifacts" / "lab-migrations" / _record_slug(blueprint_ref) / bundle_id
+    destination_root = (
+        paths.root
+        / "artifacts"
+        / "lab-migrations"
+        / _record_slug(blueprint_ref)
+        / bundle_id
+    )
     archive_destination = destination_root / "labs.tar.gz"
     copy_bytes = 0
-    if not (archive_destination.is_file() and _sha256(archive_destination) == inspection["archive"]["sha256"]):
+    if not (
+        archive_destination.is_file()
+        and _sha256(archive_destination) == inspection["archive"]["sha256"]
+    ):
         copy_bytes += int(inspection["archive"]["size_bytes"])
     if node_inspection:
         node_destination = destination_root / "labs.node-state.tar.gz"
-        if not (node_destination.is_file() and _sha256(node_destination) == node_inspection["sha256"]):
+        if not (
+            node_destination.is_file()
+            and _sha256(node_destination) == node_inspection["sha256"]
+        ):
             copy_bytes += int(node_inspection["size_bytes"])
     if image_inspection:
         image_destination = destination_root / "labs.images.tar.gz"
-        if not (image_destination.is_file() and _sha256(image_destination) == image_inspection["sha256"]):
+        if not (
+            image_destination.is_file()
+            and _sha256(image_destination) == image_inspection["sha256"]
+        ):
             copy_bytes += int(image_inspection["size_bytes"])
     if copy_bytes:
         _require_disk_space(destination_root, copy_bytes, "migration import")
@@ -1254,7 +1472,9 @@ def stage_migration_archive(
             node_destination,
             node_inspection["sha256"],
         )
-        staged_node = {key: value for key, value in node_inspection.items() if key != "path"}
+        staged_node = {
+            key: value for key, value in node_inspection.items() if key != "path"
+        }
         staged_node["path"] = str(node_destination)
 
     staged_images: dict[str, Any] | None = None
@@ -1264,7 +1484,9 @@ def stage_migration_archive(
             image_destination,
             image_inspection["sha256"],
         )
-        staged_images = {key: value for key, value in image_inspection.items() if key != "path"}
+        staged_images = {
+            key: value for key, value in image_inspection.items() if key != "path"
+        }
         staged_images["path"] = str(image_destination)
 
     record = {
@@ -1274,7 +1496,9 @@ def stage_migration_archive(
         "imported_at": _utc_now(),
         "platform": platform_name,
         "blueprint_ref": blueprint_ref,
-        "archive": {key: value for key, value in inspection["archive"].items() if key != "path"},
+        "archive": {
+            key: value for key, value in inspection["archive"].items() if key != "path"
+        },
         "node_state": staged_node,
         "images": staged_images,
         "definition_count": inspection["definition_count"],
@@ -1334,7 +1558,10 @@ def _load_migration_record(*, paths, payload: dict[str, Any]) -> dict[str, Any] 
         raise ValueError(f"migration record is unreadable: {path}") from exc
     if not isinstance(record, dict):
         raise ValueError(f"migration record is invalid: {path}")
-    if record.get("schema_version") != SCHEMA_VERSION or record.get("kind") != RECORD_KIND:
+    if (
+        record.get("schema_version") != SCHEMA_VERSION
+        or record.get("kind") != RECORD_KIND
+    ):
         raise ValueError(f"migration record has an unsupported schema: {path}")
     if record.get("status") != "verified":
         raise ValueError(f"migration record is not verified: {path}")
@@ -1342,7 +1569,9 @@ def _load_migration_record(*, paths, payload: dict[str, Any]) -> dict[str, Any] 
         raise ValueError(f"migration record blueprint does not match {blueprint_ref}")
     platform = str(record.get("platform") or "")
     if platform != platform_for_blueprint(payload):
-        raise ValueError("migration record platform does not match the target blueprint")
+        raise ValueError(
+            "migration record platform does not match the target blueprint"
+        )
     return record
 
 

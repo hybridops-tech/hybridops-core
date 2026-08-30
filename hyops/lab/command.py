@@ -10,14 +10,117 @@ from typing import Any
 from hyops.runtime.exitcodes import OPERATOR_ERROR
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
+from hyops.runtime.progress import ProgressDisplay
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
 
 from .migration import (
+    _format_bytes,
     capture_existing_lab,
     inspect_migration_archive,
     stage_migration_archive,
 )
+
+
+_CAPTURE_LABELS = {
+    "assessment": "Assessing source",
+    "lab_definitions": "Lab definitions",
+    "gns3_projects": "GNS3 projects",
+    "node_state": "Node state",
+    "referenced_images": "Referenced images",
+    "verification": "Archive verification",
+}
+
+
+def _concise_bytes(value: int | float) -> str:
+    return _format_bytes(max(0, int(value))).split(" (", 1)[0]
+
+
+def _concise_rate(value: int | float) -> str:
+    return f"{_concise_bytes(value)}/s"
+
+
+class _CaptureProgress:
+    def __init__(self) -> None:
+        self.display = ProgressDisplay()
+        self._plain_last: dict[str, float] = {}
+
+    def __call__(self, event: dict[str, Any]) -> None:
+        phase = str(event.get("phase") or "")
+        if phase == "assessment_started":
+            print("assessing source and requested capture streams", flush=True)
+            return
+        if phase == "assessment_finished":
+            print("source assessment:")
+            print(f"  lab definitions: {_concise_bytes(event['primary_bytes'])}")
+            if int(event.get("node_state_bytes") or 0) > 0:
+                print(f"  node state: {_concise_bytes(event['node_state_bytes'])}")
+            if int(event.get("image_bytes") or 0) > 0:
+                print(f"  referenced images: {_concise_bytes(event['image_bytes'])}")
+            return
+
+        stage = str(event.get("stage") or "capture")
+        label = _CAPTURE_LABELS.get(stage, stage.replace("_", " ").title())
+        key = f"lab-migration-{stage}"
+        written = int(event.get("bytes_written") or 0)
+        elapsed = float(event.get("elapsed_seconds") or 0.0)
+        rate = float(event.get("bytes_per_second") or 0.0)
+
+        if phase == "stream_started":
+            expected = int(event.get("expected_source_bytes") or 0)
+            source = f"  source {_concise_bytes(expected)}" if expected else ""
+            self.display.start(
+                key,
+                f"{label}{source}",
+                plain=(f"capture={stage} status=running source_bytes={expected}"),
+            )
+            self._plain_last[key] = 0.0
+            return
+
+        if phase == "stream_progress":
+            current = f"{label}  {_concise_bytes(written)}  {_concise_rate(rate)}"
+            self.display.update(key, current)
+            last = self._plain_last.get(key, 0.0)
+            if not self.display.enabled and elapsed - last >= 30.0:
+                print(
+                    f"capture={stage} status=running bytes={written} "
+                    f"rate_bps={int(rate)} elapsed_s={int(elapsed)}",
+                    flush=True,
+                )
+                self._plain_last[key] = elapsed
+            return
+
+        if phase == "stream_finished":
+            status = str(event.get("status") or "failed")
+            self.display.finish(
+                key,
+                label,
+                status,
+                plain=(
+                    f"capture={stage} status={status} bytes={written} "
+                    f"elapsed_s={int(elapsed)}"
+                ),
+                detail=f"{_concise_bytes(written)}  {_concise_rate(rate)}",
+            )
+            self._plain_last.pop(key, None)
+            return
+
+        if phase == "verification_started":
+            self.display.start(
+                key,
+                label,
+                plain="capture=verification status=running",
+            )
+            return
+
+        if phase == "verification_finished":
+            status = str(event.get("status") or "failed")
+            self.display.finish(
+                key,
+                label,
+                status,
+                plain=f"capture=verification status={status}",
+            )
 
 
 def _add_archive_args(parser: argparse.ArgumentParser) -> None:
@@ -132,7 +235,9 @@ def add_lab_subparser(sp: argparse._SubParsersAction) -> None:
     )
     _add_archive_args(import_parser)
     import_parser.add_argument("--root", default=None, help="Override runtime root.")
-    import_parser.add_argument("--env", default=None, help="Runtime environment namespace.")
+    import_parser.add_argument(
+        "--env", default=None, help="Runtime environment namespace."
+    )
     import_parser.add_argument("--ref", default="", help="Target blueprint reference.")
     import_parser.add_argument(
         "--file",
@@ -176,6 +281,7 @@ def _print_inspection(report: dict[str, Any]) -> None:
 
 
 def run_capture(ns) -> int:
+    progress = None if ns.json else _CaptureProgress()
     try:
         report = capture_existing_lab(
             platform=ns.platform,
@@ -190,6 +296,7 @@ def run_capture(ns) -> int:
             include_images=ns.include_images,
             images_output=ns.images_output or None,
             force=ns.force,
+            progress=progress,
         )
     except (OSError, ValueError) as exc:
         print(f"ERR: lab migration capture failed: {exc}")
@@ -256,7 +363,9 @@ def run_import(ns) -> int:
             force=ns.force,
         )
     except (OSError, ValueError) as exc:
-        detail = format_runtime_storage_error(exc) if isinstance(exc, OSError) else str(exc)
+        detail = (
+            format_runtime_storage_error(exc) if isinstance(exc, OSError) else str(exc)
+        )
         print(f"ERR: lab migration import failed: {detail}")
         return OPERATOR_ERROR
 
