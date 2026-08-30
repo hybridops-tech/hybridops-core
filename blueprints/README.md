@@ -203,6 +203,10 @@ hyops blueprint deploy \
   --restore-labs
 ```
 
+Existing lab definitions and base images are protected independently. Add
+`--overwrite-labs` to replace lab definitions or `--overwrite-images` to
+replace referenced base images. Neither flag is required on a new host.
+
 The EVE-NG primary archive must be relative to `/opt/unetlab/labs`. Its
 optional node-state companion contains stopped QEMU overlays using the EVE-NG
 tenant, lab and node path layout. Its optional image companion contains only
@@ -210,7 +214,7 @@ referenced QEMU, IOL or Dynamips bases. Licence material is never included. A
 GNS3 archive must be relative to its data root and contain `projects/` state.
 Use the matching checksum options when checksums were recorded at the source.
 Capture and import retain 64 MiB free on the controller filesystem. Restore
-checks the target filesystem before existing lab data is replaced.
+checks the target filesystem and stages image content before promotion.
 
 ## Shipped Blueprint Boundary
 

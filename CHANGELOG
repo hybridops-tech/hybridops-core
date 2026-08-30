@@ -13,16 +13,21 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   insufficient disk space is reported before existing lab data is replaced.
 - Added optional, checksummed migration of EVE-NG base images referenced by
   captured lab definitions. Licence material remains outside the archive.
+- Added independent `--overwrite-images` control for explicit base-image
+  replacement during migration restore.
 
 ### Changed
 
 - Preferred sparse-aware, parallel level-one compression for remote lab capture
   when `pigz` is available, with `gzip -1` as the portable fallback.
+- Staged migrated EVE-NG images before transactional promotion and rollback.
 
 ### Fixed
 
 - Assessed all requested migration streams through one SSH session before
   transferring archives.
+- Retained the verified migration image companion across later lab archive
+  generations and rejected unreferenced bases or IOL licence material.
 
 ## [v0.1.4] - 2026-08-29
 

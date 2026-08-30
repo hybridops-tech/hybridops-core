@@ -49,6 +49,7 @@ inputs:
     eveng_lab_archive_path: ""
     eveng_lab_archive_expected_sha256: ""
     eveng_lab_archive_overwrite: false
+    eveng_lab_archive_overwrite_images: false
     eveng_lab_archive_remote_dir: "/tmp/hyops-eveng-lab-archive"
     eveng_lab_archive_include_node_state: false
     eveng_lab_archive_restore_node_state: false
@@ -95,6 +96,9 @@ outputs:
     - eveng_lab_archive_node_state_archive_path
     - eveng_lab_archive_node_state_sha256
     - eveng_lab_archive_node_state_files
+    - eveng_lab_archive_images_included
+    - eveng_lab_archive_images_archive_path
+    - eveng_lab_archive_images_sha256
 
 probes: []
 constraints: []

@@ -69,5 +69,11 @@
             'eveng_lab_archive_node_state_sha256':
               eveng_lab_archive_results.node_state_sha256 | default(''),
             'eveng_lab_archive_node_state_files':
-              eveng_lab_archive_results.node_state_files | default(0)
+              eveng_lab_archive_results.node_state_files | default(0),
+            'eveng_lab_archive_images_included':
+              eveng_lab_archive_results.images_included | default(false),
+            'eveng_lab_archive_images_archive_path':
+              eveng_lab_archive_results.images_archive_path | default(''),
+            'eveng_lab_archive_images_sha256':
+              eveng_lab_archive_results.images_sha256 | default('')
           } | to_json }}

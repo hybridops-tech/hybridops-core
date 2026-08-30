@@ -20,6 +20,7 @@ def _namespace(**overrides):
         "restore_labs": False,
         "skip_lab_restore": False,
         "overwrite_labs": False,
+        "overwrite_images": False,
         "yes": True,
         "json": False,
     }
@@ -78,10 +79,13 @@ class BlueprintLabRestoreTest(TestCase):
                     "eveng_lab_archive_sha256": checksum,
                 }
             }
-            with patch(
-                "hyops.blueprint.command.read_module_state",
-                return_value=state,
-            ), patch("builtins.input") as prompt:
+            with (
+                patch(
+                    "hyops.blueprint.command.read_module_state",
+                    return_value=state,
+                ),
+                patch("builtins.input") as prompt,
+            ):
                 mode, selected = _select_lab_restore_mode(
                     _namespace(yes=False),
                     _payload(),
@@ -123,13 +127,17 @@ class BlueprintLabRestoreTest(TestCase):
 
     def test_explicit_restore_requires_an_archive(self):
         paths = SimpleNamespace(state_dir=Path("/tmp/state"))
-        with patch(
-            "hyops.blueprint.command.read_module_state",
-            side_effect=FileNotFoundError,
-        ), patch(
-            "hyops.lab.migration.load_migration_archive",
-            return_value=None,
-        ), self.assertRaisesRegex(ValueError, "no verified lab archive"):
+        with (
+            patch(
+                "hyops.blueprint.command.read_module_state",
+                side_effect=FileNotFoundError,
+            ),
+            patch(
+                "hyops.lab.migration.load_migration_archive",
+                return_value=None,
+            ),
+            self.assertRaisesRegex(ValueError, "no verified lab archive"),
+        ):
             _select_lab_restore_mode(
                 _namespace(restore_labs=True),
                 _payload(),
@@ -146,12 +154,15 @@ class BlueprintLabRestoreTest(TestCase):
             "",
         )
         paths = SimpleNamespace(state_dir=Path("/tmp/state"))
-        with patch(
-            "hyops.blueprint.command.read_module_state",
-            side_effect=FileNotFoundError,
-        ), patch(
-            "hyops.lab.migration.load_migration_archive",
-            return_value=imported,
+        with (
+            patch(
+                "hyops.blueprint.command.read_module_state",
+                side_effect=FileNotFoundError,
+            ),
+            patch(
+                "hyops.lab.migration.load_migration_archive",
+                return_value=imported,
+            ),
         ):
             mode, selected = _select_lab_restore_mode(
                 _namespace(restore_labs=True),
@@ -173,10 +184,13 @@ class BlueprintLabRestoreTest(TestCase):
                     "eveng_lab_archive_sha256": "a" * 64,
                 }
             }
-            with patch(
-                "hyops.blueprint.command.read_module_state",
-                return_value=state,
-            ), self.assertRaisesRegex(ValueError, "checksum verification failed"):
+            with (
+                patch(
+                    "hyops.blueprint.command.read_module_state",
+                    return_value=state,
+                ),
+                self.assertRaisesRegex(ValueError, "checksum verification failed"),
+            ):
                 _select_lab_restore_mode(
                     _namespace(restore_labs=True),
                     _payload(),
@@ -216,9 +230,7 @@ class BlueprintLabRestoreTest(TestCase):
             "b" * 64,
         )
         self.assertFalse(step["inputs"]["eveng_lab_archive_overwrite"])
-        self.assertFalse(
-            step["inputs"]["eveng_lab_archive_capture_device_configs"]
-        )
+        self.assertFalse(step["inputs"]["eveng_lab_archive_capture_device_configs"])
         self.assertFalse(step["inputs"]["eveng_lab_archive_include_node_state"])
         self.assertFalse(step["inputs"]["eveng_lab_archive_stop_running_nodes"])
 
@@ -330,6 +342,74 @@ class BlueprintLabRestoreTest(TestCase):
             ),
         )
 
+    def test_restore_retains_migrated_images_after_a_later_lab_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "latest-labs.tar.gz"
+            archive.write_bytes(b"latest portable labs")
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            image_archive = Path(tmp) / "imported-images.tar.gz"
+            image_archive.write_bytes(b"referenced bases")
+            image_checksum = hashlib.sha256(image_archive.read_bytes()).hexdigest()
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            payload = _payload() | {"blueprint_ref": "gcp/eve-ng@v1"}
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive),
+                    "eveng_lab_archive_sha256": checksum,
+                }
+            }
+            with (
+                patch(
+                    "hyops.blueprint.command.read_module_state",
+                    return_value=state,
+                ),
+                patch(
+                    "hyops.lab.migration.load_migration_images",
+                    return_value=(image_archive.resolve(), image_checksum),
+                ) as migrated_images,
+            ):
+                mode, selected = _select_lab_restore_mode(
+                    _namespace(restore_labs=True),
+                    payload,
+                    paths,
+                )
+
+        self.assertEqual(mode, "restore")
+        self.assertEqual(selected[0], archive.resolve())
+        self.assertEqual(selected[4:], (image_archive.resolve(), image_checksum))
+        migrated_images.assert_called_once()
+
+    def test_restore_uses_image_metadata_published_by_prior_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "labs.tar.gz"
+            archive.write_bytes(b"portable labs")
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            image_archive = Path(tmp) / "images.tar.gz"
+            image_archive.write_bytes(b"referenced bases")
+            image_checksum = hashlib.sha256(image_archive.read_bytes()).hexdigest()
+            paths = SimpleNamespace(state_dir=Path(tmp) / "state")
+            state = {
+                "outputs": {
+                    "eveng_lab_archive_path": str(archive),
+                    "eveng_lab_archive_sha256": checksum,
+                    "eveng_lab_archive_images_included": True,
+                    "eveng_lab_archive_images_archive_path": str(image_archive),
+                    "eveng_lab_archive_images_sha256": image_checksum,
+                }
+            }
+            with patch(
+                "hyops.blueprint.command.read_module_state",
+                return_value=state,
+            ):
+                mode, selected = _select_lab_restore_mode(
+                    _namespace(restore_labs=True),
+                    _payload(),
+                    paths,
+                )
+
+        self.assertEqual(mode, "restore")
+        self.assertEqual(selected[4:], (image_archive.resolve(), image_checksum))
+
     def test_restore_includes_verified_referenced_images(self):
         archive = (
             Path("/tmp/labs.tar.gz"),
@@ -361,6 +441,36 @@ class BlueprintLabRestoreTest(TestCase):
             inputs["eveng_lab_archive_images_expected_sha256"],
             "e" * 64,
         )
+        self.assertFalse(inputs["eveng_lab_archive_overwrite_images"])
+
+    def test_image_overwrite_is_separate_from_lab_overwrite(self):
+        archive = (
+            Path("/tmp/labs.tar.gz"),
+            "b" * 64,
+            None,
+            "",
+            Path("/tmp/labs.images.tar.gz"),
+            "e" * 64,
+        )
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=0,
+        ) as command:
+            rc = _run_lab_restore(
+                _namespace(
+                    restore_labs=True,
+                    overwrite_labs=False,
+                    overwrite_images=True,
+                ),
+                _payload(),
+                SimpleNamespace(),
+                archive,
+            )
+
+        self.assertEqual(rc, 0)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertFalse(inputs["eveng_lab_archive_overwrite"])
+        self.assertTrue(inputs["eveng_lab_archive_overwrite_images"])
 
     def test_gns3_restore_uses_declared_archive_contract(self):
         payload = {

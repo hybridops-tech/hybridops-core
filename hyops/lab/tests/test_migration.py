@@ -21,6 +21,7 @@ from hyops.lab.migration import (
     capture_existing_lab,
     inspect_migration_archive,
     load_migration_archive,
+    load_migration_images,
     migration_record_path,
     stage_migration_archive,
 )
@@ -74,11 +75,7 @@ class LabMigrationInspectionTest(TestCase):
             node_state = Path(tmp) / "nodes.tar.gz"
             _write_tar(
                 archive,
-                {
-                    "0/network.unl": (
-                        b'<lab><node name="r1" image="vios-159" /></lab>'
-                    )
-                },
+                {"0/network.unl": (b'<lab><node name="r1" image="vios-159" /></lab>')},
             )
             _write_tar(node_state, {"0/network/1/virtioa.qcow2": b"overlay"})
 
@@ -134,8 +131,7 @@ class LabMigrationInspectionTest(TestCase):
                 archive,
                 {
                     "0/network.unl": (
-                        b'<!DOCTYPE lab [<!ENTITY x "expanded">]>'
-                        b"<lab><node name='&x;' /></lab>"
+                        b"<!DOCTYPE lab [<!ENTITY x \"expanded\">]><lab><node name='&x;' /></lab>"
                     )
                 },
             )
@@ -182,7 +178,9 @@ class LabMigrationInspectionTest(TestCase):
 
         self.assertTrue(report["images_included"])
         self.assertEqual(report["images"]["image_count"], 1)
-        self.assertEqual(report["warnings"], ["writable QEMU node state is not included"])
+        self.assertEqual(
+            report["warnings"], ["writable QEMU node state is not included"]
+        )
 
     def test_rejects_incomplete_eve_image_companion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,15 +203,76 @@ class LabMigrationInspectionTest(TestCase):
                     images=images,
                 )
 
+    def test_rejects_unreferenced_eve_image_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "eve.tar.gz"
+            images = Path(tmp) / "images.tar.gz"
+            _write_tar(
+                archive,
+                {"0/network.unl": b'<lab><node type="qemu" image="vios" /></lab>'},
+            )
+            _write_tar(
+                images,
+                {
+                    "qemu/vios/virtioa.qcow2": b"required",
+                    "qemu/other/virtioa.qcow2": b"unreferenced",
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "unreferenced base"):
+                inspect_migration_archive(
+                    platform="eve-ng",
+                    archive=archive,
+                    images=images,
+                )
+
+    def test_rejects_iol_licence_material(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "eve.tar.gz"
+            images = Path(tmp) / "images.tar.gz"
+            _write_tar(
+                archive,
+                {"0/network.unl": b'<lab><node type="iol" image="router.bin" /></lab>'},
+            )
+            _write_tar(
+                images,
+                {
+                    "iol/bin/router.bin": b"image",
+                    "iol/bin/iourc": b"licence",
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "licence material"):
+                inspect_migration_archive(
+                    platform="eve-ng",
+                    archive=archive,
+                    images=images,
+                )
+
+    def test_rejects_image_under_the_wrong_eve_type_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "eve.tar.gz"
+            images = Path(tmp) / "images.tar.gz"
+            _write_tar(
+                archive,
+                {"0/network.unl": b'<lab><node type="qemu" image="vios" /></lab>'},
+            )
+            _write_tar(images, {"iol/bin/vios": b"wrong type"})
+
+            with self.assertRaisesRegex(ValueError, "missing a referenced base"):
+                inspect_migration_archive(
+                    platform="eve-ng",
+                    archive=archive,
+                    images=images,
+                )
+
     def test_inspects_gns3_projects_and_image_references(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             archive = Path(tmp) / "gns3.tar.gz"
             project = json.dumps(
                 {
                     "topology": {
-                        "nodes": [
-                            {"properties": {"hda_disk_image": "vios.qcow2"}}
-                        ]
+                        "nodes": [{"properties": {"hda_disk_image": "vios.qcow2"}}]
                     }
                 }
             ).encode()
@@ -269,6 +328,10 @@ class LabMigrationStagingTest(TestCase):
                 images=images,
             )
             loaded = load_migration_archive(paths=paths, payload=_eve_payload())
+            loaded_images = load_migration_images(
+                paths=paths,
+                payload=_eve_payload(),
+            )
 
             self.assertIsNotNone(loaded)
             (
@@ -291,10 +354,9 @@ class LabMigrationStagingTest(TestCase):
                 image_checksum,
                 hashlib.sha256(images.read_bytes()).hexdigest(),
             )
+            self.assertEqual(loaded_images, (image_path, image_checksum))
             self.assertEqual(record["status"], "verified")
-            self.assertTrue(
-                migration_record_path(paths, "gcp/eve-ng@v1").is_file()
-            )
+            self.assertTrue(migration_record_path(paths, "gcp/eve-ng@v1").is_file())
 
     def test_import_is_idempotent_for_same_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -432,12 +494,15 @@ class LabMigrationStagingTest(TestCase):
             archive = Path(tmp) / "eve.tar.gz"
             _write_tar(archive, {"0/network.unl": b"<lab />"})
 
-            with patch(
-                "hyops.lab.migration.shutil.disk_usage",
-                return_value=SimpleNamespace(free=1),
-            ), self.assertRaisesRegex(
-                ValueError,
-                "insufficient disk space for migration import",
+            with (
+                patch(
+                    "hyops.lab.migration.shutil.disk_usage",
+                    return_value=SimpleNamespace(free=1),
+                ),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "insufficient disk space for migration import",
+                ),
             ):
                 stage_migration_archive(
                     paths=paths,
@@ -455,7 +520,9 @@ class LabMigrationCaptureTest(TestCase):
         )
         self.assertEqual(_format_bytes(11821371392), "11.0 GiB (11821371392 bytes)")
 
-    def test_assessment_reports_both_eve_streams_without_transferring_data(self) -> None:
+    def test_assessment_reports_both_eve_streams_without_transferring_data(
+        self,
+    ) -> None:
         script = _remote_capture_assessment_script(
             "eve-ng",
             include_node_state=True,
@@ -487,27 +554,33 @@ class LabMigrationCaptureTest(TestCase):
         )
 
     def test_rejects_invalid_capture_assessment(self) -> None:
-        with patch(
-            "hyops.lab.migration.subprocess.run",
-            return_value=subprocess.CompletedProcess(
-                ["ssh"],
-                0,
-                b"primary_bytes=4096\nunexpected=value\n",
-                b"",
+        with (
+            patch(
+                "hyops.lab.migration.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    ["ssh"],
+                    0,
+                    b"primary_bytes=4096\nunexpected=value\n",
+                    b"",
+                ),
             ),
-        ), self.assertRaisesRegex(ValueError, "invalid output"):
+            self.assertRaisesRegex(ValueError, "invalid output"),
+        ):
             _capture_requirements(["ssh"])
 
     def test_rejects_duplicate_capture_assessment_size(self) -> None:
-        with patch(
-            "hyops.lab.migration.subprocess.run",
-            return_value=subprocess.CompletedProcess(
-                ["ssh"],
-                0,
-                b"primary_bytes=4096\nprimary_bytes=8192\nnode_state_bytes=0\n",
-                b"",
+        with (
+            patch(
+                "hyops.lab.migration.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    ["ssh"],
+                    0,
+                    b"primary_bytes=4096\nprimary_bytes=8192\nnode_state_bytes=0\n",
+                    b"",
+                ),
             ),
-        ), self.assertRaisesRegex(ValueError, "duplicate size"):
+            self.assertRaisesRegex(ValueError, "duplicate size"),
+        ):
             _capture_requirements(["ssh"])
 
     def test_captures_eve_archive_and_node_state_over_ssh(self) -> None:
@@ -522,19 +595,24 @@ class LabMigrationCaptureTest(TestCase):
             stdout.write(next(streams))
             return subprocess.CompletedProcess(argv, 0, b"", b"")
 
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "hyops.lab.migration._capture_requirements",
-            return_value={
-                "primary_bytes": len(primary),
-                "node_state_bytes": len(nodes),
-                "image_bytes": 0,
-            },
-        ), patch(
-            "hyops.lab.migration._close_ssh_control",
-        ), patch(
-            "hyops.lab.migration.subprocess.run",
-            side_effect=run_capture,
-        ) as run:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "hyops.lab.migration._capture_requirements",
+                return_value={
+                    "primary_bytes": len(primary),
+                    "node_state_bytes": len(nodes),
+                    "image_bytes": 0,
+                },
+            ),
+            patch(
+                "hyops.lab.migration._close_ssh_control",
+            ),
+            patch(
+                "hyops.lab.migration.subprocess.run",
+                side_effect=run_capture,
+            ) as run,
+        ):
             output = Path(tmp) / "eve.tar.gz"
             report = capture_existing_lab(
                 platform="eve-ng",
@@ -561,13 +639,16 @@ class LabMigrationCaptureTest(TestCase):
             self.assertEqual(len(control_paths), 1)
 
     def test_capture_failure_does_not_publish_partial_output(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "hyops.lab.migration.subprocess.run",
-            return_value=subprocess.CompletedProcess(
-                ["ssh"],
-                21,
-                b"",
-                b"EVE-NG QEMU nodes are running",
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "hyops.lab.migration.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    ["ssh"],
+                    21,
+                    b"",
+                    b"EVE-NG QEMU nodes are running",
+                ),
             ),
         ):
             output = Path(tmp) / "eve.tar.gz"
@@ -583,33 +664,39 @@ class LabMigrationCaptureTest(TestCase):
     def test_capture_translates_late_disk_full_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             candidate = Path(tmp) / "capture.candidate"
-            with patch(
-                "hyops.lab.migration.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    ["ssh"], 1, b"", b"write failed: No space left on device"
+            with (
+                patch(
+                    "hyops.lab.migration.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        ["ssh"], 1, b"", b"write failed: No space left on device"
+                    ),
                 ),
-            ), self.assertRaisesRegex(
-                ValueError,
-                "output filesystem became full",
+                self.assertRaisesRegex(
+                    ValueError,
+                    "output filesystem became full",
+                ),
             ):
                 _capture_stream(["ssh"], candidate)
 
     def test_capture_translates_remote_capacity_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             candidate = Path(tmp) / "capture.candidate"
-            with patch(
-                "hyops.lab.migration.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    ["ssh"],
-                    23,
-                    b"",
-                    b"Insufficient disk space for lab capture: source requires "
-                    b"at least 171627474944 bytes; output filesystem has "
-                    b"11821371392 bytes available",
+            with (
+                patch(
+                    "hyops.lab.migration.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        ["ssh"],
+                        23,
+                        b"",
+                        b"Insufficient disk space for lab capture: source requires "
+                        b"at least 171627474944 bytes; output filesystem has "
+                        b"11821371392 bytes available",
+                    ),
                 ),
-            ), self.assertRaisesRegex(
-                ValueError,
-                r"159\.8 GiB.*11\.0 GiB",
+                self.assertRaisesRegex(
+                    ValueError,
+                    r"159\.8 GiB.*11\.0 GiB",
+                ),
             ):
                 _capture_stream(["ssh"], candidate)
 
@@ -650,34 +737,33 @@ class LabMigrationCaptureTest(TestCase):
 
     def test_captures_referenced_eve_images_as_a_companion(self) -> None:
         primary = _tar_bytes(
-            {
-                "0/network.unl": (
-                    b'<lab><node type="qemu" image="vios-159" /></lab>'
-                )
-            }
+            {"0/network.unl": (b'<lab><node type="qemu" image="vios-159" /></lab>')}
         )
-        images = _tar_bytes(
-            {"qemu/vios-159/virtioa.qcow2": b"base image"}
-        )
+        images = _tar_bytes({"qemu/vios-159/virtioa.qcow2": b"base image"})
         streams = iter((primary, images))
 
         def run_capture(argv, *, stdout, stderr, check):
             stdout.write(next(streams))
             return subprocess.CompletedProcess(argv, 0, b"", b"")
 
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "hyops.lab.migration._capture_requirements",
-            return_value={
-                "primary_bytes": len(primary),
-                "node_state_bytes": 0,
-                "image_bytes": len(images),
-            },
-        ), patch(
-            "hyops.lab.migration._close_ssh_control",
-        ), patch(
-            "hyops.lab.migration.subprocess.run",
-            side_effect=run_capture,
-        ) as run:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "hyops.lab.migration._capture_requirements",
+                return_value={
+                    "primary_bytes": len(primary),
+                    "node_state_bytes": 0,
+                    "image_bytes": len(images),
+                },
+            ),
+            patch(
+                "hyops.lab.migration._close_ssh_control",
+            ),
+            patch(
+                "hyops.lab.migration.subprocess.run",
+                side_effect=run_capture,
+            ) as run,
+        ):
             output = Path(tmp) / "eve.tar.gz"
             report = capture_existing_lab(
                 platform="eve-ng",
@@ -703,18 +789,23 @@ class LabMigrationCaptureTest(TestCase):
             self.assertIn("Insufficient disk space for lab capture", argv[-1])
             return subprocess.CompletedProcess(argv, 0, b"", b"")
 
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "hyops.lab.migration._capture_requirements",
-            return_value={
-                "primary_bytes": len(primary),
-                "node_state_bytes": 0,
-                "image_bytes": 0,
-            },
-        ), patch(
-            "hyops.lab.migration._close_ssh_control",
-        ), patch(
-            "hyops.lab.migration.subprocess.run",
-            side_effect=run_capture,
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "hyops.lab.migration._capture_requirements",
+                return_value={
+                    "primary_bytes": len(primary),
+                    "node_state_bytes": 0,
+                    "image_bytes": 0,
+                },
+            ),
+            patch(
+                "hyops.lab.migration._close_ssh_control",
+            ),
+            patch(
+                "hyops.lab.migration.subprocess.run",
+                side_effect=run_capture,
+            ),
         ):
             report = capture_existing_lab(
                 platform="gns3",
@@ -726,21 +817,27 @@ class LabMigrationCaptureTest(TestCase):
         self.assertEqual(report["platform"], "gns3")
 
     def test_capture_reports_insufficient_output_disk_space(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "hyops.lab.migration.shutil.disk_usage",
-            return_value=SimpleNamespace(free=1),
-        ), patch(
-            "hyops.lab.migration._capture_requirements",
-            return_value={
-                "primary_bytes": 1048576,
-                "node_state_bytes": 0,
-                "image_bytes": 0,
-            },
-        ), patch(
-            "hyops.lab.migration._close_ssh_control",
-        ), patch(
-            "hyops.lab.migration._capture_stream",
-        ) as capture_stream:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "hyops.lab.migration.shutil.disk_usage",
+                return_value=SimpleNamespace(free=1),
+            ),
+            patch(
+                "hyops.lab.migration._capture_requirements",
+                return_value={
+                    "primary_bytes": 1048576,
+                    "node_state_bytes": 0,
+                    "image_bytes": 0,
+                },
+            ),
+            patch(
+                "hyops.lab.migration._close_ssh_control",
+            ),
+            patch(
+                "hyops.lab.migration._capture_stream",
+            ) as capture_stream,
+        ):
             output = Path(tmp) / "eve.tar.gz"
             with self.assertRaisesRegex(
                 ValueError,
@@ -802,7 +899,9 @@ class LabMigrationCaptureTest(TestCase):
             self.assertEqual(assessment.returncode, 0, assessment.stderr.decode())
             self.assertGreater(int(assessment.stdout), 0)
             self.assertEqual(capture.returncode, 0, capture.stderr.decode())
-            with tarfile.open(fileobj=io.BytesIO(capture.stdout), mode="r:gz") as handle:
+            with tarfile.open(
+                fileobj=io.BytesIO(capture.stdout), mode="r:gz"
+            ) as handle:
                 members = handle.getnames()
 
         self.assertIn("qemu/vios-159/virtioa.qcow2", members)

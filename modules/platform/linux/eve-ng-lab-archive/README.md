@@ -55,9 +55,11 @@ restores those referenced bases before lab definitions and QEMU overlays:
 eveng_lab_archive_restore_images: true
 eveng_lab_archive_images_path: <verified-image-archive>
 eveng_lab_archive_images_expected_sha256: <sha256>
+eveng_lab_archive_overwrite_images: false
 ```
 
 Image companions contain referenced QEMU, IOL or Dynamips bases only. They do
-not contain IOL licence material.
+not contain IOL licence material. Image replacement is staged and promoted as
+a separate transaction when overwrite is enabled explicitly.
 
 EVE-NG blueprints use this contract as their archive-before-release path. A later deployment with `--restore-labs` selects and verifies the retained environment archive before restoration.

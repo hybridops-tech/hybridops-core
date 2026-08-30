@@ -101,7 +101,7 @@ stopped QEMU overlays, when selected -------+--> controller-side retained set
                                                compute release
 ```
 
-Vendor or base images remain separately managed. Restored overlays are paired with the matching installed base images. This keeps the retained continuity set focused on lab-owned mutable state.
+Base images remain separately managed during routine preservation. A verified migration intake can carry only the bases referenced by the imported labs. Restored overlays are paired with those installed bases.
 
 ## Restore path
 
@@ -112,7 +112,7 @@ existing EVE-NG lab. Intake checks its lab definitions, archive paths, image
 references and optional QEMU overlay layout, then binds the retained copy to
 this blueprint. The source host remains unchanged.
 
-Existing lab content is protected by default. Replacement requires the explicit overwrite option.
+Existing lab definitions and base images are protected independently. Replacement requires `--overwrite-labs` or `--overwrite-images` for the relevant content.
 
 The restore path reconstructs the surrounding execution environment while returning EVE-NG definitions and selected QEMU state to EVE-NG rather than translating them into another lab format.
 
