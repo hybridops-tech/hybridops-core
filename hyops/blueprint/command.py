@@ -3879,11 +3879,16 @@ def _verified_lab_archive(
             state_instance=lifecycle["state_instance"],
         )
     except FileNotFoundError:
-        return None
+        state = {}
     outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
     contract = _lab_archive_contract(lifecycle)
-    archive_path = Path(str(outputs.get(contract["path_output"]) or "")).expanduser()
+    archive_value = str(outputs.get(contract["path_output"]) or "").strip()
     expected = str(outputs.get(contract["sha256_output"]) or "").strip().lower()
+    if not archive_value and not expected:
+        from hyops.lab.migration import load_migration_archive
+
+        return load_migration_archive(paths=paths, payload=payload)
+    archive_path = Path(archive_value).expanduser()
     if not archive_path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", expected):
         return None
 

@@ -2,6 +2,16 @@
 
 This changelog records significant operator-facing capabilities, lifecycle changes, compatibility fixes, and release engineering updates. Individual commits and maintenance-only changes remain available through the linked comparisons.
 
+## Unreleased
+
+### Added
+
+- Added verified same-platform migration intake for existing EVE-NG and GNS3
+  labs. Imported bundles are inspected, checksum-verified, bound to the
+  selected blueprint reference and restored through the existing lifecycle.
+- Added capacity gates for lab capture, migration import and target restore so
+  insufficient disk space is reported before existing lab data is replaced.
+
 ## [v0.1.4] - 2026-08-29
 
 ### Added

@@ -25,5 +25,6 @@ EVE-NG credentials and authorised IOL licence content belong in the encrypted en
 ## Documentation
 
 - [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-eve-ng/)
+- [Existing lab migration](../../../README.md#existing-lab-migration)
 - [Lifecycle and ownership](ARCHITECTURE.md)
 - [Proxmox blueprint](../../onprem/eve-ng@v1/blueprint.yml)

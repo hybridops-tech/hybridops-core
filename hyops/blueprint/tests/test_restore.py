@@ -123,12 +123,34 @@ class BlueprintLabRestoreTest(TestCase):
         with patch(
             "hyops.blueprint.command.read_module_state",
             side_effect=FileNotFoundError,
+        ), patch(
+            "hyops.lab.migration.load_migration_archive",
+            return_value=None,
         ), self.assertRaisesRegex(ValueError, "no verified lab archive"):
             _select_lab_restore_mode(
                 _namespace(restore_labs=True),
                 _payload(),
                 paths,
             )
+
+    def test_explicit_restore_accepts_staged_migration_archive(self):
+        imported = (Path("/tmp/imported.tar.gz"), "d" * 64, None, "")
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+        with patch(
+            "hyops.blueprint.command.read_module_state",
+            side_effect=FileNotFoundError,
+        ), patch(
+            "hyops.lab.migration.load_migration_archive",
+            return_value=imported,
+        ):
+            mode, selected = _select_lab_restore_mode(
+                _namespace(restore_labs=True),
+                _payload(),
+                paths,
+            )
+
+        self.assertEqual(mode, "restore")
+        self.assertEqual(selected, imported)
 
     def test_checksum_mismatch_stops_restore(self):
         with tempfile.TemporaryDirectory() as tmp:

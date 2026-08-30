@@ -15,6 +15,7 @@ from hyops.runtime.layout import ensure_layout
 from hyops.runtime.paths import resolve_runtime_paths
 from hyops.init.command import add_init_subparser
 from hyops.inventory.command import add_inventory_subparser
+from hyops.lab.command import add_lab_subparser
 from hyops.module.command import add_module_subparser
 from hyops.preflight.command import add_preflight_subparser
 from hyops.runner.command import add_runner_subparser
@@ -126,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
             print("WARN: blueprint command disabled; missing dependency: PyYAML", file=sys.stderr)
         else:
             raise
+    add_lab_subparser(sp)
     add_terragrunt_subparser(sp)
     add_tfc_subparser(sp)
     add_stacks_subparser(sp)

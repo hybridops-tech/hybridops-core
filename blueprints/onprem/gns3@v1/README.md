@@ -26,4 +26,5 @@ The target bridge must provide VM connectivity. The GNS3 server password and aut
 ## Documentation
 
 - [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-gns3/)
+- [Existing lab migration](../../../README.md#existing-lab-migration)
 - [GCP blueprint](../../gcp/gns3@v1/blueprint.yml)

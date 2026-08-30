@@ -143,8 +143,64 @@ hyops blueprint deploy --env <env> \
 ```
 
 Use `--root /tmp/hyops-runtime` when an explicit runtime root is required. The
-[GCP EVE-NG blueprint](gcp/eve-ng@v1/README.md) contains the complete operating
-sequence.
+[GCP EVE-NG blueprint](gcp/eve-ng@v1/README.md) links to the complete operator
+runbook.
+
+## Existing lab migration
+
+Existing EVE-NG and GNS3 labs can be inspected and staged before a new
+HybridOps-managed host is deployed. Migration remains within the same lab
+platform. The source host is not modified.
+
+Save intended device configurations and stop the source nodes before capture:
+
+```bash
+hyops lab migrate capture \
+  --platform eve-ng \
+  --host <existing-host> \
+  --user <ssh-user> \
+  --output ./eve-ng-labs.tar.gz \
+  --include-node-state
+```
+
+Capture refuses to proceed while EVE-NG QEMU nodes or the GNS3 server are
+running. Use `--become` when the SSH account has passwordless sudo access.
+GNS3 images remain separate unless `--include-images` is selected.
+
+Inspect an archive first:
+
+```bash
+hyops lab migrate inspect \
+  --platform eve-ng \
+  --archive ./eve-ng-labs.tar.gz \
+  --node-state ./eve-ng-labs.node-state.tar.gz
+```
+
+Stage the verified bundle for an initialized environment:
+
+```bash
+hyops lab migrate import \
+  --env <env> \
+  --ref gcp/eve-ng@v1 \
+  --platform eve-ng \
+  --archive ./eve-ng-labs.tar.gz \
+  --node-state ./eve-ng-labs.node-state.tar.gz
+
+hyops blueprint deploy \
+  --env <env> \
+  --ref gcp/eve-ng@v1 \
+  --execute \
+  --restore-labs
+```
+
+The EVE-NG primary archive must be relative to `/opt/unetlab/labs`. Its
+optional node-state companion contains stopped QEMU overlays using the EVE-NG
+tenant, lab and node path layout. A GNS3 archive must be relative to its data
+root and contain `projects/` state. Base images and licence material remain
+separately managed. Use `--expected-sha256` and
+`--node-state-expected-sha256` when checksums were recorded at the source.
+Capture and import retain 64 MiB free on the controller filesystem. Restore
+checks the target filesystem before existing lab data is replaced.
 
 ## Shipped Blueprint Boundary
 

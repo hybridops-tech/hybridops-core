@@ -107,6 +107,11 @@ Vendor or base images remain separately managed. Restored overlays are paired wi
 
 `--restore-labs` selects the latest verified archive state recorded for the environment. The runtime verifies the primary archive checksum and, when present, the node-state companion checksum before invoking the archive module in restore mode.
 
+A verified migration bundle can provide the initial archive state for an
+existing EVE-NG lab. Intake checks its lab definitions, archive paths, image
+references and optional QEMU overlay layout, then binds the retained copy to
+this blueprint. The source host remains unchanged.
+
 Existing lab content is protected by default. Replacement requires the explicit overwrite option.
 
 The restore path reconstructs the surrounding execution environment while returning EVE-NG definitions and selected QEMU state to EVE-NG rather than translating them into another lab format.
