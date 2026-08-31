@@ -454,6 +454,50 @@ class LabMigrationStagingTest(TestCase):
             self.assertEqual(record["status"], "verified")
             self.assertTrue(migration_record_path(paths, "gcp/eve-ng@v1").is_file())
 
+    def test_import_reports_verification_and_archive_staging_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = RuntimePaths.from_root(Path(tmp) / "runtime")
+            ensure_layout(paths)
+            archive = Path(tmp) / "eve.tar.gz"
+            node_state = Path(tmp) / "nodes.tar.gz"
+            images = Path(tmp) / "images.tar.gz"
+            _write_tar(
+                archive,
+                {"0/network.unl": b'<lab><node type="qemu" image="vios" /></lab>'},
+            )
+            _write_tar(node_state, {"0/network/1/virtioa.qcow2": b"overlay"})
+            _write_tar(images, {"qemu/vios/virtioa.qcow2": b"base"})
+            events: list[dict[str, object]] = []
+
+            stage_migration_archive(
+                paths=paths,
+                payload=_eve_payload(),
+                platform="eve-ng",
+                archive=archive,
+                node_state=node_state,
+                images=images,
+                progress=events.append,
+            )
+
+        phases = [event["phase"] for event in events]
+        self.assertEqual(phases[0], "import_verification_started")
+        self.assertEqual(phases[1], "import_verification_finished")
+        self.assertEqual(
+            [
+                event["stage"]
+                for event in events
+                if event["phase"] == "stage_finished"
+            ],
+            ["lab_definitions", "node_state", "referenced_images"],
+        )
+        self.assertTrue(
+            all(
+                event["status"] == "ok"
+                for event in events
+                if event["phase"] == "stage_finished"
+            )
+        )
+
     def test_import_is_idempotent_for_same_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = RuntimePaths.from_root(Path(tmp) / "runtime")

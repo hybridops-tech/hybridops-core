@@ -1914,33 +1914,84 @@ def _publish_containerlab_latest(
     }
 
 
-def _copy_verified(source: Path, destination: Path, checksum: str) -> None:
+def _copy_verified(
+    source: Path,
+    destination: Path,
+    checksum: str,
+    *,
+    stage: str,
+    progress: CaptureProgress | None = None,
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(destination.parent, 0o700)
     if destination.is_symlink():
         raise ValueError(f"staged archive must not be a symbolic link: {destination}")
     if destination.exists() and not destination.is_file():
         raise ValueError(f"staged archive is not a regular file: {destination}")
-    if destination.is_file() and _sha256(destination) == checksum:
-        os.chmod(destination, 0o600)
-        return
-    fd, candidate_name = tempfile.mkstemp(
-        prefix=destination.name + ".",
-        suffix=".candidate",
-        dir=str(destination.parent),
-    )
-    candidate = Path(candidate_name)
+    total = source.stat().st_size
+    started = time.monotonic()
+    written = 0
+    finished = False
+
+    def emit(phase: str, *, status: str = "running") -> None:
+        if progress is None:
+            return
+        elapsed = max(0.0, time.monotonic() - started)
+        progress(
+            {
+                "phase": phase,
+                "stage": stage,
+                "status": status,
+                "bytes_written": written,
+                "total_bytes": total,
+                "elapsed_seconds": elapsed,
+                "bytes_per_second": written / elapsed if elapsed > 0 else 0.0,
+            }
+        )
+
+    emit("stage_started")
     try:
-        with os.fdopen(fd, "wb") as target_handle, source.open("rb") as source_handle:
-            shutil.copyfileobj(source_handle, target_handle, length=1024 * 1024)
-            target_handle.flush()
-            os.fsync(target_handle.fileno())
-        os.chmod(candidate, 0o600)
-        if _sha256(candidate) != checksum:
-            raise ValueError(f"staged archive checksum verification failed: {source}")
-        os.replace(candidate, destination)
-    finally:
-        candidate.unlink(missing_ok=True)
+        if destination.is_file() and _sha256(destination) == checksum:
+            written = total
+            os.chmod(destination, 0o600)
+            emit("stage_finished", status="skipped")
+            finished = True
+            return
+
+        fd, candidate_name = tempfile.mkstemp(
+            prefix=destination.name + ".",
+            suffix=".candidate",
+            dir=str(destination.parent),
+        )
+        candidate = Path(candidate_name)
+        try:
+            last_update = started
+            with os.fdopen(fd, "wb") as target_handle, source.open("rb") as source_handle:
+                while chunk := source_handle.read(1024 * 1024):
+                    target_handle.write(chunk)
+                    written += len(chunk)
+                    now = time.monotonic()
+                    if now - last_update >= 1.0:
+                        emit("stage_progress")
+                        last_update = now
+                emit("stage_progress")
+                target_handle.flush()
+                os.fsync(target_handle.fileno())
+            os.chmod(candidate, 0o600)
+            emit("stage_verifying")
+            if _sha256(candidate) != checksum:
+                raise ValueError(
+                    f"staged archive checksum verification failed: {source}"
+                )
+            os.replace(candidate, destination)
+        finally:
+            candidate.unlink(missing_ok=True)
+        emit("stage_finished", status="ok")
+        finished = True
+    except Exception:
+        if not finished:
+            emit("stage_finished", status="failed")
+        raise
 
 
 def _write_record(path: Path, record: dict[str, Any]) -> None:
@@ -1972,6 +2023,7 @@ def stage_migration_archive(
     node_state_expected_sha256: str = "",
     images_expected_sha256: str = "",
     force: bool = False,
+    progress: CaptureProgress | None = None,
 ) -> dict[str, Any]:
     platform_name = str(platform or "").strip().lower()
     target_platform = platform_for_blueprint(payload)
@@ -1979,15 +2031,36 @@ def stage_migration_archive(
         raise ValueError(
             f"source platform {platform_name} does not match target blueprint platform {target_platform}"
         )
-    inspection = inspect_migration_archive(
-        platform=platform_name,
-        archive=archive,
-        node_state=node_state,
-        images=images,
-        expected_sha256=expected_sha256,
-        node_state_expected_sha256=node_state_expected_sha256,
-        images_expected_sha256=images_expected_sha256,
-    )
+    if progress is not None:
+        progress({"phase": "import_verification_started", "stage": "verification"})
+    try:
+        inspection = inspect_migration_archive(
+            platform=platform_name,
+            archive=archive,
+            node_state=node_state,
+            images=images,
+            expected_sha256=expected_sha256,
+            node_state_expected_sha256=node_state_expected_sha256,
+            images_expected_sha256=images_expected_sha256,
+        )
+    except Exception:
+        if progress is not None:
+            progress(
+                {
+                    "phase": "import_verification_finished",
+                    "stage": "verification",
+                    "status": "failed",
+                }
+            )
+        raise
+    if progress is not None:
+        progress(
+            {
+                "phase": "import_verification_finished",
+                "stage": "verification",
+                "status": "ok",
+            }
+        )
     containerlab_metadata = inspection.get("containerlab")
     if platform_name == "containerlab":
         if not isinstance(containerlab_metadata, dict):
@@ -2100,6 +2173,8 @@ def stage_migration_archive(
         Path(inspection["archive"]["path"]),
         archive_destination,
         inspection["archive"]["sha256"],
+        stage="lab_definitions",
+        progress=progress,
     )
 
     staged_node: dict[str, Any] | None = None
@@ -2108,6 +2183,8 @@ def stage_migration_archive(
             Path(node_inspection["path"]),
             node_destination,
             node_inspection["sha256"],
+            stage="node_state",
+            progress=progress,
         )
         staged_node = {
             key: value for key, value in node_inspection.items() if key != "path"
@@ -2120,6 +2197,8 @@ def stage_migration_archive(
             Path(image_inspection["path"]),
             image_destination,
             image_inspection["sha256"],
+            stage="referenced_images",
+            progress=progress,
         )
         staged_images = {
             key: value for key, value in image_inspection.items() if key != "path"

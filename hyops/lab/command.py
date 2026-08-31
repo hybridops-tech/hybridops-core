@@ -32,6 +32,12 @@ _CAPTURE_LABELS = {
     "verification": "Archive verification",
 }
 
+_IMPORT_LABELS = {
+    "lab_definitions": "Lab definitions",
+    "node_state": "Node state",
+    "referenced_images": "Referenced images",
+}
+
 
 def _concise_bytes(value: int | float) -> str:
     return _format_bytes(max(0, int(value))).split(" (", 1)[0]
@@ -122,6 +128,87 @@ class _CaptureProgress:
                 status,
                 plain=f"capture=verification status={status}",
             )
+
+
+class _ImportProgress:
+    def __init__(self) -> None:
+        self.display = ProgressDisplay()
+        self._plain_last: dict[str, float] = {}
+
+    def __call__(self, event: dict[str, Any]) -> None:
+        phase = str(event.get("phase") or "")
+        if phase in {"import_verification_started", "import_verification_finished"}:
+            key = "lab-migration-import-verification"
+            label = "Bundle verification"
+            if phase == "import_verification_started":
+                self.display.start(
+                    key,
+                    label,
+                    plain="import=verification status=running",
+                )
+                return
+            status = str(event.get("status") or "failed")
+            self.display.finish(
+                key,
+                label,
+                status,
+                plain=f"import=verification status={status}",
+            )
+            return
+
+        stage = str(event.get("stage") or "archive")
+        label = _IMPORT_LABELS.get(stage, stage.replace("_", " ").title())
+        key = f"lab-migration-import-{stage}"
+        written = int(event.get("bytes_written") or 0)
+        total = int(event.get("total_bytes") or 0)
+        elapsed = float(event.get("elapsed_seconds") or 0.0)
+        rate = float(event.get("bytes_per_second") or 0.0)
+
+        if phase == "stage_started":
+            self.display.start(
+                key,
+                label,
+                plain=f"import={stage} status=running bytes_total={total}",
+            )
+            self._plain_last[key] = 0.0
+            return
+
+        if phase == "stage_progress":
+            current = f"{label}  {_concise_bytes(written)}/{_concise_bytes(total)}"
+            if rate > 0:
+                current += f"  {_concise_rate(rate)}"
+            self.display.update(key, current)
+            last = self._plain_last.get(key, 0.0)
+            if not self.display.enabled and elapsed - last >= 30.0:
+                print(
+                    f"import={stage} status=running bytes={written} "
+                    f"total_bytes={total} rate_bps={int(rate)} "
+                    f"elapsed_s={int(elapsed)}",
+                    flush=True,
+                )
+                self._plain_last[key] = elapsed
+            return
+
+        if phase == "stage_verifying":
+            self.display.update(key, f"Verifying {label.lower()}")
+            if not self.display.enabled:
+                print(f"import={stage} status=verifying", flush=True)
+            return
+
+        if phase == "stage_finished":
+            status = str(event.get("status") or "failed")
+            detail = "already staged" if status == "skipped" else _concise_bytes(written)
+            self.display.finish(
+                key,
+                label,
+                status,
+                plain=(
+                    f"import={stage} status={status} bytes={written} "
+                    f"elapsed_s={int(elapsed)}"
+                ),
+                detail=detail,
+            )
+            self._plain_last.pop(key, None)
 
 
 def _add_archive_args(parser: argparse.ArgumentParser) -> None:
@@ -365,6 +452,7 @@ def run_inspect(ns) -> int:
 
 
 def run_import(ns) -> int:
+    progress = None if ns.json else _ImportProgress()
     try:
         require_runtime_selection(
             ns.root,
@@ -396,6 +484,7 @@ def run_import(ns) -> int:
             node_state_expected_sha256=ns.node_state_expected_sha256,
             images_expected_sha256=ns.images_expected_sha256,
             force=ns.force,
+            progress=progress,
         )
     except (OSError, ValueError) as exc:
         detail = (
