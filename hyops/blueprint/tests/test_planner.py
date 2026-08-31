@@ -96,11 +96,10 @@ class PlannedDependencyPreflightTest(TestCase):
                 },
             ],
         }
-        preflight_step.return_value = {
-            "id": "config",
-            "status": "ready",
-            "optional": False,
-        }
+        preflight_step.side_effect = [
+            {"id": "config", "status": "ready", "optional": False},
+            {"id": "health", "status": "ready", "optional": False},
+        ]
 
         results, required_failures, optional_failures = compute_preflight(
             payload,
@@ -109,10 +108,77 @@ class PlannedDependencyPreflightTest(TestCase):
         )
 
         self.assertEqual([item["status"] for item in results], ["ready", "ready"])
-        self.assertIn("configuration runs", results[1]["checks"][0]["detail"])
         self.assertEqual(required_failures, [])
         self.assertEqual(optional_failures, [])
-        preflight_step.assert_called_once()
+        self.assertEqual(preflight_step.call_count, 2)
+        health_call = preflight_step.call_args_list[1]
+        self.assertEqual(
+            health_call.kwargs["deferred_driver_preflight_refs"],
+            {"platform/linux/eve-ng#student_config"},
+        )
+
+    @patch(
+        "hyops.drivers.config.ansible.runtime_env.ensure_hybridops_collections_available",
+        return_value="",
+    )
+    @patch("hyops.blueprint.planner.preflight_step")
+    def test_local_requirements_block_after_planned_configuration(
+        self,
+        preflight_step,
+        _collections,
+    ):
+        payload = {
+            "order": ["config", "images"],
+            "steps": [
+                {
+                    "id": "config",
+                    "module_ref": "platform/linux/eve-ng",
+                    "state_instance": "student_config",
+                    "action": "deploy",
+                    "phase": "operations",
+                    "optional": False,
+                },
+                {
+                    "id": "images",
+                    "module_ref": "platform/linux/eve-ng-images",
+                    "state_instance": "student_images",
+                    "action": "deploy",
+                    "phase": "operations",
+                    "optional": False,
+                    "requires": ["config"],
+                },
+            ],
+        }
+        preflight_step.side_effect = [
+            {"id": "config", "status": "ready", "optional": False},
+            {
+                "id": "images",
+                "status": "blocked",
+                "optional": False,
+                "checks": [
+                    {
+                        "name": "required_env",
+                        "ok": False,
+                        "detail": "missing required env vars: EVENG_IOL_LICENSE",
+                    }
+                ],
+            },
+        ]
+
+        results, required_failures, optional_failures = compute_preflight(
+            payload,
+            SimpleNamespace(),
+            SimpleNamespace(state_dir="/tmp/state", root=Path("/tmp/runtime")),
+        )
+
+        self.assertEqual([item["status"] for item in results], ["ready", "blocked"])
+        self.assertEqual(required_failures, ["images"])
+        self.assertEqual(optional_failures, [])
+        images_call = preflight_step.call_args_list[1]
+        self.assertEqual(
+            images_call.kwargs["deferred_driver_preflight_refs"],
+            {"platform/linux/eve-ng#student_config"},
+        )
 
     @patch("hyops.blueprint.planner.module_state_ok", return_value=True)
     @patch("hyops.blueprint.planner.preflight_step")
