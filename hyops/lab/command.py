@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
+import time
 from typing import Any
 
 from hyops.runtime.exitcodes import OPERATOR_ERROR
@@ -47,10 +48,17 @@ def _concise_rate(value: int | float) -> str:
     return f"{_concise_bytes(value)}/s"
 
 
+def _concise_duration(value: int | float) -> str:
+    seconds = max(0, int(value))
+    minutes, seconds = divmod(seconds, 60)
+    return f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+
+
 class _CaptureProgress:
     def __init__(self) -> None:
-        self.display = ProgressDisplay()
+        self.display = ProgressDisplay(show_elapsed=False)
         self._plain_last: dict[str, float] = {}
+        self._verification_started = 0.0
 
     def __call__(self, event: dict[str, Any]) -> None:
         phase = str(event.get("phase") or "")
@@ -107,12 +115,16 @@ class _CaptureProgress:
                     f"capture={stage} status={status} bytes={written} "
                     f"elapsed_s={int(elapsed)}"
                 ),
-                detail=f"{_concise_bytes(written)}  {_concise_rate(rate)}",
+                detail=(
+                    f"{_concise_duration(elapsed)}  "
+                    f"{_concise_bytes(written)}  {_concise_rate(rate)}"
+                ),
             )
             self._plain_last.pop(key, None)
             return
 
         if phase == "verification_started":
+            self._verification_started = time.monotonic()
             self.display.start(
                 key,
                 label,
@@ -122,12 +134,19 @@ class _CaptureProgress:
 
         if phase == "verification_finished":
             status = str(event.get("status") or "failed")
+            elapsed = (
+                time.monotonic() - self._verification_started
+                if self._verification_started
+                else 0.0
+            )
             self.display.finish(
                 key,
                 label,
                 status,
                 plain=f"capture=verification status={status}",
+                detail=_concise_duration(elapsed),
             )
+            self._verification_started = 0.0
 
 
 class _ImportProgress:

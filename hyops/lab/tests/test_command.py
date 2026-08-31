@@ -12,6 +12,7 @@ class CaptureProgressTest(TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             progress = _CaptureProgress()
+            self.assertFalse(progress.display.show_elapsed)
             progress(
                 {
                     "phase": "assessment_finished",
@@ -59,6 +60,7 @@ class ImportProgressTest(TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             progress = _ImportProgress()
+            self.assertFalse(progress.display.show_elapsed)
             progress({"phase": "import_verification_started"})
             progress(
                 {
