@@ -23,6 +23,20 @@ _GNS3_IOU_HOST_MISMATCH = re.compile(
     r"([A-Za-z0-9][A-Za-z0-9_.-]*)",
     re.IGNORECASE,
 )
+_EVE_ARCHIVE_IMAGE_CONFLICT = re.compile(
+    r"EVE-NG image content already exists at\s+([^;\"\r\n]+);\s*"
+    r"use --overwrite-images only when replacement is intended",
+    re.IGNORECASE,
+)
+_EVE_ARCHIVE_LAB_CONFLICT = re.compile(
+    r"EVE-NG lab content already exists at\s+([^\"\r\n]+?)\.\s*Set\s+"
+    r"eveng_lab_archive_overwrite=true only when replacing it is intended",
+    re.IGNORECASE,
+)
+_EVE_ARCHIVE_NODE_STATE_CONFLICT = re.compile(
+    r"EVE-NG node state already exists:\s+([^\"\r\n]+?)\.\s*Enable overwrite only",
+    re.IGNORECASE,
+)
 
 
 def ansible_error_hint(
@@ -129,6 +143,31 @@ def ansible_error_hint(
             "EVE-NG nodes are still running. Stop all active lab nodes in the "
             "EVE-NG UI, then repeat the archive operation. No resources were destroyed."
         )
+
+    if module_ref.strip().lower() == "platform/linux/eve-ng-lab-archive":
+        image_conflict = _EVE_ARCHIVE_IMAGE_CONFLICT.search(tail)
+        if image_conflict:
+            path = image_conflict.group(1).strip()
+            return (
+                f"EVE-NG image content already exists at {path}. "
+                "Rerun with --overwrite-images only when replacement is intended."
+            )
+
+        lab_conflict = _EVE_ARCHIVE_LAB_CONFLICT.search(tail)
+        if lab_conflict:
+            path = lab_conflict.group(1).strip()
+            return (
+                f"EVE-NG lab content already exists at {path}. "
+                "Rerun with --overwrite-labs only when replacement is intended."
+            )
+
+        node_state_conflict = _EVE_ARCHIVE_NODE_STATE_CONFLICT.search(tail)
+        if node_state_conflict:
+            path = node_state_conflict.group(1).strip()
+            return (
+                f"EVE-NG node state already exists at {path}. "
+                "Rerun with --overwrite-labs only when replacement is intended."
+            )
 
     return ""
 

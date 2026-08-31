@@ -35,6 +35,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   transferring archives.
 - Retained the verified migration image companion across later lab archive
   generations and rejected unreferenced bases or IOL licence material.
+- Surfaced conflicting EVE-NG lab, node-state and image paths with the matching
+  explicit restore flag instead of a generic configuration failure.
 
 ## [v0.1.4] - 2026-08-29
 

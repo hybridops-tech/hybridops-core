@@ -164,6 +164,78 @@ class AnsibleResultHintTests(unittest.TestCase):
         self.assertIn("Stop all active lab nodes", hint)
         self.assertIn("No resources were destroyed", hint)
 
+    def test_eve_ng_archive_reports_existing_image_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            (evidence_dir / "ansible_apply.stdout.txt").write_text(
+                'fatal: [eve-ng-01]: FAILED! => {"msg": "EVE-NG image '
+                "content already exists at iol/bin/test.bin; use "
+                '--overwrite-images only when replacement is intended"}\n',
+                encoding="utf-8",
+            )
+
+            hint = ansible_error_hint(
+                command_name="apply",
+                module_ref="platform/linux/eve-ng-lab-archive",
+                inputs={},
+                evidence_dir=evidence_dir,
+                label="ansible_apply",
+            )
+
+        self.assertEqual(
+            hint,
+            "EVE-NG image content already exists at iol/bin/test.bin. "
+            "Rerun with --overwrite-images only when replacement is intended.",
+        )
+
+    def test_eve_ng_archive_reports_existing_lab_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            (evidence_dir / "ansible_apply.stdout.txt").write_text(
+                'fatal: [eve-ng-01]: FAILED! => {"msg": "EVE-NG lab content '
+                "already exists at student/lab.unl. Set "
+                'eveng_lab_archive_overwrite=true only when replacing it is intended."}\n',
+                encoding="utf-8",
+            )
+
+            hint = ansible_error_hint(
+                command_name="apply",
+                module_ref="platform/linux/eve-ng-lab-archive",
+                inputs={},
+                evidence_dir=evidence_dir,
+                label="ansible_apply",
+            )
+
+        self.assertEqual(
+            hint,
+            "EVE-NG lab content already exists at student/lab.unl. "
+            "Rerun with --overwrite-labs only when replacement is intended.",
+        )
+
+    def test_eve_ng_archive_reports_existing_node_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            (evidence_dir / "ansible_apply.stdout.txt").write_text(
+                'fatal: [eve-ng-01]: FAILED! => {"msg": "EVE-NG node state '
+                "already exists: 0/lab/1/virtioa.qcow2. Enable overwrite only "
+                'when replacement is intended."}\n',
+                encoding="utf-8",
+            )
+
+            hint = ansible_error_hint(
+                command_name="apply",
+                module_ref="platform/linux/eve-ng-lab-archive",
+                inputs={},
+                evidence_dir=evidence_dir,
+                label="ansible_apply",
+            )
+
+        self.assertEqual(
+            hint,
+            "EVE-NG node state already exists at 0/lab/1/virtioa.qcow2. "
+            "Rerun with --overwrite-labs only when replacement is intended.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
