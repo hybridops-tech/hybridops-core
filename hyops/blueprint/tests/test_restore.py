@@ -38,7 +38,7 @@ def _payload():
                 "eveng_lab_archive_action": "export",
                 "eveng_lab_archive_capture_device_configs": True,
                 "eveng_lab_archive_include_node_state": True,
-                "eveng_lab_archive_stop_running_nodes": True,
+                "eveng_lab_archive_stop_running_nodes": False,
             },
         }
     }

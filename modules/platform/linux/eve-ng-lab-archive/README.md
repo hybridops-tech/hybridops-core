@@ -21,10 +21,14 @@ For stopped-QEMU state, enable:
 
 ```yaml
 eveng_lab_archive_include_node_state: true
-eveng_lab_archive_stop_running_nodes: true
+eveng_lab_archive_stop_running_nodes: false
 ```
 
-The archive role stops running QEMU nodes, validates their overlay disks and creates a separately checksummed node-state companion archive. Base images remain independently managed and are paired with the restored overlays on the reconstructed host.
+Shut down stateful guests inside their operating systems, then stop the EVE-NG
+nodes. The archive role rejects running QEMU processes, validates the overlay
+disks and creates a separately checksummed node-state companion archive. Base
+images remain independently managed and are paired with the restored overlays
+on the reconstructed host.
 
 To refresh saved device configurations before export, enable:
 

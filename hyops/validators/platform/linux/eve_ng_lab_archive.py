@@ -98,10 +98,11 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError(
             "inputs.eveng_lab_archive_stop_running_nodes must be a boolean"
         )
-    if stop_running_nodes and (action != "export" or not include_node_state):
+    if stop_running_nodes:
         raise ValueError(
-            "inputs.eveng_lab_archive_stop_running_nodes requires an export "
-            "that includes node state"
+            "inputs.eveng_lab_archive_stop_running_nodes is not supported; "
+            "shut down stateful guests inside the guest and stop the remaining "
+            "EVE-NG nodes before export"
         )
     capture_device_configs = data.get("eveng_lab_archive_capture_device_configs")
     if not isinstance(capture_device_configs, bool):

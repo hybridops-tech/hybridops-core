@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from hyops.blueprint.command import (
     _confirm_archive_destroy,
+    _confirm_guest_quiescence,
     _destroyed_blueprint_cost_cleared,
     _gcp_blueprint_cost_estimate,
     _run_archive_before_destroy,
@@ -52,6 +53,7 @@ def _namespace():
         file=None,
         archive_before_destroy=False,
         skip_archive=False,
+        guest_quiesced=False,
     )
 
 
@@ -74,6 +76,35 @@ class ResumableBlueprintDestroyTest(TestCase):
             confirmed = _confirm_archive_destroy("test")
 
         self.assertIsNone(confirmed)
+
+    def test_node_state_archive_requires_quiescence_for_automatic_destroy(self):
+        ns = _namespace()
+        payload = {
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "requires --guest-quiesced"):
+            _confirm_guest_quiescence(ns, payload)
+
+    def test_interactive_node_state_archive_records_quiescence(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = {
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            }
+        }
+
+        with (
+            patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+            patch("hyops.blueprint.command.input", return_value="y"),
+        ):
+            confirmed = _confirm_guest_quiescence(ns, payload)
+
+        self.assertTrue(confirmed)
 
     def test_standalone_destroy_resolves_cost_from_access_state(self):
         payload = {
@@ -634,7 +665,7 @@ class ResumableBlueprintDestroyTest(TestCase):
         command.assert_called_once()
         self.assertEqual(command.call_args.args[0]["id"], "archive_before_destroy")
 
-    def test_interrupted_archive_reports_retained_resources_and_stopped_nodes(self):
+    def test_interrupted_archive_reports_retained_resources(self):
         payload = {
             "archive_before_destroy": {
                 "module_ref": "platform/test/archive",
@@ -657,10 +688,7 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(rc, CANCELLED)
         output = stdout.getvalue()
         self.assertIn("Archive interrupted. Resources were retained.", output)
-        self.assertIn(
-            "Some lab nodes may have been stopped. Check the lab before continuing.",
-            output,
-        )
+        self.assertIn("Check lab state before continuing.", output)
 
     def test_cancelled_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))

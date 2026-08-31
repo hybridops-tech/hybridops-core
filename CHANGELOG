@@ -21,6 +21,9 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 - Preferred sparse-aware, parallel level-one compression for remote lab capture
   when `pigz` is available, with `gzip -1` as the portable fallback.
+- Required an explicit guest-quiesced acknowledgement before EVE-NG QEMU
+  node-state capture and recorded the selected consistency boundary.
+- Rejected automatic QEMU termination during protected EVE-NG teardown.
 - Staged migrated EVE-NG images before transactional promotion and rollback.
 - Reported migration capture stages, assessed source sizes, transferred bytes,
   average rate and elapsed time during long-running archive streams.

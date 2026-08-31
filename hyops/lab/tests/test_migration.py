@@ -1000,11 +1000,16 @@ class LabMigrationCaptureTest(TestCase):
                 user="operator",
                 output=output,
                 include_node_state=True,
+                guest_quiesced=True,
                 progress=progress_events.append,
             )
 
             self.assertTrue(output.is_file())
             self.assertTrue(Path(report["node_state"]["path"]).is_file())
+            self.assertEqual(
+                report["node_state"]["capture_consistency"],
+                "guest-quiesced",
+            )
             self.assertEqual(report["definition_count"], 1)
             self.assertEqual(run.call_count, 2)
             control_paths = set()
@@ -1153,11 +1158,30 @@ class LabMigrationCaptureTest(TestCase):
                     host="eve.example.test",
                     output=output,
                     include_node_state=True,
+                    guest_quiesced=True,
                     node_state_output=node_output,
                 )
 
             self.assertFalse(output.exists())
             self.assertEqual(list(Path(tmp).glob("*.candidate")), [])
+
+    def test_node_state_capture_requires_guest_quiescence(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires --guest-quiesced"):
+            capture_existing_lab(
+                platform="eve-ng",
+                host="eve.example.test",
+                output="eve.tar.gz",
+                include_node_state=True,
+            )
+
+    def test_guest_quiescence_requires_node_state_capture(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires --include-node-state"):
+            capture_existing_lab(
+                platform="eve-ng",
+                host="eve.example.test",
+                output="eve.tar.gz",
+                guest_quiesced=True,
+            )
 
     def test_captures_referenced_eve_images_as_a_companion(self) -> None:
         primary = _tar_bytes(

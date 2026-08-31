@@ -61,7 +61,7 @@ archive_before_destroy:
     # Save intended device changes to startup configuration first.
     eveng_lab_archive_capture_device_configs: true
     eveng_lab_archive_include_node_state: true
-    eveng_lab_archive_stop_running_nodes: true
+    eveng_lab_archive_stop_running_nodes: false
 
 steps:
   - id: template_image_jammy

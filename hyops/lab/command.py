@@ -331,6 +331,14 @@ def add_lab_subparser(sp: argparse._SubParsersAction) -> None:
         help="Capture stopped EVE-NG QEMU overlays.",
     )
     capture_parser.add_argument(
+        "--guest-quiesced",
+        action="store_true",
+        help=(
+            "Confirm EVE-NG guests were shut down inside the guest before "
+            "node-state capture."
+        ),
+    )
+    capture_parser.add_argument(
         "--node-state-output",
         default="",
         help="Optional EVE-NG node-state output path.",
@@ -396,7 +404,11 @@ def _print_inspection(report: dict[str, Any]) -> None:
     print(f"image_references={len(report['image_references'])}")
     node_state = report.get("node_state")
     if isinstance(node_state, dict):
-        print(f"node_state=present overlays={node_state['overlay_count']}")
+        consistency = str(node_state.get("capture_consistency") or "unrecorded")
+        print(
+            f"node_state=present overlays={node_state['overlay_count']} "
+            f"consistency={consistency}"
+        )
     else:
         print("node_state=absent")
     images = report.get("images")
@@ -429,6 +441,7 @@ def run_capture(ns) -> int:
             identity_file=ns.identity_file or None,
             become=ns.become,
             include_node_state=ns.include_node_state,
+            guest_quiesced=ns.guest_quiesced,
             node_state_output=ns.node_state_output or None,
             include_images=ns.include_images,
             images_output=ns.images_output or None,

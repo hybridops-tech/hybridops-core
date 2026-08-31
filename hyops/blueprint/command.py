@@ -1139,6 +1139,14 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Destroy without exporting declared lab data.",
     )
+    d.add_argument(
+        "--guest-quiesced",
+        action="store_true",
+        help=(
+            "Confirm stateful EVE-NG guests were shut down inside the guest "
+            "before node-state capture."
+        ),
+    )
     d.set_defaults(_handler=run_destroy)
 
     b = ssp.add_parser(
@@ -4562,13 +4570,19 @@ def run_deploy(ns) -> int:
 def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> str:
     archive = payload.get("archive_before_destroy")
     if not isinstance(archive, dict) or not archive:
-        if bool(getattr(ns, "archive_before_destroy", False)) or bool(getattr(ns, "skip_archive", False)):
+        if (
+            bool(getattr(ns, "archive_before_destroy", False))
+            or bool(getattr(ns, "skip_archive", False))
+            or bool(getattr(ns, "guest_quiesced", False))
+        ):
             raise ValueError("this blueprint does not declare a lab archive lifecycle")
         return "none"
 
     if bool(getattr(ns, "archive_before_destroy", False)):
         return "archive"
     if bool(getattr(ns, "skip_archive", False)):
+        if bool(getattr(ns, "guest_quiesced", False)):
+            raise ValueError("--guest-quiesced requires --archive-before-destroy")
         return "skip"
 
     if bool(getattr(ns, "yes", False)) or not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -4591,6 +4605,38 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
         if selected is not None:
             return selected
         print("invalid choice; enter exactly 1, 2, or 3")
+
+
+def _archive_requires_guest_quiescence(payload: dict[str, Any]) -> bool:
+    archive = payload.get("archive_before_destroy")
+    if not isinstance(archive, dict):
+        return False
+    inputs = archive.get("inputs")
+    if not isinstance(inputs, dict):
+        return False
+    return bool(inputs.get("eveng_lab_archive_include_node_state", False))
+
+
+def _confirm_guest_quiescence(ns, payload: dict[str, Any]) -> bool | None:
+    if not _archive_requires_guest_quiescence(payload):
+        if bool(getattr(ns, "guest_quiesced", False)):
+            raise ValueError(
+                "--guest-quiesced is valid only for EVE-NG node-state archives"
+            )
+        return True
+    if bool(getattr(ns, "guest_quiesced", False)):
+        return True
+    if bool(getattr(ns, "yes", False)) or not (
+        sys.stdin.isatty() and sys.stdout.isatty()
+    ):
+        raise ValueError(
+            "EVE-NG node-state archive requires --guest-quiesced after shutting "
+            "down each stateful guest inside its operating system"
+        )
+    return _prompt_yes_no(
+        "Confirm stateful guests were shut down inside their operating systems "
+        "[y/N]: "
+    )
 
 
 def _confirm_archive_destroy(env_name: str) -> bool | None:
@@ -4617,7 +4663,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "with_deps": False,
         "inputs": archive.get("inputs") or {},
     }
-    print("preparing saved lab state; active nodes will be stopped")
+    print("preparing saved lab state; guests must already be shut down")
     print("this may take several minutes, depending on lab size")
     progress = ProgressDisplay(
         enabled=bool(
@@ -4654,7 +4700,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     )
     if int(rc) == CANCELLED:
         print("Archive interrupted. Resources were retained.")
-        print("Some lab nodes may have been stopped. Check the lab before continuing.")
+        print("Check lab state before continuing.")
         return CANCELLED
     if rc != 0:
         print("ERR: lab export failed; no resources were destroyed")
@@ -4833,6 +4879,9 @@ def _run_destroy_unlocked(ns) -> int:
                     "env": env_name,
                     "run_id": run_id,
                     "status": status,
+                    "guest_quiesced": bool(
+                        getattr(ns, "guest_quiesced", False)
+                    ),
                     "lifecycle": lifecycle,
                     "steps": steps or [],
                 },
@@ -4910,6 +4959,31 @@ def _run_destroy_unlocked(ns) -> int:
         _print_destroy_lifecycle_summary(lifecycle)
         print_destroy_record()
         return 0
+
+    if archive_mode == "archive":
+        try:
+            guest_quiesced = _confirm_guest_quiescence(ns, payload)
+        except ValueError as exc:
+            print(f"ERR: {exc}")
+            record_destroy_outcome(
+                "blocked",
+                archive="not-started",
+                resources="retained",
+            )
+            print_destroy_record()
+            return OPERATOR_ERROR
+        if guest_quiesced is not True:
+            print("destroy cancelled")
+            print("environment retained")
+            lifecycle = record_destroy_outcome(
+                "cancelled",
+                archive="not-started",
+                resources="retained",
+            )
+            _print_destroy_lifecycle_summary(lifecycle)
+            print_destroy_record()
+            return CANCELLED
+        setattr(ns, "guest_quiesced", True)
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
         if payload.get("archive_before_destroy"):

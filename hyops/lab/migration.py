@@ -1138,7 +1138,7 @@ required=$({assessment_command})
 root=/opt/unetlab/tmp
 test -d "$root" || {{ echo 'EVE-NG node-state root not found' >&2; exit 20; }}
 if pgrep -af '[/]opt/qemu[^ ]*/bin/qemu-system-' >/dev/null; then
-  echo 'EVE-NG QEMU nodes are running; stop them before capture' >&2
+  echo 'EVE-NG QEMU nodes are running; shut down stateful guests inside the guest and stop the remaining nodes before capture' >&2
   exit 21
 fi
 cd "$root"
@@ -1550,6 +1550,7 @@ def capture_existing_lab(
     identity_file: str | Path | None = None,
     become: bool = False,
     include_node_state: bool = False,
+    guest_quiesced: bool = False,
     node_state_output: str | Path | None = None,
     include_images: bool = False,
     images_output: str | Path | None = None,
@@ -1565,6 +1566,14 @@ def capture_existing_lab(
         raise ValueError("platform must be one of: " + ", ".join(SUPPORTED_PLATFORMS))
     if include_node_state and platform_name != "eve-ng":
         raise ValueError("separate node-state capture is only valid for EVE-NG")
+    if guest_quiesced and not include_node_state:
+        raise ValueError("--guest-quiesced requires --include-node-state")
+    if include_node_state and not guest_quiesced:
+        raise ValueError(
+            "EVE-NG node-state capture requires --guest-quiesced after shutting "
+            "down each stateful guest inside its operating system; stopping a "
+            "node in EVE-NG is not a clean guest shutdown"
+        )
     if node_state_output and not include_node_state:
         raise ValueError("--node-state-output requires --include-node-state")
     if images_output and not (include_images and platform_name == "eve-ng"):
@@ -1770,6 +1779,7 @@ def capture_existing_lab(
         report["archive"]["path"] = str(destination)
         if isinstance(report.get("node_state"), dict) and node_destination is not None:
             report["node_state"]["path"] = str(node_destination)
+            report["node_state"]["capture_consistency"] = "guest-quiesced"
         if isinstance(report.get("images"), dict) and image_destination is not None:
             report["images"]["path"] = str(image_destination)
         report["source"] = {"host": host, "user": user or None}
