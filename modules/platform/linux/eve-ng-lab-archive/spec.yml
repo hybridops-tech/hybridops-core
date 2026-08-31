@@ -55,6 +55,7 @@ inputs:
     eveng_lab_archive_restore_node_state: false
     eveng_lab_archive_restore_images: false
     eveng_lab_archive_stop_running_nodes: false
+    eveng_lab_archive_guest_quiesced: false
     eveng_lab_archive_node_state_root: "/opt/unetlab/tmp"
     eveng_lab_archive_node_state_path: ""
     eveng_lab_archive_node_state_expected_sha256: ""

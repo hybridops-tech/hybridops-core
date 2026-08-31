@@ -60,10 +60,16 @@ class EveNgLabArchiveValidatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be empty"):
             validate(inputs)
 
-    def test_automatic_node_shutdown_is_rejected(self) -> None:
+    def test_legacy_automatic_node_shutdown_setting_is_accepted(self) -> None:
         inputs = valid_inputs()
+        inputs["eveng_lab_archive_include_node_state"] = True
         inputs["eveng_lab_archive_stop_running_nodes"] = True
-        with self.assertRaisesRegex(ValueError, "is not supported"):
+        validate(inputs)
+
+    def test_guest_quiescence_must_be_boolean(self) -> None:
+        inputs = valid_inputs()
+        inputs["eveng_lab_archive_guest_quiesced"] = "yes"
+        with self.assertRaisesRegex(ValueError, "must be a boolean"):
             validate(inputs)
 
     def test_saved_configuration_capture_is_valid_for_export(self) -> None:

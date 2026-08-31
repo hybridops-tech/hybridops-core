@@ -4654,6 +4654,11 @@ def _confirm_archive_destroy(env_name: str) -> bool | None:
 
 def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     archive = payload["archive_before_destroy"]
+    archive_inputs = dict(archive.get("inputs") or {})
+    if _archive_requires_guest_quiescence(payload):
+        archive_inputs["eveng_lab_archive_guest_quiesced"] = bool(
+            getattr(ns, "guest_quiesced", False)
+        )
     archive_step = {
         "id": "archive_before_destroy",
         "module_ref": archive["module_ref"],
@@ -4661,7 +4666,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "action": "deploy",
         "phase": "operations",
         "with_deps": False,
-        "inputs": archive.get("inputs") or {},
+        "inputs": archive_inputs,
     }
     print("preparing saved lab state; guests must already be shut down")
     print("this may take several minutes, depending on lab size")

@@ -86,6 +86,7 @@ def validate(inputs: dict[str, Any]) -> None:
     include_node_state = data.get("eveng_lab_archive_include_node_state")
     restore_node_state = data.get("eveng_lab_archive_restore_node_state")
     stop_running_nodes = data.get("eveng_lab_archive_stop_running_nodes")
+    guest_quiesced = data.get("eveng_lab_archive_guest_quiesced")
     if not isinstance(include_node_state, bool):
         raise ValueError(
             "inputs.eveng_lab_archive_include_node_state must be a boolean"
@@ -98,11 +99,9 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError(
             "inputs.eveng_lab_archive_stop_running_nodes must be a boolean"
         )
-    if stop_running_nodes:
+    if not isinstance(guest_quiesced, bool):
         raise ValueError(
-            "inputs.eveng_lab_archive_stop_running_nodes is not supported; "
-            "shut down stateful guests inside the guest and stop the remaining "
-            "EVE-NG nodes before export"
+            "inputs.eveng_lab_archive_guest_quiesced must be a boolean"
         )
     capture_device_configs = data.get("eveng_lab_archive_capture_device_configs")
     if not isinstance(capture_device_configs, bool):

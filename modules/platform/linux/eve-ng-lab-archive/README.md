@@ -21,7 +21,7 @@ For stopped-QEMU state, enable:
 
 ```yaml
 eveng_lab_archive_include_node_state: true
-eveng_lab_archive_stop_running_nodes: false
+eveng_lab_archive_guest_quiesced: true
 ```
 
 Shut down stateful guests inside their operating systems, then stop the EVE-NG

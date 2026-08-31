@@ -638,6 +638,32 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("node state: no QEMU overlays found", stdout.getvalue())
 
+    def test_archive_execution_injects_guest_quiescence(self):
+        payload = {
+            "archive_before_destroy": {
+                "module_ref": "platform/linux/eve-ng-lab-archive",
+                "state_instance": "lab_archive",
+                "inputs": {
+                    "eveng_lab_archive_include_node_state": True,
+                    "eveng_lab_archive_stop_running_nodes": True,
+                },
+            }
+        }
+        ns = _namespace()
+        ns.guest_quiesced = True
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=CANCELLED,
+        ) as command:
+            rc = _run_archive_before_destroy(ns, payload, paths)
+
+        self.assertEqual(rc, CANCELLED)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertTrue(inputs["eveng_lab_archive_guest_quiesced"])
+        self.assertTrue(inputs["eveng_lab_archive_stop_running_nodes"])
+
     def test_failed_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
         payload = _payload()
