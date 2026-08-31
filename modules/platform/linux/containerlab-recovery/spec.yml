@@ -34,6 +34,7 @@ inputs:
     connectivity_check: true
     connectivity_timeout_s: 5
     connectivity_wait_s: 0
+    execution_timeout_s: 14400
     required_env: []
     required_env_destroy: []
     load_vault_env: false

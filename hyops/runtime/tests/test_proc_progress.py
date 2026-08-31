@@ -67,6 +67,22 @@ class CapturedProcessProgressTests(unittest.TestCase):
         self.assertEqual(result.rc, 127)
         self.assertIn("command not found", error_text)
 
+    def test_streamed_command_timeout_uses_standard_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            result = proc.run_capture_stream(
+                ["bash", "-lc", "sleep 1"],
+                evidence_dir=evidence_dir,
+                label="timed_out_command",
+                timeout_s=0.01,
+            )
+            error_text = (evidence_dir / "timed_out_command.stderr.txt").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(result.rc, 124)
+        self.assertIn("command timed out after 0.01 seconds", error_text)
+
     def test_quick_capture_does_not_start_progress_outside_tty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             proc, "concise_enabled", return_value=False

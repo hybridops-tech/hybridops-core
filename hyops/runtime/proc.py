@@ -470,6 +470,7 @@ def run_capture_stream(
 
     rc = 1
     interrupted = False
+    timed_out = False
     try:
         rc = int(p.wait(timeout=timeout_s))
     except KeyboardInterrupt:
@@ -496,11 +497,16 @@ def run_capture_stream(
         except Exception:
             rc = 130
     except subprocess.TimeoutExpired:
+        timed_out = True
         try:
             p.kill()
         except Exception:
             pass
-        rc = int(p.wait(timeout=10))
+        try:
+            p.wait(timeout=10)
+        except Exception:
+            pass
+        rc = 124
     finally:
         heartbeat_stop.set()
         t_out.join(timeout=2)
@@ -516,13 +522,24 @@ def run_capture_stream(
                 pass
 
     dur = int((time.time() - start) * 1000)
+    timeout_message = ""
+    if timed_out:
+        timeout_message = f"command timed out after {timeout_s} seconds\n"
+        with err_path.open("a", encoding="utf-8") as timeout_log:
+            timeout_log.write(timeout_message)
+        if tee_path is not None:
+            try:
+                with tee_path.open("a", encoding="utf-8") as timeout_log:
+                    timeout_log.write(timeout_message)
+            except Exception:
+                pass
     r = ProcResult(
         argv=list(argv),
         cwd=cwd,
         rc=rc,
         duration_ms=dur,
         stdout="",
-        stderr="",
+        stderr=timeout_message,
     )
     _write_result_envelope(evidence_dir, label, r, redact=redact)
     if stream_progress.enabled:

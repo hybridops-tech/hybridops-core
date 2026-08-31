@@ -30,6 +30,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   average rate and elapsed time during long-running archive streams.
 - Reported the active archive, image and node-state phase during long lab
   restores instead of displaying an unqualified spinner.
+- Applied a bounded four-hour execution window to EVE-NG, GNS3 and Containerlab
+  archive operations instead of the shared one-hour configuration limit.
 
 ### Fixed
 
@@ -39,6 +41,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   generations and rejected unreferenced bases or IOL licence material.
 - Surfaced conflicting EVE-NG lab, node-state and image paths with the matching
   explicit restore flag instead of a generic configuration failure.
+- Reported streamed command timeouts as exit code 124 with the configured limit
+  instead of exposing the terminating signal as `rc=-9`.
 
 ## [v0.1.4] - 2026-08-29
 
