@@ -35,6 +35,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Disabled SSH connection multiplexing for GCP IAP configuration runs and
+  verified passwordless privilege escalation during connectivity preflight.
 - Assessed all requested migration streams through one SSH session before
   transferring archives.
 - Retained the verified migration image companion across later lab archive
