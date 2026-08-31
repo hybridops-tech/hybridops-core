@@ -30,6 +30,10 @@ disks and creates a separately checksummed node-state companion archive. Base
 images remain independently managed and are paired with the restored overlays
 on the reconstructed host.
 
+Blueprint teardown supplies the acknowledgement from
+`hyops blueprint destroy --guest-quiesced`. It is scoped to that operation and
+must not be stored as a permanent blueprint input.
+
 To refresh saved device configurations before export, enable:
 
 ```yaml

@@ -85,7 +85,7 @@ Live management addresses are session state. Durable role, platform, grouping an
 
 The blueprint configures `platform/linux/eve-ng-lab-archive` before destructive lifecycle actions.
 
-The primary archive retains EVE-NG lab definitions from `/opt/unetlab/labs` after EVE-NG refreshes saved device configurations in those definitions. The node-state companion path captures stopped QEMU overlays when node-state preservation is selected. The lifecycle stops running QEMU nodes before overlay capture, validates the overlays and records a separate SHA-256 for the companion archive.
+The primary archive retains EVE-NG lab definitions from `/opt/unetlab/labs` after EVE-NG refreshes saved device configurations in those definitions. The node-state companion path captures stopped QEMU overlays when node-state preservation is selected. The operator shuts down stateful guests inside their operating systems and stops the EVE-NG nodes. HybridOps records the per-run acknowledgement, rejects running QEMU processes, validates the overlays and records a separate SHA-256 for the companion archive.
 
 ```text
 lab definitions and saved configurations --+

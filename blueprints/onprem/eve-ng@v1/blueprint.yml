@@ -60,8 +60,8 @@ archive_before_destroy:
     # Refresh supported saved device configurations before archiving the lab.
     # Save intended device changes to startup configuration first.
     eveng_lab_archive_capture_device_configs: true
+    # Node-state export requires a per-run --guest-quiesced acknowledgement.
     eveng_lab_archive_include_node_state: true
-    eveng_lab_archive_stop_running_nodes: false
 
 steps:
   - id: template_image_jammy
