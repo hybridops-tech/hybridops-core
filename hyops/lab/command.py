@@ -132,7 +132,7 @@ class _CaptureProgress:
 
 class _ImportProgress:
     def __init__(self) -> None:
-        self.display = ProgressDisplay()
+        self.display = ProgressDisplay(show_elapsed=False)
         self._plain_last: dict[str, float] = {}
 
     def __call__(self, event: dict[str, Any]) -> None:
