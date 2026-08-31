@@ -6,11 +6,12 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import signal
-from typing import Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence
 import subprocess
 import sys
 import threading
@@ -19,6 +20,34 @@ import time
 from hyops.runtime.redact import redact_text
 from hyops.runtime.progress import ProgressDisplay, concise_enabled
 from hyops.runtime.state import write_json_atomic
+
+
+StreamObserver = Callable[[str, str], None]
+_stream_observers: set[StreamObserver] = set()
+_stream_observers_lock = threading.Lock()
+
+
+@contextmanager
+def observe_stream_output(observer: StreamObserver) -> Iterator[None]:
+    """Observe redacted output from streamed child processes in this runtime."""
+
+    with _stream_observers_lock:
+        _stream_observers.add(observer)
+    try:
+        yield
+    finally:
+        with _stream_observers_lock:
+            _stream_observers.discard(observer)
+
+
+def _notify_stream_observers(stream: str, line: str) -> None:
+    with _stream_observers_lock:
+        observers = tuple(_stream_observers)
+    for observer in observers:
+        try:
+            observer(stream, line)
+        except Exception:
+            pass
 
 
 @dataclass(frozen=True)
@@ -319,6 +348,7 @@ def run_capture_stream(
             with dst.open("a", encoding="utf-8", errors="replace") as f:
                 for line in src:
                     token = redact_text(line) if redact else line
+                    _notify_stream_observers(stream, token)
                     f.write(token)
                     f.flush()
                     if tee_f:

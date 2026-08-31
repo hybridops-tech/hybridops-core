@@ -8,8 +8,10 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
+from hyops.runtime import proc
 from hyops.blueprint.command import (
     _automatic_lab_restore_eligible,
+    _lab_restore_phase,
     _run_lab_restore,
     _select_lab_restore_mode,
 )
@@ -45,6 +47,36 @@ def _payload():
 
 
 class BlueprintLabRestoreTest(TestCase):
+    def test_restore_phase_maps_long_running_tasks(self):
+        self.assertEqual(
+            _lab_restore_phase(
+                "TASK [hybridops.helper.eveng_lab_archive : "
+                "Stage referenced EVE-NG images] *****"
+            ),
+            "staging images",
+        )
+        self.assertEqual(
+            _lab_restore_phase(
+                "TASK [hybridops.helper.eveng_lab_archive : "
+                "Repair leaked clusters in restored EVE-NG QEMU overlays] ***"
+            ),
+            "repairing node state",
+        )
+        self.assertEqual(
+            _lab_restore_phase(
+                "TASK [hybridops.app.gns3_lab_archive : Restore GNS3 lab state] ***"
+            ),
+            "restoring lab definitions",
+        )
+        self.assertEqual(
+            _lab_restore_phase(
+                "TASK [hybridops.app.containerlab_recovery : "
+                "Extract recovery archive] ***"
+            ),
+            "restoring lab data",
+        )
+        self.assertEqual(_lab_restore_phase("ok: [eve-ng-01]"), "")
+
     def test_existing_target_does_not_require_automatic_restore(self):
         paths = SimpleNamespace(state_dir=Path("/tmp/state"))
 
@@ -268,6 +300,44 @@ class BlueprintLabRestoreTest(TestCase):
 
         self.assertEqual(rc, 0)
         self.assertFalse(progress_class.call_args.kwargs["show_elapsed"])
+
+    def test_restore_reports_the_current_ansible_phase(self):
+        archive = (
+            Path("/tmp/labs.tar.gz"),
+            "b" * 64,
+            None,
+            "",
+            None,
+            "",
+        )
+
+        def run_restore(*_args):
+            proc._notify_stream_observers(
+                "stdout",
+                "TASK [hybridops.helper.eveng_lab_archive : "
+                "Stage referenced EVE-NG images] *****\n",
+            )
+            return 0
+
+        with (
+            patch(
+                "hyops.blueprint.command.run_step_module_command",
+                side_effect=run_restore,
+            ),
+            patch("hyops.blueprint.command.ProgressDisplay") as progress_class,
+        ):
+            rc = _run_lab_restore(
+                _namespace(restore_labs=True),
+                _payload(),
+                SimpleNamespace(),
+                archive,
+            )
+
+        self.assertEqual(rc, 0)
+        progress_class.return_value.update.assert_called_with(
+            "restore_archived_labs",
+            "Lab restore: staging images",
+        )
 
     def test_restore_includes_verified_node_state(self):
         archive = (

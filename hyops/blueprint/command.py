@@ -46,6 +46,7 @@ from hyops.runtime.preflight_decision import (
     new_preflight_decision,
     validate_preflight_bypass,
 )
+from hyops.runtime.proc import observe_stream_output
 from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
@@ -3912,6 +3913,60 @@ def _select_lab_restore_mode(
     return ("restore" if confirmed else "skip"), archive
 
 
+_ANSIBLE_TASK_LINE = re.compile(
+    r"^TASK \[(?:[^:\]]+ : )?(?P<task>.+?)\]\s*\*+\s*$"
+)
+
+
+def _lab_restore_phase(line: str) -> str:
+    match = _ANSIBLE_TASK_LINE.match(str(line or "").strip())
+    if match is None:
+        return ""
+    task = " ".join(match.group("task").split())
+    lowered = task.lower()
+
+    if "image" in lowered:
+        if "capacity" in lowered:
+            return "checking image capacity"
+        if "stage" in lowered:
+            return "staging images"
+        if "transaction" in lowered or "permissions" in lowered:
+            return "installing images"
+        if any(
+            term in lowered
+            for term in ("inspect", "verify", "list", "reject", "measure")
+        ):
+            return "verifying image archive"
+    if "node-state" in lowered or "node state" in lowered or "qemu overlay" in lowered:
+        if "capacity" in lowered:
+            return "checking node-state capacity"
+        if "repair" in lowered:
+            return "repairing node state"
+        if "validate" in lowered or "inspect" in lowered:
+            return "verifying node state"
+        if "restore" in lowered:
+            return "restoring node state"
+    if "saved configuration" in lowered:
+        return "applying saved configurations"
+    if "capacity" in lowered:
+        return "checking lab capacity"
+    if "restore" in lowered and ("lab archive" in lowered or "lab state" in lowered):
+        return "restoring lab definitions"
+    if "archive" in lowered and any(
+        term in lowered for term in ("extract", "restore", "stage")
+    ):
+        return "restoring lab data"
+    if "archive" in lowered and any(
+        term in lowered for term in ("inspect", "verify", "list", "reject", "measure")
+    ):
+        return "verifying lab archive"
+    if "ownership" in lowered or "permissions" in lowered:
+        return "applying permissions"
+    if "publish" in lowered or "restart" in lowered:
+        return "finalising"
+    return ""
+
+
 def _run_lab_restore(
     ns,
     payload: dict[str, Any],
@@ -3993,8 +4048,17 @@ def _run_lab_restore(
     previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
     if not os.getenv("HYOPS_VERBOSE"):
         os.environ["HYOPS_PROGRESS_CHILD"] = "1"
+
+    def update_restore_progress(stream: str, line: str) -> None:
+        if stream != "stdout":
+            return
+        phase = _lab_restore_phase(line)
+        if phase:
+            progress.update(restore_step["id"], f"Lab restore: {phase}")
+
     try:
-        rc = int(run_step_module_command(restore_step, payload, ns, paths))
+        with observe_stream_output(update_restore_progress):
+            rc = int(run_step_module_command(restore_step, payload, ns, paths))
     except KeyboardInterrupt:
         rc = CANCELLED
     finally:
