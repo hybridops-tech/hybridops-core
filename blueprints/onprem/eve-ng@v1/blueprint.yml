@@ -9,6 +9,7 @@ metadata:
   description: "Build a Jammy template image (if needed), provision a standalone EVE-NG VM on the Proxmox uplink, then configure EVE-NG."
   outcome: "EVE-NG is installed and reachable."
   ready_message: "EVE-NG network emulation lab ready"
+  credential_secret: "EVENG_ADMIN_PASSWORD"
 
 policy:
   fail_fast: true

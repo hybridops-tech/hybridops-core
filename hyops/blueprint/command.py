@@ -94,6 +94,7 @@ from .planner import compute_preflight, run_step_module_command
 from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
 
 
+_PROJECT_SUPPORT_URL = "https://github.com/sponsors/hybridops-tech"
 _QUIESCENCE_DRAFT_MARKER = "HYOPS_QUIESCENCE_ACTION_NOT_CONFIGURED"
 _QUIESCENCE_TEMPLATE = """#!/bin/sh
 set -eu
@@ -259,6 +260,43 @@ def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
         "resume": shlex.join(["hyops", "blueprint", "deploy", *selection, *selector, "--execute"]),
         "destroy": shlex.join(["hyops", "blueprint", "destroy", *selection, *selector, "--execute"]),
     }
+
+
+def _successful_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
+    env_name = str(getattr(ns, "env", "") or "").strip()
+    if env_name:
+        selection = ["--env", env_name]
+    else:
+        selection = ["--root", str(getattr(ns, "root", "") or "")]
+
+    blueprint_file = str(getattr(ns, "file", "") or "").strip()
+    if blueprint_file:
+        selector = ["--file", blueprint_file]
+    else:
+        selector = ["--ref", str(payload["blueprint_ref"])]
+
+    actions: dict[str, str] = {}
+    if payload.get("access"):
+        actions["access"] = shlex.join(
+            ["hyops", "blueprint", "access", *selection, *selector]
+        )
+
+    credential_secret = str(
+        (payload.get("metadata") or {}).get("credential_secret") or ""
+    ).strip()
+    if credential_secret:
+        actions["credentials"] = shlex.join(
+            [
+                "hyops",
+                "secrets",
+                "show",
+                *selection,
+                "--raw",
+                credential_secret,
+            ]
+        )
+    actions["support"] = _PROJECT_SUPPORT_URL
+    return actions
 
 
 def _failed_deploy_has_resources(payload: dict[str, Any], paths) -> bool:
@@ -4812,6 +4850,8 @@ def run_deploy(ns) -> int:
         output["iol_license_repairs"] = repair_results
     if cancelled:
         output["next_actions"] = _cancelled_deploy_actions(ns, payload)
+    elif not required_failures:
+        output["next_actions"] = _successful_deploy_actions(ns, payload)
     elif required_failures and _failed_deploy_has_resources(payload, paths):
         output["next_actions"] = {"destroy": _cancelled_deploy_actions(ns, payload)["destroy"]}
 
@@ -4835,7 +4875,19 @@ def run_deploy(ns) -> int:
             print(f"required_failures: {', '.join(required_failures)}")
         if optional_failures:
             print(f"optional_failures: {', '.join(optional_failures)}")
-        if cancelled:
+        if final_status == "ok":
+            actions = output["next_actions"]
+            operator_actions = [
+                (label, actions[label])
+                for label in ("access", "credentials")
+                if label in actions
+            ]
+            if operator_actions:
+                print("next:")
+                for label, command in operator_actions:
+                    print(f"  {label}: {command}")
+            print(f"support: {actions['support']}")
+        elif cancelled:
             print("deployment cancelled; completed resources were retained.")
             print("resume:")
             print(f"  {output['next_actions']['resume']}")

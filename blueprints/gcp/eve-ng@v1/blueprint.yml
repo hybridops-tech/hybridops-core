@@ -9,6 +9,7 @@ metadata:
   description: "Provision a single nested-virtualization-capable GCP VM and configure EVE-NG over IAP."
   outcome: "A private EVE-NG host exists in GCP and is configured for governed training and network simulation use."
   ready_message: "EVE-NG network emulation lab ready"
+  credential_secret: "EVENG_ADMIN_PASSWORD"
 
 policy:
   fail_fast: true

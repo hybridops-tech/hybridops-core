@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
-from hyops.blueprint.command import run_deploy
+from hyops.blueprint.command import _successful_deploy_actions, run_deploy
 from hyops.runtime.exitcodes import OPERATOR_ERROR
 from hyops.runtime.paths import RuntimePaths
 from hyops.runner.command import _remote_blueprint_command
@@ -64,6 +64,29 @@ def _namespace(
 
 
 class BlueprintPreflightBypassTest(TestCase):
+    def test_successful_deploy_actions_include_access_credentials_and_support(self) -> None:
+        payload = _payload()
+        payload["access"] = {"type": "gcp-iap-ssh-forward"}
+        payload["metadata"] = {"credential_secret": "EVENG_ADMIN_PASSWORD"}
+        ns = _namespace(Path("/tmp/runtime"), reason="test")
+        ns.root = None
+        ns.env = "demo-lab"
+
+        actions = _successful_deploy_actions(ns, payload)
+
+        self.assertEqual(
+            actions["access"],
+            "hyops blueprint access --env demo-lab --ref test/lab@v1",
+        )
+        self.assertEqual(
+            actions["credentials"],
+            "hyops secrets show --env demo-lab --raw EVENG_ADMIN_PASSWORD",
+        )
+        self.assertEqual(
+            actions["support"],
+            "https://github.com/sponsors/hybridops-tech",
+        )
+
     def test_mutating_blueprint_bypass_requires_reason(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
