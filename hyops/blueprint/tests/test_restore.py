@@ -58,9 +58,9 @@ class BlueprintLabRestoreTest(TestCase):
         self.assertEqual(
             _lab_restore_phase(
                 "TASK [hybridops.helper.eveng_lab_archive : "
-                "Repair leaked clusters in restored EVE-NG QEMU overlays] ***"
+                "Inspect restored EVE-NG QEMU overlays] ***"
             ),
-            "repairing node state",
+            "verifying node state",
         )
         self.assertEqual(
             _lab_restore_phase(
