@@ -20,6 +20,7 @@ from hyops.lab.migration import (
     _capture_stream,
     _format_bytes,
     _remote_capture_assessment_script,
+    _remote_capture_script,
     _run_quiescence_script,
     capture_existing_lab,
     inspect_migration_archive,
@@ -826,6 +827,27 @@ class LabMigrationStagingTest(TestCase):
 
 
 class LabMigrationCaptureTest(TestCase):
+    def test_eve_node_state_capture_selects_only_runtime_overlays(self) -> None:
+        assessment = _remote_capture_assessment_script(
+            "eve-ng",
+            include_node_state=True,
+        )
+        capture = _remote_capture_script(
+            "eve-ng",
+            node_state=True,
+            output_available_bytes=1024 * 1024 * 1024,
+            node_state_evidence={
+                "method": "operator-attestation",
+                "qemu_processes_absent": True,
+                "verified_at": "2026-09-01T00:00:00Z",
+                "script_sha256": None,
+            },
+        )
+
+        selector = "-mindepth 4 -maxdepth 4 -type f -name '*.qcow2'"
+        self.assertEqual(assessment.count(selector), 2)
+        self.assertEqual(capture.count(selector), 3)
+
     def test_scripted_capture_assesses_source_before_stopping_qemu(self) -> None:
         script = _remote_capture_assessment_script(
             "eve-ng",

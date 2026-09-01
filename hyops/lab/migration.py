@@ -1230,17 +1230,20 @@ if pgrep -af '[/]opt/qemu[^ ]*/bin/qemu-system-' >/dev/null; then
   exit 21
 fi
 cd "$root"
-find . -type f -name '*.qcow2' -printf '%P\\n' -quit | grep -q . || {{
+find . -mindepth 4 -maxdepth 4 -type f -name '*.qcow2' \
+  -printf '%P\\n' -quit | grep -q . || {{
   echo 'No EVE-NG QEMU node state was found' >&2
   exit 22
 }}
-required=$(find . -type f -name '*.qcow2' -printf '%b\\n' | awk '{{total += $1}} END {{printf "%.0f\\n", total * 512}}')
+required=$(find . -mindepth 4 -maxdepth 4 -type f -name '*.qcow2' \
+  -printf '%b\\n' | awk '{{total += $1}} END {{printf "%.0f\\n", total * 512}}')
 {capacity_check}{compressor}
 metadata_dir=$(mktemp -d)
 trap 'find "$metadata_dir" -depth -delete' EXIT
 mkdir -p "$metadata_dir/hybridops"
 printf '%s\\n' {shlex.quote(metadata)} > "$metadata_dir/{_EVE_NODE_STATE_METADATA}"
-find . -type f -name '*.qcow2' -printf '%P\\n' | sort > "$metadata_dir/members.txt"
+find . -mindepth 4 -maxdepth 4 -type f -name '*.qcow2' \
+  -printf '%P\\n' | sort > "$metadata_dir/members.txt"
 tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
   --sparse -I "$compressor" -cf - -C "$root" -T "$metadata_dir/members.txt" \
   -C "$metadata_dir" {_EVE_NODE_STATE_METADATA}
@@ -1325,11 +1328,13 @@ printf 'primary_bytes=%s\nnode_state_bytes=0\nimage_bytes=0\n' "$primary_bytes"
             node_state_assessment = """node_root=/opt/unetlab/tmp
 test -d "$node_root" || { echo 'EVE-NG node-state root not found' >&2; exit 20; }
 cd "$node_root"
-find . -type f -name '*.qcow2' -printf '%P\\n' -quit | grep -q . || {
+find . -mindepth 4 -maxdepth 4 -type f -name '*.qcow2' \
+  -printf '%P\\n' -quit | grep -q . || {
   echo 'No EVE-NG QEMU node state was found' >&2
   exit 22
 }
-node_state_bytes=$(find . -type f -name '*.qcow2' -printf '%b\\n' | awk '{total += $1} END {printf "%.0f\\n", total * 512}')"""
+node_state_bytes=$(find . -mindepth 4 -maxdepth 4 -type f -name '*.qcow2' \
+  -printf '%b\\n' | awk '{total += $1} END {printf "%.0f\\n", total * 512}')"""
         running_node_check = ""
         if not allow_running_eve_nodes:
             running_node_check = """if pgrep -af '[/]opt/qemu[^ ]*/bin/qemu-system-' >/dev/null; then
