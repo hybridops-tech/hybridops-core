@@ -16,9 +16,9 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   captured lab definitions. Licence material remains outside the archive.
 - Added independent `--overwrite-images` control for explicit base-image
   replacement during migration restore.
-- Added operator-supplied EVE-NG guest quiescence actions for migration capture
-  and protected teardown, with bounded QEMU-stop verification and checksummed
-  archive evidence.
+- Added environment-managed EVE-NG guest quiescence actions for protected
+  teardown, operation-specific overrides for migration capture, bounded
+  QEMU-stop verification, and checksummed archive evidence.
 
 ### Changed
 

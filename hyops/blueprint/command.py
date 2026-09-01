@@ -94,6 +94,17 @@ from .planner import compute_preflight, run_step_module_command
 from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
 
 
+_QUIESCENCE_DRAFT_MARKER = "HYOPS_QUIESCENCE_ACTION_NOT_CONFIGURED"
+_QUIESCENCE_TEMPLATE = """#!/bin/sh
+set -eu
+
+# Shut down stateful guests and stop their EVE-NG nodes before returning.
+# Replace the line below with the actions required by this environment.
+echo 'HYOPS_QUIESCENCE_ACTION_NOT_CONFIGURED' >&2
+exit 64
+"""
+
+
 def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
     if not blueprint_ref:
         return ""
@@ -768,6 +779,42 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     )
     e.set_defaults(_handler=run_edit)
 
+    quiescence = ssp.add_parser(
+        "quiescence",
+        help="Manage the environment guest-quiescence action.",
+    )
+    quiescence_commands = quiescence.add_subparsers(
+        dest="quiescence_cmd",
+        required=True,
+    )
+
+    def add_quiescence_args(sub: argparse.ArgumentParser) -> None:
+        add_common_args(sub)
+        sub.add_argument("--root", default=None, help="Override runtime root.")
+        sub.add_argument("--env", default=None, help="Runtime environment namespace.")
+
+    quiescence_status = quiescence_commands.add_parser(
+        "status",
+        help="Show the environment guest-quiescence action.",
+    )
+    add_quiescence_args(quiescence_status)
+    quiescence_status.set_defaults(_handler=run_quiescence)
+
+    quiescence_edit = quiescence_commands.add_parser(
+        "edit",
+        help="Create or edit the environment guest-quiescence action.",
+    )
+    add_quiescence_args(quiescence_edit)
+    quiescence_edit.add_argument(
+        "--editor",
+        default="",
+        help=(
+            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, "
+            "EDITOR, then common editors."
+        ),
+    )
+    quiescence_edit.set_defaults(_handler=run_quiescence)
+
     q = ssp.add_parser("validate", help="Validate a blueprint manifest.")
     add_common_args(q)
     q.add_argument("--root", default=None, help="Override runtime root for overlay selection.")
@@ -1153,16 +1200,16 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         "--quiesce-script",
         default="",
         help=(
-            "Run a local POSIX shell script on the EVE-NG host before "
-            "node-state capture."
+            "Override the environment EVE-NG guest-quiescence action for "
+            "this operation."
         ),
     )
     d.add_argument(
         "--quiesce-timeout",
         type=int,
-        default=300,
+        default=None,
         metavar="SECONDS",
-        help="Maximum time for EVE-NG guest quiescence and QEMU shutdown.",
+        help="Override the environment guest-quiescence timeout.",
     )
     d.set_defaults(_handler=run_destroy)
 
@@ -1698,6 +1745,161 @@ def run_edit(ns) -> int:
         return 0
     except Exception as exc:
         print(f"ERR: blueprint edit failed: {exc}")
+        return OPERATOR_ERROR
+
+
+def _quiescence_action_path(paths, payload: dict[str, Any]) -> Path:
+    material = automation_session_paths(
+        paths=paths,
+        blueprint_ref=str(payload.get("blueprint_ref") or "blueprint"),
+        env_name=str(Path(paths.root).name),
+    )
+    return Path(material["config_dir"]) / "quiesce.sh"
+
+
+def _quiescence_edit_command(ns, payload: dict[str, Any]) -> str:
+    command = ["hyops", "blueprint", "quiescence", "edit"]
+    runtime_root = str(getattr(ns, "root", "") or "").strip()
+    env_name = str(getattr(ns, "env", "") or "").strip()
+    if runtime_root:
+        command.extend(["--root", runtime_root])
+    elif env_name:
+        command.extend(["--env", env_name])
+    blueprint_ref = str(
+        payload.get("blueprint_ref") or getattr(ns, "ref", "") or ""
+    ).strip()
+    if blueprint_ref:
+        command.extend(["--ref", blueprint_ref])
+    return shlex.join(command)
+
+
+def _validate_quiescence_action(path: Path) -> tuple[Path, str]:
+    unresolved = path.expanduser()
+    if unresolved.is_symlink():
+        raise ValueError("quiescence action must not be a symbolic link")
+    resolved = unresolved.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"quiescence action is not a regular file: {resolved}")
+    size = resolved.stat().st_size
+    if size == 0:
+        raise ValueError("quiescence action is empty")
+    if size > 1024 * 1024:
+        raise ValueError("quiescence action exceeds the 1 MiB limit")
+    content = resolved.read_bytes()
+    if b"\x00" in content:
+        raise ValueError("quiescence action contains a NUL byte")
+    if _QUIESCENCE_DRAFT_MARKER.encode("utf-8") in content:
+        raise ValueError("quiescence action is not configured")
+    return resolved, hashlib.sha256(content).hexdigest()
+
+
+def _quiescence_context(ns) -> tuple[Any, dict[str, Any], Path]:
+    require_runtime_selection(
+        getattr(ns, "root", None),
+        getattr(ns, "env", None),
+        command_label="hyops blueprint quiescence",
+    )
+    paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+    ensure_layout(paths)
+    require_runtime_writable(paths.root)
+    _enforce_runtime_blueprint_file_scope(
+        ns,
+        paths,
+        command_label="hyops blueprint quiescence",
+    )
+    payload = _resolve_and_validate(ns)
+    if not _archive_requires_guest_quiescence(payload):
+        raise ValueError(
+            "blueprint does not declare EVE-NG node-state preservation"
+        )
+    return paths, payload, _quiescence_action_path(paths, payload)
+
+
+def run_quiescence(ns) -> int:
+    try:
+        _paths, payload, action_path = _quiescence_context(ns)
+        action = str(getattr(ns, "quiescence_cmd", "") or "")
+        if action == "status":
+            if not action_path.exists() and not action_path.is_symlink():
+                status = {
+                    "blueprint_ref": payload["blueprint_ref"],
+                    "status": "unconfigured",
+                    "path": str(action_path),
+                }
+            else:
+                resolved, checksum = _validate_quiescence_action(action_path)
+                status = {
+                    "blueprint_ref": payload["blueprint_ref"],
+                    "status": "configured",
+                    "path": str(resolved),
+                    "sha256": checksum,
+                }
+            if bool(getattr(ns, "json", False)):
+                print(json.dumps(status, indent=2, sort_keys=True))
+            else:
+                print(
+                    f"blueprint={status['blueprint_ref']} "
+                    f"quiescence={status['status']}"
+                )
+                print(f"path={status['path']}")
+                if status.get("sha256"):
+                    print(f"sha256={status['sha256']}")
+            return 0
+        if action != "edit":
+            raise ValueError(f"unsupported quiescence command: {action}")
+
+        if action_path.is_symlink():
+            raise ValueError("quiescence action must not be a symbolic link")
+        action_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        action_path.parent.chmod(0o700)
+        draft_path = action_path.with_suffix(".sh.draft")
+        if draft_path.is_symlink() or (
+            draft_path.exists() and not draft_path.is_file()
+        ):
+            raise ValueError(f"quiescence draft is not a regular file: {draft_path}")
+        content = (
+            action_path.read_text(encoding="utf-8")
+            if action_path.is_file() and not action_path.is_symlink()
+            else _QUIESCENCE_TEMPLATE
+        )
+        draft_path.write_text(content, encoding="utf-8")
+        draft_path.chmod(0o600)
+
+        editor_argv = _editor_argv(ns)
+        editor_argv.append(str(draft_path))
+        print(f"Opening guest-quiescence action for edit: {draft_path}")
+        result = subprocess.run(editor_argv, check=False)
+        if result.returncode != 0:
+            raise ValueError(f"editor returned {result.returncode}")
+
+        draft_content = draft_path.read_text(encoding="utf-8")
+        if _QUIESCENCE_DRAFT_MARKER in draft_content:
+            raise ValueError(
+                f"quiescence action is not configured; draft retained at {draft_path}"
+            )
+        shell = shutil.which("sh")
+        if not shell:
+            raise ValueError("sh is required to validate the quiescence action")
+        syntax = subprocess.run(
+            [shell, "-n", str(draft_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if syntax.returncode != 0:
+            detail = (syntax.stderr or "").strip()
+            raise ValueError(detail or "quiescence action has invalid shell syntax")
+        _validate_quiescence_action(draft_path)
+        draft_path.replace(action_path)
+        action_path.chmod(0o600)
+        resolved, checksum = _validate_quiescence_action(action_path)
+        print(f"blueprint={payload['blueprint_ref']} quiescence=configured")
+        print(f"path={resolved}")
+        print(f"sha256={checksum}")
+        return 0
+    except Exception as exc:
+        print(f"ERR: blueprint quiescence failed: {exc}")
         return OPERATOR_ERROR
 
 
@@ -4655,6 +4857,7 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
             or bool(getattr(ns, "skip_archive", False))
             or bool(getattr(ns, "guest_quiesced", False))
             or bool(str(getattr(ns, "quiesce_script", "") or "").strip())
+            or getattr(ns, "quiesce_timeout", None) is not None
         ):
             raise ValueError("this blueprint does not declare a lab archive lifecycle")
         return "none"
@@ -4664,7 +4867,7 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
     if bool(getattr(ns, "skip_archive", False)):
         if bool(getattr(ns, "guest_quiesced", False)) or bool(
             str(getattr(ns, "quiesce_script", "") or "").strip()
-        ):
+        ) or getattr(ns, "quiesce_timeout", None) is not None:
             raise ValueError(
                 "guest quiescence options require --archive-before-destroy"
             )
@@ -4702,46 +4905,70 @@ def _archive_requires_guest_quiescence(payload: dict[str, Any]) -> bool:
     return bool(inputs.get("eveng_lab_archive_include_node_state", False))
 
 
-def _confirm_guest_quiescence(ns, payload: dict[str, Any]) -> bool | None:
+def _confirm_guest_quiescence(ns, payload: dict[str, Any], paths) -> bool | None:
     quiesce_script = str(getattr(ns, "quiesce_script", "") or "").strip()
+    timeout_override = getattr(ns, "quiesce_timeout", None)
     if not _archive_requires_guest_quiescence(payload):
-        if bool(getattr(ns, "guest_quiesced", False)) or quiesce_script:
+        if (
+            bool(getattr(ns, "guest_quiesced", False))
+            or quiesce_script
+            or timeout_override is not None
+        ):
             raise ValueError(
                 "guest quiescence options are valid only for EVE-NG node-state archives"
             )
         return True
+    archive = payload.get("archive_before_destroy") or {}
+    archive_inputs = archive.get("inputs") or {}
+    timeout_s = int(
+        timeout_override
+        if timeout_override is not None
+        else archive_inputs.get("eveng_lab_archive_quiesce_timeout_s", 300)
+    )
+    if not 1 <= timeout_s <= 3600:
+        raise ValueError("quiescence timeout must be between 1 and 3600 seconds")
+    setattr(ns, "quiesce_timeout", timeout_s)
+
     if quiesce_script:
-        path = Path(quiesce_script).expanduser()
-        if path.is_symlink():
-            raise ValueError("quiescence script must not be a symbolic link")
-        resolved = path.resolve()
-        if not resolved.is_file():
-            raise ValueError(f"quiescence script is not a regular file: {resolved}")
-        size = resolved.stat().st_size
-        if size == 0:
-            raise ValueError("quiescence script is empty")
-        if size > 1024 * 1024:
-            raise ValueError("quiescence script exceeds the 1 MiB limit")
-        timeout_s = int(getattr(ns, "quiesce_timeout", 300))
-        if not 1 <= timeout_s <= 3600:
-            raise ValueError(
-                "quiescence timeout must be between 1 and 3600 seconds"
-            )
+        resolved, _checksum = _validate_quiescence_action(Path(quiesce_script))
         setattr(ns, "quiesce_script", str(resolved))
+        setattr(ns, "_quiescence_source", "command-override")
         return True
     if bool(getattr(ns, "guest_quiesced", False)):
+        if timeout_override is not None:
+            raise ValueError(
+                "--quiesce-timeout requires a configured or explicit quiescence action"
+            )
+        setattr(ns, "_quiescence_source", "operator-attestation")
         return True
+
+    environment_action = _quiescence_action_path(paths, payload)
+    if environment_action.exists() or environment_action.is_symlink():
+        resolved, _checksum = _validate_quiescence_action(environment_action)
+        setattr(ns, "quiesce_script", str(resolved))
+        setattr(ns, "_quiescence_source", "environment")
+        return True
+
+    if timeout_override is not None:
+        raise ValueError(
+            "--quiesce-timeout requires a configured or explicit quiescence action"
+        )
     if bool(getattr(ns, "yes", False)) or not (
         sys.stdin.isatty() and sys.stdout.isatty()
     ):
         raise ValueError(
-            "EVE-NG node-state archive requires --guest-quiesced after shutting "
-            "down each stateful guest inside its operating system"
+            "EVE-NG node-state archive requires a configured guest-quiescence "
+            "action. Configure it once with: "
+            f"{_quiescence_edit_command(ns, payload)}. "
+            "Use --guest-quiesced only after a manual clean shutdown."
         )
-    return _prompt_yes_no(
+    confirmed = _prompt_yes_no(
         "Confirm stateful guests were shut down inside their operating systems "
         "[y/N]: "
     )
+    if confirmed is True:
+        setattr(ns, "_quiescence_source", "operator-attestation")
+    return confirmed
 
 
 def _confirm_archive_destroy(env_name: str) -> bool | None:
@@ -4768,7 +4995,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
             getattr(ns, "quiesce_script", "") or ""
         ).strip()
         archive_inputs["eveng_lab_archive_quiesce_timeout_s"] = int(
-            getattr(ns, "quiesce_timeout", 300)
+            getattr(ns, "quiesce_timeout", None) or 300
         )
     archive_step = {
         "id": "archive_before_destroy",
@@ -4780,7 +5007,12 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "inputs": archive_inputs,
     }
     if str(getattr(ns, "quiesce_script", "") or "").strip():
-        print("preparing saved lab state; running guest quiescence action")
+        source = str(getattr(ns, "_quiescence_source", "") or "")
+        qualifier = "configured " if source == "environment" else ""
+        print(
+            "preparing saved lab state; running "
+            f"{qualifier}guest quiescence action"
+        )
     else:
         print("preparing saved lab state; guests must already be shut down")
     print("this may take several minutes, depending on lab size")
@@ -5010,6 +5242,10 @@ def _run_destroy_unlocked(ns) -> int:
                             else None
                         )
                     ),
+                    "quiescence_source": str(
+                        getattr(ns, "_quiescence_source", "") or ""
+                    )
+                    or None,
                     "lifecycle": lifecycle,
                     "steps": steps or [],
                 },
@@ -5090,7 +5326,7 @@ def _run_destroy_unlocked(ns) -> int:
 
     if archive_mode == "archive":
         try:
-            guest_quiesced = _confirm_guest_quiescence(ns, payload)
+            guest_quiesced = _confirm_guest_quiescence(ns, payload, paths)
         except ValueError as exc:
             print(f"ERR: {exc}")
             record_destroy_outcome(

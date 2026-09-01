@@ -58,7 +58,8 @@ archive_before_destroy:
     # Refresh supported saved device configurations before archiving the lab.
     # Save intended device changes to startup configuration first.
     eveng_lab_archive_capture_device_configs: true
-    # Node-state export requires per-run --guest-quiesced or --quiesce-script.
+    # Configure reusable shutdown with `hyops blueprint quiescence edit`.
+    # Use --guest-quiesced only after a manual clean shutdown.
     eveng_lab_archive_include_node_state: true
 
 steps:

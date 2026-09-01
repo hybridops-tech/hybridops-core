@@ -30,23 +30,28 @@ disks and creates a separately checksummed node-state companion archive. Base
 images remain independently managed and are paired with the restored overlays
 on the reconstructed host.
 
-Blueprint teardown supplies the acknowledgement from
-`hyops blueprint destroy --guest-quiesced`. It is scoped to that operation and
-must not be stored as a permanent blueprint input.
+Blueprint teardown supplies the acknowledgement from an environment action or
+from `hyops blueprint destroy --guest-quiesced`. Manual acknowledgement is
+scoped to that operation and must not be stored as a permanent blueprint input.
 
-An operator action can replace the manual acknowledgement:
+Configure the environment action once:
 
 ```bash
+hyops blueprint quiescence edit \
+  --env demo-lab \
+  --ref gcp/eve-ng@v1
+
 hyops blueprint destroy \
   --env demo-lab \
   --ref gcp/eve-ng@v1 \
   --archive-before-destroy \
-  --quiesce-script ./quiesce-lab.sh \
   --execute
 ```
 
-The script runs on the EVE-NG host. HybridOps then verifies that no QEMU guest
-remains active and records the script checksum with the archive evidence.
+Core stores the action under the environment configuration and discovers it on
+subsequent teardown. The script runs on the EVE-NG host. HybridOps then verifies
+that no QEMU guest remains active and records the script checksum with the
+archive evidence. `--quiesce-script` remains an operation-specific override.
 
 To refresh saved device configurations before export, enable:
 
