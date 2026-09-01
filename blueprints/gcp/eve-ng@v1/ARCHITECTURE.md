@@ -116,6 +116,12 @@ Existing lab definitions and base images are protected independently. Replacemen
 
 The restore path reconstructs the surrounding execution environment while returning EVE-NG definitions and selected QEMU state to EVE-NG rather than translating them into another lab format.
 
+Archive verification establishes the integrity and layout of the retained
+state. It does not establish that every guest appliance can boot the same
+writable disk state on a different hypervisor target. Restored nodes must pass
+their own boot and service checks before the migration is accepted. HybridOps
+does not rewrite captured QCOW2 state to repair an appliance during restore.
+
 ## Compute lifetime and cost boundary
 
 Access closure and compute release are separate lifecycle events. Ending a browser, console or SSH session leaves the execution host unchanged; the host becomes eligible for release when the selected continuity state has been preserved and verified.

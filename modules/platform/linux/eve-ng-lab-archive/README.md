@@ -89,4 +89,9 @@ Image companions contain referenced QEMU, IOL or Dynamips bases only. They do
 not contain IOL licence material. Image replacement is staged and promoted as
 a separate transaction when overwrite is enabled explicitly.
 
+Restore validates captured QCOW2 state without repairing or rewriting it.
+Archive integrity does not guarantee that an appliance can boot its writable
+state on a different hypervisor target. The restored guest must pass its own
+boot and service checks before the migration is accepted.
+
 EVE-NG blueprints use this contract as their archive-before-release path. A later deployment with `--restore-labs` selects and verifies the retained environment archive before restoration.

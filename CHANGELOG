@@ -48,6 +48,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   explicit restore flag instead of a generic configuration failure.
 - Reported streamed command timeouts as exit code 124 with the configured limit
   instead of exposing the terminating signal as `rc=-9`.
+- Limited EVE-NG node-state capture to writable QEMU disks referenced by the
+  selected lab definitions.
 
 ## [v0.1.4] - 2026-08-29
 

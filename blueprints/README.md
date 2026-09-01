@@ -236,6 +236,11 @@ Existing lab definitions and base images are protected independently. Add
 `--overwrite-labs` to replace lab definitions or `--overwrite-images` to
 replace referenced base images. Neither flag is required on a new host.
 
+Bundle verification proves archive integrity and path compatibility. A
+cross-target EVE-NG migration is complete only after the restored appliances
+pass their own boot and service checks. Restore rejects structural QCOW2
+corruption and does not modify captured overlays to repair a guest.
+
 A Containerlab import must match the target topology path and native lab-data
 base. It publishes the verified archive through the existing latest-recovery
 contract, and the next normal blueprint deployment restores it automatically.
