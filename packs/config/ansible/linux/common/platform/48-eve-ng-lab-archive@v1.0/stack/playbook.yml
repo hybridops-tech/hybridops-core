@@ -70,6 +70,12 @@
               eveng_lab_archive_results.node_state_sha256 | default(''),
             'eveng_lab_archive_node_state_files':
               eveng_lab_archive_results.node_state_files | default(0),
+            'eveng_lab_archive_quiescence_method':
+              eveng_lab_archive_results.quiescence_method | default(''),
+            'eveng_lab_archive_quiescence_script_sha256':
+              eveng_lab_archive_results.quiescence_script_sha256 | default(''),
+            'eveng_lab_archive_quiescence_verified_at':
+              eveng_lab_archive_results.quiescence_verified_at | default(''),
             'eveng_lab_archive_images_included':
               eveng_lab_archive_results.images_included | default(false),
             'eveng_lab_archive_images_archive_path':

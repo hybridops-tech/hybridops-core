@@ -106,6 +106,23 @@ class ResumableBlueprintDestroyTest(TestCase):
 
         self.assertTrue(confirmed)
 
+    def test_quiescence_script_satisfies_automatic_destroy_gate(self):
+        ns = _namespace()
+        payload = {
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "quiesce.sh"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            ns.quiesce_script = str(script)
+
+            confirmed = _confirm_guest_quiescence(ns, payload)
+
+        self.assertTrue(confirmed)
+        self.assertEqual(ns.quiesce_script, str(script.resolve()))
+
     def test_standalone_destroy_resolves_cost_from_access_state(self):
         payload = {
             "blueprint_ref": "gcp/eve-ng@v1",
@@ -663,6 +680,34 @@ class ResumableBlueprintDestroyTest(TestCase):
         inputs = command.call_args.args[0]["inputs"]
         self.assertTrue(inputs["eveng_lab_archive_guest_quiesced"])
         self.assertTrue(inputs["eveng_lab_archive_stop_running_nodes"])
+
+    def test_archive_execution_injects_quiescence_script(self):
+        payload = {
+            "archive_before_destroy": {
+                "module_ref": "platform/linux/eve-ng-lab-archive",
+                "state_instance": "lab_archive",
+                "inputs": {"eveng_lab_archive_include_node_state": True},
+            }
+        }
+        ns = _namespace()
+        ns.quiesce_script = "/tmp/quiesce.sh"
+        ns.quiesce_timeout = 120
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=CANCELLED,
+        ) as command:
+            rc = _run_archive_before_destroy(ns, payload, paths)
+
+        self.assertEqual(rc, CANCELLED)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertFalse(inputs["eveng_lab_archive_guest_quiesced"])
+        self.assertEqual(
+            inputs["eveng_lab_archive_quiesce_script_path"],
+            "/tmp/quiesce.sh",
+        )
+        self.assertEqual(inputs["eveng_lab_archive_quiesce_timeout_s"], 120)
 
     def test_failed_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))

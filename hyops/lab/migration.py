@@ -24,10 +24,13 @@ RECORD_KIND = "hybridops/lab-migration"
 SUPPORTED_PLATFORMS = ("eve-ng", "gns3", "containerlab")
 CaptureProgress = Callable[[dict[str, Any]], None]
 _MAX_DEFINITION_BYTES = 32 * 1024 * 1024
+_MAX_QUIESCENCE_SCRIPT_BYTES = 1024 * 1024
 _MAX_MEMBERS = 200_000
 _FREE_SPACE_RESERVE_BYTES = 64 * 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _EVE_NODE_STATE_RE = re.compile(r"^[0-9]+/[^/]+/[0-9]+/[^/]+\.qcow2$")
+_EVE_NODE_STATE_METADATA = "hybridops/capture.json"
+_EVE_NODE_STATE_METADATA_SCHEMA = "hybridops.eve-node-state-capture/v1"
 _SSH_HOST_RE = re.compile(r"^[a-zA-Z0-9_.:-]+$")
 _SSH_USER_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 _EVE_IMAGE_CAPTURE_PROGRAM = r"""
@@ -845,18 +848,84 @@ def _inspect_eve_node_state(path: Path) -> dict[str, Any]:
             files = [name for member, name in members if member.isfile()]
             if not files:
                 raise ValueError("EVE-NG node-state archive contains no files")
-            invalid = [name for name in files if not _EVE_NODE_STATE_RE.fullmatch(name)]
+            overlays = [name for name in files if _EVE_NODE_STATE_RE.fullmatch(name)]
+            invalid = [
+                name
+                for name in files
+                if name != _EVE_NODE_STATE_METADATA
+                and not _EVE_NODE_STATE_RE.fullmatch(name)
+            ]
             if invalid:
                 raise ValueError(
                     f"EVE-NG node-state member has an invalid path: {invalid[0]}"
                 )
-            return {
+            if not overlays:
+                raise ValueError("EVE-NG node-state archive contains no overlays")
+
+            report: dict[str, Any] = {
                 "expanded_size_bytes": sum(
                     member.size for member, _ in members if member.isfile()
                 ),
                 "member_count": len(members),
-                "overlay_count": len(files),
+                "overlay_count": len(overlays),
+                "capture_consistency": "unrecorded",
             }
+            metadata_member = next(
+                (
+                    member
+                    for member, name in members
+                    if name == _EVE_NODE_STATE_METADATA
+                ),
+                None,
+            )
+            if metadata_member is None:
+                return report
+            try:
+                metadata = json.loads(_read_definition(handle, metadata_member))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise ValueError(
+                    "EVE-NG node-state capture metadata is invalid"
+                ) from exc
+            if not isinstance(metadata, dict) or metadata.get("schema") != (
+                _EVE_NODE_STATE_METADATA_SCHEMA
+            ):
+                raise ValueError(
+                    "EVE-NG node-state capture metadata schema is unsupported"
+                )
+            quiescence = metadata.get("quiescence")
+            if not isinstance(quiescence, dict):
+                raise ValueError(
+                    "EVE-NG node-state capture metadata has no quiescence record"
+                )
+            method = str(quiescence.get("method") or "").strip()
+            if method not in {"operator-attestation", "operator-script"}:
+                raise ValueError(
+                    "EVE-NG node-state capture metadata has an invalid quiescence method"
+                )
+            if quiescence.get("qemu_processes_absent") is not True:
+                raise ValueError(
+                    "EVE-NG node-state capture metadata does not verify stopped QEMU processes"
+                )
+            verified_at = str(quiescence.get("verified_at") or "").strip()
+            script_sha256 = str(quiescence.get("script_sha256") or "").strip()
+            if method == "operator-script" and not _SHA256_RE.fullmatch(
+                script_sha256
+            ):
+                raise ValueError(
+                    "EVE-NG node-state capture metadata has an invalid script checksum"
+                )
+            if method == "operator-attestation" and script_sha256:
+                raise ValueError(
+                    "EVE-NG node-state attestation must not contain a script checksum"
+                )
+            report["capture_consistency"] = "guest-quiesced"
+            report["quiescence"] = {
+                "method": method,
+                "qemu_processes_absent": True,
+                "verified_at": verified_at or None,
+                "script_sha256": script_sha256 or None,
+            }
+            return report
     except tarfile.TarError as exc:
         raise ValueError(
             f"node-state archive is not a readable tar archive: {path}"
@@ -1035,6 +1104,14 @@ def inspect_migration_archive(
             warnings.append("referenced base images must be available on the target")
     if platform_name == "eve-ng" and node_report is None:
         warnings.append("writable QEMU node state is not included")
+    elif (
+        platform_name == "eve-ng"
+        and isinstance(node_report, dict)
+        and node_report.get("capture_consistency") != "guest-quiesced"
+    ):
+        warnings.append(
+            "node-state archive has no verified guest-quiescence evidence"
+        )
     containerlab_metadata = primary.get("containerlab")
     if (
         platform_name == "containerlab"
@@ -1079,6 +1156,7 @@ def _remote_capture_script(
     source_labdir_base: str = "",
     target_labdir_base: str = "",
     output_available_bytes: int,
+    node_state_evidence: dict[str, Any] | None = None,
 ) -> str:
     usable_bytes = max(0, output_available_bytes - _FREE_SPACE_RESERVE_BYTES)
     capacity_check = f"""available={output_available_bytes}
@@ -1134,6 +1212,16 @@ required=$({assessment_command})
 {capacity_check}exec {image_command}
 """
         if node_state:
+            persisted_evidence = dict(node_state_evidence or {})
+            persisted_evidence.pop("verified_at", None)
+            metadata = json.dumps(
+                {
+                    "schema": _EVE_NODE_STATE_METADATA_SCHEMA,
+                    "quiescence": persisted_evidence,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
             return f"""set -eu
 root=/opt/unetlab/tmp
 test -d "$root" || {{ echo 'EVE-NG node-state root not found' >&2; exit 20; }}
@@ -1148,9 +1236,14 @@ find . -type f -name '*.qcow2' -printf '%P\\n' -quit | grep -q . || {{
 }}
 required=$(find . -type f -name '*.qcow2' -printf '%b\\n' | awk '{{total += $1}} END {{printf "%.0f\\n", total * 512}}')
 {capacity_check}{compressor}
-find . -type f -name '*.qcow2' -printf '%P\\0' | sort -z | \
-  tar --null --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-  --sparse -I "$compressor" -cf - --files-from=-
+metadata_dir=$(mktemp -d)
+trap 'find "$metadata_dir" -depth -delete' EXIT
+mkdir -p "$metadata_dir/hybridops"
+printf '%s\\n' {shlex.quote(metadata)} > "$metadata_dir/{_EVE_NODE_STATE_METADATA}"
+find . -type f -name '*.qcow2' -printf '%P\\n' | sort > "$metadata_dir/members.txt"
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+  --sparse -I "$compressor" -cf - -C "$root" -T "$metadata_dir/members.txt" \
+  -C "$metadata_dir" {_EVE_NODE_STATE_METADATA}
 """
         return f"""set -eu
 root=/opt/unetlab/labs
@@ -1199,6 +1292,7 @@ def _remote_capture_assessment_script(
     topology_relpath: str = "",
     source_labdir_base: str = "",
     target_labdir_base: str = "",
+    allow_running_eve_nodes: bool = False,
 ) -> str:
     if platform == "containerlab":
         assessment_command = " ".join(
@@ -1236,14 +1330,17 @@ find . -type f -name '*.qcow2' -printf '%P\\n' -quit | grep -q . || {
   exit 22
 }
 node_state_bytes=$(find . -type f -name '*.qcow2' -printf '%b\\n' | awk '{total += $1} END {printf "%.0f\\n", total * 512}')"""
-        return f"""set -eu
-root=/opt/unetlab/labs
-test -d "$root" || {{ echo 'EVE-NG labs root not found' >&2; exit 20; }}
-if pgrep -af '[/]opt/qemu[^ ]*/bin/qemu-system-' >/dev/null; then
+        running_node_check = ""
+        if not allow_running_eve_nodes:
+            running_node_check = """if pgrep -af '[/]opt/qemu[^ ]*/bin/qemu-system-' >/dev/null; then
   echo 'EVE-NG QEMU nodes are running; stop them before capture' >&2
   exit 21
 fi
-find "$root" -type f -name '*.unl' -print -quit | grep -q . || {{
+"""
+        return f"""set -eu
+root=/opt/unetlab/labs
+test -d "$root" || {{ echo 'EVE-NG labs root not found' >&2; exit 20; }}
+{running_node_check}find "$root" -type f -name '*.unl' -print -quit | grep -q . || {{
   echo 'No EVE-NG lab definitions were found' >&2
   exit 22
 }}
@@ -1281,6 +1378,29 @@ def _ssh_capture_argv(
     script: str,
     control_path: Path | None = None,
 ) -> list[str]:
+    argv, target = _ssh_argv(
+        host=host,
+        user=user,
+        port=port,
+        identity_file=identity_file,
+        control_path=control_path,
+    )
+    remote = (
+        ["sudo", "-n", "sh", "-c", script]
+        if become
+        else ["sh", "-c", script]
+    )
+    return [*argv, target, shlex.join(remote)]
+
+
+def _ssh_argv(
+    *,
+    host: str,
+    user: str,
+    port: int,
+    identity_file: str | Path | None,
+    control_path: Path | None = None,
+) -> tuple[list[str], str]:
     host_name = _ssh_name(host, "host")
     user_name = _ssh_name(user, "user") if user else ""
     if not 1 <= int(port) <= 65535:
@@ -1301,8 +1421,151 @@ def _ssh_capture_argv(
     if identity_file:
         identity = _regular_file(identity_file, "identity file")
         argv.extend(["-i", str(identity)])
-    remote = ["sudo", "-n", "sh", "-c", script] if become else ["sh", "-c", script]
-    return [*argv, target, shlex.join(remote)]
+    return argv, target
+
+
+def _read_quiescence_script(raw: str | Path) -> tuple[bytes, str]:
+    path = _regular_file(raw, "quiescence script")
+    size = path.stat().st_size
+    if size == 0:
+        raise ValueError("quiescence script is empty")
+    if size > _MAX_QUIESCENCE_SCRIPT_BYTES:
+        raise ValueError("quiescence script exceeds the 1 MiB limit")
+    payload = path.read_bytes()
+    if b"\x00" in payload:
+        raise ValueError("quiescence script contains a NUL byte")
+    return payload, hashlib.sha256(payload).hexdigest()
+
+
+def _run_quiescence_script(
+    *,
+    host: str,
+    user: str,
+    port: int,
+    identity_file: str | Path | None,
+    become: bool,
+    payload: bytes,
+    script_sha256: str,
+    timeout_s: int,
+    control_path: Path,
+    progress: CaptureProgress | None,
+) -> dict[str, Any]:
+    if progress is not None:
+        progress({"phase": "quiescence_started", "stage": "quiescence"})
+    argv, target = _ssh_argv(
+        host=host,
+        user=user,
+        port=port,
+        identity_file=identity_file,
+        control_path=control_path,
+    )
+    started_at = time.monotonic()
+    command = [
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=5",
+        str(timeout_s),
+        "sh",
+        "-s",
+        "--",
+    ]
+    remote = ["sudo", "-n", *command] if become else command
+    try:
+        result = subprocess.run(
+            [*argv, target, shlex.join(remote)],
+            input=payload,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=timeout_s + 10,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("ssh is not installed or is not available on PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        if progress is not None:
+            progress(
+                {
+                    "phase": "quiescence_finished",
+                    "stage": "quiescence",
+                    "status": "failed",
+                }
+            )
+        raise ValueError(
+            "quiescence timed out; source state was not captured"
+        ) from exc
+    if result.returncode != 0:
+        if progress is not None:
+            progress(
+                {
+                    "phase": "quiescence_finished",
+                    "stage": "quiescence",
+                    "status": "failed",
+                }
+            )
+        if result.returncode in {124, 137}:
+            raise ValueError(
+                "quiescence timed out; source state was not captured"
+            )
+        raise ValueError(
+            "quiescence script failed with status "
+            f"{result.returncode}; source state was not captured"
+        )
+
+    remaining_s = max(1, int(timeout_s - (time.monotonic() - started_at)))
+    wait_script = f"""set -eu
+deadline=$(( $(date +%s) + {remaining_s} ))
+while pgrep -f '[/]opt/qemu[^ ]*/bin/qemu-system-' >/dev/null; do
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    echo 'Timed out waiting for EVE-NG QEMU guests to stop' >&2
+    exit 21
+  fi
+  sleep 2
+done
+"""
+    wait_argv = _ssh_capture_argv(
+        host=host,
+        user=user,
+        port=port,
+        identity_file=identity_file,
+        become=become,
+        script=wait_script,
+        control_path=control_path,
+    )
+    result = subprocess.run(
+        wait_argv,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        if progress is not None:
+            progress(
+                {
+                    "phase": "quiescence_finished",
+                    "stage": "quiescence",
+                    "status": "failed",
+                }
+            )
+        if result.returncode == 21:
+            raise ValueError(
+                "quiescence timed out while EVE-NG QEMU guests were still running"
+            )
+        raise _capture_error(result)
+    evidence = {
+        "method": "operator-script",
+        "qemu_processes_absent": True,
+        "verified_at": _utc_now(),
+        "script_sha256": script_sha256,
+    }
+    if progress is not None:
+        progress(
+            {
+                "phase": "quiescence_finished",
+                "stage": "quiescence",
+                "status": "ok",
+            }
+        )
+    return evidence
 
 
 def _capture_error(result: subprocess.CompletedProcess[bytes]) -> ValueError:
@@ -1551,6 +1814,8 @@ def capture_existing_lab(
     become: bool = False,
     include_node_state: bool = False,
     guest_quiesced: bool = False,
+    quiesce_script: str | Path | None = None,
+    quiesce_timeout_s: int = 300,
     node_state_output: str | Path | None = None,
     include_images: bool = False,
     images_output: str | Path | None = None,
@@ -1566,14 +1831,21 @@ def capture_existing_lab(
         raise ValueError("platform must be one of: " + ", ".join(SUPPORTED_PLATFORMS))
     if include_node_state and platform_name != "eve-ng":
         raise ValueError("separate node-state capture is only valid for EVE-NG")
+    if quiesce_script and platform_name != "eve-ng":
+        raise ValueError("--quiesce-script is only valid for EVE-NG")
     if guest_quiesced and not include_node_state:
         raise ValueError("--guest-quiesced requires --include-node-state")
-    if include_node_state and not guest_quiesced:
+    if quiesce_script and not include_node_state:
+        raise ValueError("--quiesce-script requires --include-node-state")
+    if guest_quiesced and quiesce_script:
+        raise ValueError("--guest-quiesced and --quiesce-script are mutually exclusive")
+    if include_node_state and not (guest_quiesced or quiesce_script):
         raise ValueError(
-            "EVE-NG node-state capture requires --guest-quiesced after shutting "
-            "down each stateful guest inside its operating system; stopping a "
-            "node in EVE-NG is not a clean guest shutdown"
+            "EVE-NG node-state capture requires --guest-quiesced or "
+            "--quiesce-script"
         )
+    if not 1 <= int(quiesce_timeout_s) <= 3600:
+        raise ValueError("quiescence timeout must be between 1 and 3600 seconds")
     if node_state_output and not include_node_state:
         raise ValueError("--node-state-output requires --include-node-state")
     if images_output and not (include_images and platform_name == "eve-ng"):
@@ -1595,6 +1867,12 @@ def capture_existing_lab(
         )
 
     destination = _capture_destination(output, "output")
+    quiescence_payload: bytes | None = None
+    quiescence_script_sha256 = ""
+    if quiesce_script:
+        quiescence_payload, quiescence_script_sha256 = _read_quiescence_script(
+            quiesce_script
+        )
     node_destination: Path | None = None
     image_destination: Path | None = None
     if include_node_state:
@@ -1625,6 +1903,7 @@ def capture_existing_lab(
     )
     os.chmod(control_root, 0o700)
     control_path = control_root / "control"
+    quiescence_evidence: dict[str, Any] | None = None
     try:
         primary_candidate = _capture_candidate(destination, force)
         if node_destination is not None:
@@ -1645,12 +1924,20 @@ def capture_existing_lab(
                 topology_relpath=topology_relpath,
                 source_labdir_base=source_labdir_base,
                 target_labdir_base=target_labdir_base,
+                allow_running_eve_nodes=quiescence_payload is not None,
             ),
             control_path=control_path,
         )
         if progress is not None:
             progress({"phase": "assessment_started", "stage": "assessment"})
         requirements = _capture_requirements(assessment_argv)
+        if include_node_state and quiescence_payload is None:
+            quiescence_evidence = {
+                "method": "operator-attestation",
+                "qemu_processes_absent": True,
+                "verified_at": _utc_now(),
+                "script_sha256": None,
+            }
         if progress is not None:
             progress(
                 {
@@ -1668,6 +1955,19 @@ def capture_existing_lab(
             image_destination=image_destination,
             image_bytes=requirements["image_bytes"],
         )
+        if quiescence_payload is not None:
+            quiescence_evidence = _run_quiescence_script(
+                host=host,
+                user=user,
+                port=port,
+                identity_file=identity_file,
+                become=become,
+                payload=quiescence_payload,
+                script_sha256=quiescence_script_sha256,
+                timeout_s=int(quiesce_timeout_s),
+                control_path=control_path,
+                progress=progress,
+            )
         primary_argv = _ssh_capture_argv(
             host=host,
             user=user,
@@ -1707,6 +2007,7 @@ def capture_existing_lab(
                 script=_remote_capture_script(
                     platform_name,
                     node_state=True,
+                    node_state_evidence=quiescence_evidence,
                     output_available_bytes=_available_disk_bytes(
                         node_destination.parent
                     ),
@@ -1780,6 +2081,7 @@ def capture_existing_lab(
         if isinstance(report.get("node_state"), dict) and node_destination is not None:
             report["node_state"]["path"] = str(node_destination)
             report["node_state"]["capture_consistency"] = "guest-quiesced"
+            report["node_state"]["quiescence"] = quiescence_evidence
         if isinstance(report.get("images"), dict) and image_destination is not None:
             report["images"]["path"] = str(image_destination)
         report["source"] = {"host": host, "user": user or None}

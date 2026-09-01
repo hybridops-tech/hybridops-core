@@ -173,8 +173,12 @@ password. Capture assesses all requested streams before transferring data.
 Before EVE-NG node-state capture, shut down each stateful guest inside its
 operating system and pass `--guest-quiesced`. Stopping a node in EVE-NG does
 not establish a clean guest shutdown. Capture also refuses to proceed while
-EVE-NG QEMU nodes or the GNS3 server are running. Use `--become` when the SSH
-account has passwordless sudo access.
+EVE-NG QEMU nodes or the GNS3 server are running. For a repeatable action,
+replace `--guest-quiesced` with `--quiesce-script ./quiesce-lab.sh`. The script
+runs on the EVE-NG host; Core verifies that QEMU has stopped and records the
+script checksum. Use `--become` when the SSH account has passwordless sudo
+access.
+
 For EVE-NG, `--include-images` creates a separate archive containing only the
 base images referenced by the captured labs. For GNS3, it includes the image
 library in the primary archive. Capture uses `pigz -1` when available and

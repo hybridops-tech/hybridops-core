@@ -34,6 +34,20 @@ Blueprint teardown supplies the acknowledgement from
 `hyops blueprint destroy --guest-quiesced`. It is scoped to that operation and
 must not be stored as a permanent blueprint input.
 
+An operator action can replace the manual acknowledgement:
+
+```bash
+hyops blueprint destroy \
+  --env demo-lab \
+  --ref gcp/eve-ng@v1 \
+  --archive-before-destroy \
+  --quiesce-script ./quiesce-lab.sh \
+  --execute
+```
+
+The script runs on the EVE-NG host. HybridOps then verifies that no QEMU guest
+remains active and records the script checksum with the archive evidence.
+
 To refresh saved device configurations before export, enable:
 
 ```yaml

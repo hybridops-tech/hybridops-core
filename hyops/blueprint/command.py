@@ -1140,13 +1140,29 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Destroy without exporting declared lab data.",
     )
-    d.add_argument(
+    quiescence = d.add_mutually_exclusive_group()
+    quiescence.add_argument(
         "--guest-quiesced",
         action="store_true",
         help=(
             "Confirm stateful EVE-NG guests were shut down inside the guest "
             "before node-state capture."
         ),
+    )
+    quiescence.add_argument(
+        "--quiesce-script",
+        default="",
+        help=(
+            "Run a local POSIX shell script on the EVE-NG host before "
+            "node-state capture."
+        ),
+    )
+    d.add_argument(
+        "--quiesce-timeout",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help="Maximum time for EVE-NG guest quiescence and QEMU shutdown.",
     )
     d.set_defaults(_handler=run_destroy)
 
@@ -4638,6 +4654,7 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
             bool(getattr(ns, "archive_before_destroy", False))
             or bool(getattr(ns, "skip_archive", False))
             or bool(getattr(ns, "guest_quiesced", False))
+            or bool(str(getattr(ns, "quiesce_script", "") or "").strip())
         ):
             raise ValueError("this blueprint does not declare a lab archive lifecycle")
         return "none"
@@ -4645,8 +4662,12 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
     if bool(getattr(ns, "archive_before_destroy", False)):
         return "archive"
     if bool(getattr(ns, "skip_archive", False)):
-        if bool(getattr(ns, "guest_quiesced", False)):
-            raise ValueError("--guest-quiesced requires --archive-before-destroy")
+        if bool(getattr(ns, "guest_quiesced", False)) or bool(
+            str(getattr(ns, "quiesce_script", "") or "").strip()
+        ):
+            raise ValueError(
+                "guest quiescence options require --archive-before-destroy"
+            )
         return "skip"
 
     if bool(getattr(ns, "yes", False)) or not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -4682,11 +4703,31 @@ def _archive_requires_guest_quiescence(payload: dict[str, Any]) -> bool:
 
 
 def _confirm_guest_quiescence(ns, payload: dict[str, Any]) -> bool | None:
+    quiesce_script = str(getattr(ns, "quiesce_script", "") or "").strip()
     if not _archive_requires_guest_quiescence(payload):
-        if bool(getattr(ns, "guest_quiesced", False)):
+        if bool(getattr(ns, "guest_quiesced", False)) or quiesce_script:
             raise ValueError(
-                "--guest-quiesced is valid only for EVE-NG node-state archives"
+                "guest quiescence options are valid only for EVE-NG node-state archives"
             )
+        return True
+    if quiesce_script:
+        path = Path(quiesce_script).expanduser()
+        if path.is_symlink():
+            raise ValueError("quiescence script must not be a symbolic link")
+        resolved = path.resolve()
+        if not resolved.is_file():
+            raise ValueError(f"quiescence script is not a regular file: {resolved}")
+        size = resolved.stat().st_size
+        if size == 0:
+            raise ValueError("quiescence script is empty")
+        if size > 1024 * 1024:
+            raise ValueError("quiescence script exceeds the 1 MiB limit")
+        timeout_s = int(getattr(ns, "quiesce_timeout", 300))
+        if not 1 <= timeout_s <= 3600:
+            raise ValueError(
+                "quiescence timeout must be between 1 and 3600 seconds"
+            )
+        setattr(ns, "quiesce_script", str(resolved))
         return True
     if bool(getattr(ns, "guest_quiesced", False)):
         return True
@@ -4723,6 +4764,12 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         archive_inputs["eveng_lab_archive_guest_quiesced"] = bool(
             getattr(ns, "guest_quiesced", False)
         )
+        archive_inputs["eveng_lab_archive_quiesce_script_path"] = str(
+            getattr(ns, "quiesce_script", "") or ""
+        ).strip()
+        archive_inputs["eveng_lab_archive_quiesce_timeout_s"] = int(
+            getattr(ns, "quiesce_timeout", 300)
+        )
     archive_step = {
         "id": "archive_before_destroy",
         "module_ref": archive["module_ref"],
@@ -4732,7 +4779,10 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "with_deps": False,
         "inputs": archive_inputs,
     }
-    print("preparing saved lab state; guests must already be shut down")
+    if str(getattr(ns, "quiesce_script", "") or "").strip():
+        print("preparing saved lab state; running guest quiescence action")
+    else:
+        print("preparing saved lab state; guests must already be shut down")
     print("this may take several minutes, depending on lab size")
     progress = ProgressDisplay(
         enabled=bool(
@@ -4951,6 +5001,15 @@ def _run_destroy_unlocked(ns) -> int:
                     "guest_quiesced": bool(
                         getattr(ns, "guest_quiesced", False)
                     ),
+                    "quiescence_method": (
+                        "operator-script"
+                        if str(getattr(ns, "quiesce_script", "") or "").strip()
+                        else (
+                            "operator-attestation"
+                            if bool(getattr(ns, "guest_quiesced", False))
+                            else None
+                        )
+                    ),
                     "lifecycle": lifecycle,
                     "steps": steps or [],
                 },
@@ -5052,7 +5111,8 @@ def _run_destroy_unlocked(ns) -> int:
             _print_destroy_lifecycle_summary(lifecycle)
             print_destroy_record()
             return CANCELLED
-        setattr(ns, "guest_quiesced", True)
+        if not str(getattr(ns, "quiesce_script", "") or "").strip():
+            setattr(ns, "guest_quiesced", True)
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
         if payload.get("archive_before_destroy"):

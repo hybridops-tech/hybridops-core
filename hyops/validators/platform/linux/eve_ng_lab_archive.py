@@ -103,6 +103,20 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError(
             "inputs.eveng_lab_archive_guest_quiesced must be a boolean"
         )
+    quiesce_script_path = data.get("eveng_lab_archive_quiesce_script_path")
+    if not isinstance(quiesce_script_path, str):
+        raise ValueError(
+            "inputs.eveng_lab_archive_quiesce_script_path must be a string"
+        )
+    quiesce_timeout_s = data.get("eveng_lab_archive_quiesce_timeout_s")
+    if (
+        isinstance(quiesce_timeout_s, bool)
+        or not isinstance(quiesce_timeout_s, int)
+        or not 1 <= quiesce_timeout_s <= 3600
+    ):
+        raise ValueError(
+            "inputs.eveng_lab_archive_quiesce_timeout_s must be between 1 and 3600"
+        )
     capture_device_configs = data.get("eveng_lab_archive_capture_device_configs")
     if not isinstance(capture_device_configs, bool):
         raise ValueError(

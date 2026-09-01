@@ -65,6 +65,22 @@ class _CaptureProgress:
         if phase == "assessment_started":
             print("assessing source and requested capture streams", flush=True)
             return
+        if phase == "quiescence_started":
+            self.display.start(
+                "lab-migration-quiescence",
+                "Guest quiescence",
+                plain="capture=quiescence status=running",
+            )
+            return
+        if phase == "quiescence_finished":
+            status = str(event.get("status") or "failed")
+            self.display.finish(
+                "lab-migration-quiescence",
+                "Guest quiescence",
+                status,
+                plain=f"capture=quiescence status={status}",
+            )
+            return
         if phase == "assessment_finished":
             print("source assessment:")
             print(f"  lab definitions: {_concise_bytes(event['primary_bytes'])}")
@@ -330,13 +346,29 @@ def add_lab_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Capture stopped EVE-NG QEMU overlays.",
     )
-    capture_parser.add_argument(
+    quiescence = capture_parser.add_mutually_exclusive_group()
+    quiescence.add_argument(
         "--guest-quiesced",
         action="store_true",
         help=(
             "Confirm EVE-NG guests were shut down inside the guest before "
             "node-state capture."
         ),
+    )
+    quiescence.add_argument(
+        "--quiesce-script",
+        default="",
+        help=(
+            "Run a local POSIX shell script on the EVE-NG host before "
+            "node-state capture."
+        ),
+    )
+    capture_parser.add_argument(
+        "--quiesce-timeout",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help="Maximum time for EVE-NG guest quiescence and QEMU shutdown.",
     )
     capture_parser.add_argument(
         "--node-state-output",
@@ -442,6 +474,8 @@ def run_capture(ns) -> int:
             become=ns.become,
             include_node_state=ns.include_node_state,
             guest_quiesced=ns.guest_quiesced,
+            quiesce_script=ns.quiesce_script or None,
+            quiesce_timeout_s=ns.quiesce_timeout,
             node_state_output=ns.node_state_output or None,
             include_images=ns.include_images,
             images_output=ns.images_output or None,

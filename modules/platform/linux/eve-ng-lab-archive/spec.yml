@@ -57,6 +57,8 @@ inputs:
     eveng_lab_archive_restore_images: false
     eveng_lab_archive_stop_running_nodes: false
     eveng_lab_archive_guest_quiesced: false
+    eveng_lab_archive_quiesce_script_path: ""
+    eveng_lab_archive_quiesce_timeout_s: 300
     eveng_lab_archive_node_state_root: "/opt/unetlab/tmp"
     eveng_lab_archive_node_state_path: ""
     eveng_lab_archive_node_state_expected_sha256: ""
@@ -98,6 +100,9 @@ outputs:
     - eveng_lab_archive_node_state_archive_path
     - eveng_lab_archive_node_state_sha256
     - eveng_lab_archive_node_state_files
+    - eveng_lab_archive_quiescence_method
+    - eveng_lab_archive_quiescence_script_sha256
+    - eveng_lab_archive_quiescence_verified_at
     - eveng_lab_archive_images_included
     - eveng_lab_archive_images_archive_path
     - eveng_lab_archive_images_sha256

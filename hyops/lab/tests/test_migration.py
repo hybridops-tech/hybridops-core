@@ -20,6 +20,7 @@ from hyops.lab.migration import (
     _capture_stream,
     _format_bytes,
     _remote_capture_assessment_script,
+    _run_quiescence_script,
     capture_existing_lab,
     inspect_migration_archive,
     load_migration_archive,
@@ -143,6 +144,77 @@ class LabMigrationInspectionTest(TestCase):
         self.assertGreater(report["archive"]["expanded_size_bytes"], 0)
         self.assertEqual(report["node_state"]["overlay_count"], 1)
         self.assertGreater(report["node_state"]["expanded_size_bytes"], 0)
+        self.assertIn(
+            "node-state archive has no verified guest-quiescence evidence",
+            report["warnings"],
+        )
+
+    def test_reads_persisted_eve_quiescence_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "eve.tar.gz"
+            node_state = Path(tmp) / "nodes.tar.gz"
+            _write_tar(archive, {"0/network.unl": b"<lab />"})
+            _write_tar(
+                node_state,
+                {
+                    "0/network/1/virtioa.qcow2": b"overlay",
+                    "hybridops/capture.json": json.dumps(
+                        {
+                            "schema": "hybridops.eve-node-state-capture/v1",
+                            "quiescence": {
+                                "method": "operator-script",
+                                "qemu_processes_absent": True,
+                                "verified_at": "2026-09-01T09:00:00Z",
+                                "script_sha256": "a" * 64,
+                            },
+                        }
+                    ).encode(),
+                },
+            )
+
+            report = inspect_migration_archive(
+                platform="eve-ng",
+                archive=archive,
+                node_state=node_state,
+            )
+
+        self.assertEqual(
+            report["node_state"]["capture_consistency"], "guest-quiesced"
+        )
+        self.assertEqual(
+            report["node_state"]["quiescence"]["method"], "operator-script"
+        )
+        self.assertEqual(report["node_state"]["overlay_count"], 1)
+
+    def test_rejects_invalid_eve_quiescence_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "eve.tar.gz"
+            node_state = Path(tmp) / "nodes.tar.gz"
+            _write_tar(archive, {"0/network.unl": b"<lab />"})
+            _write_tar(
+                node_state,
+                {
+                    "0/network/1/virtioa.qcow2": b"overlay",
+                    "hybridops/capture.json": json.dumps(
+                        {
+                            "schema": "hybridops.eve-node-state-capture/v1",
+                            "quiescence": {
+                                "method": "operator-script",
+                                "qemu_processes_absent": False,
+                                "verified_at": "2026-09-01T09:00:00Z",
+                                "script_sha256": "a" * 64,
+                            },
+                        }
+                    ).encode(),
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "does not verify stopped"):
+                inspect_migration_archive(
+                    platform="eve-ng",
+                    archive=archive,
+                    node_state=node_state,
+                )
 
     def test_rejects_unsafe_archive_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -754,6 +826,95 @@ class LabMigrationStagingTest(TestCase):
 
 
 class LabMigrationCaptureTest(TestCase):
+    def test_scripted_capture_assesses_source_before_stopping_qemu(self) -> None:
+        script = _remote_capture_assessment_script(
+            "eve-ng",
+            include_node_state=True,
+            allow_running_eve_nodes=True,
+        )
+
+        self.assertNotIn("pgrep", script)
+        self.assertIn("node_state_bytes", script)
+
+    def test_runs_quiescence_script_and_verifies_stopped_qemu(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def run(argv, **kwargs):
+            calls.append({"argv": argv, **kwargs})
+            return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("hyops.lab.migration.subprocess.run", side_effect=run),
+        ):
+            evidence = _run_quiescence_script(
+                host="eve.example.test",
+                user="operator",
+                port=22,
+                identity_file=None,
+                become=True,
+                payload=b"#!/bin/sh\nexit 0\n",
+                script_sha256="a" * 64,
+                timeout_s=60,
+                control_path=Path(tmp) / "control",
+                progress=None,
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["input"], b"#!/bin/sh\nexit 0\n")
+        self.assertNotIn("#!/bin/sh", " ".join(calls[0]["argv"]))
+        self.assertIn("timeout", " ".join(calls[0]["argv"]))
+        self.assertIn("qemu-system", " ".join(calls[1]["argv"]))
+        self.assertEqual(evidence["method"], "operator-script")
+        self.assertEqual(evidence["script_sha256"], "a" * 64)
+
+    def test_quiescence_script_failure_does_not_expose_output(self) -> None:
+        failure = subprocess.CompletedProcess(
+            ["ssh"],
+            7,
+            b"private output",
+            b"private error",
+        )
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("hyops.lab.migration.subprocess.run", return_value=failure),
+            self.assertRaisesRegex(ValueError, "failed with status 7") as raised,
+        ):
+            _run_quiescence_script(
+                host="eve.example.test",
+                user="operator",
+                port=22,
+                identity_file=None,
+                become=False,
+                payload=b"exit 7\n",
+                script_sha256="b" * 64,
+                timeout_s=60,
+                control_path=Path(tmp) / "control",
+                progress=None,
+            )
+
+        self.assertNotIn("private", str(raised.exception))
+
+    def test_quiescence_timeout_does_not_capture_source_state(self) -> None:
+        failure = subprocess.CompletedProcess(["ssh"], 124, b"", b"")
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("hyops.lab.migration.subprocess.run", return_value=failure),
+            self.assertRaisesRegex(ValueError, "quiescence timed out"),
+        ):
+            _run_quiescence_script(
+                host="eve.example.test",
+                user="operator",
+                port=22,
+                identity_file=None,
+                become=False,
+                payload=b"sleep 600\n",
+                script_sha256="c" * 64,
+                timeout_s=60,
+                control_path=Path(tmp) / "control",
+                progress=None,
+            )
+
     def test_formats_capacity_for_operator_output(self) -> None:
         self.assertEqual(
             _format_bytes(171627474944),
