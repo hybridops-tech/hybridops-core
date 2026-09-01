@@ -2,6 +2,55 @@
 
 This changelog records significant operator-facing capabilities, lifecycle changes, compatibility fixes, and release engineering updates. Individual commits and maintenance-only changes remain available through the linked comparisons.
 
+## Unreleased
+
+### Added
+
+- Added verified same-platform migration intake for existing EVE-NG, GNS3 and
+  Containerlab labs. Imported bundles are inspected, checksum-verified, bound
+  to the selected blueprint reference and restored through the existing
+  lifecycle.
+- Added capacity gates for lab capture, migration import and target restore so
+  insufficient disk space is reported before existing lab data is replaced.
+- Added optional, checksummed migration of EVE-NG base images referenced by
+  captured lab definitions. Licence material remains outside the archive.
+- Added independent `--overwrite-images` control for explicit base-image
+  replacement during migration restore.
+- Added environment-managed EVE-NG guest quiescence actions for protected
+  teardown, operation-specific overrides for migration capture, bounded
+  QEMU-stop verification, and checksummed archive evidence.
+
+### Changed
+
+- Preferred sparse-aware, parallel level-one compression for remote lab capture
+  when `pigz` is available, with `gzip -1` as the portable fallback.
+- Required an explicit guest-quiesced acknowledgement before EVE-NG QEMU
+  node-state capture and recorded the selected consistency boundary.
+- Made the legacy automatic-QEMU-stop setting inert during protected EVE-NG
+  teardown so existing environment overlays fail closed without being rewritten.
+- Staged migrated EVE-NG images before transactional promotion and rollback.
+- Reported migration capture stages, assessed source sizes, transferred bytes,
+  average rate and elapsed time during long-running archive streams.
+- Reported the active archive, image and node-state phase during long lab
+  restores instead of displaying an unqualified spinner.
+- Applied a bounded four-hour execution window to EVE-NG, GNS3 and Containerlab
+  archive operations instead of the shared one-hour configuration limit.
+
+### Fixed
+
+- Disabled SSH connection multiplexing for GCP IAP configuration runs and
+  verified passwordless privilege escalation during connectivity preflight.
+- Assessed all requested migration streams through one SSH session before
+  transferring archives.
+- Retained the verified migration image companion across later lab archive
+  generations and rejected unreferenced bases or IOL licence material.
+- Surfaced conflicting EVE-NG lab, node-state and image paths with the matching
+  explicit restore flag instead of a generic configuration failure.
+- Reported streamed command timeouts as exit code 124 with the configured limit
+  instead of exposing the terminating signal as `rc=-9`.
+- Limited EVE-NG node-state capture to writable QEMU disks referenced by the
+  selected lab definitions.
+
 ## [v0.1.4] - 2026-08-29
 
 ### Added

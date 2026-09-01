@@ -85,7 +85,7 @@ Live management addresses are session state. Durable role, platform, grouping an
 
 The blueprint configures `platform/linux/eve-ng-lab-archive` before destructive lifecycle actions.
 
-The primary archive retains EVE-NG lab definitions from `/opt/unetlab/labs` after EVE-NG refreshes saved device configurations in those definitions. The node-state companion path captures stopped QEMU overlays when node-state preservation is selected. The lifecycle stops running QEMU nodes before overlay capture, validates the overlays and records a separate SHA-256 for the companion archive.
+The primary archive retains EVE-NG lab definitions from `/opt/unetlab/labs` after EVE-NG refreshes saved device configurations in those definitions. The node-state companion path captures stopped QEMU overlays when node-state preservation is selected. The operator shuts down stateful guests inside their operating systems and stops the EVE-NG nodes. HybridOps records the per-run acknowledgement, rejects running QEMU processes, validates the overlays and records a separate SHA-256 for the companion archive.
 
 ```text
 lab definitions and saved configurations --+
@@ -101,15 +101,26 @@ stopped QEMU overlays, when selected -------+--> controller-side retained set
                                                compute release
 ```
 
-Vendor or base images remain separately managed. Restored overlays are paired with the matching installed base images. This keeps the retained continuity set focused on lab-owned mutable state.
+Base images remain separately managed during routine preservation. A verified migration intake can carry only the bases referenced by the imported labs. Restored overlays are paired with those installed bases.
 
 ## Restore path
 
 `--restore-labs` selects the latest verified archive state recorded for the environment. The runtime verifies the primary archive checksum and, when present, the node-state companion checksum before invoking the archive module in restore mode.
 
-Existing lab content is protected by default. Replacement requires the explicit overwrite option.
+A verified migration bundle can provide the initial archive state for an
+existing EVE-NG lab. Intake checks its lab definitions, archive paths, image
+references and optional QEMU overlay layout, then binds the retained copy to
+this blueprint. The source host remains unchanged.
+
+Existing lab definitions and base images are protected independently. Replacement requires `--overwrite-labs` or `--overwrite-images` for the relevant content.
 
 The restore path reconstructs the surrounding execution environment while returning EVE-NG definitions and selected QEMU state to EVE-NG rather than translating them into another lab format.
+
+Archive verification establishes the integrity and layout of the retained
+state. It does not establish that every guest appliance can boot the same
+writable disk state on a different hypervisor target. Restored nodes must pass
+their own boot and service checks before the migration is accepted. HybridOps
+does not rewrite captured QCOW2 state to repair an appliance during restore.
 
 ## Compute lifetime and cost boundary
 

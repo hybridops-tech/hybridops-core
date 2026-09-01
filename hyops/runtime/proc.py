@@ -6,11 +6,12 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import signal
-from typing import Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence
 import subprocess
 import sys
 import threading
@@ -19,6 +20,34 @@ import time
 from hyops.runtime.redact import redact_text
 from hyops.runtime.progress import ProgressDisplay, concise_enabled
 from hyops.runtime.state import write_json_atomic
+
+
+StreamObserver = Callable[[str, str], None]
+_stream_observers: set[StreamObserver] = set()
+_stream_observers_lock = threading.Lock()
+
+
+@contextmanager
+def observe_stream_output(observer: StreamObserver) -> Iterator[None]:
+    """Observe redacted output from streamed child processes in this runtime."""
+
+    with _stream_observers_lock:
+        _stream_observers.add(observer)
+    try:
+        yield
+    finally:
+        with _stream_observers_lock:
+            _stream_observers.discard(observer)
+
+
+def _notify_stream_observers(stream: str, line: str) -> None:
+    with _stream_observers_lock:
+        observers = tuple(_stream_observers)
+    for observer in observers:
+        try:
+            observer(stream, line)
+        except Exception:
+            pass
 
 
 @dataclass(frozen=True)
@@ -319,6 +348,7 @@ def run_capture_stream(
             with dst.open("a", encoding="utf-8", errors="replace") as f:
                 for line in src:
                     token = redact_text(line) if redact else line
+                    _notify_stream_observers(stream, token)
                     f.write(token)
                     f.flush()
                     if tee_f:
@@ -440,6 +470,7 @@ def run_capture_stream(
 
     rc = 1
     interrupted = False
+    timed_out = False
     try:
         rc = int(p.wait(timeout=timeout_s))
     except KeyboardInterrupt:
@@ -466,11 +497,16 @@ def run_capture_stream(
         except Exception:
             rc = 130
     except subprocess.TimeoutExpired:
+        timed_out = True
         try:
             p.kill()
         except Exception:
             pass
-        rc = int(p.wait(timeout=10))
+        try:
+            p.wait(timeout=10)
+        except Exception:
+            pass
+        rc = 124
     finally:
         heartbeat_stop.set()
         t_out.join(timeout=2)
@@ -486,13 +522,24 @@ def run_capture_stream(
                 pass
 
     dur = int((time.time() - start) * 1000)
+    timeout_message = ""
+    if timed_out:
+        timeout_message = f"command timed out after {timeout_s} seconds\n"
+        with err_path.open("a", encoding="utf-8") as timeout_log:
+            timeout_log.write(timeout_message)
+        if tee_path is not None:
+            try:
+                with tee_path.open("a", encoding="utf-8") as timeout_log:
+                    timeout_log.write(timeout_message)
+            except Exception:
+                pass
     r = ProcResult(
         argv=list(argv),
         cwd=cwd,
         rc=rc,
         duration_ms=dur,
         stdout="",
-        stderr="",
+        stderr=timeout_message,
     )
     _write_result_envelope(evidence_dir, label, r, redact=redact)
     if stream_progress.enabled:

@@ -36,6 +36,7 @@ inputs:
     connectivity_check: true
     connectivity_timeout_s: 5
     connectivity_wait_s: 0
+    execution_timeout_s: 14400
 
     required_env: []
     required_env_destroy: []
@@ -49,13 +50,24 @@ inputs:
     eveng_lab_archive_path: ""
     eveng_lab_archive_expected_sha256: ""
     eveng_lab_archive_overwrite: false
+    eveng_lab_archive_overwrite_images: false
     eveng_lab_archive_remote_dir: "/tmp/hyops-eveng-lab-archive"
     eveng_lab_archive_include_node_state: false
     eveng_lab_archive_restore_node_state: false
+    eveng_lab_archive_restore_images: false
     eveng_lab_archive_stop_running_nodes: false
+    eveng_lab_archive_guest_quiesced: false
+    eveng_lab_archive_quiesce_script_path: ""
+    eveng_lab_archive_quiesce_timeout_s: 300
     eveng_lab_archive_node_state_root: "/opt/unetlab/tmp"
     eveng_lab_archive_node_state_path: ""
     eveng_lab_archive_node_state_expected_sha256: ""
+    eveng_lab_archive_images_root: "/opt/unetlab/addons"
+    eveng_lab_archive_images_owner: "root"
+    eveng_lab_archive_images_group: "root"
+    eveng_lab_archive_images_path: ""
+    eveng_lab_archive_images_expected_sha256: ""
+    eveng_lab_archive_fixpermissions_command: "/opt/unetlab/wrappers/unl_wrapper -a fixpermissions"
     eveng_lab_archive_qemu_img: "/opt/qemu/bin/qemu-img"
     eveng_lab_archive_capture_device_configs: false
     eveng_lab_archive_activate_saved_configs: true
@@ -88,6 +100,12 @@ outputs:
     - eveng_lab_archive_node_state_archive_path
     - eveng_lab_archive_node_state_sha256
     - eveng_lab_archive_node_state_files
+    - eveng_lab_archive_quiescence_method
+    - eveng_lab_archive_quiescence_script_sha256
+    - eveng_lab_archive_quiescence_verified_at
+    - eveng_lab_archive_images_included
+    - eveng_lab_archive_images_archive_path
+    - eveng_lab_archive_images_sha256
 
 probes: []
 constraints: []

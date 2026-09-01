@@ -143,8 +143,133 @@ hyops blueprint deploy --env <env> \
 ```
 
 Use `--root /tmp/hyops-runtime` when an explicit runtime root is required. The
-[GCP EVE-NG blueprint](gcp/eve-ng@v1/README.md) contains the complete operating
-sequence.
+[GCP EVE-NG blueprint](gcp/eve-ng@v1/README.md) links to the complete operator
+runbook.
+
+## Existing lab migration
+
+Existing EVE-NG, GNS3 and Containerlab labs can be inspected and staged before
+a new HybridOps-managed host is deployed. Migration remains within the same
+lab platform. The source host is not modified.
+
+For EVE-NG and GNS3, save intended device configurations and stop the source
+nodes before capture:
+
+```bash
+hyops lab migrate capture \
+  --platform eve-ng \
+  --host <existing-host> \
+  --user <ssh-user> \
+  --output ./eve-ng-labs.tar.gz \
+  --include-node-state \
+  --guest-quiesced \
+  --include-images
+```
+
+OpenSSH uses its configured agent or keys and prompts for the account password
+in an interactive terminal when required. HybridOps does not store that
+password. Capture assesses all requested streams before transferring data.
+
+Before EVE-NG node-state capture, shut down each stateful guest inside its
+operating system and pass `--guest-quiesced`. Stopping a node in EVE-NG does
+not establish a clean guest shutdown. Capture also refuses to proceed while
+EVE-NG QEMU nodes or the GNS3 server are running. For a repeatable action,
+replace `--guest-quiesced` with `--quiesce-script ./quiesce-lab.sh`. The script
+runs on the EVE-NG host; Core verifies that QEMU has stopped and records the
+script checksum. Use `--become` when the SSH account has passwordless sudo
+access.
+
+For EVE-NG, `--include-images` creates a separate archive containing only the
+base images referenced by the captured labs. For GNS3, it includes the image
+library in the primary archive. Capture uses `pigz -1` when available and
+otherwise uses `gzip -1`. Sparse virtual disks remain sparse in the archive.
+
+For Containerlab, identify the authoritative source tree and topology:
+
+```bash
+hyops lab migrate capture \
+  --platform containerlab \
+  --host <existing-host> \
+  --user <ssh-user> \
+  --source-root /srv/containerlab/<lab> \
+  --topology-relpath lab.clab.yml \
+  --output ./containerlab-lab.tar.gz
+```
+
+Capture retains the source tree and asks Containerlab to copy supported saved
+configurations into it. Generated top-level `clab-*` runtime directories are
+excluded. Container images remain topology references and must be available to
+the target host through their authorised registry or image-loading process.
+Use `--source-labdir-base` only when the existing host overrides Containerlab's
+native lab-data location. `--target-labdir-base` must match the target blueprint
+when its managed default has been changed.
+
+Inspect an archive first:
+
+```bash
+hyops lab migrate inspect \
+  --platform eve-ng \
+  --archive ./eve-ng-labs.tar.gz \
+  --node-state ./eve-ng-labs.node-state.tar.gz \
+  --images ./eve-ng-labs.images.tar.gz
+```
+
+Stage the verified bundle for an initialized environment:
+
+```bash
+hyops lab migrate import \
+  --env <env> \
+  --ref gcp/eve-ng@v1 \
+  --platform eve-ng \
+  --archive ./eve-ng-labs.tar.gz \
+  --node-state ./eve-ng-labs.node-state.tar.gz \
+  --images ./eve-ng-labs.images.tar.gz
+
+hyops blueprint deploy \
+  --env <env> \
+  --ref gcp/eve-ng@v1 \
+  --execute \
+  --restore-labs
+```
+
+Existing lab definitions and base images are protected independently. Add
+`--overwrite-labs` to replace lab definitions or `--overwrite-images` to
+replace referenced base images. Neither flag is required on a new host.
+
+Bundle verification proves archive integrity and path compatibility. A
+cross-target EVE-NG migration is complete only after the restored appliances
+pass their own boot and service checks. Restore rejects structural QCOW2
+corruption and does not modify captured overlays to repair a guest.
+
+A Containerlab import must match the target topology path and native lab-data
+base. It publishes the verified archive through the existing latest-recovery
+contract, and the next normal blueprint deployment restores it automatically.
+
+```bash
+hyops lab migrate inspect \
+  --platform containerlab \
+  --archive ./containerlab-lab.tar.gz
+
+hyops lab migrate import \
+  --env <env> \
+  --ref gcp/containerlab@v1 \
+  --platform containerlab \
+  --archive ./containerlab-lab.tar.gz
+
+hyops blueprint deploy \
+  --env <env> \
+  --ref gcp/containerlab@v1 \
+  --execute
+```
+
+The EVE-NG primary archive must be relative to `/opt/unetlab/labs`. Its
+optional node-state companion contains stopped QEMU overlays using the EVE-NG
+tenant, lab and node path layout. Its optional image companion contains only
+referenced QEMU, IOL or Dynamips bases. Licence material is never included. A
+GNS3 archive must be relative to its data root and contain `projects/` state.
+Use the matching checksum options when checksums were recorded at the source.
+Capture and import retain 64 MiB free on the controller filesystem. Restore
+checks the target filesystem and stages image content before promotion.
 
 ## Shipped Blueprint Boundary
 

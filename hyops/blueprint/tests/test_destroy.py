@@ -9,10 +9,13 @@ from unittest.mock import patch
 
 from hyops.blueprint.command import (
     _confirm_archive_destroy,
+    _confirm_guest_quiescence,
     _destroyed_blueprint_cost_cleared,
     _gcp_blueprint_cost_estimate,
+    _quiescence_action_path,
     _run_archive_before_destroy,
     _select_archive_destroy_mode,
+    run_quiescence,
     run_destroy,
 )
 from hyops.runtime.cost import CostEstimate
@@ -52,6 +55,9 @@ def _namespace():
         file=None,
         archive_before_destroy=False,
         skip_archive=False,
+        guest_quiesced=False,
+        quiesce_script="",
+        quiesce_timeout=None,
     )
 
 
@@ -74,6 +80,154 @@ class ResumableBlueprintDestroyTest(TestCase):
             confirmed = _confirm_archive_destroy("test")
 
         self.assertIsNone(confirmed)
+
+    def test_node_state_archive_requires_quiescence_for_automatic_destroy(self):
+        ns = _namespace()
+        payload = {
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = SimpleNamespace(
+                root=Path(tmp),
+                config_dir=Path(tmp) / "config",
+            )
+            with self.assertRaisesRegex(ValueError, "requires a configured"):
+                _confirm_guest_quiescence(ns, payload, paths)
+
+    def test_interactive_node_state_archive_records_quiescence(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = {
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = SimpleNamespace(
+                root=Path(tmp),
+                config_dir=Path(tmp) / "config",
+            )
+            with (
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("hyops.blueprint.command.input", return_value="y"),
+            ):
+                confirmed = _confirm_guest_quiescence(ns, payload, paths)
+
+        self.assertTrue(confirmed)
+        self.assertEqual(ns._quiescence_source, "operator-attestation")
+
+    def test_quiescence_script_satisfies_automatic_destroy_gate(self):
+        ns = _namespace()
+        payload = {
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "quiesce.sh"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            ns.quiesce_script = str(script)
+            paths = SimpleNamespace(
+                root=Path(tmp),
+                config_dir=Path(tmp) / "config",
+            )
+
+            confirmed = _confirm_guest_quiescence(ns, payload, paths)
+
+        self.assertTrue(confirmed)
+        self.assertEqual(ns.quiesce_script, str(script.resolve()))
+        self.assertEqual(ns._quiescence_source, "command-override")
+
+    def test_environment_quiescence_action_is_resolved_automatically(self):
+        ns = _namespace()
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = SimpleNamespace(
+                root=Path(tmp),
+                config_dir=Path(tmp) / "config",
+            )
+            action = _quiescence_action_path(paths, payload)
+            action.parent.mkdir(parents=True)
+            action.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+            confirmed = _confirm_guest_quiescence(ns, payload, paths)
+
+        self.assertTrue(confirmed)
+        self.assertEqual(ns.quiesce_script, str(action.resolve()))
+        self.assertEqual(ns._quiescence_source, "environment")
+
+    def test_quiescence_edit_activates_valid_environment_action(self):
+        ns = _namespace()
+        ns.quiescence_cmd = "edit"
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = SimpleNamespace(root=root, config_dir=root / "config")
+            action = _quiescence_action_path(paths, payload)
+            editor = root / "editor.sh"
+            editor.write_text(
+                "#!/bin/sh\nprintf '#!/bin/sh\\nset -eu\\nexit 0\\n' > \"$1\"\n",
+                encoding="utf-8",
+            )
+            editor.chmod(0o700)
+            ns.editor = str(editor)
+
+            with patch(
+                "hyops.blueprint.command._quiescence_context",
+                return_value=(paths, payload, action),
+            ):
+                rc = run_quiescence(ns)
+
+            self.assertEqual(rc, 0)
+            self.assertTrue(action.is_file())
+            self.assertEqual(action.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn(
+                "NOT_CONFIGURED",
+                action.read_text(encoding="utf-8"),
+            )
+
+    def test_quiescence_edit_rejects_unchanged_template(self):
+        ns = _namespace()
+        ns.quiescence_cmd = "edit"
+        payload = {
+            "blueprint_ref": "gcp/eve-ng@v1",
+            "archive_before_destroy": {
+                "inputs": {"eveng_lab_archive_include_node_state": True}
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = SimpleNamespace(root=root, config_dir=root / "config")
+            action = _quiescence_action_path(paths, payload)
+            editor = root / "editor.sh"
+            editor.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            editor.chmod(0o700)
+            ns.editor = str(editor)
+
+            with patch(
+                "hyops.blueprint.command._quiescence_context",
+                return_value=(paths, payload, action),
+            ):
+                rc = run_quiescence(ns)
+
+            self.assertNotEqual(rc, 0)
+            self.assertFalse(action.exists())
+            self.assertTrue(action.with_suffix(".sh.draft").is_file())
 
     def test_standalone_destroy_resolves_cost_from_access_state(self):
         payload = {
@@ -607,6 +761,60 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("node state: no QEMU overlays found", stdout.getvalue())
 
+    def test_archive_execution_injects_guest_quiescence(self):
+        payload = {
+            "archive_before_destroy": {
+                "module_ref": "platform/linux/eve-ng-lab-archive",
+                "state_instance": "lab_archive",
+                "inputs": {
+                    "eveng_lab_archive_include_node_state": True,
+                    "eveng_lab_archive_stop_running_nodes": True,
+                },
+            }
+        }
+        ns = _namespace()
+        ns.guest_quiesced = True
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=CANCELLED,
+        ) as command:
+            rc = _run_archive_before_destroy(ns, payload, paths)
+
+        self.assertEqual(rc, CANCELLED)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertTrue(inputs["eveng_lab_archive_guest_quiesced"])
+        self.assertTrue(inputs["eveng_lab_archive_stop_running_nodes"])
+
+    def test_archive_execution_injects_quiescence_script(self):
+        payload = {
+            "archive_before_destroy": {
+                "module_ref": "platform/linux/eve-ng-lab-archive",
+                "state_instance": "lab_archive",
+                "inputs": {"eveng_lab_archive_include_node_state": True},
+            }
+        }
+        ns = _namespace()
+        ns.quiesce_script = "/tmp/quiesce.sh"
+        ns.quiesce_timeout = 120
+        paths = SimpleNamespace(state_dir=Path("/tmp/state"))
+
+        with patch(
+            "hyops.blueprint.command.run_step_module_command",
+            return_value=CANCELLED,
+        ) as command:
+            rc = _run_archive_before_destroy(ns, payload, paths)
+
+        self.assertEqual(rc, CANCELLED)
+        inputs = command.call_args.args[0]["inputs"]
+        self.assertFalse(inputs["eveng_lab_archive_guest_quiesced"])
+        self.assertEqual(
+            inputs["eveng_lab_archive_quiesce_script_path"],
+            "/tmp/quiesce.sh",
+        )
+        self.assertEqual(inputs["eveng_lab_archive_quiesce_timeout_s"], 120)
+
     def test_failed_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
         payload = _payload()
@@ -634,7 +842,7 @@ class ResumableBlueprintDestroyTest(TestCase):
         command.assert_called_once()
         self.assertEqual(command.call_args.args[0]["id"], "archive_before_destroy")
 
-    def test_interrupted_archive_reports_retained_resources_and_stopped_nodes(self):
+    def test_interrupted_archive_reports_retained_resources(self):
         payload = {
             "archive_before_destroy": {
                 "module_ref": "platform/test/archive",
@@ -657,10 +865,7 @@ class ResumableBlueprintDestroyTest(TestCase):
         self.assertEqual(rc, CANCELLED)
         output = stdout.getvalue()
         self.assertIn("Archive interrupted. Resources were retained.", output)
-        self.assertIn(
-            "Some lab nodes may have been stopped. Check the lab before continuing.",
-            output,
-        )
+        self.assertIn("Check lab state before continuing.", output)
 
     def test_cancelled_archive_stops_before_resource_destroy(self):
         paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))

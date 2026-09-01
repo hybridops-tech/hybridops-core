@@ -9,6 +9,7 @@ metadata:
   description: "Provision a single nested-virtualization-capable GCP VM and configure EVE-NG over IAP."
   outcome: "A private EVE-NG host exists in GCP and is configured for governed training and network simulation use."
   ready_message: "EVE-NG network emulation lab ready"
+  credential_secret: "EVENG_ADMIN_PASSWORD"
 
 policy:
   fail_fast: true
@@ -58,8 +59,9 @@ archive_before_destroy:
     # Refresh supported saved device configurations before archiving the lab.
     # Save intended device changes to startup configuration first.
     eveng_lab_archive_capture_device_configs: true
+    # Configure reusable shutdown with `hyops blueprint quiescence edit`.
+    # Use --guest-quiesced only after a manual clean shutdown.
     eveng_lab_archive_include_node_state: true
-    eveng_lab_archive_stop_running_nodes: true
 
 steps:
   - id: gcp_eve_ng_network

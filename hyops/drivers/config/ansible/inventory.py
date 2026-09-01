@@ -81,6 +81,8 @@ def _build_gcp_iap_common_args(
         f"-o ProxyCommand=\"{proxy_cmd}\" "
         "-o ConnectTimeout=30 "
         "-o ConnectionAttempts=3 "
+        "-o ServerAliveInterval=15 "
+        "-o ServerAliveCountMax=2 "
         "-o StrictHostKeyChecking=no "
         "-o UserKnownHostsFile=/dev/null"
     )
@@ -187,6 +189,10 @@ def _write_inventory_groups(path: Path, inputs: dict[str, Any], inventory_groups
     )
     if ssh_private_key_file:
         lines.append(f"ansible_ssh_private_key_file={ssh_private_key_file}")
+    if access_mode == "gcp-iap":
+        # A multiplexed master can retain a closed IAP subprocess after an
+        # interrupted run. Give each Ansible connection its own tunnel.
+        lines.append("ansible_ssh_args='-o ControlMaster=no -o ControlPath=none'")
     lines.append(f"ansible_become={'true' if become else 'false'}")
     # Do not force ansible_become_user=root: it prevents roles/tasks from
     # switching to service users (e.g. postgres) when required.
@@ -243,6 +249,7 @@ def write_inventory(path: Path, inputs: dict[str, Any]) -> str:
         )
         parts[1] = f"ansible_host={instance_name}"
         parts.append(f"ansible_ssh_common_args='{common_args}'")
+        parts.append("ansible_ssh_args='-o ControlMaster=no -o ControlPath=none'")
     elif proxy_host:
         proxy_user = str(inputs.get("ssh_proxy_jump_user") or "").strip() or "root"
         proxy_port = as_int(inputs.get("ssh_proxy_jump_port"), default=22)

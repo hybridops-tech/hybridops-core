@@ -46,6 +46,7 @@ from hyops.runtime.preflight_decision import (
     new_preflight_decision,
     validate_preflight_bypass,
 )
+from hyops.runtime.proc import observe_stream_output
 from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_blueprints_root
@@ -93,6 +94,18 @@ from .planner import compute_preflight, run_step_module_command
 from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
 
 
+_PROJECT_SUPPORT_URL = "https://github.com/sponsors/hybridops-tech"
+_QUIESCENCE_DRAFT_MARKER = "HYOPS_QUIESCENCE_ACTION_NOT_CONFIGURED"
+_QUIESCENCE_TEMPLATE = """#!/bin/sh
+set -eu
+
+# Shut down stateful guests and stop their EVE-NG nodes before returning.
+# Replace the line below with the actions required by this environment.
+echo 'HYOPS_QUIESCENCE_ACTION_NOT_CONFIGURED' >&2
+exit 64
+"""
+
+
 def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
     if not blueprint_ref:
         return ""
@@ -106,9 +119,7 @@ def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
     try:
         candidate.relative_to(overlay_root)
     except ValueError as exc:
-        raise ValueError(
-            f"initialized blueprint resolves outside {overlay_root}: {unresolved}"
-        ) from exc
+        raise ValueError(f"initialized blueprint resolves outside {overlay_root}: {unresolved}") from exc
 
     if unresolved.is_symlink() and not candidate.exists():
         raise FileNotFoundError(f"initialized blueprint link is broken: {unresolved}")
@@ -208,8 +219,7 @@ def _blueprint_file_for_edit(ns) -> Path:
     overlay = _runtime_overlay_for_ref(ns, str(getattr(ns, "ref", "")).strip())
     if not overlay:
         raise FileNotFoundError(
-            f"initialized blueprint not found for {getattr(ns, 'ref', None)}; "
-            "run `hyops blueprint init` first."
+            f"initialized blueprint not found for {getattr(ns, 'ref', None)}; run `hyops blueprint init` first."
         )
 
     return Path(overlay)
@@ -229,8 +239,8 @@ def _emit(payload: dict[str, Any], *, json_mode: bool) -> None:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
 
-    print(f"blueprint={payload.get('blueprint_ref','')} mode={payload.get('mode','')} status=ok")
-    print(f"path={payload.get('path','')}")
+    print(f"blueprint={payload.get('blueprint_ref', '')} mode={payload.get('mode', '')} status=ok")
+    print(f"path={payload.get('path', '')}")
 
 
 def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
@@ -247,13 +257,46 @@ def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
         selector = ["--ref", str(payload["blueprint_ref"])]
 
     return {
-        "resume": shlex.join(
-            ["hyops", "blueprint", "deploy", *selection, *selector, "--execute"]
-        ),
-        "destroy": shlex.join(
-            ["hyops", "blueprint", "destroy", *selection, *selector, "--execute"]
-        ),
+        "resume": shlex.join(["hyops", "blueprint", "deploy", *selection, *selector, "--execute"]),
+        "destroy": shlex.join(["hyops", "blueprint", "destroy", *selection, *selector, "--execute"]),
     }
+
+
+def _successful_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
+    env_name = str(getattr(ns, "env", "") or "").strip()
+    if env_name:
+        selection = ["--env", env_name]
+    else:
+        selection = ["--root", str(getattr(ns, "root", "") or "")]
+
+    blueprint_file = str(getattr(ns, "file", "") or "").strip()
+    if blueprint_file:
+        selector = ["--file", blueprint_file]
+    else:
+        selector = ["--ref", str(payload["blueprint_ref"])]
+
+    actions: dict[str, str] = {}
+    if payload.get("access"):
+        actions["access"] = shlex.join(
+            ["hyops", "blueprint", "access", *selection, *selector]
+        )
+
+    credential_secret = str(
+        (payload.get("metadata") or {}).get("credential_secret") or ""
+    ).strip()
+    if credential_secret:
+        actions["credentials"] = shlex.join(
+            [
+                "hyops",
+                "secrets",
+                "show",
+                *selection,
+                "--raw",
+                credential_secret,
+            ]
+        )
+    actions["support"] = _PROJECT_SUPPORT_URL
+    return actions
 
 
 def _failed_deploy_has_resources(payload: dict[str, Any], paths) -> bool:
@@ -411,9 +454,7 @@ def _step_presentation(
             items_label = str(presentation.get("items_label") or "includes").strip()
             inline_items = f"  {items_label}: {', '.join(item_values)}"
             if len(item_values) > 4 or len(inline_items) > 100:
-                item_line = "\n".join(
-                    [f"  {items_label}:", *(f"    - {item}" for item in item_values)]
-                )
+                item_line = "\n".join([f"  {items_label}:", *(f"    - {item}" for item in item_values)])
             else:
                 item_line = inline_items
 
@@ -526,9 +567,7 @@ def _emit_plan(payload: dict[str, Any], *, json_mode: bool) -> None:
         )
         return
 
-    print(
-        f"blueprint={payload['blueprint_ref']} mode={payload['mode']} plan_steps={len(payload['order'])}"
-    )
+    print(f"blueprint={payload['blueprint_ref']} mode={payload['mode']} plan_steps={len(payload['order'])}")
     print("order:")
     for step_id in payload["order"]:
         step = next(s for s in payload["steps"] if s["id"] == step_id)
@@ -688,8 +727,7 @@ def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
         print(f"  - {_step_display_label(step)} (state={item['state_status']})")
         if verbose_enabled():
             print(
-                f"    id={item['id']} action={item['action']} "
-                f"module={item['module_ref']} ref={item['state_ref']}"
+                f"    id={item['id']} action={item['action']} module={item['module_ref']} ref={item['state_ref']}"
             )
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -735,7 +773,11 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         help="Copy a shipped blueprint into the selected runtime config for operator editing.",
     )
     add_common_args(i)
-    i.add_argument("--root", default=None, help="Override runtime root for blueprint overlay output.")
+    i.add_argument(
+        "--root",
+        default=None,
+        help="Override runtime root for blueprint overlay output.",
+    )
     i.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
     i.add_argument(
         "--dest-name",
@@ -756,8 +798,7 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         "--editor",
         default="",
         help=(
-            "Editor command to use when --edit is set. "
-            "Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."
+            "Editor command to use when --edit is set. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."
         ),
     )
     i.set_defaults(_handler=run_init)
@@ -772,12 +813,45 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     e.add_argument(
         "--editor",
         default="",
-        help=(
-            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, "
-            "then common editors."
-        ),
+        help=("Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."),
     )
     e.set_defaults(_handler=run_edit)
+
+    quiescence = ssp.add_parser(
+        "quiescence",
+        help="Manage the environment guest-quiescence action.",
+    )
+    quiescence_commands = quiescence.add_subparsers(
+        dest="quiescence_cmd",
+        required=True,
+    )
+
+    def add_quiescence_args(sub: argparse.ArgumentParser) -> None:
+        add_common_args(sub)
+        sub.add_argument("--root", default=None, help="Override runtime root.")
+        sub.add_argument("--env", default=None, help="Runtime environment namespace.")
+
+    quiescence_status = quiescence_commands.add_parser(
+        "status",
+        help="Show the environment guest-quiescence action.",
+    )
+    add_quiescence_args(quiescence_status)
+    quiescence_status.set_defaults(_handler=run_quiescence)
+
+    quiescence_edit = quiescence_commands.add_parser(
+        "edit",
+        help="Create or edit the environment guest-quiescence action.",
+    )
+    add_quiescence_args(quiescence_edit)
+    quiescence_edit.add_argument(
+        "--editor",
+        default="",
+        help=(
+            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, "
+            "EDITOR, then common editors."
+        ),
+    )
+    quiescence_edit.set_defaults(_handler=run_quiescence)
 
     q = ssp.add_parser("validate", help="Validate a blueprint manifest.")
     add_common_args(q)
@@ -815,9 +889,7 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default=0,
         help="Local port (default: choose an available port).",
     )
-    a.add_argument(
-        "--no-browser", action="store_true", help="Do not open the default browser."
-    )
+    a.add_argument("--no-browser", action="store_true", help="Do not open the default browser.")
     a.add_argument(
         "--native-consoles",
         action="store_true",
@@ -922,10 +994,7 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     device_edit.add_argument(
         "--editor",
         default="",
-        help=(
-            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, "
-            "then common editors."
-        ),
+        help=("Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."),
     )
     device_edit.set_defaults(_handler=run_device)
 
@@ -1036,7 +1105,11 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default="modules",
         help="Module root directory for step execution (default: modules from cwd or HYOPS_CORE_ROOT).",
     )
-    t.add_argument("--out-dir", default=None, help="Override evidence root for executed module steps.")
+    t.add_argument(
+        "--out-dir",
+        default=None,
+        help="Override evidence root for executed module steps.",
+    )
     t.add_argument(
         "--deps-inputs-dir",
         default=None,
@@ -1077,6 +1150,11 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         "--overwrite-labs",
         action="store_true",
         help="Allow --restore-labs to replace existing lab definitions.",
+    )
+    t.add_argument(
+        "--overwrite-images",
+        action="store_true",
+        help="Allow --restore-labs to replace referenced base images.",
     )
     t.add_argument(
         "--repair-iol-license",
@@ -1126,7 +1204,11 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default="modules",
         help="Module root directory for step execution (default: modules from cwd or HYOPS_CORE_ROOT).",
     )
-    d.add_argument("--out-dir", default=None, help="Override evidence root for executed module steps.")
+    d.add_argument(
+        "--out-dir",
+        default=None,
+        help="Override evidence root for executed module steps.",
+    )
     d.add_argument(
         "--yes",
         action="store_true",
@@ -1142,6 +1224,30 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         "--skip-archive",
         action="store_true",
         help="Destroy without exporting declared lab data.",
+    )
+    quiescence = d.add_mutually_exclusive_group()
+    quiescence.add_argument(
+        "--guest-quiesced",
+        action="store_true",
+        help=(
+            "Confirm stateful EVE-NG guests were shut down inside the guest "
+            "before node-state capture."
+        ),
+    )
+    quiescence.add_argument(
+        "--quiesce-script",
+        default="",
+        help=(
+            "Override the environment EVE-NG guest-quiescence action for "
+            "this operation."
+        ),
+    )
+    d.add_argument(
+        "--quiesce-timeout",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Override the environment guest-quiescence timeout.",
     )
     d.set_defaults(_handler=run_destroy)
 
@@ -1162,9 +1268,7 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default="modules",
         help="Module root directory for step execution.",
     )
-    b.add_argument(
-        "--out-dir", default=None, help="Override run-record root for module steps."
-    )
+    b.add_argument("--out-dir", default=None, help="Override run-record root for module steps.")
     b.add_argument(
         "--deps-inputs-dir",
         default=None,
@@ -1204,9 +1308,7 @@ def run_validate(ns) -> int:
 
 
 def _resolve_device_blueprint(ns, paths) -> dict[str, Any]:
-    if str(getattr(ns, "ref", "") or "").strip() or str(
-        getattr(ns, "file", "") or ""
-    ).strip():
+    if str(getattr(ns, "ref", "") or "").strip() or str(getattr(ns, "file", "") or "").strip():
         return _resolve_and_validate(ns)
 
     candidates: list[dict[str, Any]] = []
@@ -1220,9 +1322,7 @@ def _resolve_device_blueprint(ns, paths) -> dict[str, Any]:
         if isinstance(access.get("automation"), dict) and access["automation"]:
             candidates.append(payload)
     if not candidates:
-        raise ValueError(
-            "no initialized automation blueprint was found; pass --ref or run blueprint init"
-        )
+        raise ValueError("no initialized automation blueprint was found; pass --ref or run blueprint init")
     if len(candidates) > 1:
         refs = ", ".join(str(item.get("blueprint_ref") or "") for item in candidates)
         raise ValueError(f"multiple automation blueprints are initialized ({refs}); pass --ref")
@@ -1254,9 +1354,7 @@ def _device_context(ns) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, 
     automation, material = _device_material(ns)
     target_file = material["target_file"]
     if not target_file.is_file():
-        raise ValueError(
-            "device targets are unavailable; run blueprint access with --automation"
-        )
+        raise ValueError("device targets are unavailable; run blueprint access with --automation")
     targets = load_automation_targets(target_file, automation["management_cidr"])
     return automation, material, targets
 
@@ -1307,21 +1405,14 @@ def _device_web_requests(
         raise ValueError("device web accepts target names or --all, not both")
     if use_all:
         selected = [
-            (str(target["host"]), target)
-            for target in targets
-            if isinstance(target.get("web"), dict)
+            (str(target["host"]), target) for target in targets if isinstance(target.get("web"), dict)
         ]
         if not selected:
-            raise ValueError(
-                "no targets declare web access; run device edit and add a web mapping"
-            )
+            raise ValueError("no targets declare web access; run device edit and add a web mapping")
     else:
         if not target_tokens:
             raise ValueError("device web requires at least one target or --all")
-        selected = [
-            _resolve_device_target(token, automation, targets)
-            for token in target_tokens
-        ]
+        selected = [_resolve_device_target(token, automation, targets) for token in target_tokens]
 
     scheme_override = str(getattr(ns, "scheme", None) or "").strip().lower()
     if scheme_override and scheme_override not in {"http", "https"}:
@@ -1344,12 +1435,8 @@ def _device_web_requests(
         declared = target.get("web") if target else None
         web = declared if isinstance(declared, dict) else {}
         scheme = scheme_override or str(web.get("scheme") or "https")
-        remote_port = port_override or int(
-            web.get("port") or (443 if scheme == "https" else 80)
-        )
-        path = str(
-            path_override if path_override is not None else web.get("path") or "/"
-        )
+        remote_port = port_override or int(web.get("port") or (443 if scheme == "https" else 80))
+        path = str(path_override if path_override is not None else web.get("path") or "/")
         requests.append(
             {
                 "address": address,
@@ -1389,10 +1476,7 @@ def _run_device_web(
                 "-o",
                 "ExitOnForwardFailure=yes",
                 "-L",
-                (
-                    f"127.0.0.1:{local_port}:{request['address']}:"
-                    f"{request['remote_port']}"
-                ),
+                (f"127.0.0.1:{local_port}:{request['address']}:{request['remote_port']}"),
                 gateway_alias,
             ]
             proc = subprocess.Popen(
@@ -1407,12 +1491,9 @@ def _run_device_web(
             except Exception:
                 _stop_process(proc)
                 raise
-            local_url = (
-                f"{request['scheme']}://127.0.0.1:{local_port}{request['path']}"
-            )
+            local_url = f"{request['scheme']}://127.0.0.1:{local_port}{request['path']}"
             target_url = (
-                f"{request['scheme']}://{request['address']}:"
-                f"{request['remote_port']}{request['path']}"
+                f"{request['scheme']}://{request['address']}:{request['remote_port']}{request['path']}"
             )
             sessions.append(
                 {
@@ -1431,10 +1512,7 @@ def _run_device_web(
         else:
             print(f"device web access: {len(sessions)} targets")
             for session in sessions:
-                print(
-                    f"- {session['label']}  local={session['local_url']}  "
-                    f"target={session['target_url']}"
-                )
+                print(f"- {session['label']}  local={session['local_url']}  target={session['target_url']}")
         print("press Ctrl-C to close access")
 
         open_all = bool(getattr(ns, "open_all", False))
@@ -1453,9 +1531,7 @@ def _run_device_web(
                     continue
                 detail = (proc.stderr.read() if proc.stderr else "").strip()
                 raise ValueError(
-                    detail
-                    or f"device web tunnel for {session['label']} exited with "
-                    f"rc={return_code}"
+                    detail or f"device web tunnel for {session['label']} exited with rc={return_code}"
                 )
             time.sleep(0.25)
     except KeyboardInterrupt:
@@ -1477,13 +1553,9 @@ def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
     }
     for label, path in required.items():
         if not path.is_file():
-            raise ValueError(
-                f"{label} is unavailable; run blueprint access with --automation"
-            )
+            raise ValueError(f"{label} is unavailable; run blueprint access with --automation")
     try:
-        session = yaml.safe_load(
-            Path(material["session_file"]).read_text(encoding="utf-8")
-        ) or {}
+        session = yaml.safe_load(Path(material["session_file"]).read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
         raise ValueError("device session metadata is invalid") from exc
     proxy = str(session.get("socks_proxy") or "").strip()
@@ -1518,10 +1590,7 @@ def run_device(ns) -> int:
             automation, material = _device_material(ns)
             target_file = Path(material["target_file"])
             if not target_file.is_file():
-                raise ValueError(
-                    "device targets are unavailable; run blueprint access with "
-                    "--automation"
-                )
+                raise ValueError("device targets are unavailable; run blueprint access with --automation")
             editor_argv = _editor_argv(ns)
             editor_argv.append(str(target_file))
             print(f"Opening device targets for edit: {target_file}")
@@ -1537,8 +1606,7 @@ def run_device(ns) -> int:
                 print(json.dumps({"targets": targets}, indent=2, sort_keys=True))
             elif not targets:
                 print(
-                    "no devices discovered; connect a management interface to "
-                    f"{automation['management_network_label']}"
+                    f"no devices discovered; connect a management interface to {automation['management_network_label']}"
                 )
             else:
                 for target in targets:
@@ -1560,8 +1628,7 @@ def run_device(ns) -> int:
         ssh_config = Path(material["ssh_config"])
         if not ssh_config.is_file():
             raise ValueError(
-                "private access is not active; run blueprint access with --automation "
-                "and keep it open"
+                "private access is not active; run blueprint access with --automation and keep it open"
             )
         ssh = shutil.which("ssh")
         if not ssh:
@@ -1612,10 +1679,7 @@ def run_device(ns) -> int:
                 check=False,
             )
             if result.returncode == 255:
-                print(
-                    f"ERR: device SSH failed for {target['name']} as "
-                    f"{target['user']}."
-                )
+                print(f"ERR: device SSH failed for {target['name']} as {target['user']}.")
                 print(f"device targets: {material['target_file']}")
                 print(f"edit: {_device_edit_command(ns)}")
             return int(result.returncode)
@@ -1678,8 +1742,7 @@ def run_init(ns) -> int:
         dest_path = (dest_dir / dest_name).resolve()
         if dest_path.exists() and not bool(getattr(ns, "force", False)):
             raise FileExistsError(
-                f"initialized blueprint already exists: {dest_path} "
-                "(use --force to overwrite)"
+                f"initialized blueprint already exists: {dest_path} (use --force to overwrite)"
             )
         shutil.copy2(Path(payload["path"]), dest_path)
         dest_path.chmod(0o600)
@@ -1720,6 +1783,161 @@ def run_edit(ns) -> int:
         return 0
     except Exception as exc:
         print(f"ERR: blueprint edit failed: {exc}")
+        return OPERATOR_ERROR
+
+
+def _quiescence_action_path(paths, payload: dict[str, Any]) -> Path:
+    material = automation_session_paths(
+        paths=paths,
+        blueprint_ref=str(payload.get("blueprint_ref") or "blueprint"),
+        env_name=str(Path(paths.root).name),
+    )
+    return Path(material["config_dir"]) / "quiesce.sh"
+
+
+def _quiescence_edit_command(ns, payload: dict[str, Any]) -> str:
+    command = ["hyops", "blueprint", "quiescence", "edit"]
+    runtime_root = str(getattr(ns, "root", "") or "").strip()
+    env_name = str(getattr(ns, "env", "") or "").strip()
+    if runtime_root:
+        command.extend(["--root", runtime_root])
+    elif env_name:
+        command.extend(["--env", env_name])
+    blueprint_ref = str(
+        payload.get("blueprint_ref") or getattr(ns, "ref", "") or ""
+    ).strip()
+    if blueprint_ref:
+        command.extend(["--ref", blueprint_ref])
+    return shlex.join(command)
+
+
+def _validate_quiescence_action(path: Path) -> tuple[Path, str]:
+    unresolved = path.expanduser()
+    if unresolved.is_symlink():
+        raise ValueError("quiescence action must not be a symbolic link")
+    resolved = unresolved.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"quiescence action is not a regular file: {resolved}")
+    size = resolved.stat().st_size
+    if size == 0:
+        raise ValueError("quiescence action is empty")
+    if size > 1024 * 1024:
+        raise ValueError("quiescence action exceeds the 1 MiB limit")
+    content = resolved.read_bytes()
+    if b"\x00" in content:
+        raise ValueError("quiescence action contains a NUL byte")
+    if _QUIESCENCE_DRAFT_MARKER.encode("utf-8") in content:
+        raise ValueError("quiescence action is not configured")
+    return resolved, hashlib.sha256(content).hexdigest()
+
+
+def _quiescence_context(ns) -> tuple[Any, dict[str, Any], Path]:
+    require_runtime_selection(
+        getattr(ns, "root", None),
+        getattr(ns, "env", None),
+        command_label="hyops blueprint quiescence",
+    )
+    paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+    ensure_layout(paths)
+    require_runtime_writable(paths.root)
+    _enforce_runtime_blueprint_file_scope(
+        ns,
+        paths,
+        command_label="hyops blueprint quiescence",
+    )
+    payload = _resolve_and_validate(ns)
+    if not _archive_requires_guest_quiescence(payload):
+        raise ValueError(
+            "blueprint does not declare EVE-NG node-state preservation"
+        )
+    return paths, payload, _quiescence_action_path(paths, payload)
+
+
+def run_quiescence(ns) -> int:
+    try:
+        _paths, payload, action_path = _quiescence_context(ns)
+        action = str(getattr(ns, "quiescence_cmd", "") or "")
+        if action == "status":
+            if not action_path.exists() and not action_path.is_symlink():
+                status = {
+                    "blueprint_ref": payload["blueprint_ref"],
+                    "status": "unconfigured",
+                    "path": str(action_path),
+                }
+            else:
+                resolved, checksum = _validate_quiescence_action(action_path)
+                status = {
+                    "blueprint_ref": payload["blueprint_ref"],
+                    "status": "configured",
+                    "path": str(resolved),
+                    "sha256": checksum,
+                }
+            if bool(getattr(ns, "json", False)):
+                print(json.dumps(status, indent=2, sort_keys=True))
+            else:
+                print(
+                    f"blueprint={status['blueprint_ref']} "
+                    f"quiescence={status['status']}"
+                )
+                print(f"path={status['path']}")
+                if status.get("sha256"):
+                    print(f"sha256={status['sha256']}")
+            return 0
+        if action != "edit":
+            raise ValueError(f"unsupported quiescence command: {action}")
+
+        if action_path.is_symlink():
+            raise ValueError("quiescence action must not be a symbolic link")
+        action_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        action_path.parent.chmod(0o700)
+        draft_path = action_path.with_suffix(".sh.draft")
+        if draft_path.is_symlink() or (
+            draft_path.exists() and not draft_path.is_file()
+        ):
+            raise ValueError(f"quiescence draft is not a regular file: {draft_path}")
+        content = (
+            action_path.read_text(encoding="utf-8")
+            if action_path.is_file() and not action_path.is_symlink()
+            else _QUIESCENCE_TEMPLATE
+        )
+        draft_path.write_text(content, encoding="utf-8")
+        draft_path.chmod(0o600)
+
+        editor_argv = _editor_argv(ns)
+        editor_argv.append(str(draft_path))
+        print(f"Opening guest-quiescence action for edit: {draft_path}")
+        result = subprocess.run(editor_argv, check=False)
+        if result.returncode != 0:
+            raise ValueError(f"editor returned {result.returncode}")
+
+        draft_content = draft_path.read_text(encoding="utf-8")
+        if _QUIESCENCE_DRAFT_MARKER in draft_content:
+            raise ValueError(
+                f"quiescence action is not configured; draft retained at {draft_path}"
+            )
+        shell = shutil.which("sh")
+        if not shell:
+            raise ValueError("sh is required to validate the quiescence action")
+        syntax = subprocess.run(
+            [shell, "-n", str(draft_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if syntax.returncode != 0:
+            detail = (syntax.stderr or "").strip()
+            raise ValueError(detail or "quiescence action has invalid shell syntax")
+        _validate_quiescence_action(draft_path)
+        draft_path.replace(action_path)
+        action_path.chmod(0o600)
+        resolved, checksum = _validate_quiescence_action(action_path)
+        print(f"blueprint={payload['blueprint_ref']} quiescence=configured")
+        print(f"path={resolved}")
+        print(f"sha256={checksum}")
+        return 0
+    except Exception as exc:
+        print(f"ERR: blueprint quiescence failed: {exc}")
         return OPERATOR_ERROR
 
 
@@ -1770,10 +1988,7 @@ def run_preflight(ns) -> int:
             f"preflight_status={status} steps={len(step_results)}"
         )
         for item in step_results:
-            print(
-                f"  - {item['id']}: {item['status']} "
-                f"{item['action']} {item['module_ref']}"
-            )
+            print(f"  - {item['id']}: {item['status']} {item['action']} {item['module_ref']}")
             if item["status"] == "blocked":
                 detail = _step_failure_detail(item)
                 if detail:
@@ -1806,9 +2021,7 @@ def _available_local_port(requested: int) -> int:
         return int(sock.getsockname()[1])
 
 
-def _wait_for_local_port(
-    port: int, proc: subprocess.Popen, timeout_s: float = 15.0
-) -> None:
+def _wait_for_local_port(port: int, proc: subprocess.Popen, timeout_s: float = 15.0) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -1849,9 +2062,7 @@ def _require_local_ports_available(ports: list[int]) -> None:
                 raise
             sockets.append(sock)
     except OSError as exc:
-        raise ValueError(
-            f"local port {port} is unavailable on localhost: {exc}"
-        ) from exc
+        raise ValueError(f"local port {port} is unavailable on localhost: {exc}") from exc
     finally:
         for sock in sockets:
             sock.close()
@@ -1881,8 +2092,7 @@ def _discover_eve_qemu_console_ports(
     )
     if probe.returncode != 0:
         raise ValueError(
-            "failed to discover native EVE-NG consoles: "
-            + _ssh_access_error(probe.stderr, known_hosts_file)
+            "failed to discover native EVE-NG consoles: " + _ssh_access_error(probe.stderr, known_hosts_file)
         )
     return _parse_eve_qemu_console_ports(probe.stdout)
 
@@ -1951,8 +2161,7 @@ def _runtime_access_secret(paths, env_name: str, env_key: str) -> str:
     value = str(values.get(env_key) or "").strip()
     if not value:
         raise ValueError(
-            f"native console credential {env_key} is missing; run: "
-            f"hyops secrets ensure --env {env_name} {env_key}"
+            f"native console credential {env_key} is missing; run: hyops secrets ensure --env {env_name} {env_key}"
         )
     return value
 
@@ -2055,8 +2264,7 @@ def _gns3_console_refresher(
             failed.discard(port)
             scheme = "spice" if console_type.startswith("spice") else console_type
             print(
-                f"native console available: {name} "
-                f"({console_type}) {scheme}://127.0.0.1:{port}",
+                f"native console available: {name} ({console_type}) {scheme}://127.0.0.1:{port}",
                 flush=True,
             )
 
@@ -2196,10 +2404,7 @@ def _print_cost_estimate(
     if not estimate.available:
         print("estimated fixed cost: unavailable")
         return
-    print(
-        "estimated fixed cost: "
-        f"{format_money(estimate.hourly, estimate.currency)}/hour"
-    )
+    print(f"estimated fixed cost: {format_money(estimate.hourly, estimate.currency)}/hour")
     state_seconds = _state_age_seconds(state.get("updated_at"))
     if state_seconds:
         print(
@@ -2252,11 +2457,7 @@ def _gcp_cost_estimate_with_progress(
         "cloud-cost",
         "Cloud cost estimate",
         "ok" if estimate.available else "skipped",
-        plain=(
-            "cloud cost estimate: ready"
-            if estimate.available
-            else "cloud cost estimate: unavailable"
-        ),
+        plain=("cloud cost estimate: ready" if estimate.available else "cloud cost estimate: unavailable"),
     )
     return estimate
 
@@ -2345,35 +2546,23 @@ def _destroy_lifecycle_snapshot(
     resolved_estimate = estimate
     if resolved_estimate is None:
         resolved_estimate = _gcp_blueprint_cost_estimate(payload, paths)
-    estimate_available = bool(
-        isinstance(resolved_estimate, CostEstimate) and resolved_estimate.available
-    )
+    estimate_available = bool(isinstance(resolved_estimate, CostEstimate) and resolved_estimate.available)
     return {
         "provider": "gcp",
-        "resource_generation_started_at": (
-            started.isoformat().replace("+00:00", "Z") if started else None
-        ),
+        "resource_generation_started_at": (started.isoformat().replace("+00:00", "Z") if started else None),
         "observed_at": observed.isoformat().replace("+00:00", "Z"),
         "duration_seconds": duration_seconds,
         "estimate": {
             "available": estimate_available,
-            "currency": (
-                resolved_estimate.currency if estimate_available else "USD"
-            ),
-            "fixed_hourly": (
-                str(resolved_estimate.hourly) if estimate_available else None
-            ),
+            "currency": (resolved_estimate.currency if estimate_available else "USD"),
+            "fixed_hourly": (str(resolved_estimate.hourly) if estimate_available else None),
             "fixed_total": (
                 str(resolved_estimate.amount_for_seconds(duration_seconds))
                 if estimate_available and duration_seconds is not None
                 else None
             ),
-            "basis": (
-                resolved_estimate.basis if estimate_available else "unavailable"
-            ),
-            "classification": (
-                "public list-price estimate; not a GCP invoice or billing total"
-            ),
+            "basis": (resolved_estimate.basis if estimate_available else "unavailable"),
+            "classification": ("public list-price estimate; not a GCP invoice or billing total"),
         },
     }
 
@@ -2392,9 +2581,7 @@ def _complete_destroy_lifecycle(
     estimate = dict(lifecycle["estimate"])
     if resources == "released":
         estimate["ongoing_hourly"] = "0.00"
-        lifecycle["released_at"] = datetime.now(timezone.utc).isoformat().replace(
-            "+00:00", "Z"
-        )
+        lifecycle["released_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     elif resources == "retained" and estimate["available"]:
         estimate["ongoing_hourly"] = estimate["fixed_hourly"]
     else:
@@ -2427,18 +2614,12 @@ def _print_destroy_lifecycle_summary(lifecycle: dict[str, Any] | None) -> None:
     if fixed_total is None:
         print(f"{cost_label}: unavailable")
     else:
-        print(
-            f"{cost_label}: "
-            f"{format_money(Decimal(str(fixed_total)), currency)}"
-        )
+        print(f"{cost_label}: {format_money(Decimal(str(fixed_total)), currency)}")
     ongoing = estimate.get("ongoing_hourly")
     if ongoing is None:
         print("estimated ongoing rate: unverified")
     else:
-        print(
-            "estimated ongoing rate: "
-            f"{format_money(Decimal(str(ongoing)), currency)}/hour"
-        )
+        print(f"estimated ongoing rate: {format_money(Decimal(str(ongoing)), currency)}/hour")
     if estimate.get("basis") and estimate["basis"] != "unavailable":
         print(f"pricing basis: {estimate['basis']}")
     print("estimate only; not a GCP invoice or billing total")
@@ -2468,15 +2649,12 @@ def _offer_access_close_destroy(
         else:
             print("billing: unable to verify")
         print(
-            "trial, credit and spend details: "
-            f"https://console.cloud.google.com/billing?project={project_id}"
+            f"trial, credit and spend details: https://console.cloud.google.com/billing?project={project_id}"
         )
     print(f"resource state age: {_state_age(state.get('updated_at'))}")
     if cost_estimate is not None:
         access_seconds = (
-            max(0, int(time.monotonic() - access_started_at))
-            if access_started_at is not None
-            else None
+            max(0, int(time.monotonic() - access_started_at)) if access_started_at is not None else None
         )
         _print_cost_estimate(
             cost_estimate,
@@ -2486,8 +2664,7 @@ def _offer_access_close_destroy(
     print("billable resources may remain active after access closes")
 
     destroy_command = (
-        f"hyops blueprint destroy --env {env_name} "
-        f"--ref {payload.get('blueprint_ref', '')} --execute"
+        f"hyops blueprint destroy --env {env_name} --ref {payload.get('blueprint_ref', '')} --execute"
     )
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print(f"destroy when finished: {destroy_command}")
@@ -2520,8 +2697,7 @@ def _expire_access_session(
                 raise ValueError("access-session authority record changed before expiry")
             if str(current.get("status") or "") != "active":
                 raise ValueError(
-                    f"access-session expiry is not authorised in state "
-                    f"{current.get('status', 'unknown')}"
+                    f"access-session expiry is not authorised in state {current.get('status', 'unknown')}"
                 )
             access = payload.get("access")
             state_ref = str((access if isinstance(access, dict) else {}).get("state_ref") or "")
@@ -2548,9 +2724,7 @@ def _expire_access_session(
             destroy_ns = argparse.Namespace(**vars(ns))
             destroy_ns.execute = True
             destroy_ns.yes = True
-            destroy_ns.archive_before_destroy = bool(
-                payload.get("archive_before_destroy")
-            )
+            destroy_ns.archive_before_destroy = bool(payload.get("archive_before_destroy"))
             destroy_ns.skip_archive = False
             destroy_ns._cost_estimate = cost_estimate
             destroy_ns._lifecycle_lock_held = True
@@ -2640,10 +2814,7 @@ def _print_session(output: dict[str, Any]) -> None:
     outcome = output.get("outcome")
     if isinstance(outcome, dict) and outcome:
         if "resources_released" in outcome:
-            print(
-                "resources_released="
-                f"{'yes' if bool(outcome['resources_released']) else 'no'}"
-            )
+            print(f"resources_released={'yes' if bool(outcome['resources_released']) else 'no'}")
         if outcome.get("reason"):
             print(f"reason={outcome['reason']}")
     print(f"run record: {output.get('run_record', '')}")
@@ -2740,9 +2911,12 @@ def _ssh_access_trust_options(
     host_key_alias: str = "",
 ) -> list[str]:
     options = [
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", f"UserKnownHostsFile={known_hosts_file}",
-        "-o", "LogLevel=ERROR",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={known_hosts_file}",
+        "-o",
+        "LogLevel=ERROR",
     ]
     if host_key_alias:
         options.extend(["-o", f"HostKeyAlias={host_key_alias}"])
@@ -2751,10 +2925,7 @@ def _ssh_access_trust_options(
 
 def _ssh_access_error(stderr: str, known_hosts_file: Path) -> str:
     detail = str(stderr or "").strip()
-    if (
-        "REMOTE HOST IDENTIFICATION HAS CHANGED" in detail
-        or "Host key verification failed" in detail
-    ):
+    if "REMOTE HOST IDENTIFICATION HAS CHANGED" in detail or "Host key verification failed" in detail:
         return (
             "SSH host identity changed unexpectedly for the current VM state; access was stopped. "
             f"Review the deployed VM and its scoped trust record: {known_hosts_file}. "
@@ -2808,8 +2979,7 @@ def _read_automation_leases(
     if not lease_file:
         return ""
     remote_command = (
-        f"cat -- {shlex.quote(lease_file)} 2>/dev/null || "
-        f"sudo -n cat -- {shlex.quote(lease_file)}"
+        f"cat -- {shlex.quote(lease_file)} 2>/dev/null || sudo -n cat -- {shlex.quote(lease_file)}"
     )
     result = subprocess.run(
         [*ssh_base, ssh_target, remote_command],
@@ -2834,15 +3004,11 @@ def _prepare_automation_access(
     ssh_target: str,
     reserved_ports: list[int] | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    requested_port = int(getattr(ns, "socks_port", 0) or 0) or int(
-        automation.get("local_socks_port") or 0
-    )
+    requested_port = int(getattr(ns, "socks_port", 0) or 0) or int(automation.get("local_socks_port") or 0)
     socks_port = _available_local_port(requested_port)
     reserved = set(reserved_ports or [])
     if socks_port in reserved and requested_port:
-        raise ValueError(
-            f"device proxy port {socks_port} is already used by this access session"
-        )
+        raise ValueError(f"device proxy port {socks_port} is already used by this access session")
     while socks_port in reserved:
         socks_port = _available_local_port(0)
     _require_local_ports_available([socks_port])
@@ -2910,11 +3076,7 @@ def _print_automation_access(
     *,
     route_requested: bool = False,
 ) -> None:
-    print(
-        "automation network: "
-        f"{automation['management_network_label']} "
-        f"({automation['management_cidr']})"
-    )
+    print(f"automation network: {automation['management_network_label']} ({automation['management_cidr']})")
     if automation.get("discovery_mode") == "containerlab-inspect":
         print("device discovery: reading Containerlab runtime state")
     else:
@@ -2943,8 +3105,7 @@ def _print_lab_route_ready(automation: dict[str, Any]) -> None:
     print(f"local route: {automation['management_cidr']} through the lab host")
     if is_windows_wsl():
         print(
-            "route scope: HybridOps Linux environment; Windows applications "
-            "use the generated proxy or SSH config"
+            "route scope: HybridOps Linux environment; Windows applications use the generated proxy or SSH config"
         )
 
 
@@ -2956,14 +3117,11 @@ def _start_lab_route(
 ) -> tuple[subprocess.Popen, dict[str, Any]]:
     if not sys.platform.startswith("linux"):
         raise ValueError(
-            "--route-lab currently requires Linux; use --automation for "
-            "portable SSH and API access"
+            "--route-lab currently requires Linux; use --automation for portable SSH and API access"
         )
     conflicts = local_route_conflicts(automation["management_cidr"])
     if conflicts:
-        raise ValueError(
-            "management subnet conflicts with a local route: " + conflicts[0]
-        )
+        raise ValueError("management subnet conflicts with a local route: " + conflicts[0])
     ip_command = shutil.which("ip")
     if not ip_command:
         raise ValueError("--route-lab requires the ip command")
@@ -2971,9 +3129,7 @@ def _start_lab_route(
         raise ValueError("--route-lab requires Linux TUN support at /dev/net/tun")
     plan = linux_tunnel_plan(scope)
     if Path(f"/sys/class/net/{plan['interface']}").exists():
-        raise ValueError(
-            f"local tunnel interface is already in use: {plan['interface']}"
-        )
+        raise ValueError(f"local tunnel interface is already in use: {plan['interface']}")
     privilege: list[str] = []
     if os.geteuid() != 0:
         sudo = shutil.which("sudo")
@@ -3060,9 +3216,7 @@ def _start_lab_route(
             check=False,
         )
         if gateway_probe.returncode != 0:
-            raise ValueError(
-                "private management gateway did not respond through the lab route"
-            )
+            raise ValueError("private management gateway did not respond through the lab route")
         plan["privilege"] = privilege
         plan["ip_command"] = ip_command
         return route_proc, plan
@@ -3124,9 +3278,7 @@ def _session_options(ns, payload: dict[str, Any]) -> tuple[int, str]:
     if minutes == 0 and action:
         raise ValueError("--on-expiry requires --session-minutes")
     if minutes > 0 and not action:
-        raise ValueError(
-            "--session-minutes requires --on-expiry protected-release"
-        )
+        raise ValueError("--session-minutes requires --on-expiry protected-release")
     if minutes == 0:
         return 0, ""
     if str(payload.get("blueprint_ref") or "") not in {
@@ -3135,8 +3287,7 @@ def _session_options(ns, payload: dict[str, Any]) -> tuple[int, str]:
         "gcp/containerlab@v1",
     }:
         raise ValueError(
-            "time-bounded access is supported for the GCP EVE-NG, GNS3, "
-            "and Containerlab blueprints"
+            "time-bounded access is supported for the GCP EVE-NG, GNS3, and Containerlab blueprints"
         )
     return minutes * 60, action
 
@@ -3151,10 +3302,7 @@ def _access_resource_generation(
     identities: dict[str, dict[str, str]] = {}
     for name, raw in sorted(vms.items()):
         vm = raw if isinstance(raw, dict) else {}
-        identities[str(name)] = {
-            key: str(vm.get(key) or "")
-            for key in ("vm_id", "vm_name", "zone")
-        }
+        identities[str(name)] = {key: str(vm.get(key) or "") for key in ("vm_id", "vm_name", "zone")}
     material = {
         "blueprint_ref": str(payload.get("blueprint_ref") or ""),
         "state_ref": str(access.get("state_ref") or ""),
@@ -3167,11 +3315,7 @@ def _access_resource_generation(
 
 
 def _session_warning_seconds(duration_seconds: int) -> tuple[int, ...]:
-    return tuple(
-        threshold
-        for threshold in (1800, 600, 300, 60)
-        if threshold < duration_seconds
-    )
+    return tuple(threshold for threshold in (1800, 600, 300, 60) if threshold < duration_seconds)
 
 
 def _wait_for_managed_access(
@@ -3319,9 +3463,7 @@ def run_access(ns) -> int:
                 raise ValueError(f"VM state does not contain a usable IPv4 address: {state_ref}")
             if access_type == "direct-http":
                 if automation:
-                    raise ValueError(
-                        "device automation access requires an SSH-forward access path"
-                    )
+                    raise ValueError("device automation access requires an SSH-forward access path")
                 url = f"http://{host}:{remote_port}{path}"
                 print("opening direct EVE-NG access")
                 print(f"URL: {url}")
@@ -3341,10 +3483,13 @@ def run_access(ns) -> int:
             known_hosts_file = _access_known_hosts_file(paths, state_ref, state)
             ssh_base = [
                 ssh,
-                "-o", "BatchMode=yes",
-                "-o", "IdentitiesOnly=yes",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "IdentitiesOnly=yes",
                 *_ssh_access_trust_options(known_hosts_file),
-                "-i", str(ssh_key),
+                "-i",
+                str(ssh_key),
             ]
             identity_check = subprocess.run(
                 [*ssh_base, ssh_target, "true"],
@@ -3356,9 +3501,7 @@ def run_access(ns) -> int:
                 check=False,
             )
             if identity_check.returncode != 0:
-                raise ValueError(
-                    _ssh_access_error(identity_check.stderr, known_hosts_file)
-                )
+                raise ValueError(_ssh_access_error(identity_check.stderr, known_hosts_file))
             native_console_mode = _native_console_mode(
                 access,
                 bool(getattr(ns, "native_consoles", False)),
@@ -3373,9 +3516,7 @@ def run_access(ns) -> int:
                 if console_ports:
                     _require_local_ports_available(console_ports)
 
-            requested_port = int(getattr(ns, "local_port", 0) or 0) or int(
-                access.get("local_port") or 0
-            )
+            requested_port = int(getattr(ns, "local_port", 0) or 0) or int(access.get("local_port") or 0)
             port = _available_local_port(requested_port)
             if requested_port:
                 _require_local_ports_available([port])
@@ -3407,9 +3548,7 @@ def run_access(ns) -> int:
             if automation:
                 argv.extend(["-D", f"127.0.0.1:{socks_port}"])
             for console_port in console_ports:
-                argv.extend(
-                    ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
-                )
+                argv.extend(["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"])
             argv.append(ssh_target)
 
             if access_type == "ssh-tcp-forward":
@@ -3502,9 +3641,7 @@ def run_access(ns) -> int:
                         native_console_stop()
                     _stop_process(proc)
                     raise
-            if access_type != "ssh-tcp-forward" and not bool(
-                getattr(ns, "no_browser", False)
-            ):
+            if access_type != "ssh-tcp-forward" and not bool(getattr(ns, "no_browser", False)):
                 open_operator_url(url)
             print("press Ctrl-C to close access")
             try:
@@ -3585,8 +3722,15 @@ def run_access(ns) -> int:
                 iap_port = _available_local_port(0)
             print("preparing private GCP IAP access", flush=True)
             iap_argv = [
-                gcloud, "compute", "start-iap-tunnel", instance, "22",
-                "--project", project, "--zone", zone,
+                gcloud,
+                "compute",
+                "start-iap-tunnel",
+                instance,
+                "22",
+                "--project",
+                project,
+                "--zone",
+                zone,
                 f"--local-host-port=127.0.0.1:{iap_port}",
                 "--verbosity=error",
             ]
@@ -3595,14 +3739,18 @@ def run_access(ns) -> int:
             known_hosts_file = _access_known_hosts_file(paths, state_ref, state)
             ssh_base = [
                 ssh,
-                "-o", "BatchMode=yes",
-                "-o", "IdentitiesOnly=yes",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "IdentitiesOnly=yes",
                 *_ssh_access_trust_options(
                     known_hosts_file,
                     host_key_alias=f"hyops-{known_hosts_file.stem}",
                 ),
-                "-i", ssh_key,
-                "-p", str(iap_port),
+                "-i",
+                ssh_key,
+                "-p",
+                str(iap_port),
             ]
             ssh_target = f"{ssh_user}@127.0.0.1"
             if native_console_mode == "eve-ng-qemu":
@@ -3641,20 +3789,23 @@ def run_access(ns) -> int:
             if automation:
                 argv.extend(["-D", f"127.0.0.1:{socks_port}"])
             for console_port in console_ports:
-                argv.extend(
-                    ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
-                )
+                argv.extend(["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"])
             argv.append(ssh_target)
         else:
             if automation:
-                raise ValueError(
-                    "device automation access requires an SSH-forward access path"
-                )
+                raise ValueError("device automation access requires an SSH-forward access path")
             if bool(getattr(ns, "native_consoles", False)):
                 raise ValueError("native consoles require an SSH-forward access declaration")
             argv = [
-                gcloud, "compute", "start-iap-tunnel", instance, str(remote_port),
-                "--project", project, "--zone", zone,
+                gcloud,
+                "compute",
+                "start-iap-tunnel",
+                instance,
+                str(remote_port),
+                "--project",
+                project,
+                "--zone",
+                zone,
                 f"--local-host-port=127.0.0.1:{port}",
             ]
         open_browser = bool(access.get("open_browser", True))
@@ -3671,7 +3822,9 @@ def run_access(ns) -> int:
                 route_requested=bool(getattr(ns, "route_lab", False)),
             )
         validated, enabled, _detail = diagnose_project_billing(project)
-        print(f"billing: {'enabled' if enabled else 'disabled'}" if validated else "billing: unable to verify")
+        print(
+            f"billing: {'enabled' if enabled else 'disabled'}" if validated else "billing: unable to verify"
+        )
         _print_cost_estimate(cost_estimate, state=state)
         if bool(getattr(ns, "native_consoles", False)):
             _print_native_console_client_guidance(native_console_mode)
@@ -3847,19 +4000,18 @@ def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
     prefix = str(lifecycle.get("contract_prefix") or "eveng_lab_archive").strip()
     return {
         "prefix": prefix,
-        "contents_label": str(
-            lifecycle.get("contents_label") or "lab definitions"
-        ).strip(),
+        "contents_label": str(lifecycle.get("contents_label") or "lab definitions").strip(),
         "node_state": bool(lifecycle.get("node_state", True)),
-        "restore_overwrite_default": bool(
-            lifecycle.get("restore_overwrite_default", False)
-        ),
+        "restore_overwrite_default": bool(lifecycle.get("restore_overwrite_default", False)),
         "path_output": f"{prefix}_path",
         "previous_path_output": f"{prefix}_previous_path",
         "sha256_output": f"{prefix}_sha256",
         "node_included_output": f"{prefix}_node_state_included",
         "node_path_output": f"{prefix}_node_state_archive_path",
         "node_sha256_output": f"{prefix}_node_state_sha256",
+        "images_included_output": f"{prefix}_images_included",
+        "images_path_output": f"{prefix}_images_archive_path",
+        "images_sha256_output": f"{prefix}_images_sha256",
         "device_configs_captured_output": f"{prefix}_device_configs_captured",
     }
 
@@ -3867,7 +4019,7 @@ def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
 def _verified_lab_archive(
     payload: dict[str, Any],
     paths,
-) -> tuple[Path, str, Path | None, str] | None:
+) -> tuple[Path, str, Path | None, str, Path | None, str] | None:
     lifecycle = payload.get("archive_before_destroy")
     if not isinstance(lifecycle, dict) or not lifecycle:
         return None
@@ -3879,11 +4031,16 @@ def _verified_lab_archive(
             state_instance=lifecycle["state_instance"],
         )
     except FileNotFoundError:
-        return None
+        state = {}
     outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
     contract = _lab_archive_contract(lifecycle)
-    archive_path = Path(str(outputs.get(contract["path_output"]) or "")).expanduser()
+    archive_value = str(outputs.get(contract["path_output"]) or "").strip()
     expected = str(outputs.get(contract["sha256_output"]) or "").strip().lower()
+    if not archive_value and not expected:
+        from hyops.lab.migration import load_migration_archive
+
+        return load_migration_archive(paths=paths, payload=payload)
+    archive_path = Path(archive_value).expanduser()
     if not archive_path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", expected):
         return None
 
@@ -3897,34 +4054,53 @@ def _verified_lab_archive(
     node_archive: Path | None = None
     node_checksum = ""
     if contract["node_state"]:
-        candidate_value = str(
-            outputs.get(contract["node_path_output"]) or ""
-        ).strip()
-        candidate_checksum = str(
-            outputs.get(contract["node_sha256_output"]) or ""
-        ).strip().lower()
-        node_state_declared = bool(
-            outputs.get(contract["node_included_output"], False)
-        )
+        candidate_value = str(outputs.get(contract["node_path_output"]) or "").strip()
+        candidate_checksum = str(outputs.get(contract["node_sha256_output"]) or "").strip().lower()
+        node_state_declared = bool(outputs.get(contract["node_included_output"], False))
         node_state_metadata_present = bool(candidate_value or candidate_checksum)
-        if not (node_state_declared or node_state_metadata_present):
-            return archive_path.resolve(), expected, None, ""
+        if node_state_declared or node_state_metadata_present:
+            candidate = Path(candidate_value).expanduser()
+            if not candidate.is_file() or not re.fullmatch(r"[0-9a-f]{64}", candidate_checksum):
+                raise ValueError("node-state archive is missing or unverifiable")
+            node_digest = hashlib.sha256()
+            with candidate.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    node_digest.update(chunk)
+            if node_digest.hexdigest() != candidate_checksum:
+                raise ValueError(f"node-state archive checksum verification failed: {candidate}")
+            node_archive = candidate.resolve()
+            node_checksum = candidate_checksum
+    image_archive: Path | None = None
+    image_checksum = ""
+    candidate_value = str(outputs.get(contract["images_path_output"]) or "").strip()
+    candidate_checksum = str(outputs.get(contract["images_sha256_output"]) or "").strip().lower()
+    images_declared = bool(outputs.get(contract["images_included_output"], False))
+    if images_declared or candidate_value or candidate_checksum:
         candidate = Path(candidate_value).expanduser()
-        if not candidate.is_file() or not re.fullmatch(
-            r"[0-9a-f]{64}", candidate_checksum
-        ):
-            raise ValueError("node-state archive is missing or unverifiable")
-        node_digest = hashlib.sha256()
+        if not candidate.is_file() or not re.fullmatch(r"[0-9a-f]{64}", candidate_checksum):
+            raise ValueError("image archive is missing or unverifiable")
+        image_digest = hashlib.sha256()
         with candidate.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                node_digest.update(chunk)
-        if node_digest.hexdigest() != candidate_checksum:
-            raise ValueError(
-                f"node-state archive checksum verification failed: {candidate}"
-            )
-        node_archive = candidate.resolve()
-        node_checksum = candidate_checksum
-    return archive_path.resolve(), expected, node_archive, node_checksum
+                image_digest.update(chunk)
+        if image_digest.hexdigest() != candidate_checksum:
+            raise ValueError(f"image archive checksum verification failed: {candidate}")
+        image_archive = candidate.resolve()
+        image_checksum = candidate_checksum
+    else:
+        from hyops.lab.migration import load_migration_images
+
+        migrated_images = load_migration_images(paths=paths, payload=payload)
+        if migrated_images is not None:
+            image_archive, image_checksum = migrated_images
+    return (
+        archive_path.resolve(),
+        expected,
+        node_archive,
+        node_checksum,
+        image_archive,
+        image_checksum,
+    )
 
 
 def _automatic_lab_restore_eligible(payload: dict[str, Any], paths) -> bool:
@@ -3947,14 +4123,20 @@ def _select_lab_restore_mode(
     paths,
     *,
     automatic_restore_eligible: bool = True,
-) -> tuple[str, tuple[Path, str, Path | None, str] | None]:
+) -> tuple[
+    str,
+    tuple[Path, str, Path | None, str, Path | None, str] | None,
+]:
     lifecycle = payload.get("archive_before_destroy")
     requested = bool(getattr(ns, "restore_labs", False))
     skipped = bool(getattr(ns, "skip_lab_restore", False))
     overwrite = bool(getattr(ns, "overwrite_labs", False))
+    overwrite_images = bool(getattr(ns, "overwrite_images", False))
 
     if overwrite and not requested:
         raise ValueError("--overwrite-labs requires --restore-labs")
+    if overwrite_images and not requested:
+        raise ValueError("--overwrite-images requires --restore-labs")
     if (requested or skipped) and not isinstance(lifecycle, dict):
         raise ValueError("this blueprint does not declare a lab archive lifecycle")
 
@@ -3963,6 +4145,8 @@ def _select_lab_restore_mode(
         if requested:
             raise ValueError("no verified lab archive is available for this environment")
         return "none", None
+    if overwrite_images and archive[4] is None:
+        raise ValueError("--overwrite-images requires a verified image archive")
     if requested:
         return "restore", archive
     if skipped:
@@ -3977,22 +4161,85 @@ def _select_lab_restore_mode(
     print(f"lab archive available: {archive[0]}")
     if archive[2] is not None:
         print(f"stopped node state available: {archive[2]}")
+    if archive[4] is not None:
+        print(f"referenced base images available: {archive[4]}")
     confirmed = _prompt_yes_no("Restore archived labs? [y/N]: ")
     if confirmed is None:
         return "skip", archive
     return ("restore" if confirmed else "skip"), archive
 
 
+_ANSIBLE_TASK_LINE = re.compile(
+    r"^TASK \[(?:[^:\]]+ : )?(?P<task>.+?)\]\s*\*+\s*$"
+)
+
+
+def _lab_restore_phase(line: str) -> str:
+    match = _ANSIBLE_TASK_LINE.match(str(line or "").strip())
+    if match is None:
+        return ""
+    task = " ".join(match.group("task").split())
+    lowered = task.lower()
+
+    if "image" in lowered:
+        if "capacity" in lowered:
+            return "checking image capacity"
+        if "stage" in lowered:
+            return "staging images"
+        if "transaction" in lowered or "permissions" in lowered:
+            return "installing images"
+        if any(
+            term in lowered
+            for term in ("inspect", "verify", "list", "reject", "measure")
+        ):
+            return "verifying image archive"
+    if "node-state" in lowered or "node state" in lowered or "qemu overlay" in lowered:
+        if "capacity" in lowered:
+            return "checking node-state capacity"
+        if "repair" in lowered:
+            return "repairing node state"
+        if "validate" in lowered or "inspect" in lowered:
+            return "verifying node state"
+        if "restore" in lowered:
+            return "restoring node state"
+    if "saved configuration" in lowered:
+        return "applying saved configurations"
+    if "capacity" in lowered:
+        return "checking lab capacity"
+    if "restore" in lowered and ("lab archive" in lowered or "lab state" in lowered):
+        return "restoring lab definitions"
+    if "archive" in lowered and any(
+        term in lowered for term in ("extract", "restore", "stage")
+    ):
+        return "restoring lab data"
+    if "archive" in lowered and any(
+        term in lowered for term in ("inspect", "verify", "list", "reject", "measure")
+    ):
+        return "verifying lab archive"
+    if "ownership" in lowered or "permissions" in lowered:
+        return "applying permissions"
+    if "publish" in lowered or "restart" in lowered:
+        return "finalising"
+    return ""
+
+
 def _run_lab_restore(
     ns,
     payload: dict[str, Any],
     paths,
-    archive: tuple[Path, str, Path | None, str],
+    archive: tuple[Path, str, Path | None, str, Path | None, str],
 ) -> int:
     lifecycle = payload["archive_before_destroy"]
     contract = _lab_archive_contract(lifecycle)
     prefix = contract["prefix"]
-    archive_path, checksum, node_archive_path, node_checksum = archive
+    (
+        archive_path,
+        checksum,
+        node_archive_path,
+        node_checksum,
+        image_archive_path,
+        image_checksum,
+    ) = archive
     restore_inputs = dict(lifecycle.get("inputs") or {})
     restore_inputs.update(
         {
@@ -4019,6 +4266,15 @@ def _run_lab_restore(
                 f"{prefix}_restore_node_state": True,
                 f"{prefix}_node_state_path": str(node_archive_path),
                 f"{prefix}_node_state_expected_sha256": node_checksum,
+            }
+        )
+    if image_archive_path is not None:
+        restore_inputs.update(
+            {
+                f"{prefix}_restore_images": True,
+                f"{prefix}_overwrite_images": bool(getattr(ns, "overwrite_images", False)),
+                f"{prefix}_images_path": str(image_archive_path),
+                f"{prefix}_images_expected_sha256": image_checksum,
             }
         )
     restore_step = {
@@ -4048,8 +4304,17 @@ def _run_lab_restore(
     previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
     if not os.getenv("HYOPS_VERBOSE"):
         os.environ["HYOPS_PROGRESS_CHILD"] = "1"
+
+    def update_restore_progress(stream: str, line: str) -> None:
+        if stream != "stdout":
+            return
+        phase = _lab_restore_phase(line)
+        if phase:
+            progress.update(restore_step["id"], f"Lab restore: {phase}")
+
     try:
-        rc = int(run_step_module_command(restore_step, payload, ns, paths))
+        with observe_stream_output(update_restore_progress):
+            rc = int(run_step_module_command(restore_step, payload, ns, paths))
     except KeyboardInterrupt:
         rc = CANCELLED
     finally:
@@ -4057,9 +4322,7 @@ def _run_lab_restore(
             os.environ.pop("HYOPS_PROGRESS_CHILD", None)
         else:
             os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
-    restore_status = "cancelled" if rc == CANCELLED else (
-        "ok" if rc == 0 else "failed"
-    )
+    restore_status = "cancelled" if rc == CANCELLED else ("ok" if rc == 0 else "failed")
     progress.finish(
         restore_step["id"],
         "Lab restore",
@@ -4150,11 +4413,7 @@ def run_deploy(ns) -> int:
         preflight_decision = complete_preflight_decision(
             preflight_decision,
             passed=not preflight_required,
-            detail=(
-                ""
-                if not preflight_required
-                else f"required_failures={','.join(preflight_required)}"
-            ),
+            detail=("" if not preflight_required else f"required_failures={','.join(preflight_required)}"),
         )
         preflight_summary = {
             "status": preflight_status,
@@ -4228,12 +4487,7 @@ def run_deploy(ns) -> int:
     iol_repair_used = False
     repair_results: list[dict[str, Any]] = []
     progress = ProgressDisplay(
-        enabled=bool(
-            sys.stdout
-            and sys.stdout.isatty()
-            and not json_mode
-            and not os.getenv("HYOPS_VERBOSE")
-        ),
+        enabled=bool(sys.stdout and sys.stdout.isatty() and not json_mode and not os.getenv("HYOPS_VERBOSE")),
         show_elapsed=False,
     )
 
@@ -4309,12 +4563,10 @@ def run_deploy(ns) -> int:
                     detail = "state-ok"
                     if skip_detail:
                         detail = f"state-ok ({skip_detail})"
-                    presentation_label, presentation_detail, skip_item_line = (
-                        _step_presentation(
-                            step,
-                            state_dir=paths.state_dir,
-                            progress_after=progress_after,
-                        )
+                    presentation_label, presentation_detail, skip_item_line = _step_presentation(
+                        step,
+                        state_dir=paths.state_dir,
+                        progress_after=progress_after,
                     )
                     result = dict(base)
                     result.update({"status": "skipped", "reason": detail, "rc": 0})
@@ -4380,10 +4632,7 @@ def run_deploy(ns) -> int:
         progress.start(
             step_id,
             running_label,
-            plain=(
-                f"step={step_id} status=running action={step['action']} "
-                f"module={step['module_ref']}"
-            ),
+            plain=(f"step={step_id} status=running action={step['action']} module={step['module_ref']}"),
         )
         previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
         failure_state_before = _step_failure_state(step, paths)
@@ -4414,8 +4663,7 @@ def run_deploy(ns) -> int:
             and mismatch is not None
             and bool(getattr(ns, "repair_iol_license", False))
             and not iol_repair_used
-            and str(step.get("module_ref") or "").strip().lower()
-            == IOL_IMAGES_MODULE_REF
+            and str(step.get("module_ref") or "").strip().lower() == IOL_IMAGES_MODULE_REF
             and str(step.get("action") or "").strip().lower() in {"apply", "deploy"}
         ):
             iol_repair_used = True
@@ -4551,11 +4799,7 @@ def run_deploy(ns) -> int:
             step_results.append(
                 {
                     "id": "restore_archived_labs",
-                    "module_ref": str(
-                        (payload.get("archive_before_destroy") or {}).get(
-                            "module_ref", ""
-                        )
-                    ),
+                    "module_ref": str((payload.get("archive_before_destroy") or {}).get("module_ref", "")),
                     "action": "deploy",
                     "phase": "operations",
                     "optional": False,
@@ -4606,17 +4850,15 @@ def run_deploy(ns) -> int:
         output["iol_license_repairs"] = repair_results
     if cancelled:
         output["next_actions"] = _cancelled_deploy_actions(ns, payload)
+    elif not required_failures:
+        output["next_actions"] = _successful_deploy_actions(ns, payload)
     elif required_failures and _failed_deploy_has_resources(payload, paths):
-        output["next_actions"] = {
-            "destroy": _cancelled_deploy_actions(ns, payload)["destroy"]
-        }
+        output["next_actions"] = {"destroy": _cancelled_deploy_actions(ns, payload)["destroy"]}
 
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
     else:
-        ready_message = str(
-            (payload.get("metadata") or {}).get("ready_message") or ""
-        ).strip()
+        ready_message = str((payload.get("metadata") or {}).get("ready_message") or "").strip()
         if final_status == "ok" and ready_message and progress.enabled:
             print()
             progress.finish(
@@ -4633,7 +4875,19 @@ def run_deploy(ns) -> int:
             print(f"required_failures: {', '.join(required_failures)}")
         if optional_failures:
             print(f"optional_failures: {', '.join(optional_failures)}")
-        if cancelled:
+        if final_status == "ok":
+            actions = output["next_actions"]
+            operator_actions = [
+                (label, actions[label])
+                for label in ("access", "credentials")
+                if label in actions
+            ]
+            if operator_actions:
+                print("next:")
+                for label, command in operator_actions:
+                    print(f"  {label}: {command}")
+            print(f"support: {actions['support']}")
+        elif cancelled:
             print("deployment cancelled; completed resources were retained.")
             print("resume:")
             print(f"  {output['next_actions']['resume']}")
@@ -4650,8 +4904,12 @@ def run_deploy(ns) -> int:
 def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> str:
     archive = payload.get("archive_before_destroy")
     if not isinstance(archive, dict) or not archive:
-        if bool(getattr(ns, "archive_before_destroy", False)) or bool(
-            getattr(ns, "skip_archive", False)
+        if (
+            bool(getattr(ns, "archive_before_destroy", False))
+            or bool(getattr(ns, "skip_archive", False))
+            or bool(getattr(ns, "guest_quiesced", False))
+            or bool(str(getattr(ns, "quiesce_script", "") or "").strip())
+            or getattr(ns, "quiesce_timeout", None) is not None
         ):
             raise ValueError("this blueprint does not declare a lab archive lifecycle")
         return "none"
@@ -4659,14 +4917,17 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
     if bool(getattr(ns, "archive_before_destroy", False)):
         return "archive"
     if bool(getattr(ns, "skip_archive", False)):
+        if bool(getattr(ns, "guest_quiesced", False)) or bool(
+            str(getattr(ns, "quiesce_script", "") or "").strip()
+        ) or getattr(ns, "quiesce_timeout", None) is not None:
+            raise ValueError(
+                "guest quiescence options require --archive-before-destroy"
+            )
         return "skip"
 
-    if bool(getattr(ns, "yes", False)) or not (
-        sys.stdin.isatty() and sys.stdout.isatty()
-    ):
+    if bool(getattr(ns, "yes", False)) or not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise ValueError(
-            "this blueprint protects lab data; select --archive-before-destroy "
-            "or --skip-archive"
+            "this blueprint protects lab data; select --archive-before-destroy or --skip-archive"
         )
 
     print("lab data:")
@@ -4686,6 +4947,82 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
         print("invalid choice; enter exactly 1, 2, or 3")
 
 
+def _archive_requires_guest_quiescence(payload: dict[str, Any]) -> bool:
+    archive = payload.get("archive_before_destroy")
+    if not isinstance(archive, dict):
+        return False
+    inputs = archive.get("inputs")
+    if not isinstance(inputs, dict):
+        return False
+    return bool(inputs.get("eveng_lab_archive_include_node_state", False))
+
+
+def _confirm_guest_quiescence(ns, payload: dict[str, Any], paths) -> bool | None:
+    quiesce_script = str(getattr(ns, "quiesce_script", "") or "").strip()
+    timeout_override = getattr(ns, "quiesce_timeout", None)
+    if not _archive_requires_guest_quiescence(payload):
+        if (
+            bool(getattr(ns, "guest_quiesced", False))
+            or quiesce_script
+            or timeout_override is not None
+        ):
+            raise ValueError(
+                "guest quiescence options are valid only for EVE-NG node-state archives"
+            )
+        return True
+    archive = payload.get("archive_before_destroy") or {}
+    archive_inputs = archive.get("inputs") or {}
+    timeout_s = int(
+        timeout_override
+        if timeout_override is not None
+        else archive_inputs.get("eveng_lab_archive_quiesce_timeout_s", 300)
+    )
+    if not 1 <= timeout_s <= 3600:
+        raise ValueError("quiescence timeout must be between 1 and 3600 seconds")
+    setattr(ns, "quiesce_timeout", timeout_s)
+
+    if quiesce_script:
+        resolved, _checksum = _validate_quiescence_action(Path(quiesce_script))
+        setattr(ns, "quiesce_script", str(resolved))
+        setattr(ns, "_quiescence_source", "command-override")
+        return True
+    if bool(getattr(ns, "guest_quiesced", False)):
+        if timeout_override is not None:
+            raise ValueError(
+                "--quiesce-timeout requires a configured or explicit quiescence action"
+            )
+        setattr(ns, "_quiescence_source", "operator-attestation")
+        return True
+
+    environment_action = _quiescence_action_path(paths, payload)
+    if environment_action.exists() or environment_action.is_symlink():
+        resolved, _checksum = _validate_quiescence_action(environment_action)
+        setattr(ns, "quiesce_script", str(resolved))
+        setattr(ns, "_quiescence_source", "environment")
+        return True
+
+    if timeout_override is not None:
+        raise ValueError(
+            "--quiesce-timeout requires a configured or explicit quiescence action"
+        )
+    if bool(getattr(ns, "yes", False)) or not (
+        sys.stdin.isatty() and sys.stdout.isatty()
+    ):
+        raise ValueError(
+            "EVE-NG node-state archive requires a configured guest-quiescence "
+            "action. Configure it once with: "
+            f"{_quiescence_edit_command(ns, payload)}. "
+            "Use --guest-quiesced only after a manual clean shutdown."
+        )
+    confirmed = _prompt_yes_no(
+        "Confirm stateful guests were shut down inside their operating systems "
+        "[y/N]: "
+    )
+    if confirmed is True:
+        setattr(ns, "_quiescence_source", "operator-attestation")
+    return confirmed
+
+
 def _confirm_archive_destroy(env_name: str) -> bool | None:
     confirmation = f"destroy {env_name}"
     while True:
@@ -4701,6 +5038,17 @@ def _confirm_archive_destroy(env_name: str) -> bool | None:
 
 def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     archive = payload["archive_before_destroy"]
+    archive_inputs = dict(archive.get("inputs") or {})
+    if _archive_requires_guest_quiescence(payload):
+        archive_inputs["eveng_lab_archive_guest_quiesced"] = bool(
+            getattr(ns, "guest_quiesced", False)
+        )
+        archive_inputs["eveng_lab_archive_quiesce_script_path"] = str(
+            getattr(ns, "quiesce_script", "") or ""
+        ).strip()
+        archive_inputs["eveng_lab_archive_quiesce_timeout_s"] = int(
+            getattr(ns, "quiesce_timeout", None) or 300
+        )
     archive_step = {
         "id": "archive_before_destroy",
         "module_ref": archive["module_ref"],
@@ -4708,9 +5056,17 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         "action": "deploy",
         "phase": "operations",
         "with_deps": False,
-        "inputs": archive.get("inputs") or {},
+        "inputs": archive_inputs,
     }
-    print("preparing saved lab state; active nodes will be stopped")
+    if str(getattr(ns, "quiesce_script", "") or "").strip():
+        source = str(getattr(ns, "_quiescence_source", "") or "")
+        qualifier = "configured " if source == "environment" else ""
+        print(
+            "preparing saved lab state; running "
+            f"{qualifier}guest quiescence action"
+        )
+    else:
+        print("preparing saved lab state; guests must already be shut down")
     print("this may take several minutes, depending on lab size")
     progress = ProgressDisplay(
         enabled=bool(
@@ -4738,9 +5094,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
             os.environ.pop("HYOPS_PROGRESS_CHILD", None)
         else:
             os.environ["HYOPS_PROGRESS_CHILD"] = previous_child
-    archive_status = "cancelled" if int(rc) == CANCELLED else (
-        "ok" if rc == 0 else "failed"
-    )
+    archive_status = "cancelled" if int(rc) == CANCELLED else ("ok" if rc == 0 else "failed")
     progress.finish(
         archive_step["id"],
         "Lab archive",
@@ -4749,7 +5103,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     )
     if int(rc) == CANCELLED:
         print("Archive interrupted. Resources were retained.")
-        print("Some lab nodes may have been stopped. Check the lab before continuing.")
+        print("Check lab state before continuing.")
         return CANCELLED
     if rc != 0:
         print("ERR: lab export failed; no resources were destroyed")
@@ -4763,9 +5117,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         )
         outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
         contract = _lab_archive_contract(archive)
-        archive_path = Path(
-            str(outputs.get(contract["path_output"]) or "")
-        ).expanduser()
+        archive_path = Path(str(outputs.get(contract["path_output"]) or "")).expanduser()
         expected = str(outputs.get(contract["sha256_output"]) or "").strip().lower()
         if not archive_path.is_file() or not expected:
             raise ValueError("lab export did not publish a verifiable archive")
@@ -4783,27 +5135,17 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     archive_contents = [contract["contents_label"]]
     if bool(outputs.get(contract["device_configs_captured_output"], False)):
         archive_contents.append("saved device configurations")
-    previous_archive_path = Path(
-        str(outputs.get(contract["previous_path_output"]) or "")
-    ).expanduser()
+    previous_archive_path = Path(str(outputs.get(contract["previous_path_output"]) or "")).expanduser()
     if previous_archive_path.is_file():
         archive_contents.append("previous generation retained")
     verbose = bool(os.getenv("HYOPS_VERBOSE"))
     if verbose:
         print(f"lab archive: {archive_path}")
         print(f"sha256: {actual}")
-    if contract["node_state"] and bool(
-        outputs.get(contract["node_included_output"], False)
-    ):
-        node_archive_path = Path(
-            str(outputs.get(contract["node_path_output"]) or "")
-        ).expanduser()
-        node_expected = str(
-            outputs.get(contract["node_sha256_output"]) or ""
-        ).strip().lower()
-        if not node_archive_path.is_file() or not re.fullmatch(
-            r"[0-9a-f]{64}", node_expected
-        ):
+    if contract["node_state"] and bool(outputs.get(contract["node_included_output"], False)):
+        node_archive_path = Path(str(outputs.get(contract["node_path_output"]) or "")).expanduser()
+        node_expected = str(outputs.get(contract["node_sha256_output"]) or "").strip().lower()
+        if not node_archive_path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", node_expected):
             print("ERR: node-state archive is missing; no resources were destroyed")
             return OPERATOR_ERROR
         node_digest = hashlib.sha256()
@@ -4812,10 +5154,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
                 node_digest.update(chunk)
         node_actual = node_digest.hexdigest()
         if node_actual != node_expected:
-            print(
-                "ERR: node-state archive checksum verification failed; "
-                "no resources were destroyed"
-            )
+            print("ERR: node-state archive checksum verification failed; no resources were destroyed")
             return OPERATOR_ERROR
         archive_contents.append("stopped node state")
         if verbose:
@@ -4828,9 +5167,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
 
 
 def run_destroy(ns) -> int:
-    if not bool(getattr(ns, "execute", False)) or bool(
-        getattr(ns, "_lifecycle_lock_held", False)
-    ):
+    if not bool(getattr(ns, "execute", False)) or bool(getattr(ns, "_lifecycle_lock_held", False)):
         return _run_destroy_unlocked(ns)
     try:
         require_runtime_selection(
@@ -4888,10 +5225,7 @@ def _run_destroy_unlocked(ns) -> int:
                 action = "retain" if bool(step.get("retain_on_destroy", False)) else "destroy"
                 print(f"  - {_step_display_label(step)}: {action}")
                 if os.getenv("HYOPS_VERBOSE"):
-                    print(
-                        f"    id={step_id} module={step['module_ref']} "
-                        f"ref={step_state_ref(step)}"
-                    )
+                    print(f"    id={step_id} module={step['module_ref']} ref={step_state_ref(step)}")
         return 0
 
     json_mode = bool(getattr(ns, "json", False))
@@ -4914,10 +5248,7 @@ def _run_destroy_unlocked(ns) -> int:
         return OPERATOR_ERROR
 
     by_id = {step["id"]: step for step in payload["steps"]}
-    env_name = (
-        str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip()
-        or "default"
-    )
+    env_name = str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip() or "default"
     lifecycle_snapshot = _destroy_lifecycle_snapshot(
         payload,
         paths,
@@ -4951,6 +5282,22 @@ def _run_destroy_unlocked(ns) -> int:
                     "env": env_name,
                     "run_id": run_id,
                     "status": status,
+                    "guest_quiesced": bool(
+                        getattr(ns, "guest_quiesced", False)
+                    ),
+                    "quiescence_method": (
+                        "operator-script"
+                        if str(getattr(ns, "quiesce_script", "") or "").strip()
+                        else (
+                            "operator-attestation"
+                            if bool(getattr(ns, "guest_quiesced", False))
+                            else None
+                        )
+                    ),
+                    "quiescence_source": str(
+                        getattr(ns, "_quiescence_source", "") or ""
+                    )
+                    or None,
                     "lifecycle": lifecycle,
                     "steps": steps or [],
                 },
@@ -4974,17 +5321,10 @@ def _run_destroy_unlocked(ns) -> int:
             step = by_id[step_id]
             state_ref = step_state_ref(step)
             status = module_state_status(paths.state_dir, state_ref) or "missing"
-            preview_status = (
-                "pending"
-                if _destroy_gate_required(step, by_id, paths)
-                else status
-            )
+            preview_status = "pending" if _destroy_gate_required(step, by_id, paths) else status
             print(f"  - {_destroy_preview_label(step, preview_status)}")
             if os.getenv("HYOPS_VERBOSE"):
-                print(
-                    f"    id={step_id} module={step['module_ref']} "
-                    f"state={status} ref={state_ref}"
-                )
+                print(f"    id={step_id} module={step['module_ref']} state={status} ref={state_ref}")
         cost_estimate = getattr(ns, "_cost_estimate", None)
         if cost_estimate is None and lifecycle_snapshot is not None:
             estimate_payload = lifecycle_snapshot["estimate"]
@@ -5035,6 +5375,32 @@ def _run_destroy_unlocked(ns) -> int:
         _print_destroy_lifecycle_summary(lifecycle)
         print_destroy_record()
         return 0
+
+    if archive_mode == "archive":
+        try:
+            guest_quiesced = _confirm_guest_quiescence(ns, payload, paths)
+        except ValueError as exc:
+            print(f"ERR: {exc}")
+            record_destroy_outcome(
+                "blocked",
+                archive="not-started",
+                resources="retained",
+            )
+            print_destroy_record()
+            return OPERATOR_ERROR
+        if guest_quiesced is not True:
+            print("destroy cancelled")
+            print("environment retained")
+            lifecycle = record_destroy_outcome(
+                "cancelled",
+                archive="not-started",
+                resources="retained",
+            )
+            _print_destroy_lifecycle_summary(lifecycle)
+            print_destroy_record()
+            return CANCELLED
+        if not str(getattr(ns, "quiesce_script", "") or "").strip():
+            setattr(ns, "guest_quiesced", True)
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
         if payload.get("archive_before_destroy"):
@@ -5100,12 +5466,7 @@ def _run_destroy_unlocked(ns) -> int:
     optional_failures: list[str] = []
     cancelled = False
     progress = ProgressDisplay(
-        enabled=bool(
-            sys.stdout
-            and sys.stdout.isatty()
-            and not json_mode
-            and not os.getenv("HYOPS_VERBOSE")
-        ),
+        enabled=bool(sys.stdout and sys.stdout.isatty() and not json_mode and not os.getenv("HYOPS_VERBOSE")),
         show_elapsed=False,
     )
     deferred_by_parent: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
@@ -5141,9 +5502,7 @@ def _run_destroy_unlocked(ns) -> int:
                 {
                     "module_ref": child_ref,
                     "status": "destroyed",
-                    "updated_at": datetime.now(timezone.utc).strftime(
-                        "%Y-%m-%dT%H:%M:%SZ"
-                    ),
+                    "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "outputs": {},
                     "output_count": 0,
                     "destroyed_by_blueprint_step": parent_id,
@@ -5212,20 +5571,14 @@ def _run_destroy_unlocked(ns) -> int:
                 step_id,
                 step_id,
                 "retained",
-                plain=(
-                    f"step={step_id} status=retained reason=retain_on_destroy "
-                    f"progress={progress_after}%"
-                ),
+                plain=(f"step={step_id} status=retained reason=retain_on_destroy progress={progress_after}%"),
                 detail=f"retain_on_destroy, {completed_detail}",
             )
             continue
 
         state_status = module_state_status(paths.state_dir, state_ref)
         destroy_gate_required = _destroy_gate_required(step, by_id, paths)
-        if (
-            not destroy_gate_required
-            and (not state_status or state_status in {"destroyed", "absent"})
-        ):
+        if not destroy_gate_required and (not state_status or state_status in {"destroyed", "absent"}):
             reason = "no-state" if not state_status else f"state-{state_status}"
             result = dict(base)
             result.update({"status": "skipped", "reason": reason, "rc": 0})
@@ -5257,10 +5610,7 @@ def _run_destroy_unlocked(ns) -> int:
                 step_id,
                 step_id,
                 "deferred",
-                plain=(
-                    f"step={step_id} status=deferred "
-                    f"reason=destroy-subsumed-by-{destroy_parent}"
-                ),
+                plain=(f"step={step_id} status=deferred reason=destroy-subsumed-by-{destroy_parent}"),
                 detail=f"awaiting {destroy_parent}, {completed_detail}",
             )
             continue
@@ -5278,10 +5628,7 @@ def _run_destroy_unlocked(ns) -> int:
         progress.start(
             step_id,
             running_label,
-            plain=(
-                f"step={step_id} status=running action=destroy "
-                f"module={step['module_ref']}"
-            ),
+            plain=(f"step={step_id} status=running action=destroy module={step['module_ref']}"),
         )
         previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
         failure_state_before = _step_failure_state(destroy_step, paths)
@@ -5438,9 +5785,7 @@ def _run_destroy_unlocked(ns) -> int:
 
 
 def run_rebuild(ns) -> int:
-    if not bool(getattr(ns, "execute", False)) or bool(
-        getattr(ns, "_lifecycle_lock_held", False)
-    ):
+    if not bool(getattr(ns, "execute", False)) or bool(getattr(ns, "_lifecycle_lock_held", False)):
         return _run_rebuild_unlocked(ns)
     try:
         require_runtime_selection(
@@ -5473,8 +5818,7 @@ def _run_rebuild_unlocked(ns) -> int:
 
     destroy_order = list(reversed(payload["order"]))
     print(
-        f"blueprint={payload['blueprint_ref']} mode={payload['mode']} "
-        f"rebuild_steps={len(payload['order'])}"
+        f"blueprint={payload['blueprint_ref']} mode={payload['mode']} rebuild_steps={len(payload['order'])}"
     )
     if not bool(getattr(ns, "execute", False)) or verbose_enabled():
         print("destroy_order:")
@@ -5517,9 +5861,7 @@ def _run_rebuild_unlocked(ns) -> int:
             getattr(ns, "env", None),
             command_label="hyops blueprint rebuild",
         )
-        paths = resolve_runtime_paths(
-            getattr(ns, "root", None), getattr(ns, "env", None)
-        )
+        paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
         ensure_layout(paths)
     except Exception as exc:
         print(f"ERR: blueprint rebuild failed: {exc}")
@@ -5527,10 +5869,7 @@ def _run_rebuild_unlocked(ns) -> int:
 
     env_name = str(getattr(ns, "env", None) or paths.root.name).strip()
     if not bool(getattr(ns, "yes", False)):
-        print(
-            "WARN: blueprint rebuild will destroy and recreate owned resources "
-            f"in env={env_name}."
-        )
+        print(f"WARN: blueprint rebuild will destroy and recreate owned resources in env={env_name}.")
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             print("ERR: non-interactive rebuild requires --yes")
             return OPERATOR_ERROR
@@ -5548,9 +5887,7 @@ def _run_rebuild_unlocked(ns) -> int:
     record_file = record_dir / "rebuild.json"
     record_writer = EvidenceWriter(record_dir)
 
-    def write_record(
-        status: str, destroy_rc: int | None, deploy_rc: int | None
-    ) -> None:
+    def write_record(status: str, destroy_rc: int | None, deploy_rc: int | None) -> None:
         record_writer.write_json(
             record_file.name,
             {

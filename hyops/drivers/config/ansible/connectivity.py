@@ -121,6 +121,7 @@ def _classify_ssh_auth_probe_failure(
     gcp_iap_instance: str,
     gcp_iap_project_id: str,
     gcp_iap_zone: str,
+    privilege_user: str = "",
 ) -> str:
     stderr = str(getattr(result, "stderr", "") or "")
     stdout = str(getattr(result, "stdout", "") or "")
@@ -137,8 +138,26 @@ def _classify_ssh_auth_probe_failure(
     if "banner exchange" in combined or "connection timed out" in combined:
         return f"ssh service did not become ready yet (see {label}.* in evidence dir)"
 
+    if privilege_user:
+        sudo_failure = (
+            "sudo:" in combined
+            or "not in the sudoers" in combined
+            or "may not run sudo" in combined
+        )
+        if sudo_failure:
+            return (
+                f"passwordless privilege escalation to {privilege_user} failed "
+                f"(see {label}.* in evidence dir)"
+            )
+
     if "permission denied" in combined or "publickey" in combined or "authentication failed" in combined:
         return f"ssh authentication failed (see {label}.* in evidence dir)"
+
+    if privilege_user:
+        return (
+            f"passwordless privilege escalation to {privilege_user} failed "
+            f"(see {label}.* in evidence dir)"
+        )
 
     return f"ssh auth probe failed (see {label}.* in evidence dir)"
 
@@ -321,6 +340,8 @@ def probe_ssh_auth(
     gcp_iap_instance: str = "",
     gcp_iap_project_id: str = "",
     gcp_iap_zone: str = "",
+    become: bool = False,
+    become_user: str = "root",
 ) -> tuple[bool, str]:
     ssh_bin = shutil.which("ssh")
     if not ssh_bin:
@@ -356,6 +377,18 @@ def probe_ssh_auth(
             f"--zone {shlex.quote(gcp_iap_zone)} --verbosity=warning"
         )
         argv.extend(["-o", f"ProxyCommand={proxy_cmd}"])
+        argv.extend(
+            [
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
+                "-o",
+                "ServerAliveInterval=15",
+                "-o",
+                "ServerAliveCountMax=2",
+            ]
+        )
     elif proxy_host:
         proxy_cmd_parts = [
             "ssh",
@@ -376,7 +409,14 @@ def probe_ssh_auth(
     if ssh_private_key_file:
         argv.extend(["-i", ssh_private_key_file])
 
-    argv.extend([f"{target_user}@{target_host}", "true"])
+    privilege_user = str(become_user or "root").strip() or "root"
+    remote_command = "true"
+    if become and target_user != privilege_user:
+        remote_command = f"sudo -n -u {shlex.quote(privilege_user)} true"
+    else:
+        privilege_user = ""
+
+    argv.extend([f"{target_user}@{target_host}", remote_command])
 
     attempts = 3 if access_mode == "gcp-iap" else 1
     delay_s = 2
@@ -406,6 +446,7 @@ def probe_ssh_auth(
                 gcp_iap_instance=gcp_iap_instance,
                 gcp_iap_project_id=gcp_iap_project_id,
                 gcp_iap_zone=gcp_iap_zone,
+                privilege_user=privilege_user,
             )
 
         if access_mode != "gcp-iap":
@@ -716,6 +757,9 @@ def connectivity_check(
     if not as_bool(inputs.get("connectivity_check"), default=True):
         return True, ""
 
+    become = as_bool(inputs.get("become"), default=True)
+    become_user = str(inputs.get("become_user") or "root").strip() or "root"
+
     inventory_groups = inputs.get("inventory_groups")
     if isinstance(inventory_groups, dict) and inventory_groups:
         targets: list[tuple[str, str]] = []
@@ -812,6 +856,8 @@ def connectivity_check(
                     gcp_iap_instance=gcp_iap_instance,
                     gcp_iap_project_id=gcp_iap_project_id,
                     gcp_iap_zone=gcp_iap_zone,
+                    become=become,
+                    become_user=become_user,
                 )
                 attempt = 1
                 while not ok and time.time() < deadline:
@@ -835,6 +881,8 @@ def connectivity_check(
                         gcp_iap_instance=gcp_iap_instance,
                         gcp_iap_project_id=gcp_iap_project_id,
                         gcp_iap_zone=gcp_iap_zone,
+                        become=become,
+                        become_user=become_user,
                     )
                 if not ok:
                     if err.startswith("gcp-iap tunnel authorisation failed"):
@@ -843,6 +891,11 @@ def connectivity_check(
                         return False, (
                             "connectivity check failed: target VM is reachable through its transport path, "
                             f"but SSH is not ready yet for {label} (host={host}). {err}"
+                        )
+                    if err.startswith("passwordless privilege escalation"):
+                        return False, (
+                            f"connectivity check failed: {err} for {label} (host={host}). "
+                            f"Confirm target_user={target_user} can run sudo -n as {become_user}."
                         )
                     hint = (
                         "connectivity check failed: target SSH port is reachable, but authentication failed for "
@@ -915,6 +968,8 @@ def connectivity_check(
                 evidence_dir=evidence_dir,
                 redact=redact,
                 label=f"connectivity_ssh_auth.{label}",
+                become=become,
+                become_user=become_user,
             )
             attempt = 1
             while not ok and time.time() < deadline:
@@ -934,8 +989,15 @@ def connectivity_check(
                     evidence_dir=evidence_dir,
                     redact=redact,
                     label=f"connectivity_ssh_auth.{label}.try{attempt}",
+                    become=become,
+                    become_user=become_user,
                 )
             if not ok:
+                if err.startswith("passwordless privilege escalation"):
+                    return False, (
+                        f"connectivity check failed: {err} for {label} (host={host}). "
+                        f"Confirm target_user={target_user} can run sudo -n as {become_user}."
+                    )
                 return False, (
                     "connectivity check failed: target is reachable via proxy, but SSH authentication failed for "
                     f"{label} (host={host}). Confirm target_user={target_user} and key injection. {err}"
@@ -997,6 +1059,8 @@ def connectivity_check(
             redact=redact,
             label="connectivity_ssh_auth",
             access_mode="direct",
+            become=become,
+            become_user=become_user,
         )
         attempt = 1
         while not ok and time.time() < deadline:
@@ -1017,12 +1081,19 @@ def connectivity_check(
                 redact=redact,
                 label=f"connectivity_ssh_auth.try{attempt}",
                 access_mode="direct",
+                become=become,
+                become_user=become_user,
             )
         if not ok:
             if err.startswith("gcp-iap tunnel authorisation failed"):
                 return False, f"connectivity check failed: {err}"
             if err.startswith("ssh service did not become ready yet"):
                 return False, f"connectivity check failed: target VM is reachable through its transport path, but SSH is not ready yet. {err}"
+            if err.startswith("passwordless privilege escalation"):
+                return False, (
+                    f"connectivity check failed: {err}. "
+                    f"Confirm target_user={target_user} can run sudo -n as {become_user}."
+                )
             hint = (
                 "connectivity check failed: target SSH port is reachable, but authentication failed. "
                 f"Confirm target_user={target_user} exists and the SSH key is authorised. {err}"
@@ -1052,6 +1123,8 @@ def connectivity_check(
             gcp_iap_instance=gcp_iap_instance,
             gcp_iap_project_id=gcp_iap_project_id,
             gcp_iap_zone=gcp_iap_zone,
+            become=become,
+            become_user=become_user,
         )
         attempt = 1
         while not ok and time.time() < deadline:
@@ -1075,8 +1148,15 @@ def connectivity_check(
                 gcp_iap_instance=gcp_iap_instance,
                 gcp_iap_project_id=gcp_iap_project_id,
                 gcp_iap_zone=gcp_iap_zone,
+                become=become,
+                become_user=become_user,
             )
         if not ok:
+            if err.startswith("passwordless privilege escalation"):
+                return False, (
+                    f"connectivity check failed: {err}. "
+                    f"Confirm target_user={target_user} can run sudo -n as {become_user}."
+                )
             return False, unreachable_access_hint(
                 inputs=inputs,
                 runtime_root=runtime_root,
@@ -1151,6 +1231,8 @@ def connectivity_check(
         evidence_dir=evidence_dir,
         redact=redact,
         label="connectivity_ssh_auth",
+        become=become,
+        become_user=become_user,
     )
     attempt = 1
     while not ok and time.time() < deadline:
@@ -1170,8 +1252,15 @@ def connectivity_check(
             evidence_dir=evidence_dir,
             redact=redact,
             label=f"connectivity_ssh_auth.try{attempt}",
+            become=become,
+            become_user=become_user,
         )
     if not ok:
+        if err.startswith("passwordless privilege escalation"):
+            return False, (
+                f"connectivity check failed: {err}. "
+                f"Confirm target_user={target_user} can run sudo -n as {become_user}."
+            )
         return False, (
             "connectivity check failed: target is reachable via proxy, but SSH authentication failed. "
             f"Confirm target_user={target_user} and key injection. {err}"

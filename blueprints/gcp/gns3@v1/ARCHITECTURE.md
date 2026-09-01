@@ -106,6 +106,11 @@ Base images are independently managed by default and can be reconstructed from t
 
 `--restore-labs` selects the latest verified archive state recorded for the environment. The runtime verifies the recorded checksum before invoking the GNS3 archive module in restore mode.
 
+A verified migration bundle can provide the initial project state for an
+existing GNS3 installation. Intake checks the archive root, project
+definitions, image references and checksum, then binds the retained copy to
+this blueprint. The source host remains unchanged.
+
 The restore operation stops the GNS3 service, applies the retained project and controller state, restores ownership, starts the service and waits for the API to return. The normal blueprint health path then verifies the reconstructed lab environment.
 
 ## Compute lifetime and cost boundary

@@ -29,6 +29,7 @@ from hyops.runtime.source_roots import discover_core_root
 from .config import (
     load_profile,
     resolve_ansible_cfg,
+    resolve_execution_timeout,
     resolve_policy_defaults,
     resolve_required_credentials,
     resolve_required_env,
@@ -296,6 +297,10 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(inputs, dict):
         inputs = {}
 
+    timeout_s, timeout_error = resolve_execution_timeout(inputs, default=timeout_s)
+    if timeout_error:
+        return _fail(ev, result, timeout_error)
+
     proxy_jump_auto_note = apply_proxy_jump_auto(inputs, runtime_root)
     if proxy_jump_auto_note:
         result.setdefault("warnings", []).append(proxy_jump_auto_note)
@@ -520,6 +525,12 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         retries=retries,
     )
     if run_result.rc != 0:
+        if run_result.rc == 124 and timeout_s is not None:
+            return _fail(
+                ev,
+                result,
+                f"{err_msg}: timed out after {timeout_s} seconds",
+            )
         hint = ansible_error_hint(
             command_name=command_name,
             module_ref=module_ref,

@@ -34,6 +34,7 @@ PUBLIC_COMMANDS = (
     "import",
     "init",
     "inventory",
+    "lab",
     "module",
     "plan",
     "preflight",
@@ -102,6 +103,12 @@ class CliRoutingTests(unittest.TestCase):
         result = run_cli("blueprint", "--help")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("edit", result.stdout)
+
+    def test_lab_migration_help_lists_capture_inspect_and_import(self) -> None:
+        result = run_cli("lab", "migrate", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for command in ("capture", "inspect", "import"):
+            self.assertIn(command, result.stdout)
 
     def test_device_web_help_includes_multi_target_controls(self) -> None:
         result = run_cli("blueprint", "device", "web", "--help")

@@ -25,4 +25,5 @@ The target bridge must provide VM connectivity. EVE-NG credentials and authorise
 ## Documentation
 
 - [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-eve-ng/)
+- [Existing lab migration](../../../README.md#existing-lab-migration)
 - [GCP blueprint](../../gcp/eve-ng@v1/blueprint.yml)

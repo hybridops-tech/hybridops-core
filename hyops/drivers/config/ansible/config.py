@@ -86,6 +86,21 @@ def resolve_policy_defaults(profile: dict[str, Any]) -> tuple[int | None, int, b
     return timeout_s, retries, redact
 
 
+def resolve_execution_timeout(
+    inputs: dict[str, Any],
+    *,
+    default: int | None,
+) -> tuple[int | None, str]:
+    raw = inputs.get("execution_timeout_s")
+    if raw is None:
+        return default, ""
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return default, "inputs.execution_timeout_s must be an integer"
+    if raw < 60 or raw > 86400:
+        return default, "inputs.execution_timeout_s must be between 60 and 86400"
+    return raw, ""
+
+
 def resolve_ansible_cfg(profile: dict[str, Any]) -> dict[str, Any]:
     raw = profile.get("ansible")
     if not isinstance(raw, dict):

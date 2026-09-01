@@ -86,6 +86,7 @@ def validate(inputs: dict[str, Any]) -> None:
     include_node_state = data.get("eveng_lab_archive_include_node_state")
     restore_node_state = data.get("eveng_lab_archive_restore_node_state")
     stop_running_nodes = data.get("eveng_lab_archive_stop_running_nodes")
+    guest_quiesced = data.get("eveng_lab_archive_guest_quiesced")
     if not isinstance(include_node_state, bool):
         raise ValueError(
             "inputs.eveng_lab_archive_include_node_state must be a boolean"
@@ -98,10 +99,23 @@ def validate(inputs: dict[str, Any]) -> None:
         raise ValueError(
             "inputs.eveng_lab_archive_stop_running_nodes must be a boolean"
         )
-    if stop_running_nodes and (action != "export" or not include_node_state):
+    if not isinstance(guest_quiesced, bool):
         raise ValueError(
-            "inputs.eveng_lab_archive_stop_running_nodes requires an export "
-            "that includes node state"
+            "inputs.eveng_lab_archive_guest_quiesced must be a boolean"
+        )
+    quiesce_script_path = data.get("eveng_lab_archive_quiesce_script_path")
+    if not isinstance(quiesce_script_path, str):
+        raise ValueError(
+            "inputs.eveng_lab_archive_quiesce_script_path must be a string"
+        )
+    quiesce_timeout_s = data.get("eveng_lab_archive_quiesce_timeout_s")
+    if (
+        isinstance(quiesce_timeout_s, bool)
+        or not isinstance(quiesce_timeout_s, int)
+        or not 1 <= quiesce_timeout_s <= 3600
+    ):
+        raise ValueError(
+            "inputs.eveng_lab_archive_quiesce_timeout_s must be between 1 and 3600"
         )
     capture_device_configs = data.get("eveng_lab_archive_capture_device_configs")
     if not isinstance(capture_device_configs, bool):

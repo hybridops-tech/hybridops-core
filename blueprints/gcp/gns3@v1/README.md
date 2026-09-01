@@ -26,5 +26,6 @@ The GNS3 server password and authorised IOU licence content belong in the encryp
 ## Documentation
 
 - [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-gns3/)
+- [Existing lab migration](../../../README.md#existing-lab-migration)
 - [Lifecycle and ownership](ARCHITECTURE.md)
 - [Proxmox blueprint](../../onprem/gns3@v1/blueprint.yml)

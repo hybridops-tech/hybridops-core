@@ -9,6 +9,7 @@ metadata:
   description: "Build a Jammy template image (if needed), provision a standalone EVE-NG VM on the Proxmox uplink, then configure EVE-NG."
   outcome: "EVE-NG is installed and reachable."
   ready_message: "EVE-NG network emulation lab ready"
+  credential_secret: "EVENG_ADMIN_PASSWORD"
 
 policy:
   fail_fast: true
@@ -60,8 +61,9 @@ archive_before_destroy:
     # Refresh supported saved device configurations before archiving the lab.
     # Save intended device changes to startup configuration first.
     eveng_lab_archive_capture_device_configs: true
+    # Configure reusable shutdown with `hyops blueprint quiescence edit`.
+    # Use --guest-quiesced only after a manual clean shutdown.
     eveng_lab_archive_include_node_state: true
-    eveng_lab_archive_stop_running_nodes: true
 
 steps:
   - id: template_image_jammy

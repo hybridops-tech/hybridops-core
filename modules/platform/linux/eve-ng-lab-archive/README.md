@@ -21,10 +21,37 @@ For stopped-QEMU state, enable:
 
 ```yaml
 eveng_lab_archive_include_node_state: true
-eveng_lab_archive_stop_running_nodes: true
+eveng_lab_archive_guest_quiesced: true
 ```
 
-The archive role stops running QEMU nodes, validates their overlay disks and creates a separately checksummed node-state companion archive. Base images remain independently managed and are paired with the restored overlays on the reconstructed host.
+Shut down stateful guests inside their operating systems, then stop the EVE-NG
+nodes. The archive role rejects running QEMU processes, validates the overlay
+disks and creates a separately checksummed node-state companion archive. Base
+images remain independently managed and are paired with the restored overlays
+on the reconstructed host.
+
+Blueprint teardown supplies the acknowledgement from an environment action or
+from `hyops blueprint destroy --guest-quiesced`. Manual acknowledgement is
+scoped to that operation and must not be stored as a permanent blueprint input.
+
+Configure the environment action once:
+
+```bash
+hyops blueprint quiescence edit \
+  --env demo-lab \
+  --ref gcp/eve-ng@v1
+
+hyops blueprint destroy \
+  --env demo-lab \
+  --ref gcp/eve-ng@v1 \
+  --archive-before-destroy \
+  --execute
+```
+
+Core stores the action under the environment configuration and discovers it on
+subsequent teardown. The script runs on the EVE-NG host. HybridOps then verifies
+that no QEMU guest remains active and records the script checksum with the
+archive evidence. `--quiesce-script` remains an operation-specific override.
 
 To refresh saved device configurations before export, enable:
 
@@ -47,5 +74,24 @@ eveng_lab_archive_node_state_expected_sha256: <sha256>
 ```
 
 Existing lab content and runtime disks remain protected unless overwrite is explicitly enabled.
+
+A staged migration can also supply a checksummed image companion. The runtime
+restores those referenced bases before lab definitions and QEMU overlays:
+
+```yaml
+eveng_lab_archive_restore_images: true
+eveng_lab_archive_images_path: <verified-image-archive>
+eveng_lab_archive_images_expected_sha256: <sha256>
+eveng_lab_archive_overwrite_images: false
+```
+
+Image companions contain referenced QEMU, IOL or Dynamips bases only. They do
+not contain IOL licence material. Image replacement is staged and promoted as
+a separate transaction when overwrite is enabled explicitly.
+
+Restore validates captured QCOW2 state without repairing or rewriting it.
+Archive integrity does not guarantee that an appliance can boot its writable
+state on a different hypervisor target. The restored guest must pass its own
+boot and service checks before the migration is accepted.
 
 EVE-NG blueprints use this contract as their archive-before-release path. A later deployment with `--restore-labs` selects and verifies the retained environment archive before restoration.

@@ -25,6 +25,10 @@ class GcpEveNgBlueprintTest(TestCase):
             validated["metadata"]["ready_message"],
             "EVE-NG network emulation lab ready",
         )
+        self.assertEqual(
+            validated["metadata"]["credential_secret"],
+            "EVENG_ADMIN_PASSWORD",
+        )
         archive = validated["archive_before_destroy"]
         self.assertTrue(archive["inputs"]["load_vault_env"])
         self.assertEqual(
