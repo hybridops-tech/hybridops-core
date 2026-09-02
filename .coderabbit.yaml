@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-GB
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  changed_files_summary: true
+  review_status: true
+  review_details: false
+  poem: false
+  in_progress_fortune: false
+  enable_prompt_for_ai_agents: false
+  sequence_diagrams: false
+  slop_detection:
+    enabled: false
+  path_filters:
+    - "!dist/**"
+    - "!hybridops_core.egg-info/**"
+    - "!**/*.sha256"
+    - "!**/*.tar.gz"
+    - "!**/*.zip"
+    - "!**/*.pkg"
+  path_instructions:
+    - path: "hyops/**"
+      instructions: >-
+        Prioritise runtime correctness, safe failure behaviour, state integrity,
+        cross-platform compatibility, and tests for changed operator behaviour.
+    - path: "blueprints/**"
+      instructions: >-
+        Check contract validity, dependency ordering, provider-neutral boundaries,
+        secret handling, lifecycle safety, and consistency with shipped modules.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Check least-privilege permissions, immutable action references where
+        applicable, deterministic release behaviour, and fork safety.
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "[skip review]"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+
