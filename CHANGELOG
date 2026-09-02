@@ -2,6 +2,15 @@
 
 This changelog records significant operator-facing capabilities, lifecycle changes, compatibility fixes, and release engineering updates. Individual commits and maintenance-only changes remain available through the linked comparisons.
 
+## Unreleased
+
+### Fixed
+
+- Kept multiline vault values within their owning environment key so
+  `hyops secrets keys` cannot emit value fragments from legacy vault files.
+- Removed password-command temporary files from non-default temporary
+  directories after vault reads and writes.
+
 ## [v0.1.5-rc.1] - 2026-09-02
 
 ### Added
