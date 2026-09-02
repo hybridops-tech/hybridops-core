@@ -48,4 +48,3 @@ reviews:
     ignore_usernames:
       - "dependabot[bot]"
       - "github-actions[bot]"
-
