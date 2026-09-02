@@ -82,12 +82,15 @@ jobs:
         shell: bash
         run: |
           export HYOPS_RELEASE_LABEL="${GITHUB_REF_NAME#v}"
+          export HYOPS_RELEASE_VERSION="$(
+            python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+          )"
           bash pkg/build_release.sh
           TARBALL="$(ls -1 dist/releases/hybridops-core-*.tar.gz | head -n 1)"
           PKG="dist/releases/hybridops-core-${HYOPS_RELEASE_LABEL}-macos-${{ matrix.architecture }}.pkg"
           bash pkg/build_macos_pkg.sh \
             --archive "${TARBALL}" \
-            --version "${HYOPS_RELEASE_LABEL}" \
+            --version "${HYOPS_RELEASE_VERSION}" \
             --output "${PKG}"
           PKG_DIR="$(dirname "${PKG}")"
           PKG_NAME="$(basename "${PKG}")"
@@ -195,5 +198,9 @@ jobs:
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
           else
-            gh release create "${tag}" "${assets[@]}" --generate-notes --verify-tag
+            release_args=(--generate-notes --verify-tag)
+            if [[ "${tag}" == *-* ]]; then
+              release_args+=(--prerelease)
+            fi
+            gh release create "${tag}" "${assets[@]}" "${release_args[@]}"
           fi
