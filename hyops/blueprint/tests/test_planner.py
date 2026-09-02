@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
-from hyops.blueprint.planner import _required_env_error, compute_preflight
+from hyops.blueprint.planner import _required_env_error, compute_preflight, preflight_step
 
 
 class RequiredEnvironmentPreflightTest(TestCase):
@@ -96,11 +96,10 @@ class PlannedDependencyPreflightTest(TestCase):
                 },
             ],
         }
-        preflight_step.return_value = {
-            "id": "config",
-            "status": "ready",
-            "optional": False,
-        }
+        preflight_step.side_effect = [
+            {"id": "config", "status": "ready", "optional": False},
+            {"id": "health", "status": "ready", "optional": False},
+        ]
 
         results, required_failures, optional_failures = compute_preflight(
             payload,
@@ -109,10 +108,68 @@ class PlannedDependencyPreflightTest(TestCase):
         )
 
         self.assertEqual([item["status"] for item in results], ["ready", "ready"])
-        self.assertIn("configuration runs", results[1]["checks"][0]["detail"])
         self.assertEqual(required_failures, [])
         self.assertEqual(optional_failures, [])
-        preflight_step.assert_called_once()
+        self.assertEqual(preflight_step.call_count, 2)
+        health_call = preflight_step.call_args_list[1]
+        self.assertEqual(
+            health_call.kwargs["deferred_driver_preflight_refs"],
+            {"platform/linux/eve-ng#student_config"},
+        )
+
+    @patch("hyops.blueprint.planner.run_module_driver_preflight")
+    @patch("hyops.blueprint.planner.resolve_module")
+    @patch("hyops.blueprint.planner.resolve_module_root", return_value=Path("/tmp/modules"))
+    @patch("hyops.blueprint.planner.enforce_step_contracts")
+    @patch(
+        "hyops.blueprint.planner.resolved_step_inputs_file",
+        return_value=Path("/tmp/images.inputs.yml"),
+    )
+    def test_local_requirements_block_after_planned_configuration(
+        self,
+        _inputs_file,
+        _contracts,
+        _module_root,
+        resolve_module,
+        driver_preflight,
+    ):
+        step = {
+            "id": "images",
+            "module_ref": "platform/linux/eve-ng-images",
+            "state_instance": "student_images",
+            "action": "deploy",
+            "phase": "operations",
+            "optional": False,
+            "requires": ["config"],
+        }
+        resolve_module.return_value = SimpleNamespace(
+            inputs={"required_env": ["EVENG_IOL_LICENSE"]},
+            required_credentials=[],
+            outputs_publish=[],
+        )
+
+        with patch.dict("hyops.blueprint.planner.os.environ", {}, clear=True):
+            result = preflight_step(
+                step,
+                {"steps": [step]},
+                SimpleNamespace(env="student-lab", module_root="modules"),
+                SimpleNamespace(
+                    state_dir=Path("/tmp/state"),
+                    root=Path("/tmp/runtime"),
+                    credentials_dir=Path("/tmp/credentials"),
+                ),
+                assumed_state_ok={"platform/linux/eve-ng#student_config"},
+                deferred_driver_preflight_refs={
+                    "platform/linux/eve-ng#student_config"
+                },
+            )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn(
+            "missing required env vars: EVENG_IOL_LICENSE",
+            result["checks"][-1]["detail"],
+        )
+        driver_preflight.assert_not_called()
 
     @patch("hyops.blueprint.planner.module_state_ok", return_value=True)
     @patch("hyops.blueprint.planner.preflight_step")

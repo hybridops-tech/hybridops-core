@@ -358,29 +358,6 @@ def compute_preflight(
             )
             step_status_by_id[step_id] = "deferred"
             continue
-        pending_configuration = [
-            str(dep_id)
-            for dep_id in (raw_deps or [])
-            if step_status_by_id.get(str(dep_id)) == "ready"
-            and str((by_id.get(str(dep_id)) or {}).get("module_ref") or "").startswith("platform/linux/")
-            and not bool((by_id.get(str(dep_id)) or {}).get("skip_if_state_ok", False))
-        ]
-        if pending_configuration:
-            step_results.append(
-                {
-                    "id": step["id"],
-                    "module_ref": step["module_ref"],
-                    "module_state_ref": step_state_ref(step),
-                    "action": step["action"],
-                    "phase": step["phase"],
-                    "optional": bool(step.get("optional", False)),
-                    "checks": [{"name": "dependencies", "ok": True, "detail": "remote checks deferred until configuration runs: " + ", ".join(pending_configuration)}],
-                    "status": "ready",
-                }
-            )
-            step_status_by_id[step_id] = "ready"
-            assumed_state_ok.add(step_state_ref(step))
-            continue
         for dep_id in raw_deps or []:
             dep_step = by_id.get(str(dep_id))
             if not isinstance(dep_step, dict):
