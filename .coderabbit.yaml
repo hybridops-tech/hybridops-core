@@ -8,7 +8,12 @@ reviews:
   request_changes_workflow: false
   high_level_summary: true
   high_level_summary_in_walkthrough: true
-  changed_files_summary: true
+  changed_files_summary: false
+  collapse_walkthrough: true
+  estimate_code_review_effort: false
+  assess_linked_issues: true
+  related_issues: false
+  related_prs: false
   review_status: true
   review_details: false
   poem: false
@@ -17,29 +22,100 @@ reviews:
   sequence_diagrams: false
   slop_detection:
     enabled: false
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+    title:
+      mode: "off"
+    description:
+      mode: "off"
+    issue_assessment:
+      mode: "off"
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+  tools:
+    ruff:
+      enabled: false
+    shellcheck:
+      enabled: false
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+    yamllint:
+      enabled: false
+    tflint:
+      enabled: false
   path_filters:
-    - "!dist/**"
-    - "!hybridops_core.egg-info/**"
+    - "!**/dist/**"
+    - "!**/*.egg-info/**"
+    - "!**/__pycache__/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.ruff_cache/**"
+    - "!**/*.pyc"
     - "!**/*.sha256"
     - "!**/*.tar.gz"
     - "!**/*.zip"
     - "!**/*.pkg"
+    - "!**/*.whl"
+    - "!**/*.png"
+    - "!**/*.ico"
+    - "!**/*.icns"
   path_instructions:
-    - path: "hyops/**"
+    - path: "hyops/**/*.py"
       instructions: >-
-        Prioritise runtime correctness, safe failure behaviour, state integrity,
-        cross-platform compatibility, and tests for changed operator behaviour.
-    - path: "blueprints/**"
+        Review runtime correctness, fail-closed behaviour, state integrity,
+        secret redaction, CLI compatibility, and macOS, Linux, and Windows WSL
+        behaviour. Require focused tests for changed operator behaviour. Do not
+        request unrelated refactors or cosmetic docstrings.
+    - path: "blueprints/**/*.yml"
       instructions: >-
-        Check contract validity, dependency ordering, provider-neutral boundaries,
-        secret handling, lifecycle safety, and consistency with shipped modules.
+        Check contract validity, dependency ordering, preflight before mutation,
+        secret handling, lifecycle safety, and consistency with module specs and
+        shipped packs.
+    - path: "modules/**"
+      instructions: >-
+        Check schema compatibility, explicit requirements and outputs, safe
+        lifecycle semantics, and consistency between specs, examples, and packs.
+    - path: "packs/**"
+      instructions: >-
+        Check driver and pack selection, input propagation, idempotency, failure
+        reporting, destructive operations, and compatibility with the module
+        contract that selects the pack.
+    - path: "pkg/**"
+      instructions: >-
+        Check deterministic packaging, supported-platform behaviour, payload
+        integrity, version handling, and installation rollback safety.
+    - path: "tools/**"
+      instructions: >-
+        Check shell safety, portability, pinned dependencies, credential handling,
+        and whether validation scripts exercise the behaviour they claim to gate.
     - path: ".github/workflows/**"
       instructions: >-
         Check least-privilege permissions, immutable action references where
-        applicable, deterministic release behaviour, and fork safety.
+        applicable, deterministic release behaviour, artifact provenance, and
+        fork safety.
+    - path: "**/*.md"
+      instructions: >-
+        Review technical accuracy, command validity, stale paths or versions, and
+        contradictions with shipped behaviour. Do not suggest stylistic rewrites.
   auto_review:
-    enabled: true
-    auto_incremental_review: true
+    enabled: false
+    description_keyword: "coderabbit:review"
+    labels:
+      - "coderabbit-review"
+    auto_incremental_review: false
     drafts: false
     ignore_title_keywords:
       - "WIP"
