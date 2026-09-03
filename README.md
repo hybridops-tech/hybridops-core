@@ -50,14 +50,26 @@ See the full [reference scenario library](https://docs.hybridops.tech/reference-
 
 For installation, workstation setup, target initialisation, and first-run guidance, see the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/).
 
-You can inspect blueprints locally without cloud credentials or a live environment. These commands validate the manifest and display the execution plan:
+Confirm the CLI entry point and validate a shipped blueprint:
 
 ```bash
+hyops --version
 hyops blueprint validate --ref onprem/authoritative-foundation@v1
 hyops blueprint plan --ref onprem/authoritative-foundation@v1
 ```
 
 See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/) or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
+
+### Verify Installation
+Run a "smoke test" to ensure the CLI is correctly installed and the core logic is functional:
+
+```bash
+# Check version
+hyops --version
+
+# Validate a core blueprint (requires no credentials)
+hyops blueprint validate --ref onprem/authoritative-foundation@v1
+```
 
 ## Execution model
 
