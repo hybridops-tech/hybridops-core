@@ -8,7 +8,7 @@ locals {
   # Single source of truth for the Proxmox vm-multi Terraform module.
   # Use Terragrunt's //subdir syntax so sibling nested modules (for example ../vm)
   # are copied into the cache.
-  module_source_default = "git::https://github.com/hybridops-tech/hybridops-terraform-gitmods.git//proxmox/vm-multi?ref=v0.1.3"
+  module_source_default = "git::https://github.com/hybridops-tech/hybridops-terraform-gitmods.git//proxmox/vm-multi?ref=v0.1.6"
   module_source_override = trimspace(get_env("HYOPS_PROXMOX_MODULE_SOURCE", ""))
   module_source = local.module_source_override != "" ? local.module_source_override : local.module_source_default
 
@@ -19,6 +19,12 @@ locals {
 
   vm_name      = trimspace(try(tostring(local.inputs.vm_name), ""))
   vm_id        = try(tonumber(local.inputs.vm_id), null)
+  template_vm_id_in = try(tonumber(local.inputs.template_vm_id), null)
+  # `preserve_existing_vms` is the contract safety rail. Resource-level
+  # provenance preservation is opt-in separately because an ordinary managed
+  # VM may still legitimately retain its clone declaration.
+  preserve_existing_resources = try(local.inputs.preserve_existing_resources, false)
+  effective_template_vm_id = local.preserve_existing_resources ? null : local.template_vm_id_in
   vm_ipv4_cidr = trimspace(try(tostring(local.inputs.vm_ipv4_cidr), ""))
   vm_gateway   = trimspace(try(tostring(local.inputs.vm_gateway), ""))
   vm_mac       = trimspace(try(tostring(local.inputs.vm_mac), ""))
@@ -75,14 +81,26 @@ locals {
         : []
       )
   )
-  vyos_users_keys_block = length(local.ssh_keys) > 0 ? trimspace(yamlencode({
+  # A preservation run must not rewrite the historical cloud-init snippet.
+  # The existing initialization user account is still carried through by
+  # `ssh_keys`; only the raw snippet is held stable for the resize.
+  vyos_users_keys_block = (
+    !try(local.inputs.preserve_existing_vms, false)
+    && length(local.ssh_keys) > 0
+  ) ? trimspace(yamlencode({
     users = [{
       name                = local.ssh_username_effective
       ssh_authorized_keys = local.ssh_keys
     }]
   })) : ""
 
-  cloud_init_user_data_in = trimspace(try(tostring(local.inputs.cloud_init_user_data), ""))
+  # Preserve the exact caller-supplied snippet during an explicit recovery;
+  # ordinary runs retain the historical trim/normalise behaviour.
+  cloud_init_user_data_in = (
+    try(local.inputs.preserve_existing_vms, false)
+    ? try(tostring(local.inputs.cloud_init_user_data), "")
+    : trimspace(try(tostring(local.inputs.cloud_init_user_data), ""))
+  )
   cloud_init_network_data_in = trimspace(try(tostring(local.inputs.cloud_init_network_data), ""))
   cloud_init_meta_data_in = trimspace(try(tostring(local.inputs.cloud_init_meta_data), ""))
   cloud_init_user_data_base = local.cloud_init_user_data_in != "" ? local.cloud_init_user_data_in : <<-EOF
@@ -109,6 +127,11 @@ EOF
     for raw_name, raw_cfg in local.vms_in :
     trimspace(raw_name) => {
       role = trimspace(try(tostring(raw_cfg.role), "")) != "" ? trimspace(tostring(raw_cfg.role)) : "platform-vm"
+      template_vm_id = (
+        local.preserve_existing_resources
+        ? null
+        : try(raw_cfg.template_vm_id, local.effective_template_vm_id)
+      )
       vm_id = try(raw_cfg.vm_id, null)
       vm_name = (
         trimspace(try(tostring(raw_cfg.vm_name), "")) != ""
@@ -177,6 +200,7 @@ EOF
   vms_single = {
     (local.vm_name) = {
       role  = trimspace(try(tostring(local.inputs.vm_role), "")) != "" ? trimspace(tostring(local.inputs.vm_role)) : "platform-vm"
+      template_vm_id = local.effective_template_vm_id
       vm_name = local.vm_name_physical
       vm_id = local.vm_id
       interfaces = local.interfaces
@@ -203,7 +227,11 @@ terraform {
   ssh_username          = local.ssh_username_effective
   ssh_keys              = local.ssh_keys
 
-  template_vm_id       = try(tonumber(local.inputs.template_vm_id), null)
+  # During an explicit update-only recovery, the existing VM has already
+  # been imported and its original clone provenance must remain provider
+  # state, not be re-declared as a new clone operation.  Omitting the clone
+  # block makes CPU/RAM changes in-place while preserving the live VM.
+  template_vm_id       = local.effective_template_vm_id
   cpu_cores            = try(tonumber(local.inputs.cpu_cores), 2)
   cpu_type             = try(local.inputs.cpu_type, "host")
   memory_mb            = try(tonumber(local.inputs.memory_mb), 4096)
@@ -211,6 +239,7 @@ terraform {
   guest_agent_enabled  = try(local.inputs.guest_agent_enabled, true)
   os_type              = try(local.inputs.os_type, "l26")
   on_boot              = try(local.inputs.on_boot, true)
+  started              = try(local.inputs.started, true)
   nameservers          = local.dns_servers
   tags                 = local.tags
   cloud_init_user_data = local.cloud_init_user_data
@@ -218,4 +247,5 @@ terraform {
   cloud_init_meta_data = local.cloud_init_meta_data
   interfaces           = local.interfaces
   vms                  = local.vms
+  preserve_existing    = local.preserve_existing_resources
 }

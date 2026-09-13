@@ -71,6 +71,14 @@ def _validate_allow_vm_set_replace(data: dict[str, Any]) -> None:
         raise ValueError("inputs.allow_vm_set_replace must be a boolean when set")
 
 
+def _validate_preserve_existing_vms(data: dict[str, Any]) -> None:
+    raw = data.get("preserve_existing_vms")
+    if raw is None:
+        return
+    if not isinstance(raw, bool):
+        raise ValueError("inputs.preserve_existing_vms must be a boolean when set")
+
+
 def _validate_interfaces(value: Any, field: str) -> None:
     if not isinstance(value, list) or not value:
         raise ValueError(f"{field} must be a non-empty list")
@@ -127,6 +135,7 @@ def validate_single_vm_inputs(inputs: dict[str, Any]) -> None:
     data = _require_mapping(inputs, "inputs")
     _validate_require_ipam(data)
     _validate_allow_vm_set_replace(data)
+    _validate_preserve_existing_vms(data)
 
     _require_vm_name(data.get("vm_name"), "inputs.vm_name")
     vm_id = data.get("vm_id")
@@ -200,6 +209,7 @@ def validate_vm_pool_inputs(inputs: dict[str, Any]) -> None:
     data = _require_mapping(inputs, "inputs")
     _validate_require_ipam(data)
     _validate_allow_vm_set_replace(data)
+    _validate_preserve_existing_vms(data)
 
     template_state_ref = str(data.get("template_state_ref") or "").strip()
     template_vm_id = data.get("template_vm_id")

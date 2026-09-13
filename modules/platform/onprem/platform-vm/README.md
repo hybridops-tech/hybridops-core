@@ -73,6 +73,15 @@ VM-set collision guard:
 - If they differ, run fails fast to prevent accidental destructive replacement.
 - Only set `allow_vm_set_replace: true` when replacement is explicitly intended.
 
+Retired clone-source recovery:
+- `preserve_existing_vms: true` is an explicit update-only mode for a VM set that is already managed in the current state but whose historical clone template has been retired.
+- HybridOps only permits this when the requested VM names exactly match the current state. It does not suppress Terraform changes: review the plan and require in-place updates before applying.
+- Use this for safe CPU/memory convergence while arranging a later state migration to a current template; it is not a creation or replacement bypass.
+- `preserve_existing_resources: true` is only for an imported legacy resource whose provider-side cloud-init provenance must remain unchanged during that update-only run.
+
+VM power state:
+- `started` defaults to `true`. Set it explicitly to `false` and back to `true` through separate, targeted runs when a guest restart is required after a hardware change.
+
 Post-apply SSH readiness:
 - `platform-vm` apply runs a built-in SSH readiness probe against provisioned Linux VMs after Terragrunt apply completes.
 - Default behavior is `required: true` (provisioning fails fast if SSH never comes up).

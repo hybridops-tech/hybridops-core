@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 from pathlib import Path
@@ -119,10 +120,22 @@ def resolve_terragrunt_config(profile: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(terragrunt_cfg, dict):
         terragrunt_cfg = {}
 
+    apply_args = as_argv(
+        terragrunt_cfg.get("apply_args"),
+        ["apply", "-auto-approve", "-input=false", "-no-color"],
+    )
+    # Keep the profile defaults unchanged while allowing an operator to add
+    # command-scoped Terraform/Terragrunt flags for a carefully bounded run
+    # (for example, -refresh=false after an interrupted provider refresh).
+    # This is deliberately opt-in and applies only to `apply`.
+    extra_apply_args = str(os.environ.get("HYOPS_TERRAGRUNT_APPLY_ARGS") or "").strip()
+    if extra_apply_args:
+        apply_args.extend(shlex.split(extra_apply_args))
+
     return {
         "tg_bin": str(terragrunt_cfg.get("bin") or "terragrunt").strip() or "terragrunt",
         "init_args": as_argv(terragrunt_cfg.get("init_args"), ["init", "-no-color"]),
-        "apply_args": as_argv(terragrunt_cfg.get("apply_args"), ["apply", "-auto-approve", "-no-color"]),
+        "apply_args": apply_args,
         "destroy_args": as_argv(terragrunt_cfg.get("destroy_args"), ["destroy", "-auto-approve", "-no-color"]),
         "import_args": as_argv(terragrunt_cfg.get("import_args"), ["import", "-no-color"]),
         "force_unlock_args": as_argv(terragrunt_cfg.get("force_unlock_args"), ["force-unlock"]),

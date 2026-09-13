@@ -892,7 +892,11 @@ def _extract_vm_names_from_outputs(outputs: dict[str, Any]) -> set[str]:
 def _extract_vm_names_from_state_payload(payload: Any) -> set[str]:
     if not isinstance(payload, dict):
         return set()
-    if str(payload.get("status") or "").strip().lower() != "ok":
+    # A failed apply can still contain the last successful outputs. Retain
+    # those ownership claims for collision checks and explicit recovery runs;
+    # destroyed/detached slots normally have no outputs and remain ignored.
+    status = str(payload.get("status") or "").strip().lower()
+    if status not in {"ok", "error", "running"}:
         return set()
     outputs = payload.get("outputs")
     if not isinstance(outputs, dict):
@@ -1179,6 +1183,8 @@ class ProxmoxVmContract(TerragruntModuleContract):
         # source template has since been retired.
         requested_vm_names = _collect_requested_vm_names(out)
         confirmed_deletion_only_vm_set = False
+        preserve_existing_vms = as_bool(out.get("preserve_existing_vms"), default=False)
+        existing_vm_set_is_stable = False
         if requested_vm_names:
             raw_state_instance = str(runtime.get("state_instance") or "").strip().lower()
             current_slot = f"instance:{raw_state_instance}" if raw_state_instance else "latest"
@@ -1190,6 +1196,9 @@ class ProxmoxVmContract(TerragruntModuleContract):
                 return out, warnings, existing_err
 
             existing_vm_names = existing_by_slot.get(current_slot, set())
+            existing_vm_set_is_stable = bool(
+                existing_vm_names and existing_vm_names == requested_vm_names
+            )
             if existing_vm_names and existing_vm_names != requested_vm_names:
                 allow_replace = as_bool(out.get("allow_vm_set_replace"), default=False)
                 diff = _format_vm_set_diff(existing_vm_names, requested_vm_names)
@@ -1275,7 +1284,16 @@ class ProxmoxVmContract(TerragruntModuleContract):
             warnings.append("template_key ignored because template_state_ref is not set")
 
         resolved_template_vm_id = as_positive_int(out.get("template_vm_id"))
-        if resolved_template_vm_id is not None:
+        # An imported legacy resource can explicitly preserve its provider-side
+        # provenance. In that mode the Terraform stack omits the clone source,
+        # so a retired template must not block an update-only plan. Keep the
+        # normal probe for every other run, including preserve_existing_vms
+        # runs that still manage ordinary (non-imported) resources.
+        skip_template_probe = bool(
+            as_bool(out.get("preserve_existing_resources"), default=False)
+            and preserve_existing_vms
+        )
+        if resolved_template_vm_id is not None and not skip_template_probe:
             meta_dir = (
                 Path(str(runtime.get("meta_dir") or "")).expanduser().resolve()
                 if str(runtime.get("meta_dir") or "").strip()
@@ -1312,6 +1330,12 @@ class ProxmoxVmContract(TerragruntModuleContract):
                             f"template_vm_id={resolved_template_vm_id} is unavailable; allowing confirmed "
                             "deletion-only VM-set shrink because allow_vm_set_replace=true"
                         )
+                    elif preserve_existing_vms and existing_vm_set_is_stable:
+                        warnings.append(
+                            f"template_vm_id={resolved_template_vm_id} is unavailable; preserving the "
+                            "existing managed VM set for an explicit update-only run. Terraform must "
+                            "still show in-place changes before apply."
+                        )
                     else:
                         if template_state_ref:
                             source_hint = (
@@ -1337,6 +1361,11 @@ class ProxmoxVmContract(TerragruntModuleContract):
                 warnings.append(
                     "template vm probe skipped: proxmox API or SSH runtime credentials are not available"
                 )
+        elif skip_template_probe:
+            warnings.append(
+                "template vm probe skipped: preserving the stable managed VM set and its existing "
+                "provider-side resource provenance for an explicit update-only run"
+            )
 
         # Fail fast when a VM consumer targets HybridOps SDN bridges (vnet*) but the shared SDN
         # authority is missing/not ready. This applies to both IPAM and static-addressed runs.

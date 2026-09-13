@@ -16,6 +16,7 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
         existing: set[str],
         requested: set[str],
         allow_replace: bool,
+        preserve_existing_vms: bool = False,
     ) -> tuple[dict, list[str], str]:
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp) / "state"
@@ -40,6 +41,7 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
             inputs = {
                 "template_vm_id": 107,
                 "allow_vm_set_replace": allow_replace,
+                "preserve_existing_vms": preserve_existing_vms,
                 "vms": {name: {} for name in sorted(requested)},
             }
             credentials = {
@@ -93,6 +95,27 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
         )
 
         self.assertIn("allow_vm_set_replace=true", error)
+
+    def test_missing_template_is_allowed_for_explicit_stable_vm_update(self) -> None:
+        _, warnings, error = self._run_contract(
+            existing={"netbox-01", "pgcore-01"},
+            requested={"netbox-01", "pgcore-01"},
+            allow_replace=False,
+            preserve_existing_vms=True,
+        )
+
+        self.assertEqual(error, "")
+        self.assertTrue(any("update-only run" in warning for warning in warnings))
+
+    def test_stable_update_flag_does_not_allow_new_vm_names(self) -> None:
+        _, _, error = self._run_contract(
+            existing={"netbox-01", "pgcore-01"},
+            requested={"netbox-01", "replacement-01"},
+            allow_replace=False,
+            preserve_existing_vms=True,
+        )
+
+        self.assertIn("vm set collision detected", error)
 
 
 if __name__ == "__main__":

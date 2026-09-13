@@ -25,6 +25,7 @@ inputs:
     cpu_type: "host"
     os_type: "l26"
     on_boot: true
+    started: true
     dns_domain: "hybzone.local"
     dns_servers: ["8.8.8.8"]
     tags: ["platform", "onprem", "custom-vm"]
@@ -33,6 +34,13 @@ inputs:
     require_ipam: true
     # Safety rail: keep false by default to prevent accidental VM-set replacement.
     allow_vm_set_replace: false
+    # Explicit update-only recovery for an already-managed VM set whose historical
+    # clone source was retired. Requires the requested VM set to match state exactly;
+    # the Terraform plan must still show in-place changes before apply.
+    preserve_existing_vms: false
+    # Optional resource-level preservation for imported legacy VMs. This is
+    # separate from the managed VM-set safety rail above.
+    preserve_existing_resources: false
     # Post-apply SSH readiness gate (best-effort/provisioning boundary check).
     # Fails platform-vm apply if Linux VMs never become reachable, before downstream modules run.
     post_apply_ssh_readiness:
