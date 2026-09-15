@@ -47,11 +47,17 @@ class ContainerlabModuleContractTest(TestCase):
         self.assertEqual(defaults["containerlab_lab_topology_relpath"], "lab.clab.yml")
         self.assertEqual(defaults["containerlab_lab_required_images"], [])
         self.assertFalse(defaults["containerlab_lab_pull_missing_images"])
+        self.assertEqual(defaults["containerlab_lab_local_image_archives"], [])
+        self.assertEqual(
+            defaults["containerlab_lab_image_cache_dir"],
+            "/var/cache/hybridops/containerlab/images",
+        )
         self.assertFalse(defaults["containerlab_lab_restore_latest"])
         self.assertEqual(
             defaults["containerlab_lab_recovery_role_fqcn"],
             "hybridops.app.containerlab_recovery",
         )
+        self.assertIn("containerlab_lab_local_images", spec["outputs"]["publish"])
 
     def test_recovery_publishes_destroy_gate(self) -> None:
         spec = self._spec("containerlab-recovery")
@@ -155,4 +161,4 @@ class ContainerlabModuleContractTest(TestCase):
         path = self.root / "tools" / "setup" / "requirements" / "ansible.hybridops.git.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         app = next(item for item in payload["collections"] if item["name"] == "hybridops.app")
-        self.assertEqual(app["ref"], "8d7873dedba896d3b49055b32f915b72be02856a")
+        self.assertEqual(app["ref"], "3a1f90be7d07e8d1b416ffc579c8f93958d3bfcb")

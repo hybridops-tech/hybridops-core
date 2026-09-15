@@ -49,6 +49,8 @@ inputs:
     containerlab_lab_cleanup: false
     containerlab_lab_required_images: []
     containerlab_lab_pull_missing_images: false
+    containerlab_lab_local_image_archives: []
+    containerlab_lab_image_cache_dir: "/var/cache/hybridops/containerlab/images"
     containerlab_lab_restore_latest: false
     containerlab_lab_restore_latest_path: ""
     containerlab_lab_restore_require_source_match: true
@@ -69,6 +71,7 @@ outputs:
     - containerlab_lab_labdir_base
     - containerlab_lab_restore_all_dir
     - containerlab_lab_restored_from_latest
+    - containerlab_lab_local_images
 
 probes: []
 constraints: []
