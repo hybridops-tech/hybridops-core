@@ -54,7 +54,7 @@ inputs:
     containerlab_lab_local_image_builds: []
     containerlab_lab_image_build_root: "/var/cache/hybridops/containerlab/builds"
     containerlab_lab_vrnetlab_repository: "https://github.com/srl-labs/vrnetlab.git"
-    containerlab_lab_vrnetlab_revision: "9e68d58e4dd6b3b5666523007037b69a678bca39"
+    containerlab_lab_vrnetlab_revision: "3a34fa63d73843c871f248e2df2ffa5c038183ce"
     containerlab_lab_restore_latest: false
     containerlab_lab_restore_latest_path: ""
     containerlab_lab_restore_require_source_match: true

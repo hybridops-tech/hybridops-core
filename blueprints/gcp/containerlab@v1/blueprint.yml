@@ -170,13 +170,14 @@ steps:
       #     image: "vrnetlab/cisco_iol:<version>"
       #     sha256: "<64 lowercase hex characters>"
       containerlab_lab_local_image_archives: []
-      # Build an authorised 64-bit Cisco IOL-XE binary on the managed host.
+      # Build an authorised 64-bit Cisco IOL-XE source on the managed host.
       # The topology image must use the derived vrnetlab/cisco_iol tag.
       # containerlab_lab_local_image_builds:
       #   - kind: "cisco_iol"
       #     source: "/absolute/controller/path/cisco-iol.bin"
       #     version: "17.12.01"
       #     type: "l3"
+      #     format: "binary"
       #     authorised_use: true
       #     sha256: "<64 lowercase hex characters>"
       containerlab_lab_local_image_builds: []

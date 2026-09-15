@@ -57,6 +57,7 @@ def _validate_local_image_builds(value: Any, archive_refs: set[str]) -> None:
         source = require_non_empty_str(item.get("source"), f"{label}.source")
         version = require_non_empty_str(item.get("version"), f"{label}.version")
         image_type = item.get("type", "l3")
+        source_format = item.get("format", "binary")
 
         if kind != "cisco_iol":
             raise ValueError(f"{label}.kind must be cisco_iol")
@@ -66,6 +67,14 @@ def _validate_local_image_builds(value: Any, archive_refs: set[str]) -> None:
             raise ValueError(f"{label}.version is not a valid image version")
         if image_type not in {"l3", "l2"}:
             raise ValueError(f"{label}.type must be l3 or l2")
+        if source_format not in {"binary", "oci_archive"}:
+            raise ValueError(f"{label}.format must be binary or oci_archive")
+        if source_format == "oci_archive" and not re.fullmatch(
+            r"[0-9]+(?:\.[0-9]+)+", version
+        ):
+            raise ValueError(
+                f"{label}.version must be dotted numeric for an OCI archive"
+            )
 
         authorised_use = require_bool(
             item.get("authorised_use"),
