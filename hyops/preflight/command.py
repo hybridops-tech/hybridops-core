@@ -22,7 +22,7 @@ from hyops.runtime.root import require_runtime_selection
 from hyops.runtime.source_roots import resolve_input_path, resolve_module_root
 from hyops.runtime.storage import check_runtime_writable
 from hyops.runtime.vault import VaultAuth, has_password_source, read_env
-from hyops.drivers.registry import REGISTRY
+from hyops.drivers.registry import REGISTRY, DriverUnavailableError
 from hyops.preflight.checks import CheckResult, which, file_exists
 
 
@@ -221,6 +221,7 @@ def run(ns) -> int:
     deps_failed = ns.strict and any(r.name.startswith("cmd:") and not r.ok for r in results)
 
     module_preflight_payload: dict[str, Any] | None = None
+    module_dependency_failed = False
     if ns.module:
         module_ref_raw = str(ns.module or "").strip()
         module_ref_for_result = normalize_module_ref(module_ref_raw) or module_ref_raw
@@ -272,6 +273,7 @@ def run(ns) -> int:
                 results.append(CheckResult(name=f"module:{module_ref}", ok=passed, detail=detail if not passed else "ok"))
                 module_preflight_payload = module_preflight
             except Exception as e:
+                module_dependency_failed = isinstance(e, DriverUnavailableError)
                 results.append(CheckResult(name=f"module:{ns.module}", ok=False, detail=f"error:{e}"))
                 module_preflight_payload = {
                     "module_ref": str(ns.module or ""),
@@ -304,6 +306,8 @@ def run(ns) -> int:
             code = CONFIG_INVALID
         elif any(r.name == "vault:decrypt" and not r.ok for r in results):
             code = SECRETS_FAILED
+        elif module_dependency_failed:
+            code = DEPENDENCY_MISSING
         elif any(r.name.startswith("module:") and not r.ok for r in results):
             code = CONFIG_INVALID
         elif ns.strict and any(r.name.startswith("cmd:") and not r.ok for r in results):
