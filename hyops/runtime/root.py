@@ -29,11 +29,15 @@ def resolve_runtime_root(ns_root: str | None = None, ns_env: str | None = None) 
     if ns_root:
         return Path(ns_root).expanduser().resolve()
 
+    if ns_env:
+        env_name = _validate_env_name(ns_env)
+        return (Path.home() / ".hybridops" / "envs" / env_name).resolve()
+
     runtime_env = os.environ.get("HYOPS_RUNTIME_ROOT", "").strip()
     if runtime_env:
         return Path(runtime_env).expanduser().resolve()
 
-    env_name = (ns_env or os.environ.get("HYOPS_ENV", "")).strip()
+    env_name = os.environ.get("HYOPS_ENV", "").strip()
     if env_name:
         env_name = _validate_env_name(env_name)
         return (Path.home() / ".hybridops" / "envs" / env_name).resolve()
