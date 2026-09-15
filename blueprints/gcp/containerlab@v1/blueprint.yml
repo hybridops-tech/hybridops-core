@@ -122,6 +122,7 @@ steps:
       become_user: "root"
       containerlab_version: "0.78.0"
       containerlab_install_docker: true
+      containerlab_post_install_connectivity_wait_s: 90
       containerlab_operator_user: "opsadmin"
       # Empty means HybridOps verifies against the official pinned-release
       # checksums.txt manifest and records the actual downloaded SHA-256.
@@ -163,6 +164,23 @@ steps:
       # required references here for an explicit availability check.
       containerlab_lab_required_images: []
       containerlab_lab_pull_missing_images: false
+      # Load an authorised container image archive when its image is absent.
+      # containerlab_lab_local_image_archives:
+      #   - path: "/absolute/controller/path/cisco-iol.tar"
+      #     image: "vrnetlab/cisco_iol:<version>"
+      #     sha256: "<64 lowercase hex characters>"
+      containerlab_lab_local_image_archives: []
+      # Build an authorised 64-bit Cisco IOL-XE source on the managed host.
+      # The topology image must use the derived vrnetlab/cisco_iol tag.
+      # containerlab_lab_local_image_builds:
+      #   - kind: "cisco_iol"
+      #     source: "/absolute/controller/path/cisco-iol.bin"
+      #     version: "17.12.01"
+      #     type: "l3"
+      #     format: "binary"
+      #     authorised_use: true
+      #     sha256: "<64 lowercase hex characters>"
+      containerlab_lab_local_image_builds: []
       containerlab_lab_restore_latest: true
       containerlab_lab_restore_require_source_match: true
 

@@ -260,5 +260,7 @@
             'containerlab_lab_source_staged': containerlab_lab_result.source_staged | default(false),
             'containerlab_lab_labdir_base': containerlab_lab_result.labdir_base,
             'containerlab_lab_restore_all_dir': containerlab_lab_result.restore_all_dir | default(''),
-            'containerlab_lab_restored_from_latest': (_hyops_restore_available | bool)
+            'containerlab_lab_restored_from_latest': (_hyops_restore_available | bool),
+            'containerlab_lab_local_images': containerlab_lab_result.local_images | default([]),
+            'containerlab_lab_built_images': containerlab_lab_result.local_image_builds | default([])
           } | to_json }}
