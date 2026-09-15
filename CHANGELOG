@@ -6,6 +6,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added runtime-secret resolution for additional EVE-NG user passwords while
+  retaining the existing plaintext input for compatibility.
 - Added a provider-neutral operation authority contract with typed logical
   requirements, centralized provider resolution, secret-safe receipts, and
   independently selectable NetBox and Nautobot `inventory_ipam` bindings.
@@ -14,6 +16,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Changed
 
+- Pinned `hybridops.app` to `0.1.11` for secret-safe additional EVE-NG user
+  handling.
 - Made the authoritative-foundation blueprint use the logical
   `primary_ipam` authority while retaining the existing NetBox-specific syntax
   as an explicit compatibility form.

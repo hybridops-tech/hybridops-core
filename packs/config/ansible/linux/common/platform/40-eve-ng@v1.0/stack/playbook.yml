@@ -30,6 +30,31 @@
     _hyops_input_eveng_admin_password: "{{ lookup('env', eveng_admin_password_env | default('EVENG_ADMIN_PASSWORD')) }}"
 
   tasks:
+    - name: Initialize resolved EVE-NG users
+      ansible.builtin.set_fact:
+        _hyops_resolved_eveng_users: []
+      changed_when: false
+      no_log: true
+
+    - name: Resolve EVE-NG user passwords
+      ansible.builtin.set_fact:
+        _hyops_resolved_eveng_users: >-
+          {{
+            _hyops_resolved_eveng_users
+            + [
+              item | combine({
+                'password': (
+                  item.password
+                  if item.password is defined
+                  else lookup('env', item.password_env)
+                )
+              })
+            ]
+          }}
+      loop: "{{ _hyops_input_eveng_users }}"
+      changed_when: false
+      no_log: true
+
     - name: Install and configure EVE-NG
       ansible.builtin.include_role:
         name: "{{ eveng_role_fqcn }}"
@@ -37,7 +62,7 @@
         eveng_resource_profile: "{{ _hyops_input_eveng_resource_profile }}"
         eveng_environment_name: "{{ _hyops_input_eveng_environment_name }}"
         eveng_domain: "{{ _hyops_input_eveng_domain }}"
-        eveng_users: "{{ _hyops_input_eveng_users }}"
+        eveng_users: "{{ _hyops_resolved_eveng_users }}"
         eveng_force_reinstall: "{{ _hyops_input_eveng_force_reinstall }}"
         eveng_guest_nat_enabled: "{{ _hyops_input_eveng_guest_nat_enabled }}"
         eveng_guest_nat_bridge: "{{ _hyops_input_eveng_guest_nat_bridge }}"

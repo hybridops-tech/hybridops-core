@@ -155,4 +155,4 @@ class ContainerlabModuleContractTest(TestCase):
         path = self.root / "tools" / "setup" / "requirements" / "ansible.hybridops.git.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         app = next(item for item in payload["collections"] if item["name"] == "hybridops.app")
-        self.assertEqual(app["ref"], "1ca8d662f574ffa69c0d24043af058cbe5833f27")
+        self.assertEqual(app["ref"], "8d7873dedba896d3b49055b32f915b72be02856a")

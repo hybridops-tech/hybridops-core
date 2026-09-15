@@ -158,6 +158,18 @@ steps:
       ssh_private_key_file: "~/.ssh/id_ed25519"
       ssh_access_mode: "gcp-iap"
       connectivity_wait_s: 90
+      # Add each user password key to required_env and store its value with
+      # `hyops secrets set`. Plaintext password remains supported for compatibility.
+      # required_env:
+      #   - "EVENG_ROOT_PASSWORD"
+      #   - "EVENG_ADMIN_PASSWORD"
+      #   - "EVENG_STUDENT_PASSWORD"
+      # eveng_users:
+      #   - username: "student"
+      #     name: "Student User"
+      #     email: "student@example.com"
+      #     password_env: "EVENG_STUDENT_PASSWORD"
+      #     role: "user"
       eveng_resource_profile: "standard"
       eveng_guest_nat_enabled: true
       eveng_management_access_enabled: true

@@ -22,8 +22,15 @@ from hyops.validators.platform.linux._eve_ng_common import (
     validate_target_access,
 )
 
+_ENV_KEY_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
-def _validate_users(value: Any) -> None:
+
+def _validate_users(
+    value: Any,
+    *,
+    required_env: list[str],
+    is_destroy: bool,
+) -> None:
     if value is None:
         return
     if not isinstance(value, list):
@@ -34,7 +41,32 @@ def _validate_users(value: Any) -> None:
         require_non_empty_str(raw_user.get("username"), f"inputs.eveng_users[{idx}].username")
         require_non_empty_str(raw_user.get("name"), f"inputs.eveng_users[{idx}].name")
         require_non_empty_str(raw_user.get("email"), f"inputs.eveng_users[{idx}].email")
-        require_non_empty_str(raw_user.get("password"), f"inputs.eveng_users[{idx}].password")
+        password = raw_user.get("password")
+        password_env = raw_user.get("password_env")
+        if password is not None:
+            require_non_empty_str(password, f"inputs.eveng_users[{idx}].password")
+        if password_env is not None:
+            password_env = require_non_empty_str(
+                password_env,
+                f"inputs.eveng_users[{idx}].password_env",
+            )
+            if not _ENV_KEY_PATTERN.fullmatch(password_env):
+                raise ValueError(
+                    f"inputs.eveng_users[{idx}].password_env must be an environment variable name"
+                )
+        if (password is None) == (password_env is None):
+            raise ValueError(
+                f"inputs.eveng_users[{idx}] must set exactly one of password or password_env"
+            )
+        if (
+            not is_destroy
+            and password_env is not None
+            and password_env not in required_env
+        ):
+            raise ValueError(
+                "inputs.required_env must include "
+                f"inputs.eveng_users[{idx}].password_env ({password_env})"
+            )
         role = require_non_empty_str(raw_user.get("role"), f"inputs.eveng_users[{idx}].role").lower()
         if role not in {"user", "admin"}:
             raise ValueError(f"inputs.eveng_users[{idx}].role must be one of: user, admin")
@@ -63,6 +95,11 @@ def validate(inputs: dict[str, Any]) -> None:
             env_keys=[eveng_root_password_env, eveng_admin_password_env],
             module_ref="platform/linux/eve-ng",
         )
+    _validate_users(
+        data.get("eveng_users"),
+        required_env=required_env,
+        is_destroy=is_destroy,
+    )
 
     context = validate_target_access(
         data,
@@ -138,4 +175,3 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ValueError(
                 "inputs EVE-NG guest NAT gateway must not be a DHCP range endpoint"
             )
-    _validate_users(data.get("eveng_users"))

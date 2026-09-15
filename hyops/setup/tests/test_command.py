@@ -317,6 +317,7 @@ class SetupCommandTests(unittest.TestCase):
 
     def test_targeted_collection_install_has_no_yaml_runtime_dependency(self) -> None:
         installer = REPO_ROOT / "tools" / "setup" / "setup-ansible.sh"
+        expected_versions = {"helper": "0.1.10", "app": "0.1.11"}
         for collection in ("helper", "app"):
             with self.subTest(collection=collection), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -360,7 +361,9 @@ class SetupCommandTests(unittest.TestCase):
                 )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(f"hybridops.{collection}:0.1.10", invocation)
+            self.assertIn(
+                f"hybridops.{collection}:{expected_versions[collection]}", invocation
+            )
 
     def test_forced_targeted_collection_install_clears_response_cache(self) -> None:
         installer = REPO_ROOT / "tools" / "setup" / "setup-ansible.sh"
