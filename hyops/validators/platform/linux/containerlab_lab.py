@@ -17,9 +17,10 @@ from hyops.validators.platform.linux._eve_ng_common import validate_target_acces
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_IMAGE_BUILD_VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z._-]{0,63}$")
 
 
-def _validate_local_image_archives(value: Any) -> None:
+def _validate_local_image_archives(value: Any) -> set[str]:
     if not isinstance(value, list):
         raise ValueError("inputs.containerlab_lab_local_image_archives must be a list")
 
@@ -40,6 +41,51 @@ def _validate_local_image_archives(value: Any) -> None:
 
         if image in image_refs:
             raise ValueError(f"{label}.image duplicates an earlier expected image")
+        image_refs.add(image)
+    return image_refs
+
+
+def _validate_local_image_builds(value: Any, archive_refs: set[str]) -> None:
+    if not isinstance(value, list):
+        raise ValueError("inputs.containerlab_lab_local_image_builds must be a list")
+
+    image_refs: set[str] = set()
+    for index, raw in enumerate(value, start=1):
+        label = f"inputs.containerlab_lab_local_image_builds[{index}]"
+        item = require_mapping(raw, label)
+        kind = require_non_empty_str(item.get("kind"), f"{label}.kind")
+        source = require_non_empty_str(item.get("source"), f"{label}.source")
+        version = require_non_empty_str(item.get("version"), f"{label}.version")
+        image_type = item.get("type", "l3")
+
+        if kind != "cisco_iol":
+            raise ValueError(f"{label}.kind must be cisco_iol")
+        if not source.startswith("/"):
+            raise ValueError(f"{label}.source must be an absolute controller path")
+        if not _IMAGE_BUILD_VERSION_RE.fullmatch(version):
+            raise ValueError(f"{label}.version is not a valid image version")
+        if image_type not in {"l3", "l2"}:
+            raise ValueError(f"{label}.type must be l3 or l2")
+
+        authorised_use = require_bool(
+            item.get("authorised_use"),
+            f"{label}.authorised_use",
+        )
+        if not authorised_use:
+            raise ValueError(f"{label}.authorised_use must be true")
+
+        digest = item.get("sha256")
+        if digest is not None:
+            digest = require_non_empty_str(digest, f"{label}.sha256")
+            if not _SHA256_RE.fullmatch(digest):
+                raise ValueError(f"{label}.sha256 must contain 64 lowercase hex characters")
+
+        tag = f"L2-{version}" if image_type == "l2" else version
+        image = f"vrnetlab/cisco_iol:{tag}"
+        if image in image_refs:
+            raise ValueError(f"{label} duplicates an earlier expected image")
+        if image in archive_refs:
+            raise ValueError(f"{label} duplicates a local image archive")
         image_refs.add(image)
 
 
@@ -67,4 +113,28 @@ def validate(inputs: dict[str, Any]) -> None:
         data.get("containerlab_lab_pull_missing_images"),
         "inputs.containerlab_lab_pull_missing_images",
     )
-    _validate_local_image_archives(data.get("containerlab_lab_local_image_archives"))
+    archive_refs = _validate_local_image_archives(
+        data.get("containerlab_lab_local_image_archives")
+    )
+    _validate_local_image_builds(
+        data.get("containerlab_lab_local_image_builds"),
+        archive_refs,
+    )
+    image_build_root = require_non_empty_str(
+        data.get("containerlab_lab_image_build_root"),
+        "inputs.containerlab_lab_image_build_root",
+    )
+    if not image_build_root.startswith("/"):
+        raise ValueError("inputs.containerlab_lab_image_build_root must be an absolute path")
+    require_non_empty_str(
+        data.get("containerlab_lab_vrnetlab_repository"),
+        "inputs.containerlab_lab_vrnetlab_repository",
+    )
+    revision = require_non_empty_str(
+        data.get("containerlab_lab_vrnetlab_revision"),
+        "inputs.containerlab_lab_vrnetlab_revision",
+    )
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError(
+            "inputs.containerlab_lab_vrnetlab_revision must be a full lowercase commit SHA"
+        )

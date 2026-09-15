@@ -41,6 +41,7 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertEqual(lab["containerlab_lab_required_images"], [])
         self.assertFalse(lab["containerlab_lab_pull_missing_images"])
         self.assertEqual(lab["containerlab_lab_local_image_archives"], [])
+        self.assertEqual(lab["containerlab_lab_local_image_builds"], [])
         self.assertTrue(lab["containerlab_lab_restore_latest"])
 
     def test_source_tree_is_separate_from_native_generated_labdir(self) -> None:
