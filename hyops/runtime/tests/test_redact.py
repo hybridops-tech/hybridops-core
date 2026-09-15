@@ -83,9 +83,9 @@ class TestRedactSecretShapes(unittest.TestCase):
         self._assert_redacted(raw, "SuperSecretP@ss1")
 
     def test_passphrase_colon(self):
-        raw = "passphrase: correct horse battery staple123"
-        # value is non-whitespace run only; redact stops at first space
-        self._assert_redacted(raw, "correct")
+        raw = "passphrase: correct-horse-battery-staple123"
+        out = self._assert_redacted(raw, "correct-horse-battery-staple123")
+        self.assertEqual(out, "passphrase: ***REDACTED***")
 
     def test_secret_equals(self):
         raw = "secret=abcdef1234567890"
