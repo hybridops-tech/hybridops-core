@@ -122,6 +122,7 @@ steps:
       become_user: "root"
       containerlab_version: "0.78.0"
       containerlab_install_docker: true
+      containerlab_post_install_connectivity_wait_s: 90
       containerlab_operator_user: "opsadmin"
       # Empty means HybridOps verifies against the official pinned-release
       # checksums.txt manifest and records the actual downloaded SHA-256.
@@ -163,6 +164,12 @@ steps:
       # required references here for an explicit availability check.
       containerlab_lab_required_images: []
       containerlab_lab_pull_missing_images: false
+      # Load an authorised OCI archive when its expected image is absent.
+      # containerlab_lab_local_image_archives:
+      #   - path: "/absolute/controller/path/cisco-iol.tar"
+      #     image: "vrnetlab/cisco_iol:<version>"
+      #     sha256: "<64 lowercase hex characters>"
+      containerlab_lab_local_image_archives: []
       containerlab_lab_restore_latest: true
       containerlab_lab_restore_require_source_match: true
 

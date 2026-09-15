@@ -40,6 +40,7 @@ inputs:
     containerlab_role_fqcn: "hybridops.app.containerlab"
     containerlab_version: "0.78.0"
     containerlab_install_docker: true
+    containerlab_post_install_connectivity_wait_s: 90
     containerlab_operator_user: "opsadmin"
     containerlab_package_checksum: ""
     containerlab_require_kvm: true

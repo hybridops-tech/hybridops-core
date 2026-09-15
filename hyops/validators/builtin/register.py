@@ -45,6 +45,7 @@ from hyops.validators.platform.gcp import platform_vm as gcp_platform_vm
 from hyops.validators.platform.gcp import gke_cluster, gke_kubeconfig, lab_network
 from hyops.validators.platform.k8s import gcp_secret_store, gsm_bootstrap
 from hyops.validators.platform.linux import (
+    containerlab_lab,
     eve_ng as linux_eve_ng,
     eve_ng_healthcheck,
     eve_ng_images,
@@ -111,6 +112,7 @@ def register_all() -> None:
     register("platform/linux/eve-ng-healthcheck", eve_ng_healthcheck.validate)
     register("platform/linux/gns3-images", gns3_images.validate)
     register("platform/linux/gns3-lab-archive", gns3_lab_archive.validate)
+    register("platform/linux/containerlab-lab", containerlab_lab.validate)
     register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)
     register("platform/network/edge-observability", edge_observability.validate)
     register("platform/network/cloudflare-traffic-steering", cloudflare_traffic_steering.validate)
