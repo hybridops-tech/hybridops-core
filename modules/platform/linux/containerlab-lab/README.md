@@ -6,4 +6,4 @@ The `.clab.yml` file remains authoritative and is copied unchanged with any rela
 
 `containerlab_lab_source_dir` is a controller-side path and should be set in the runtime blueprint. Proprietary NOS images should stay out of public HybridOps source and be supplied from an image source the operator is authorised to use.
 
-`containerlab_lab_local_image_archives` accepts absolute controller paths to authorised OCI archives and verifies the expected image after loading.
+`containerlab_lab_local_image_archives` accepts absolute controller paths to authorised container image archives and verifies the expected image after loading.

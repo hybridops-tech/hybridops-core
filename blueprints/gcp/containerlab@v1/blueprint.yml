@@ -164,7 +164,7 @@ steps:
       # required references here for an explicit availability check.
       containerlab_lab_required_images: []
       containerlab_lab_pull_missing_images: false
-      # Load an authorised OCI archive when its expected image is absent.
+      # Load an authorised container image archive when its image is absent.
       # containerlab_lab_local_image_archives:
       #   - path: "/absolute/controller/path/cisco-iol.tar"
       #     image: "vrnetlab/cisco_iol:<version>"

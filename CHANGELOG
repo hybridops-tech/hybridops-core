@@ -6,7 +6,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
-- Added checksum-verified loading of operator-supplied Containerlab OCI image
+- Added checksum-verified loading of operator-supplied Containerlab image
   archives when their expected images are absent from a managed host.
 - Added runtime-secret resolution for additional EVE-NG user passwords while
   retaining the existing plaintext input for compatibility.
