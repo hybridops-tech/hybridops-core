@@ -13,7 +13,7 @@
     {
       "name": "hybridops.app",
       "repo": "git@github.com:hybridops-tech/ansible-collection-app.git",
-      "ref": "4ef852d4816faad48d98b3544c2b0945069f2557"
+      "ref": "8f5282bff11b6c01591eaabea70b0977698be67e"
     }
   ]
 }
