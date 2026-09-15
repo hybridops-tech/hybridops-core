@@ -8,7 +8,7 @@ The `.clab.yml` file remains authoritative and is copied unchanged with any rela
 
 `containerlab_lab_local_image_archives` accepts absolute controller paths to authorised container image archives and verifies the expected image after loading.
 
-`containerlab_lab_local_image_builds` builds operator-supplied 64-bit Cisco IOL-XE
-binaries on the managed host through a pinned vrnetlab revision. The declaration
-sets the version, L3 or L2 type, optional checksum and authorised-use
-acknowledgement.
+`containerlab_lab_local_image_builds` builds operator-supplied 64-bit Cisco
+IOL-XE binaries or supported OCI archives on the managed host through a pinned
+vrnetlab revision. The declaration sets the source format, version, L3 or L2
+type, optional checksum and authorised-use acknowledgement.

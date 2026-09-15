@@ -85,9 +85,10 @@ class ContainerlabLabValidatorTests(unittest.TestCase):
             },
             {
                 "kind": "cisco_iol",
-                "source": "/opt/images/cisco-iol-l2.bin",
-                "version": "17.15.01",
+                "source": "/opt/images/ioll2-xe-17-18-02.tar.gz",
+                "version": "17.18.02",
                 "type": "l2",
+                "format": "oci_archive",
                 "authorised_use": True,
             },
         ]
@@ -120,6 +121,7 @@ class ContainerlabLabValidatorTests(unittest.TestCase):
             ("source", "images/cisco-iol.bin", "absolute controller path"),
             ("version", "../17.15.01", "valid image version"),
             ("type", "switch", "type must be l3 or l2"),
+            ("format", "tar", "format must be binary or oci_archive"),
             ("sha256", "not-a-digest", "64 lowercase hex"),
         ]
         for field, value, error in cases:
@@ -130,6 +132,20 @@ class ContainerlabLabValidatorTests(unittest.TestCase):
                 inputs["containerlab_lab_local_image_builds"] = [build]
                 with self.assertRaisesRegex(ValueError, error):
                     validate(inputs)
+
+    def test_oci_archive_requires_dotted_numeric_version(self) -> None:
+        inputs = valid_inputs()
+        inputs["containerlab_lab_local_image_builds"] = [
+            {
+                "kind": "cisco_iol",
+                "source": "/opt/images/iol-xe-build.tar.gz",
+                "version": "17.18.02-build",
+                "format": "oci_archive",
+                "authorised_use": True,
+            }
+        ]
+        with self.assertRaisesRegex(ValueError, "must be dotted numeric"):
+            validate(inputs)
 
     def test_duplicate_local_image_build_is_rejected(self) -> None:
         inputs = valid_inputs()

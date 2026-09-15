@@ -23,9 +23,9 @@ hyops blueprint init --env <env> --ref gcp/containerlab@v1 --edit
 
 Container images remain native references in the topology. The blueprint can
 verify declared references, permit registry pulls, load an authorised image
-archive, or build an operator-supplied 64-bit Cisco IOL-XE binary on the
-managed host through a pinned vrnetlab revision. Licence material remains
-outside the public blueprint.
+archive, or build an operator-supplied 64-bit Cisco IOL-XE binary or supported
+OCI archive on the managed host through a pinned vrnetlab revision. Licence
+material remains outside the public blueprint.
 
 The examples include [a two-node Cisco IOL topology](examples/two-node-iol/lab.clab.yml) with partial startup configurations.
 

@@ -9,7 +9,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 - Added checksum-verified loading of operator-supplied Containerlab image
   archives when their expected images are absent from a managed host.
 - Added managed-host Containerlab builds for operator-supplied Cisco IOL-XE
-  binaries using a pinned vrnetlab revision.
+  binaries and supported OCI archives using a pinned vrnetlab revision, with
+  structural validation before build.
 - Added runtime-secret resolution for additional EVE-NG user passwords while
   retaining the existing plaintext input for compatibility.
 - Added a provider-neutral operation authority contract with typed logical
