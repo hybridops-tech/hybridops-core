@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest import TestCase
 
+import yaml
+
 from hyops.blueprint.schema import load_blueprint, validate_blueprint
 
 
@@ -107,3 +109,15 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertEqual(automation["discovery_mode"], "containerlab-inspect")
         self.assertEqual(automation["management_cidr"], "172.20.20.0/24")
         self.assertEqual(automation["management_gateway"], "172.20.20.1")
+
+    def test_iol_example_is_self_contained(self) -> None:
+        example_root = self.path.parent / "examples" / "two-node-iol"
+        topology = yaml.safe_load(
+            (example_root / "lab.clab.yml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            topology["topology"]["kinds"]["cisco_iol"]["image"],
+            "vrnetlab/cisco_iol:17.12.01",
+        )
+        for node in topology["topology"]["nodes"].values():
+            self.assertTrue((example_root / node["startup-config"]).is_file())
