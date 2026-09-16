@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -370,6 +370,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 )
             management_dhcp_range = ""
             lease_file = ""
+            discovery_topology_path = ""
             if discovery_mode == "dnsmasq-leases":
                 management_dhcp_range = as_non_empty_string(
                     automation.get("management_dhcp_range"),
@@ -409,6 +410,21 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                     raise ValueError(
                         "access.automation.lease_file must be an absolute path"
                     )
+            else:
+                discovery_topology_path = str(
+                    automation.get("discovery_topology_path") or ""
+                ).strip()
+                if discovery_topology_path and not discovery_topology_path.startswith("/"):
+                    raise ValueError(
+                        "access.automation.discovery_topology_path must be an absolute path"
+                    )
+                if (
+                    discovery_topology_path
+                    and ".." in PurePosixPath(discovery_topology_path).parts
+                ):
+                    raise ValueError(
+                        "access.automation.discovery_topology_path must not traverse parent directories"
+                    )
             local_socks_port = int(automation.get("local_socks_port") or 0)
             if local_socks_port and not 1 <= local_socks_port <= 65535:
                 raise ValueError(
@@ -423,6 +439,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
                 "management_gateway": str(gateway_address),
                 "management_dhcp_range": management_dhcp_range,
                 "lease_file": lease_file,
+                "discovery_topology_path": discovery_topology_path,
                 "discovery_mode": discovery_mode,
                 "default_user": str(
                     automation.get("default_user") or "admin"

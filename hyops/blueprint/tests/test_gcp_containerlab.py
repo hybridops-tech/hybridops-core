@@ -78,7 +78,7 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertEqual(inputs["containerlab_recovery_mode"], "rebuild")
         self.assertEqual(
             inputs["containerlab_recovery_source_root"],
-            "/var/lib/hybridops/containerlab/labs/gcp-containerlab",
+            "/var/lib/hybridops/containerlab/labs/opsadmin/gcp-containerlab",
         )
         self.assertTrue(inputs["containerlab_recovery_include_lab_dir"])
 
@@ -114,6 +114,10 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertEqual(automation["discovery_mode"], "containerlab-inspect")
         self.assertEqual(automation["management_cidr"], "172.20.20.0/24")
         self.assertEqual(automation["management_gateway"], "172.20.20.1")
+        self.assertEqual(
+            automation["discovery_topology_path"],
+            "/var/lib/hybridops/containerlab/labs/opsadmin/gcp-containerlab/lab.clab.yml",
+        )
 
     def test_gui_uses_vault_password_and_pinned_images(self) -> None:
         gui = self.blueprint["steps"][4]
@@ -125,6 +129,12 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertEqual(
             inputs["containerlab_gui_operator_password_env"],
             "CONTAINERLAB_GUI_PASSWORD",
+        )
+        lab = self.blueprint["steps"][3]["inputs"]
+        self.assertTrue(
+            lab["containerlab_lab_remote_dir"].startswith(
+                inputs["containerlab_gui_labs_dir"] + "/opsadmin/"
+            )
         )
 
     def test_iol_example_is_self_contained(self) -> None:

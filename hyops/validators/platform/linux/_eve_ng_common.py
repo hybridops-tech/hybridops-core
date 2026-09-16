@@ -284,7 +284,7 @@ def read_target_os_release(
     )
 
 
-def require_ubuntu(
+def require_supported_ubuntu(
     target_os: dict[str, str],
     *,
     allow_ubuntu_24: bool = False,
@@ -295,13 +295,13 @@ def require_ubuntu(
     pretty = str(target_os.get("PRETTY_NAME") or "").strip()
 
     supported_versions = ("22.04", "24.04") if allow_ubuntu_24 else ("22.04",)
-    ok = distro_id == "ubuntu" and version_id.startswith(supported_versions)
+    ok = distro_id == "ubuntu" and version_id in supported_versions
     if ok:
         return
 
     detected = pretty or f"id={distro_id or 'unknown'} version_id={version_id or 'unknown'} codename={codename or 'unknown'}"
     supported_label = (
-        "Ubuntu 22.04-24.04"
+        "Ubuntu 22.04 or 24.04"
         if allow_ubuntu_24
         else "Ubuntu 22.04 (Jammy) only"
     )
@@ -543,7 +543,7 @@ def validate_target_access(
                 )
             else:
                 target_os = read_target_os_release(**remote_kwargs)
-            require_ubuntu(
+            require_supported_ubuntu(
                 target_os,
                 allow_ubuntu_24=allow_ubuntu_24,
             )

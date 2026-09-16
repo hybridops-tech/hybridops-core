@@ -71,6 +71,26 @@ class BlueprintAccessTests(unittest.TestCase):
         open_url.assert_called_once_with("https://127.0.0.1:3001/")
         self.assertIn("opening local Containerlab access", output.getvalue())
 
+    def test_local_linux_access_honours_disabled_browser_open(self) -> None:
+        access = {
+            "type": "linux-host-http",
+            "host": "127.0.0.1",
+            "scheme": "https",
+            "remote_port": 3001,
+            "path": "/",
+            "open_browser": False,
+        }
+        with patch("hyops.blueprint.command.open_operator_url") as open_url:
+            rc = _run_local_linux_access(
+                ns=SimpleNamespace(automation=False, route_lab=False, no_browser=False),
+                payload={"blueprint_ref": "linux/containerlab@v1"},
+                paths=SimpleNamespace(root=Path("/tmp/env")),
+                access=access,
+            )
+
+        self.assertEqual(rc, 0)
+        open_url.assert_not_called()
+
     def test_session_limit_requires_explicit_protected_release(self) -> None:
         payload = {"blueprint_ref": "gcp/eve-ng@v1"}
         self.assertEqual(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import errno
+import getpass
 import hashlib
 import ipaddress
 import json
@@ -1626,9 +1627,11 @@ def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
         }
     )
     if proxy:
+        environment["HYOPS_SOCKS_PROXY"] = proxy
         environment["ALL_PROXY"] = proxy
         environment["all_proxy"] = proxy
     else:
+        environment.pop("HYOPS_SOCKS_PROXY", None)
         environment.pop("ALL_PROXY", None)
         environment.pop("all_proxy", None)
     return environment
@@ -3040,11 +3043,20 @@ def _read_automation_leases(
     automation: dict[str, Any],
 ) -> str:
     if automation.get("discovery_mode") == "containerlab-inspect":
+        topology_path = str(
+            automation.get("discovery_topology_path") or ""
+        ).strip()
+        inspect_command = "sudo -n containerlab inspect"
+        if topology_path:
+            inspect_command += f" -t {shlex.quote(topology_path)}"
+        else:
+            inspect_command += " --all"
+        inspect_command += " -f json"
         result = subprocess.run(
             [
                 *ssh_base,
                 ssh_target,
-                "sudo -n containerlab inspect --all -f json",
+                inspect_command,
             ],
             cwd=str(Path.home()),
             text=True,
@@ -3085,10 +3097,28 @@ def _read_local_automation_state(automation: dict[str, Any]) -> str:
     containerlab = shutil.which("containerlab")
     if not containerlab:
         raise ValueError("containerlab is unavailable; deploy the blueprint first")
-    commands = (
-        [containerlab, "inspect", "--all", "-f", "json"],
-        ["sudo", "-n", containerlab, "inspect", "--all", "-f", "json"],
-    )
+    topology_path = str(
+        automation.get("discovery_topology_path") or ""
+    ).strip()
+    if topology_path:
+        topology_path = os.path.expanduser(topology_path)
+        if "${USER}" in topology_path:
+            topology_path = topology_path.replace(
+                "${USER}", os.environ.get("USER") or getpass.getuser()
+            )
+        topology_path = os.path.expandvars(topology_path)
+        if not Path(topology_path).is_file():
+            raise ValueError(
+                f"Containerlab topology is unavailable: {topology_path}; "
+                "deploy the blueprint first"
+            )
+    inspect_args = [containerlab, "inspect"]
+    if topology_path:
+        inspect_args.extend(["-t", topology_path])
+    else:
+        inspect_args.append("--all")
+    inspect_args.extend(["-f", "json"])
+    commands = (inspect_args, ["sudo", "-n", *inspect_args])
     for command in commands:
         try:
             result = subprocess.run(
@@ -3109,7 +3139,7 @@ def _read_local_automation_state(automation: dict[str, Any]) -> str:
         refreshed = subprocess.run([sudo, "-v"], check=False)
         if refreshed.returncode == 0:
             result = subprocess.run(
-                [sudo, "-n", containerlab, "inspect", "--all", "-f", "json"],
+                [sudo, "-n", *inspect_args],
                 cwd=str(Path.home()),
                 text=True,
                 stdout=subprocess.PIPE,
@@ -3600,7 +3630,8 @@ def _run_local_linux_access(
         _print_automation_access(automation, session)
     print("opening local Containerlab access")
     print(f"URL: {url}")
-    if not bool(getattr(ns, "no_browser", False)):
+    open_browser = bool(access.get("open_browser", True))
+    if open_browser and not bool(getattr(ns, "no_browser", False)):
         open_operator_url(url)
     return 0
 

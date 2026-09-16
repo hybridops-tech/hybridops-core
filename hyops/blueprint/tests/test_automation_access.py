@@ -25,6 +25,7 @@ from hyops.blueprint.command import (
     _device_process_environment,
     _device_web_requests,
     _read_automation_leases,
+    _read_local_automation_state,
     run_device,
 )
 from hyops.blueprint.schema import load_blueprint, validate_blueprint
@@ -110,6 +111,76 @@ class AutomationAccessTests(unittest.TestCase):
             "sudo -n containerlab inspect --all -f json",
         )
 
+    def test_containerlab_discovery_can_be_scoped_to_one_topology(self) -> None:
+        result = SimpleNamespace(returncode=0, stdout='{"demo": []}')
+        automation = {
+            "discovery_mode": "containerlab-inspect",
+            "management_cidr": "172.20.20.0/24",
+            "discovery_topology_path": "/var/lib/hybridops/containerlab/labs/opsadmin/demo/lab.clab.yml",
+        }
+
+        with patch(
+            "hyops.blueprint.command.subprocess.run",
+            return_value=result,
+        ) as run:
+            output = _read_automation_leases(
+                ["ssh", "-F", "/tmp/ssh_config"],
+                "gateway",
+                automation,
+            )
+
+        self.assertEqual(output, result.stdout)
+        self.assertEqual(
+            run.call_args.args[0][-1],
+            "sudo -n containerlab inspect -t "
+            "/var/lib/hybridops/containerlab/labs/opsadmin/demo/lab.clab.yml "
+            "-f json",
+        )
+
+    def test_local_containerlab_discovery_is_scoped_to_one_topology(self) -> None:
+        result = SimpleNamespace(returncode=0, stdout='{"demo": []}', stderr="")
+        automation = {
+            "discovery_mode": "containerlab-inspect",
+            "management_cidr": "172.20.20.0/24",
+            "discovery_topology_path": "/srv/labs/${USER}/demo/lab.clab.yml",
+        }
+
+        with (
+            patch.dict("hyops.blueprint.command.os.environ", {"USER": "operator"}),
+            patch("hyops.blueprint.command.Path.is_file", return_value=True),
+            patch("hyops.blueprint.command.shutil.which", return_value="/usr/bin/containerlab"),
+            patch("hyops.blueprint.command.subprocess.run", return_value=result) as run,
+        ):
+            output = _read_local_automation_state(automation)
+
+        self.assertEqual(output, result.stdout)
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "/usr/bin/containerlab",
+                "inspect",
+                "-t",
+                "/srv/labs/operator/demo/lab.clab.yml",
+                "-f",
+                "json",
+            ],
+        )
+
+    def test_local_containerlab_discovery_requires_managed_topology(self) -> None:
+        automation = {
+            "discovery_mode": "containerlab-inspect",
+            "management_cidr": "172.20.20.0/24",
+            "discovery_topology_path": "/srv/labs/${USER}/demo/lab.clab.yml",
+        }
+
+        with (
+            patch.dict("hyops.blueprint.command.os.environ", {"USER": "operator"}),
+            patch("hyops.blueprint.command.Path.is_file", return_value=False),
+            patch("hyops.blueprint.command.shutil.which", return_value="/usr/bin/containerlab"),
+        ):
+            with self.assertRaisesRegex(ValueError, "topology is unavailable"):
+                _read_local_automation_state(automation)
+
     def test_session_writes_ssh_vscode_and_inventory_material(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -144,6 +215,10 @@ class AutomationAccessTests(unittest.TestCase):
             self.assertEqual(session_payload["socks_proxy"], "socks5h://127.0.0.1:1080")
             environment = _device_process_environment(session)
             self.assertEqual(environment["ANSIBLE_CONFIG"], str(session["ansible_config"]))
+            self.assertEqual(
+                environment["HYOPS_SOCKS_PROXY"],
+                "socks5h://127.0.0.1:1080",
+            )
             self.assertEqual(
                 environment["NORNIR_SSH_CONFIG_FILE"],
                 str(session["ssh_config"]),
@@ -193,8 +268,18 @@ class AutomationAccessTests(unittest.TestCase):
             self.assertIn("HostName 172.20.20.2", ssh_config)
             self.assertEqual(session["access_mode"], "direct")
             self.assertEqual(session["socks_proxy"], "")
-            environment = _device_process_environment(session)
+            with patch.dict(
+                "hyops.blueprint.command.os.environ",
+                {
+                    "HYOPS_SOCKS_PROXY": "socks5h://127.0.0.1:9999",
+                    "ALL_PROXY": "socks5h://127.0.0.1:9999",
+                    "all_proxy": "socks5h://127.0.0.1:9999",
+                },
+            ):
+                environment = _device_process_environment(session)
+            self.assertNotIn("HYOPS_SOCKS_PROXY", environment)
             self.assertNotIn("ALL_PROXY", environment)
+            self.assertNotIn("all_proxy", environment)
 
     def test_device_trust_is_scoped_to_the_access_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

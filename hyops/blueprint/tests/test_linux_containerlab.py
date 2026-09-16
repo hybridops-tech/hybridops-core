@@ -53,9 +53,36 @@ class LinuxContainerlabBlueprintTest(TestCase):
             access["automation"]["discovery_mode"],
             "containerlab-inspect",
         )
+        self.assertEqual(
+            access["automation"]["discovery_topology_path"],
+            "/var/lib/hybridops/containerlab/labs/${USER}/local-containerlab/lab.clab.yml",
+        )
+
+    def test_gui_workspace_contains_the_managed_topology(self) -> None:
+        lab = self.blueprint["steps"][1]["inputs"]
+        gui = self.blueprint["steps"][2]["inputs"]
+        self.assertTrue(
+            lab["containerlab_lab_remote_dir"].startswith(
+                gui["containerlab_gui_labs_dir"] + "/{{ ansible_user_id }}/"
+            )
+        )
 
     def test_local_access_rejects_a_remote_host(self) -> None:
         spec = load_blueprint(self.path)
         spec["access"]["host"] = "192.0.2.20"
         with self.assertRaisesRegex(ValueError, "must be loopback"):
+            validate_blueprint(spec, self.path)
+
+    def test_containerlab_discovery_path_must_be_absolute(self) -> None:
+        spec = load_blueprint(self.path)
+        spec["access"]["automation"]["discovery_topology_path"] = "lab.clab.yml"
+        with self.assertRaisesRegex(ValueError, "must be an absolute path"):
+            validate_blueprint(spec, self.path)
+
+    def test_containerlab_discovery_path_rejects_parent_traversal(self) -> None:
+        spec = load_blueprint(self.path)
+        spec["access"]["automation"]["discovery_topology_path"] = (
+            "/var/lib/hybridops/../lab.clab.yml"
+        )
+        with self.assertRaisesRegex(ValueError, "must not traverse"):
             validate_blueprint(spec, self.path)

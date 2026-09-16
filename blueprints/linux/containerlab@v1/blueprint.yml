@@ -25,6 +25,7 @@ access:
   offer_destroy_on_close: false
   automation:
     discovery_mode: "containerlab-inspect"
+    discovery_topology_path: "/var/lib/hybridops/containerlab/labs/${USER}/local-containerlab/lab.clab.yml"
     management_network_label: "clab"
     management_cidr: "172.20.20.0/24"
     management_gateway: "172.20.20.1"
@@ -78,7 +79,7 @@ steps:
       # Use a Linux or WSL path containing lab.clab.yml.
       containerlab_lab_source_dir: ""
       containerlab_lab_topology_relpath: "lab.clab.yml"
-      containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/local-containerlab"
+      containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/{{ ansible_user_id }}/local-containerlab"
       containerlab_lab_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
       containerlab_lab_required_images: []
       containerlab_lab_pull_missing_images: false
@@ -137,7 +138,7 @@ steps:
       become_user: "root"
       containerlab_healthcheck_expected_version: "0.78.0"
       containerlab_healthcheck_require_kvm: false
-      containerlab_healthcheck_topology_path: "/var/lib/hybridops/containerlab/labs/local-containerlab/lab.clab.yml"
+      containerlab_healthcheck_topology_path: "/var/lib/hybridops/containerlab/labs/{{ ansible_user_id }}/local-containerlab/lab.clab.yml"
       containerlab_healthcheck_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
       containerlab_healthcheck_require_deployed_lab: true
 
@@ -162,7 +163,7 @@ steps:
       become_user: "root"
       containerlab_recovery_action: "arm"
       containerlab_recovery_mode: "rebuild"
-      containerlab_recovery_source_root: "/var/lib/hybridops/containerlab/labs/local-containerlab"
+      containerlab_recovery_source_root: "/var/lib/hybridops/containerlab/labs/{{ ansible_user_id }}/local-containerlab"
       containerlab_recovery_topology_relpath: "lab.clab.yml"
       containerlab_recovery_image_refs: []
       containerlab_recovery_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
