@@ -31,6 +31,20 @@ The examples include [a two-node Cisco IOL topology](examples/two-node-iol/lab.c
 with partial startup configurations. Directory discovery binds its image
 reference to the single discovered L3 image.
 
+## Access and recovery
+
+Private host access and direct node automation are exposed through the
+`hyops blueprint access` command. Save device changes to native startup
+configuration before recovery. During protected destroy, the recovery gate
+requests Containerlab's supported configuration export, copies the declared
+recovery set off the host and verifies it before compute release. The next
+deployment restores the latest verified set. `hyops blueprint rebuild`
+performs those phases as one operation.
+
+Containerlab provides optional VS Code, desktop and web interfaces. The desktop
+and web interfaces require `clab-api-server`; this blueprint does not install or
+expose that service.
+
 ## Documentation
 
 - [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-containerlab/)
