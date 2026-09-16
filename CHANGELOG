@@ -36,6 +36,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Replaced the generic confirmation for destroy-gated blueprints with an
+  explicit choice between retention and verified recovery before destroy.
 - Revalidated SSH after Docker installation on fresh Containerlab hosts.
 - Suppressed Python tracebacks when an operator cancels installation with
   `Ctrl-C`; transactional cleanup and exit status 130 are preserved.

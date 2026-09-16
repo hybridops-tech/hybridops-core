@@ -572,6 +572,35 @@ class ResumableBlueprintDestroyTest(TestCase):
         with self.assertRaisesRegex(ValueError, "does not declare"):
             _select_archive_destroy_mode(ns, _payload(), "test")
 
+    def test_destroy_gate_offers_protected_release(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = _payload()
+        payload["steps"][-1]["destroy_gate"] = True
+
+        with (
+            patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+            patch("hyops.blueprint.command.input", return_value="2"),
+            patch("builtins.print") as output,
+        ):
+            selected = _select_archive_destroy_mode(ns, payload, "test")
+
+        self.assertEqual(selected, "protected")
+        output.assert_any_call("  1. Keep the environment running")
+        output.assert_any_call(
+            "  2. Preserve declared recovery state, verify, then destroy"
+        )
+
+    def test_destroy_gate_yes_selects_protected_release(self):
+        payload = _payload()
+        payload["steps"][-1]["destroy_gate"] = True
+
+        self.assertEqual(
+            _select_archive_destroy_mode(_namespace(), payload, "test"),
+            "protected",
+        )
+
     def test_archive_choice_reprompts_until_an_exact_selection(self):
         ns = _namespace()
         ns.yes = False
