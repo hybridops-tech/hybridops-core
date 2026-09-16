@@ -170,7 +170,7 @@ steps:
       #     image: "vrnetlab/cisco_iol:<version>"
       #     sha256: "<64 lowercase hex characters>"
       containerlab_lab_local_image_archives: []
-      # Discover authorised IOL-XE sources from one standard CML image folder.
+      # Discover authorised IOL-XE sources from one local image folder.
       containerlab_lab_local_image_dir: ""
       containerlab_lab_local_image_dir_authorised_use: false
       # Build an authorised 64-bit Cisco IOL-XE source on the managed host.

@@ -3,7 +3,7 @@ name: hyops-two-node-iol
 topology:
   kinds:
     cisco_iol:
-      image: vrnetlab/cisco_iol:17.12.01
+      image: ${HYOPS_CONTAINERLAB_IOL_L3_IMAGE}
   nodes:
     r1:
       kind: cisco_iol

@@ -120,7 +120,7 @@ class GCPContainerlabBlueprintTest(TestCase):
         )
         self.assertEqual(
             topology["topology"]["kinds"]["cisco_iol"]["image"],
-            "vrnetlab/cisco_iol:17.12.01",
+            "${HYOPS_CONTAINERLAB_IOL_L3_IMAGE}",
         )
         for node in topology["topology"]["nodes"].values():
             self.assertTrue((example_root / node["startup-config"]).is_file())

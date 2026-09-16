@@ -177,4 +177,4 @@ class ContainerlabModuleContractTest(TestCase):
             app["repo"],
             "https://github.com/hybridops-tech/ansible-collection-app.git",
         )
-        self.assertEqual(app["ref"], "caf7889def722ea9b752e8a61d2bcdf785e452d5")
+        self.assertEqual(app["ref"], "9d9d3c20da4fc418c6c1efb9405f78f473ff8fb2")

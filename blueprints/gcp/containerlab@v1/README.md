@@ -27,7 +27,9 @@ archive, or build an operator-supplied 64-bit Cisco IOL-XE binary or supported
 OCI archive on the managed host through a pinned vrnetlab revision. Licence
 material remains outside the public blueprint.
 
-The examples include [a two-node Cisco IOL topology](examples/two-node-iol/lab.clab.yml) with partial startup configurations.
+The examples include [a two-node Cisco IOL topology](examples/two-node-iol/lab.clab.yml)
+with partial startup configurations. Directory discovery binds its image
+reference to the single discovered L3 image.
 
 ## Documentation
 
