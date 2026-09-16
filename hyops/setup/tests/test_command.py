@@ -317,7 +317,7 @@ class SetupCommandTests(unittest.TestCase):
 
     def test_targeted_collection_install_has_no_yaml_runtime_dependency(self) -> None:
         installer = REPO_ROOT / "tools" / "setup" / "setup-ansible.sh"
-        expected_versions = {"helper": "0.1.10", "app": "0.1.11"}
+        expected_versions = {"helper": "0.1.10", "app": "0.1.12"}
         for collection in ("helper", "app"):
             with self.subTest(collection=collection), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
