@@ -11,7 +11,7 @@ The `gcp/containerlab@v1` lifecycle completed real-environment GCP acceptance be
 - merge commit: `ec80a2b1e51d3c9233f9057f81bb7262fe3d7149`
 - final Core CI run: `32416371036`, passed
 - Containerlab: `0.78.0`
-- released `hybridops.app` dependency: `0.1.9`
+- released `hybridops.app` dependency: `0.1.12`
 
 ## Observed acceptance path
 
