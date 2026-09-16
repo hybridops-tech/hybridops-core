@@ -3045,6 +3045,7 @@ def _prepare_automation_access(
         lease_text=lease_text,
         discovery_text=lease_text,
         target_file_override=str(getattr(ns, "targets", "") or ""),
+        trust_scope=new_run_id("device-access"),
     )
     return socks_port, session
 
@@ -3077,6 +3078,7 @@ def _automation_refresher(
             socks_port=socks_port,
             lease_text=lease_text,
             discovery_text=lease_text,
+            trust_scope=str(session.get("trust_scope") or ""),
         )
         added = list(updated.get("new_targets") or [])
         session.clear()

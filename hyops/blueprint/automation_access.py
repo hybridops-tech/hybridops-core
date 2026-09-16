@@ -486,6 +486,7 @@ def prepare_automation_session(
     lease_text: str = "",
     discovery_text: str = "",
     target_file_override: str = "",
+    trust_scope: str = "",
 ) -> dict[str, Any]:
     """Create target configuration and client files for one access session."""
 
@@ -536,7 +537,13 @@ def prepare_automation_session(
         discovered_file,
         yaml.safe_dump({"version": 1, "targets": candidates}, sort_keys=False),
     )
-    target_known_hosts = session_dir / "device_known_hosts"
+    raw_trust_scope = str(trust_scope or "").strip()
+    if raw_trust_scope:
+        device_trust_scope = _safe_name(raw_trust_scope, fallback="session")
+    else:
+        trust_seed = f"{gateway.get('known_hosts_file', '')}:{socks_port}"
+        device_trust_scope = hashlib.sha256(trust_seed.encode("utf-8")).hexdigest()[:16]
+    target_known_hosts = session_dir / f"device_known_hosts.{device_trust_scope}"
     target_known_hosts.touch(mode=0o600, exist_ok=True)
     try:
         target_known_hosts.chmod(0o600)
@@ -605,6 +612,8 @@ def prepare_automation_session(
         "nornir_groups": nornir_groups,
         "nornir_defaults": nornir_defaults,
         "session_file": session_file,
+        "device_known_hosts": target_known_hosts,
+        "trust_scope": device_trust_scope,
         "targets": targets,
         "discovered_count": len(candidates),
         "aliases": [f"{alias_prefix}-{target['name']}" for target in targets],

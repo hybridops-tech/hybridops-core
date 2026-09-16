@@ -149,8 +149,59 @@ class AutomationAccessTests(unittest.TestCase):
                 str(session["ssh_config"]),
             )
             self.assertEqual(session["target_file"].stat().st_mode & 0o777, 0o600)
+            self.assertTrue(
+                session["device_known_hosts"].name.startswith("device_known_hosts.")
+            )
             target_payload = yaml.safe_load(session["target_file"].read_text())
             self.assertEqual(target_payload["targets"][0]["host"], "172.29.128.51")
+
+    def test_device_trust_is_scoped_to_the_access_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = SimpleNamespace(root=root, config_dir=root / "config")
+            gateway = {
+                "host": "127.0.0.1",
+                "user": "opsadmin",
+                "port": 43210,
+                "identity_file": str(root / "gateway-key"),
+                "known_hosts_file": str(root / "gateway_known_hosts"),
+            }
+
+            first = prepare_automation_session(
+                paths=paths,
+                blueprint_ref="gcp/containerlab@v1",
+                env_name="demo-lab",
+                automation=self.automation,
+                gateway=gateway,
+                socks_port=1080,
+                lease_text="1 aa:bb:cc:dd:ee:01 172.29.128.51 r1 *",
+                trust_scope="access-generation-one",
+            )
+            first["device_known_hosts"].write_text("first-key\n", encoding="utf-8")
+            refreshed = prepare_automation_session(
+                paths=paths,
+                blueprint_ref="gcp/containerlab@v1",
+                env_name="demo-lab",
+                automation=self.automation,
+                gateway=gateway,
+                socks_port=1080,
+                lease_text="1 aa:bb:cc:dd:ee:01 172.29.128.51 r1 *",
+                trust_scope="access-generation-one",
+            )
+            rebuilt = prepare_automation_session(
+                paths=paths,
+                blueprint_ref="gcp/containerlab@v1",
+                env_name="demo-lab",
+                automation=self.automation,
+                gateway=gateway,
+                socks_port=1081,
+                lease_text="1 aa:bb:cc:dd:ee:01 172.29.128.51 r1 *",
+                trust_scope="access-generation-two",
+            )
+
+            self.assertEqual(first["device_known_hosts"], refreshed["device_known_hosts"])
+            self.assertEqual(refreshed["device_known_hosts"].read_text(), "first-key\n")
+            self.assertNotEqual(first["device_known_hosts"], rebuilt["device_known_hosts"])
 
     def test_target_outside_management_network_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

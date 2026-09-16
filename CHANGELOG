@@ -36,6 +36,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Scoped private device SSH trust to each automation access session so rebuilt
+  lab nodes can reuse management addresses without inheriting stale host keys.
 - Replaced the generic confirmation for destroy-gated blueprints with an
   explicit choice between retention and verified recovery before destroy.
 - Revalidated SSH after Docker installation on fresh Containerlab hosts.
