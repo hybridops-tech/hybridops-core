@@ -5600,7 +5600,7 @@ def _run_destroy_unlocked(ns) -> int:
             setattr(ns, "guest_quiesced", True)
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
-        if payload.get("archive_before_destroy"):
+        if payload.get("archive_before_destroy") or archive_mode == "protected":
             if _confirm_archive_destroy(env_name) is not True:
                 print("destroy cancelled")
                 print("environment retained")
@@ -5612,8 +5612,6 @@ def _run_destroy_unlocked(ns) -> int:
                 _print_destroy_lifecycle_summary(lifecycle)
                 print_destroy_record()
                 return CANCELLED
-        elif archive_mode == "protected":
-            pass
         elif sys.stdin.isatty() and sys.stdout.isatty():
             confirmed = _prompt_yes_no("Proceed with blueprint destroy? [y/N]: ")
             if confirmed is None:
