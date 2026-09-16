@@ -79,7 +79,7 @@ class GCPContainerlabBlueprintTest(TestCase):
             inputs["containerlab_recovery_source_root"],
             "/var/lib/hybridops/containerlab/labs/gcp-containerlab",
         )
-        self.assertFalse(inputs["containerlab_recovery_include_lab_dir"])
+        self.assertTrue(inputs["containerlab_recovery_include_lab_dir"])
 
     def test_destroy_gate_cannot_be_optional(self) -> None:
         spec = load_blueprint(self.path)

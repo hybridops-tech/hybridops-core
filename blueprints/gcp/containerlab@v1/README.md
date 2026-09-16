@@ -36,10 +36,11 @@ reference to the single discovered L3 image.
 Private host access and direct node automation are exposed through the
 `hyops blueprint access` command. Save device changes to native startup
 configuration before recovery. During protected destroy, the recovery gate
-requests Containerlab's supported configuration export, copies the declared
-recovery set off the host and verifies it before compute release. The next
-deployment restores the latest verified set. `hyops blueprint rebuild`
-performs those phases as one operation.
+requests Containerlab's supported configuration export and retains the
+inspected native lab directory with the declared source tree. The recovery set
+is copied off the host and verified before compute release. The next deployment
+restores the latest verified set. `hyops blueprint rebuild` performs those
+phases as one operation.
 
 Containerlab provides optional VS Code, desktop and web interfaces. The desktop
 and web interfaces require `clab-api-server`; this blueprint does not install or

@@ -242,8 +242,9 @@ steps:
       become: true
       become_user: "root"
       containerlab_recovery_action: "arm"
-      # rebuild retains the declared source tree plus supported config-save
-      # output. snapshot additionally requests supported vrnetlab snapshots.
+      # rebuild retains the declared source tree, supported config-save output
+      # and the inspected native lab directory. snapshot additionally requests
+      # supported vrnetlab snapshots.
       containerlab_recovery_mode: "rebuild"
       containerlab_recovery_source_root: "/var/lib/hybridops/containerlab/labs/gcp-containerlab"
       containerlab_recovery_topology_relpath: "lab.clab.yml"
@@ -251,4 +252,4 @@ steps:
       containerlab_recovery_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
       containerlab_recovery_save_configs: true
       containerlab_recovery_save_configs_required: false
-      containerlab_recovery_include_lab_dir: false
+      containerlab_recovery_include_lab_dir: true

@@ -36,6 +36,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Preserved and restored inspected Containerlab native lab-directory state so
+  Cisco IOL NVRAM survives disposable-host reconstruction.
 - Scoped private device SSH trust to each automation access session so rebuilt
   lab nodes can reuse management addresses without inheriting stale host keys.
 - Replaced the generic confirmation for destroy-gated blueprints with an
