@@ -48,6 +48,8 @@ class ContainerlabModuleContractTest(TestCase):
         self.assertEqual(defaults["containerlab_lab_required_images"], [])
         self.assertFalse(defaults["containerlab_lab_pull_missing_images"])
         self.assertEqual(defaults["containerlab_lab_local_image_archives"], [])
+        self.assertEqual(defaults["containerlab_lab_local_image_dir"], "")
+        self.assertFalse(defaults["containerlab_lab_local_image_dir_authorised_use"])
         self.assertEqual(defaults["containerlab_lab_local_image_builds"], [])
         self.assertEqual(
             defaults["containerlab_lab_image_cache_dir"],
@@ -171,4 +173,4 @@ class ContainerlabModuleContractTest(TestCase):
         path = self.root / "tools" / "setup" / "requirements" / "ansible.hybridops.git.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         app = next(item for item in payload["collections"] if item["name"] == "hybridops.app")
-        self.assertEqual(app["ref"], "70de49b94d40fe934f9035ec886c521b08e0d6d2")
+        self.assertEqual(app["ref"], "caf7889def722ea9b752e8a61d2bcdf785e452d5")

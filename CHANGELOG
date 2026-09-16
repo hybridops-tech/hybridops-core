@@ -11,6 +11,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 - Added managed-host Containerlab builds for operator-supplied Cisco IOL-XE
   binaries and supported OCI archives using a pinned vrnetlab revision, with
   structural validation before build.
+- Added standard CML folder discovery for local IOL-XE image type, version,
+  checksum, build tag and verification inputs.
 - Added runtime-secret resolution for additional EVE-NG user passwords while
   retaining the existing plaintext input for compatibility.
 - Added a provider-neutral operation authority contract with typed logical

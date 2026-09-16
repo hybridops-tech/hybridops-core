@@ -94,6 +94,40 @@ class ContainerlabLabValidatorTests(unittest.TestCase):
         ]
         validate(inputs)
 
+    def test_local_iol_image_directory_is_valid(self) -> None:
+        inputs = valid_inputs()
+        inputs["containerlab_lab_local_image_dir"] = "/opt/images/cml"
+        inputs["containerlab_lab_local_image_dir_authorised_use"] = True
+        validate(inputs)
+
+    def test_local_iol_image_directory_requires_absolute_path(self) -> None:
+        inputs = valid_inputs()
+        inputs["containerlab_lab_local_image_dir"] = "images/cml"
+        inputs["containerlab_lab_local_image_dir_authorised_use"] = True
+        with self.assertRaisesRegex(ValueError, "absolute controller path"):
+            validate(inputs)
+
+    def test_local_iol_image_directory_requires_authorised_use(self) -> None:
+        inputs = valid_inputs()
+        inputs["containerlab_lab_local_image_dir"] = "/opt/images/cml"
+        with self.assertRaisesRegex(ValueError, "must be true"):
+            validate(inputs)
+
+    def test_local_iol_image_directory_and_builds_are_mutually_exclusive(self) -> None:
+        inputs = valid_inputs()
+        inputs["containerlab_lab_local_image_dir"] = "/opt/images/cml"
+        inputs["containerlab_lab_local_image_dir_authorised_use"] = True
+        inputs["containerlab_lab_local_image_builds"] = [
+            {
+                "kind": "cisco_iol",
+                "source": "/opt/images/cisco-iol.bin",
+                "version": "17.15.01",
+                "authorised_use": True,
+            }
+        ]
+        with self.assertRaisesRegex(ValueError, "cannot be combined"):
+            validate(inputs)
+
     def test_local_image_build_requires_authorised_use(self) -> None:
         inputs = valid_inputs()
         build = {

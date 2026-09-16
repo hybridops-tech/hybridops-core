@@ -125,8 +125,31 @@ def validate(inputs: dict[str, Any]) -> None:
     archive_refs = _validate_local_image_archives(
         data.get("containerlab_lab_local_image_archives")
     )
+    local_image_dir = data.get("containerlab_lab_local_image_dir")
+    if not isinstance(local_image_dir, str):
+        raise ValueError("inputs.containerlab_lab_local_image_dir must be a string")
+    local_image_dir = local_image_dir.strip()
+    if local_image_dir and not local_image_dir.startswith("/"):
+        raise ValueError(
+            "inputs.containerlab_lab_local_image_dir must be an absolute controller path"
+        )
+    local_image_dir_authorised_use = require_bool(
+        data.get("containerlab_lab_local_image_dir_authorised_use"),
+        "inputs.containerlab_lab_local_image_dir_authorised_use",
+    )
+    if local_image_dir and not local_image_dir_authorised_use:
+        raise ValueError(
+            "inputs.containerlab_lab_local_image_dir_authorised_use must be true "
+            "when image-directory discovery is enabled"
+        )
+    local_image_builds = data.get("containerlab_lab_local_image_builds")
+    if local_image_dir and local_image_builds:
+        raise ValueError(
+            "inputs.containerlab_lab_local_image_dir cannot be combined with "
+            "containerlab_lab_local_image_builds"
+        )
     _validate_local_image_builds(
-        data.get("containerlab_lab_local_image_builds"),
+        local_image_builds,
         archive_refs,
     )
     image_build_root = require_non_empty_str(
