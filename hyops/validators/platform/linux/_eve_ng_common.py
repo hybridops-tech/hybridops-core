@@ -284,21 +284,30 @@ def read_target_os_release(
     )
 
 
-def require_ubuntu_22(target_os: dict[str, str]) -> None:
+def require_ubuntu(
+    target_os: dict[str, str],
+    *,
+    allow_ubuntu_24: bool = False,
+) -> None:
     distro_id = str(target_os.get("ID") or "").strip().lower()
     version_id = str(target_os.get("VERSION_ID") or "").strip()
     codename = str(target_os.get("VERSION_CODENAME") or "").strip().lower()
     pretty = str(target_os.get("PRETTY_NAME") or "").strip()
 
-    ok = distro_id == "ubuntu" and version_id.startswith("22.04")
+    supported_versions = ("22.04", "24.04") if allow_ubuntu_24 else ("22.04",)
+    ok = distro_id == "ubuntu" and version_id.startswith(supported_versions)
     if ok:
         return
 
     detected = pretty or f"id={distro_id or 'unknown'} version_id={version_id or 'unknown'} codename={codename or 'unknown'}"
+    supported_label = (
+        "Ubuntu 22.04-24.04"
+        if allow_ubuntu_24
+        else "Ubuntu 22.04 (Jammy) only"
+    )
     raise ValueError(
-        "EVE-NG modules support Ubuntu 22.04 (Jammy) only. "
-        f"Detected: {detected}. "
-        "Use a Jammy host, or use a different module for your OS."
+        f"This module supports {supported_label}. Detected: {detected}. "
+        "Use a supported Ubuntu host, or use a different module for your OS."
     )
 
 
@@ -399,6 +408,7 @@ def validate_target_access(
     module_ref: str,
     require_ubuntu: bool,
     require_eveng: bool,
+    allow_ubuntu_24: bool = False,
 ) -> dict[str, Any]:
     lifecycle_command = normalize_lifecycle_command(data)
     is_destroy = lifecycle_command == "destroy"
@@ -459,12 +469,22 @@ def validate_target_access(
             raise ValueError("inputs.connectivity_wait_s must be an integer >= 0")
     if data.get("load_vault_env") is not None:
         require_bool(data.get("load_vault_env"), "inputs.load_vault_env")
+    local_execution = False
+    if data.get("local_execution") is not None:
+        local_execution = require_bool(
+            data.get("local_execution"),
+            "inputs.local_execution",
+        )
 
     target_host, resolved_iap_instance, resolved_iap_zone, resolved_iap_project_id = resolve_target(
         data,
         module_ref=module_ref,
         ssh_access_mode=ssh_access_mode,
     )
+    if local_execution and target_host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError(
+            "inputs.local_execution=true requires a loopback target host"
+        )
     if (
         ssh_access_mode == "direct"
         and not proxy_host
@@ -509,13 +529,36 @@ def validate_target_access(
         "gcp_iap_zone": gcp_iap_zone,
     }
 
-    if not is_destroy and target_host and target_host not in _PLACEHOLDER_HOSTS and not defer_connectivity_probe:
+    inspect_target = (
+        not is_destroy
+        and bool(target_host)
+        and not defer_connectivity_probe
+        and (local_execution or target_host not in _PLACEHOLDER_HOSTS)
+    )
+    if inspect_target:
         if require_ubuntu:
-            target_os = read_target_os_release(**remote_kwargs)
-            require_ubuntu_22(target_os)
+            if local_execution:
+                target_os = parse_os_release(
+                    Path("/etc/os-release").read_text(encoding="utf-8")
+                )
+            else:
+                target_os = read_target_os_release(**remote_kwargs)
+            require_ubuntu(
+                target_os,
+                allow_ubuntu_24=allow_ubuntu_24,
+            )
         if require_eveng:
             try:
-                require_eveng_host(**remote_kwargs)
+                if local_execution:
+                    required_paths = (
+                        Path("/opt/unetlab"),
+                        Path("/opt/unetlab/addons"),
+                        Path("/opt/unetlab/labs"),
+                    )
+                    if not all(path.is_dir() for path in required_paths):
+                        raise ValueError("required /opt/unetlab paths are unavailable")
+                else:
+                    require_eveng_host(**remote_kwargs)
             except ValueError as exc:
                 raise ValueError(
                     f"EVE-NG base was not detected on the target host for {module_ref}. "
@@ -531,6 +574,7 @@ def validate_target_access(
             "target_port": target_port,
             "target_host": target_host,
             "defer_connectivity_probe": defer_connectivity_probe,
+            "local_execution": local_execution,
         }
     )
     return remote_kwargs

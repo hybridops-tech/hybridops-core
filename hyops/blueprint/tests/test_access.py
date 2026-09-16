@@ -27,6 +27,7 @@ from hyops.blueprint.command import (
     _parse_eve_qemu_console_ports,
     _print_native_console_client_guidance,
     _require_local_ports_available,
+    _run_local_linux_access,
     _runtime_access_secret,
     _session_options,
     _session_warning_seconds,
@@ -46,6 +47,30 @@ class _TTY(io.StringIO):
 
 
 class BlueprintAccessTests(unittest.TestCase):
+    def test_local_linux_access_opens_gui_without_a_tunnel(self) -> None:
+        access = {
+            "type": "linux-host-http",
+            "host": "127.0.0.1",
+            "scheme": "https",
+            "remote_port": 3001,
+            "path": "/",
+        }
+        output = io.StringIO()
+        with (
+            patch("hyops.blueprint.command.open_operator_url") as open_url,
+            redirect_stdout(output),
+        ):
+            rc = _run_local_linux_access(
+                ns=SimpleNamespace(automation=False, route_lab=False, no_browser=False),
+                payload={"blueprint_ref": "linux/containerlab@v1"},
+                paths=SimpleNamespace(root=Path("/tmp/env")),
+                access=access,
+            )
+
+        self.assertEqual(rc, 0)
+        open_url.assert_called_once_with("https://127.0.0.1:3001/")
+        self.assertIn("opening local Containerlab access", output.getvalue())
+
     def test_session_limit_requires_explicit_protected_release(self) -> None:
         payload = {"blueprint_ref": "gcp/eve-ng@v1"}
         self.assertEqual(

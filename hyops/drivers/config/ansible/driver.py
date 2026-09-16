@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,31 @@ from .runtime_env import (
 _DRIVER_DIR = Path(__file__).resolve().parent
 _PROFILES_DIR = _DRIVER_DIR / "profiles"
 _PGHA_MODULE_REFS = {"platform/postgresql-ha", "platform/onprem/postgresql-ha"}
+
+
+def _ensure_local_privilege(inputs: dict[str, Any]) -> str:
+    if not as_bool(inputs.get("local_execution"), default=False):
+        return ""
+    if not as_bool(inputs.get("become"), default=True):
+        return ""
+    sudo = shutil.which("sudo")
+    if not sudo:
+        return "local privileged execution requires sudo"
+    cached = subprocess.run(
+        [sudo, "-n", "true"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if cached.returncode == 0:
+        return ""
+    if not sys.stdin or not sys.stdin.isatty():
+        return "local privileged execution requires an interactive sudo session"
+    refreshed = subprocess.run([sudo, "-v"], check=False)
+    if refreshed.returncode != 0:
+        return "local privilege confirmation failed"
+    return ""
 
 
 def _should_load_vault_env(
@@ -503,6 +529,11 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         }
         ev.write_json("driver_result.json", result)
         return result
+
+    if command_name in {"apply", "destroy", "plan"}:
+        privilege_error = _ensure_local_privilege(inputs)
+        if privilege_error:
+            return _fail(ev, result, privilege_error)
 
     args, label, err_msg = resolve_execution_args(command_name, ansible_cfg)
     argv = build_playbook_argv(

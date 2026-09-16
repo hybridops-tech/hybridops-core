@@ -239,16 +239,25 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             "ssh-tcp-forward",
             "gcp-iap-http",
             "gcp-iap-ssh-forward",
+            "linux-host-http",
         }:
             raise ValueError(
                 "access.type must be direct-http, ssh-forward, ssh-tcp-forward, "
-                "gcp-iap-http, or gcp-iap-ssh-forward"
+                "gcp-iap-http, gcp-iap-ssh-forward, or linux-host-http"
             )
+        state_ref = str(raw_access.get("state_ref") or "").strip()
+        if access_type != "linux-host-http":
+            state_ref = as_non_empty_string(
+                raw_access.get("state_ref"), "access.state_ref"
+            )
+        scheme = str(raw_access.get("scheme") or "http").strip().lower()
+        if scheme not in {"http", "https"}:
+            raise ValueError("access.scheme must be http or https")
         access = {
             "type": access_type,
-            "state_ref": as_non_empty_string(
-                raw_access.get("state_ref"), "access.state_ref"
-            ),
+            "state_ref": state_ref,
+            "host": str(raw_access.get("host") or "").strip(),
+            "scheme": scheme,
             "remote_port": int(raw_access.get("remote_port") or 80),
             "local_port": int(raw_access.get("local_port") or 0),
             "path": str(raw_access.get("path") or "/").strip() or "/",
@@ -292,6 +301,14 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
             if not access["ssh_key_file"]:
                 raise ValueError(
                     "access.ssh_key_file is required for SSH-forward access"
+                )
+        if access_type == "linux-host-http":
+            if not access["host"]:
+                raise ValueError("access.host is required for linux-host-http")
+            local_hosts = {"localhost", "127.0.0.1", "::1"}
+            if access["host"] not in local_hosts:
+                raise ValueError(
+                    "access.host must be loopback for linux-host-http"
                 )
         if access["native_console_mode"] not in {"", "eve-ng-qemu", "gns3-api"}:
             raise ValueError(

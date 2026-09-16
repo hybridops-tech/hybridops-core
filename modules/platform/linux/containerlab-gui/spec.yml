@@ -1,0 +1,77 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/containerlab-gui"
+
+metadata:
+  title: "Linux Containerlab GUI"
+  description: "Run pinned Containerlab API and web GUI components on an existing Containerlab host."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    local_execution: false
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+    containerlab_gui_role_fqcn: "hybridops.app.containerlab_gui"
+    containerlab_gui_action: "present"
+    containerlab_gui_operator_user: "opsadmin"
+    containerlab_gui_manage_operator_password: false
+    containerlab_gui_operator_password: ""
+    containerlab_gui_operator_password_env: ""
+    containerlab_gui_labs_dir: "/var/lib/hybridops/containerlab/labs"
+    containerlab_gui_state_dir: "/var/lib/hybridops/containerlab/gui"
+    containerlab_gui_api_name: "hyops-containerlab-api"
+    containerlab_gui_api_image: "ghcr.io/srl-labs/clab-api-server/clab-api-server:v0.6.0"
+    containerlab_gui_api_port: 8090
+    containerlab_gui_api_user_group: "clab_api"
+    containerlab_gui_api_superuser_group: "clab_admins"
+    containerlab_gui_web_name: "hyops-containerlab-web"
+    containerlab_gui_web_image: "ghcr.io/srl-labs/containerlab-web:0.2.2"
+    containerlab_gui_web_port: 3001
+    containerlab_gui_health_timeout_s: 60
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/64-containerlab-gui@v1.0"
+
+outputs:
+  publish:
+    - cap.lab.containerlab.gui
+    - containerlab_gui_status
+    - containerlab_gui_api_endpoint
+    - containerlab_gui_web_endpoint
+    - containerlab_gui_api_image
+    - containerlab_gui_api_image_id
+    - containerlab_gui_web_image
+    - containerlab_gui_web_image_id
+
+probes: []
+constraints: []

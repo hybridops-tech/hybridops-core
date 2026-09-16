@@ -1543,6 +1543,53 @@ def _run_device_web(
             _stop_process(session["proc"])
 
 
+def _run_direct_device_web(
+    ns,
+    *,
+    automation: dict[str, Any],
+    targets: list[dict[str, Any]],
+) -> int:
+    requests = _device_web_requests(ns, automation, targets)
+    urls = [
+        (
+            request["label"],
+            f"{request['scheme']}://{request['address']}:{request['remote_port']}"
+            f"{request['path']}",
+        )
+        for request in requests
+    ]
+    if len(urls) == 1:
+        print(f"device web access: {urls[0][0]}")
+        print(f"URL: {urls[0][1]}")
+    else:
+        print(f"device web access: {len(urls)} targets")
+        for label, url in urls:
+            print(f"- {label}  {url}")
+    open_all = bool(getattr(ns, "open_all", False))
+    no_browser = bool(getattr(ns, "no_browser", False))
+    if len(urls) > 1 and not no_browser and not open_all:
+        print("browser: not opened; use --open-all to open every URL")
+    if not no_browser and (len(urls) == 1 or open_all):
+        for _label, url in urls:
+            open_operator_url(url)
+    return 0
+
+
+def _device_access_mode(material: dict[str, Any]) -> str:
+    raw_path = material.get("session_file")
+    if not raw_path:
+        return "proxy"
+    path = Path(raw_path)
+    if not path.is_file():
+        return "proxy"
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return "proxy"
+    mode = str(payload.get("access_mode") or "proxy").strip().lower()
+    return mode if mode in {"direct", "proxy"} else "proxy"
+
+
 def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
     required = {
         "SSH configuration": Path(material["ssh_config"]),
@@ -1581,6 +1628,9 @@ def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
     if proxy:
         environment["ALL_PROXY"] = proxy
         environment["all_proxy"] = proxy
+    else:
+        environment.pop("ALL_PROXY", None)
+        environment.pop("all_proxy", None)
     return environment
 
 
@@ -1635,23 +1685,24 @@ def run_device(ns) -> int:
         if not ssh:
             raise ValueError("ssh is required; run: hyops setup base")
 
+        access_mode = _device_access_mode(material)
+
         if action == "ping":
             count = int(getattr(ns, "count", 3) or 3)
             if not 1 <= count <= 20:
                 raise ValueError("--count must be between 1 and 20")
             address, _target = _resolve_device_target(ns.target, automation, targets)
-            result = subprocess.run(
-                [
+            command = ["ping", "-c", str(count), "--", address]
+            if access_mode != "direct":
+                command = [
                     ssh,
                     "-F",
                     str(ssh_config),
                     str(material["gateway_alias"]),
-                    "ping",
-                    "-c",
-                    str(count),
-                    "--",
-                    address,
-                ],
+                    *command,
+                ]
+            result = subprocess.run(
+                command,
                 cwd=str(Path.home()),
                 check=False,
             )
@@ -1685,6 +1736,12 @@ def run_device(ns) -> int:
                 print(f"edit: {_device_edit_command(ns)}")
             return int(result.returncode)
         if action == "web":
+            if access_mode == "direct":
+                return _run_direct_device_web(
+                    ns,
+                    automation=automation,
+                    targets=targets,
+                )
             return _run_device_web(
                 ns,
                 ssh=ssh,
@@ -3015,6 +3072,81 @@ def _read_automation_leases(
     return result.stdout if result.returncode == 0 else ""
 
 
+def _read_local_automation_state(automation: dict[str, Any]) -> str:
+    if automation.get("discovery_mode") != "containerlab-inspect":
+        lease_file = str(automation.get("lease_file") or "").strip()
+        if not lease_file:
+            return ""
+        try:
+            return Path(lease_file).read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    containerlab = shutil.which("containerlab")
+    if not containerlab:
+        raise ValueError("containerlab is unavailable; deploy the blueprint first")
+    commands = (
+        [containerlab, "inspect", "--all", "-f", "json"],
+        ["sudo", "-n", containerlab, "inspect", "--all", "-f", "json"],
+    )
+    for command in commands:
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(Path.home()),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=20,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0:
+            return result.stdout
+    sudo = shutil.which("sudo")
+    if sudo and sys.stdin and sys.stdin.isatty():
+        refreshed = subprocess.run([sudo, "-v"], check=False)
+        if refreshed.returncode == 0:
+            result = subprocess.run(
+                [sudo, "-n", containerlab, "inspect", "--all", "-f", "json"],
+                cwd=str(Path.home()),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=20,
+                check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout
+    raise ValueError(
+        "Containerlab runtime state is not readable by the current user; "
+        "start a new shell after deployment, then retry"
+    )
+
+
+def _prepare_local_automation_access(
+    *,
+    ns,
+    payload: dict[str, Any],
+    paths,
+    automation: dict[str, Any],
+) -> dict[str, Any]:
+    discovery_text = _read_local_automation_state(automation)
+    return prepare_automation_session(
+        paths=paths,
+        blueprint_ref=str(payload.get("blueprint_ref") or "blueprint"),
+        env_name=str(getattr(ns, "env", "") or Path(paths.root).name),
+        automation=automation,
+        gateway=None,
+        lease_text=discovery_text,
+        discovery_text=discovery_text,
+        target_file_override=str(getattr(ns, "targets", "") or ""),
+        trust_scope=new_run_id("device-access"),
+        direct=True,
+    )
+
+
 def _prepare_automation_access(
     *,
     ns,
@@ -3106,8 +3238,11 @@ def _print_automation_access(
     else:
         print("device discovery: watching management-network DHCP leases")
     print("device commands: hyops blueprint device --help")
+    if session.get("access_mode") == "direct":
+        print("device access: direct")
     if verbose_enabled():
-        print(f"device proxy: {session['socks_proxy']}")
+        if session.get("socks_proxy"):
+            print(f"device proxy: {session['socks_proxy']}")
         print(f"static target overrides: {session['target_file']}")
         print(f"SSH and VS Code config: {session['ssh_config']}")
         print(f"automation inventory: {session['inventory']}")
@@ -3439,6 +3574,37 @@ def _combine_maintenance(
     return run
 
 
+def _run_local_linux_access(
+    *,
+    ns,
+    payload: dict[str, Any],
+    paths,
+    access: dict[str, Any],
+) -> int:
+    host = str(access.get("host") or "").strip()
+    if host not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("linux-host-http currently requires a local Linux or WSL host")
+    scheme = str(access.get("scheme") or "http").strip()
+    remote_port = int(access.get("remote_port") or 80)
+    path = str(access.get("path") or "/")
+    url_host = "[::1]" if host == "::1" else "127.0.0.1"
+    url = f"{scheme}://{url_host}:{remote_port}{path}"
+    automation = _automation_settings(access, ns)
+    if automation:
+        session = _prepare_local_automation_access(
+            ns=ns,
+            payload=payload,
+            paths=paths,
+            automation=automation,
+        )
+        _print_automation_access(automation, session)
+    print("opening local Containerlab access")
+    print(f"URL: {url}")
+    if not bool(getattr(ns, "no_browser", False)):
+        open_operator_url(url)
+    return 0
+
+
 def run_access(ns) -> int:
     native_console_stop: Callable[[], None] | None = None
     session_record: dict[str, Any] | None = None
@@ -3451,6 +3617,14 @@ def run_access(ns) -> int:
             raise ValueError("blueprint does not declare an access path")
         require_runtime_selection(ns.root, getattr(ns, "env", None), command_label="hyops blueprint access")
         paths = resolve_runtime_paths(ns.root, getattr(ns, "env", None))
+        access_type = str(access.get("type") or "").strip()
+        if access_type == "linux-host-http":
+            return _run_local_linux_access(
+                ns=ns,
+                payload=payload,
+                paths=paths,
+                access=access,
+            )
         state_ref = str(access.get("state_ref") or "").strip()
         module_ref, state_instance = split_module_state_ref(state_ref)
         state = read_module_state(paths.state_dir, module_ref, state_instance=state_instance)
@@ -3476,8 +3650,8 @@ def run_access(ns) -> int:
         vm = next(iter(vms.values()))
         if not isinstance(vm, dict):
             raise ValueError(f"VM output is invalid in state {state_ref}")
-        access_type = str(access.get("type") or "").strip()
         remote_port = int(access.get("remote_port") or 80)
+        scheme = str(access.get("scheme") or "http").strip()
         path = str(access.get("path") or "/")
         automation = _automation_settings(access, ns)
 
@@ -3488,7 +3662,7 @@ def run_access(ns) -> int:
             if access_type == "direct-http":
                 if automation:
                     raise ValueError("device automation access requires an SSH-forward access path")
-                url = f"http://{host}:{remote_port}{path}"
+                url = f"{scheme}://{host}:{remote_port}{path}"
                 print("opening direct EVE-NG access")
                 print(f"URL: {url}")
                 _print_guest_network_guidance(access)
@@ -3567,7 +3741,7 @@ def run_access(ns) -> int:
             port = _available_local_port(requested_port)
             if requested_port:
                 _require_local_ports_available([port])
-            url = f"http://127.0.0.1:{port}{path}"
+            url = f"{scheme}://127.0.0.1:{port}{path}"
             automation_session: dict[str, Any] | None = None
             socks_port = 0
             gateway = {
@@ -3746,7 +3920,7 @@ def run_access(ns) -> int:
         port = _available_local_port(int(getattr(ns, "local_port", 0) or 0))
         if int(getattr(ns, "local_port", 0) or 0):
             _require_local_ports_available([port])
-        url = f"http://127.0.0.1:{port}{path}"
+        url = f"{scheme}://127.0.0.1:{port}{path}"
         gcloud = shutil.which("gcloud")
         if not gcloud:
             raise ValueError("gcloud is required; run: hyops setup gcp")

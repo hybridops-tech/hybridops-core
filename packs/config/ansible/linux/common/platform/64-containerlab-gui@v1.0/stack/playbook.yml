@@ -1,0 +1,29 @@
+---
+- name: platform/linux/containerlab-gui
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Configure Containerlab GUI
+      ansible.builtin.include_role:
+        name: "{{ containerlab_gui_role_fqcn }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.lab.containerlab.gui': 'ready',
+            'containerlab_gui_status': containerlab_gui_result.status,
+            'containerlab_gui_api_endpoint': containerlab_gui_result.api_endpoint,
+            'containerlab_gui_web_endpoint': containerlab_gui_result.web_endpoint,
+            'containerlab_gui_api_image': containerlab_gui_result.api_image,
+            'containerlab_gui_api_image_id': containerlab_gui_result.api_image_id,
+            'containerlab_gui_web_image': containerlab_gui_result.web_image,
+            'containerlab_gui_web_image_id': containerlab_gui_result.web_image_id
+          } | to_json }}

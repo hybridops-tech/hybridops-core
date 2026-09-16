@@ -11,6 +11,7 @@ private network
   -> execution host
   -> Containerlab runtime
   -> native topology deployment
+  -> private browser interface
   -> health verification
   -> recovery gate
 ```
@@ -19,6 +20,7 @@ The executable contract is [blueprint.yml](blueprint.yml). Initialise an environ
 
 ```bash
 hyops blueprint init --env <env> --ref gcp/containerlab@v1 --edit
+hyops secrets ensure --env <env> CONTAINERLAB_GUI_PASSWORD
 ```
 
 Container images remain native references in the topology. The blueprint can
@@ -33,18 +35,15 @@ reference to the single discovered L3 image.
 
 ## Access and recovery
 
-Private host access and direct node automation are exposed through the
-`hyops blueprint access` command. Save device changes to native startup
-configuration before recovery. During protected destroy, the recovery gate
+The `hyops blueprint access` command opens the private browser interface and
+can prepare direct node automation through the same IAP session. Sign in with
+`opsadmin` and the stored `CONTAINERLAB_GUI_PASSWORD`. Save device changes to
+native startup configuration before recovery. During protected destroy, the recovery gate
 requests Containerlab's supported configuration export and retains the
 inspected native lab directory with the declared source tree. The recovery set
 is copied off the host and verified before compute release. The next deployment
 restores the latest verified set. `hyops blueprint rebuild` performs those
 phases as one operation.
-
-Containerlab provides optional VS Code, desktop and web interfaces. The desktop
-and web interfaces require `clab-api-server`; this blueprint does not install or
-expose that service.
 
 ## Documentation
 

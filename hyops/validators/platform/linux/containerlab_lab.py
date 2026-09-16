@@ -105,6 +105,7 @@ def validate(inputs: dict[str, Any]) -> None:
         module_ref="platform/linux/containerlab-lab",
         require_ubuntu=True,
         require_eveng=False,
+        allow_ubuntu_24=True,
     )
     require_non_empty_str(
         data.get("containerlab_lab_role_fqcn"),

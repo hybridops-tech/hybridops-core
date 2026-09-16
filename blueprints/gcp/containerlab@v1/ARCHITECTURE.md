@@ -29,6 +29,7 @@ HybridOps is responsible for:
 - private GCP infrastructure
 - nested virtualisation and KVM readiness
 - Containerlab version and package verification
+- private access to the Containerlab browser interface
 - image reachability checks
 - VM lifetime and cost context
 - recovery policy

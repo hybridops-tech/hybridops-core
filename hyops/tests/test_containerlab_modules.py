@@ -27,6 +27,19 @@ class ContainerlabModuleContractTest(TestCase):
         defaults = spec["inputs"]["defaults"]
         self.assertEqual(defaults["containerlab_healthcheck_expected_version"], "0.78.0")
 
+    def test_gui_uses_pinned_official_images(self) -> None:
+        spec = self._spec("containerlab-gui")
+        defaults = spec["inputs"]["defaults"]
+        self.assertEqual(
+            defaults["containerlab_gui_api_image"],
+            "ghcr.io/srl-labs/clab-api-server/clab-api-server:v0.6.0",
+        )
+        self.assertEqual(
+            defaults["containerlab_gui_web_image"],
+            "ghcr.io/srl-labs/containerlab-web:0.2.2",
+        )
+        self.assertEqual(defaults["containerlab_gui_web_port"], 3001)
+
     def test_native_labdir_contract_is_shared_and_separate_from_source(self) -> None:
         lab = self._spec("containerlab-lab")["inputs"]["defaults"]
         health = self._spec("containerlab-healthcheck")["inputs"]["defaults"]
@@ -154,6 +167,8 @@ class ContainerlabModuleContractTest(TestCase):
                 ("62-containerlab-healthcheck@v1.0", "playbook.yml"),
                 ("63-containerlab-recovery@v1.0", "playbook.yml"),
                 ("63-containerlab-recovery@v1.0", "destroy.playbook.yml"),
+                ("64-containerlab-gui@v1.0", "playbook.yml"),
+                ("64-containerlab-gui@v1.0", "destroy.playbook.yml"),
             )
         ]
         direct_self_binding = re.compile(
@@ -177,4 +192,4 @@ class ContainerlabModuleContractTest(TestCase):
             app["repo"],
             "https://github.com/hybridops-tech/ansible-collection-app.git",
         )
-        self.assertEqual(app["ref"], "d42265fb28a56cdc3df0e1791f42ab5dc049a4ad")
+        self.assertEqual(app["ref"], "3276eaa3011777c64982f1b7d9f35687b5f7ab1d")

@@ -6,6 +6,10 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added a local Ubuntu and WSL2 Containerlab blueprint with direct device
+  automation material and a pinned browser interface.
+- Added local Linux execution support for Containerlab modules without an SSH
+  loopback dependency.
 - Added checksum-verified loading of operator-supplied Containerlab image
   archives when their expected images are absent from a managed host.
 - Added managed-host Containerlab builds for operator-supplied Cisco IOL-XE
@@ -36,6 +40,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Opened local blueprint URLs in the Windows browser through the existing WSL
+  browser bridge.
 - Preserved and restored inspected Containerlab native lab-directory state so
   Cisco IOL NVRAM survives disposable-host reconstruction.
 - Scoped private device SSH trust to each automation access session so rebuilt

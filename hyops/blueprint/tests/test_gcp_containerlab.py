@@ -12,7 +12,7 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.path = root / "blueprints" / "gcp" / "containerlab@v1" / "blueprint.yml"
         self.blueprint = validate_blueprint(load_blueprint(self.path), self.path)
 
-    def test_private_six_stage_chain(self) -> None:
+    def test_private_seven_stage_chain(self) -> None:
         self.assertEqual(
             [step["id"] for step in self.blueprint["steps"]],
             [
@@ -20,6 +20,7 @@ class GCPContainerlabBlueprintTest(TestCase):
                 "gcp_containerlab_vm",
                 "gcp_containerlab_runtime",
                 "gcp_containerlab_lab",
+                "gcp_containerlab_gui",
                 "gcp_containerlab_healthcheck",
                 "gcp_containerlab_recovery_guard",
             ],
@@ -48,8 +49,8 @@ class GCPContainerlabBlueprintTest(TestCase):
 
     def test_source_tree_is_separate_from_native_generated_labdir(self) -> None:
         lab = self.blueprint["steps"][3]["inputs"]
-        health = self.blueprint["steps"][4]["inputs"]
-        recovery = self.blueprint["steps"][5]["inputs"]
+        health = self.blueprint["steps"][5]["inputs"]
+        recovery = self.blueprint["steps"][6]["inputs"]
 
         source_root = lab["containerlab_lab_remote_dir"]
         labdir_base = lab["containerlab_lab_labdir_base"]
@@ -69,7 +70,7 @@ class GCPContainerlabBlueprintTest(TestCase):
 
     def test_recovery_guard_is_last_and_automatic(self) -> None:
         self.assertFalse(self.blueprint["archive_before_destroy"])
-        recovery = self.blueprint["steps"][5]
+        recovery = self.blueprint["steps"][6]
         inputs = recovery["inputs"]
         self.assertEqual(recovery["requires"], ["gcp_containerlab_healthcheck"])
         self.assertTrue(recovery["destroy_gate"])
@@ -95,7 +96,7 @@ class GCPContainerlabBlueprintTest(TestCase):
 
     def test_runtime_and_recovery_require_kvm_capable_host(self) -> None:
         runtime = self.blueprint["steps"][2]["inputs"]
-        health = self.blueprint["steps"][4]["inputs"]
+        health = self.blueprint["steps"][5]["inputs"]
         self.assertEqual(runtime["containerlab_version"], "0.78.0")
         self.assertEqual(runtime["containerlab_package_checksum"], "")
         self.assertTrue(runtime["containerlab_require_kvm"])
@@ -105,13 +106,26 @@ class GCPContainerlabBlueprintTest(TestCase):
     def test_access_is_private_ssh_endpoint_with_destroy_offer(self) -> None:
         access = self.blueprint["access"]
         self.assertEqual(access["type"], "gcp-iap-ssh-forward")
-        self.assertEqual(access["remote_port"], 22)
-        self.assertFalse(access["open_browser"])
+        self.assertEqual(access["scheme"], "https")
+        self.assertEqual(access["remote_port"], 3001)
+        self.assertTrue(access["open_browser"])
         self.assertTrue(access["offer_destroy_on_close"])
         automation = access["automation"]
         self.assertEqual(automation["discovery_mode"], "containerlab-inspect")
         self.assertEqual(automation["management_cidr"], "172.20.20.0/24")
         self.assertEqual(automation["management_gateway"], "172.20.20.1")
+
+    def test_gui_uses_vault_password_and_pinned_images(self) -> None:
+        gui = self.blueprint["steps"][4]
+        inputs = gui["inputs"]
+        self.assertEqual(gui["module_ref"], "platform/linux/containerlab-gui")
+        self.assertTrue(inputs["load_vault_env"])
+        self.assertEqual(inputs["required_env"], ["CONTAINERLAB_GUI_PASSWORD"])
+        self.assertTrue(inputs["containerlab_gui_manage_operator_password"])
+        self.assertEqual(
+            inputs["containerlab_gui_operator_password_env"],
+            "CONTAINERLAB_GUI_PASSWORD",
+        )
 
     def test_iol_example_is_self_contained(self) -> None:
         example_root = self.path.parent / "examples" / "two-node-iol"

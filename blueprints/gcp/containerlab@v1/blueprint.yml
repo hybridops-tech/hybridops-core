@@ -15,12 +15,16 @@ policy:
   evidence_required: true
   ipam_authority: "none"
 
+recoverable_secrets:
+  - "CONTAINERLAB_GUI_PASSWORD"
+
 access:
   type: "gcp-iap-ssh-forward"
   state_ref: "platform/gcp/platform-vm#gcp_containerlab_vm"
-  remote_port: 22
-  local_port: 2222
-  open_browser: false
+  scheme: "https"
+  remote_port: 3001
+  local_port: 0
+  open_browser: true
   ssh_user: "opsadmin"
   ssh_key_file: "~/.ssh/id_ed25519"
   offer_destroy_on_close: true
@@ -188,13 +192,49 @@ steps:
       containerlab_lab_restore_latest: true
       containerlab_lab_restore_require_source_match: true
 
+  - id: gcp_containerlab_gui
+    module_ref: "platform/linux/containerlab-gui"
+    state_instance: "gcp_containerlab_gui"
+    action: "deploy"
+    phase: "operations"
+    requires:
+      - gcp_containerlab_lab
+    with_deps: false
+    skip_if_state_ok: false
+    contracts:
+      addressing_mode: "static"
+    inputs:
+      inventory_state_ref: "platform/gcp/platform-vm#gcp_containerlab_vm"
+      inventory_vm_groups:
+        targets:
+          - "containerlab-01"
+      target_user: "opsadmin"
+      target_port: 22
+      ssh_private_key_file: "~/.ssh/id_ed25519"
+      ssh_access_mode: "gcp-iap"
+      connectivity_wait_s: 90
+      become: true
+      become_user: "root"
+      load_vault_env: true
+      required_env:
+        - "CONTAINERLAB_GUI_PASSWORD"
+      containerlab_gui_operator_user: "opsadmin"
+      containerlab_gui_manage_operator_password: true
+      containerlab_gui_operator_password_env: "CONTAINERLAB_GUI_PASSWORD"
+      containerlab_gui_labs_dir: "/var/lib/hybridops/containerlab/labs"
+      containerlab_gui_state_dir: "/var/lib/hybridops/containerlab/gui"
+      containerlab_gui_api_image: "ghcr.io/srl-labs/clab-api-server/clab-api-server:v0.6.0"
+      containerlab_gui_web_image: "ghcr.io/srl-labs/containerlab-web:0.2.2"
+      containerlab_gui_api_port: 8090
+      containerlab_gui_web_port: 3001
+
   - id: gcp_containerlab_healthcheck
     module_ref: "platform/linux/containerlab-healthcheck"
     state_instance: "gcp_containerlab_healthcheck"
     action: "deploy"
     phase: "operations"
     requires:
-      - gcp_containerlab_lab
+      - gcp_containerlab_gui
     with_deps: false
     skip_if_state_ok: false
     contracts:

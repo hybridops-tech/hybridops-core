@@ -13,6 +13,7 @@ requirements:
 inputs:
   defaults:
     target_host: ""
+    local_execution: false
     target_state_ref: ""
     target_vm_key: ""
     inventory_groups: {}

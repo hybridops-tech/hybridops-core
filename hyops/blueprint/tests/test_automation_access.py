@@ -155,6 +155,47 @@ class AutomationAccessTests(unittest.TestCase):
             target_payload = yaml.safe_load(session["target_file"].read_text())
             self.assertEqual(target_payload["targets"][0]["host"], "172.29.128.51")
 
+    def test_direct_session_has_no_gateway_or_proxy(self) -> None:
+        automation = dict(
+            self.automation,
+            discovery_mode="containerlab-inspect",
+            management_network_label="clab",
+            management_cidr="172.20.20.0/24",
+            management_gateway="172.20.20.1",
+            management_dhcp_range="",
+            lease_file="",
+        )
+        discovery = json.dumps(
+            {
+                "demo": [
+                    {
+                        "name": "clab-demo-r1",
+                        "kind": "cisco_iol",
+                        "ipv4_address": "172.20.20.2/24",
+                    }
+                ]
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = prepare_automation_session(
+                paths=SimpleNamespace(root=root, config_dir=root / "config"),
+                blueprint_ref="linux/containerlab@v1",
+                env_name="containerlab-local",
+                automation=automation,
+                gateway=None,
+                discovery_text=discovery,
+                direct=True,
+            )
+
+            ssh_config = session["ssh_config"].read_text(encoding="utf-8")
+            self.assertNotIn("ProxyJump", ssh_config)
+            self.assertIn("HostName 172.20.20.2", ssh_config)
+            self.assertEqual(session["access_mode"], "direct")
+            self.assertEqual(session["socks_proxy"], "")
+            environment = _device_process_environment(session)
+            self.assertNotIn("ALL_PROXY", environment)
+
     def test_device_trust_is_scoped_to_the_access_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

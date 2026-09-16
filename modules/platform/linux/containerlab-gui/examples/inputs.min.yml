@@ -1,0 +1,6 @@
+target_host: "127.0.0.1"
+local_execution: true
+target_user: "local"
+connectivity_check: false
+containerlab_gui_operator_user: "{{ ansible_user_id }}"
+containerlab_gui_labs_dir: "/var/lib/hybridops/containerlab/labs"
