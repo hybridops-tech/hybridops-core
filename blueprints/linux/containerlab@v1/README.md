@@ -31,7 +31,10 @@ The GUI uses the current Linux account. On WSL2, use the Ubuntu account and
 password created during HybridOps.Core installation.
 
 Protected teardown retains a verified recovery set. The next interactive
-deploy offers recovery or a clean deployment.
+deploy offers recovery or a clean deployment. If the archived topology differs
+from the controller source, select the authoritative version. Unattended runs
+use `--restore-labs` for the archive or `--skip-lab-restore` for the controller
+source.
 
 ## Documentation
 

@@ -43,7 +43,10 @@ requests Containerlab's supported configuration export and retains the
 inspected native lab directory with the declared source tree. The recovery set
 is copied off the host and verified before compute release. The next deployment
 restores the latest verified set. `hyops blueprint rebuild` performs those
-phases as one operation.
+phases as one operation. If the archived topology differs from the controller
+source, interactive deployment asks which one is authoritative. Unattended
+runs use `--restore-labs` for the archive or `--skip-lab-restore` for the
+controller source.
 
 ## Documentation
 

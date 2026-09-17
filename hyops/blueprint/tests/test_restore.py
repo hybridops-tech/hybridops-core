@@ -47,26 +47,38 @@ def _payload():
     }
 
 
-def _containerlab_payload():
+def _containerlab_payload(source_dir: Path | None = None):
+    inputs = {
+        "containerlab_lab_restore_latest": True,
+        "containerlab_lab_restore_require_source_match": True,
+        "containerlab_lab_topology_relpath": "lab.clab.yml",
+    }
+    if source_dir is not None:
+        inputs["containerlab_lab_source_dir"] = str(source_dir)
     return {
         "steps": [
             {
                 "id": "containerlab_lab",
                 "module_ref": "platform/linux/containerlab-lab",
                 "state_instance": "containerlab_lab",
-                "inputs": {"containerlab_lab_restore_latest": True},
+                "inputs": inputs,
             }
         ]
     }
 
 
-def _containerlab_recovery_files(root: Path) -> None:
+def _containerlab_recovery_files(root: Path, topology: bytes = b"archived topology") -> None:
     recovery = root / "artifacts" / "containerlab" / "recovery"
     recovery.mkdir(parents=True)
     archive = recovery / "latest.tar.gz"
     archive.write_bytes(b"containerlab recovery")
     Path(f"{archive}.sha256").write_text("a" * 64 + "\n", encoding="utf-8")
-    Path(f"{archive}.json").write_text("{}\n", encoding="utf-8")
+    Path(f"{archive}.json").write_text(
+        '{"topology_sha256":"'
+        + hashlib.sha256(topology).hexdigest()
+        + '"}\n',
+        encoding="utf-8",
+    )
 
 
 class BlueprintLabRestoreTest(TestCase):
@@ -122,6 +134,190 @@ class BlueprintLabRestoreTest(TestCase):
         self.assertFalse(
             payload["steps"][0]["inputs"]["containerlab_lab_restore_latest"]
         )
+
+    def test_containerlab_topology_conflict_can_restore_archived_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "lab.clab.yml").write_bytes(b"controller topology")
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload(source)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            ns = _namespace(yes=False)
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("builtins.input", return_value="1"),
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    ns, payload, paths
+                )
+
+        inputs = payload["steps"][0]["inputs"]
+        self.assertTrue(handled)
+        self.assertTrue(confirmed)
+        self.assertTrue(inputs["containerlab_lab_restore_latest"])
+        self.assertFalse(inputs["containerlab_lab_restore_require_source_match"])
+
+    def test_containerlab_topology_conflict_can_use_controller_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "lab.clab.yml").write_bytes(b"controller topology")
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload(source)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            ns = _namespace(yes=False)
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("builtins.input", return_value="2"),
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    ns, payload, paths
+                )
+
+        inputs = payload["steps"][0]["inputs"]
+        self.assertTrue(handled)
+        self.assertTrue(confirmed)
+        self.assertFalse(inputs["containerlab_lab_restore_latest"])
+        self.assertTrue(inputs["containerlab_lab_restore_require_source_match"])
+
+    def test_containerlab_matching_topology_uses_standard_restore_choice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            topology = b"matching topology"
+            (source / "lab.clab.yml").write_bytes(topology)
+            _containerlab_recovery_files(root, topology)
+            payload = _containerlab_payload(source)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            ns = _namespace(yes=False)
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("builtins.input", return_value="1"),
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    ns, payload, paths
+                )
+
+        inputs = payload["steps"][0]["inputs"]
+        self.assertTrue(handled)
+        self.assertTrue(confirmed)
+        self.assertTrue(inputs["containerlab_lab_restore_latest"])
+        self.assertTrue(inputs["containerlab_lab_restore_require_source_match"])
+
+    def test_containerlab_explicit_restore_accepts_archived_topology(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "lab.clab.yml").write_bytes(b"controller topology")
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload(source)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with patch(
+                "hyops.blueprint.command.module_state_status",
+                return_value="destroyed",
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    _namespace(restore_labs=True), payload, paths
+                )
+
+        inputs = payload["steps"][0]["inputs"]
+        self.assertTrue(handled)
+        self.assertFalse(confirmed)
+        self.assertTrue(inputs["containerlab_lab_restore_latest"])
+        self.assertFalse(inputs["containerlab_lab_restore_require_source_match"])
+
+    def test_containerlab_unattended_topology_conflict_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "lab.clab.yml").write_bytes(b"controller topology")
+            _containerlab_recovery_files(root)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                self.assertRaisesRegex(ValueError, "--restore-labs"),
+            ):
+                _configure_containerlab_restore(
+                    _namespace(yes=True), _containerlab_payload(source), paths
+                )
+
+    def test_containerlab_missing_controller_topology_can_restore_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "missing-source"
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload(source)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            ns = _namespace(yes=False)
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("builtins.input", return_value="1"),
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    ns, payload, paths
+                )
+
+        inputs = payload["steps"][0]["inputs"]
+        self.assertTrue(handled)
+        self.assertTrue(confirmed)
+        self.assertTrue(inputs["containerlab_lab_restore_latest"])
+        self.assertFalse(inputs["containerlab_lab_restore_require_source_match"])
+
+    def test_containerlab_invalid_topology_metadata_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "lab.clab.yml").write_bytes(b"controller topology")
+            _containerlab_recovery_files(root)
+            metadata = (
+                root
+                / "artifacts"
+                / "containerlab"
+                / "recovery"
+                / "latest.tar.gz.json"
+            )
+            metadata.write_text("{}\n", encoding="utf-8")
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                self.assertRaisesRegex(ValueError, "no valid topology identity"),
+            ):
+                _configure_containerlab_restore(
+                    _namespace(), _containerlab_payload(source), paths
+                )
 
     def test_containerlab_cancel_choice_stops_deploy(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -200,6 +396,31 @@ class BlueprintLabRestoreTest(TestCase):
                     _containerlab_payload(),
                     paths,
                 )
+
+    def test_containerlab_active_overwrite_can_use_archived_topology(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "lab.clab.yml").write_bytes(b"controller topology")
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload(source)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with patch(
+                "hyops.blueprint.command.module_state_status",
+                return_value="ok",
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    _namespace(restore_labs=True, overwrite_labs=True),
+                    payload,
+                    paths,
+                )
+
+        inputs = payload["steps"][0]["inputs"]
+        self.assertTrue(handled)
+        self.assertFalse(confirmed)
+        self.assertTrue(inputs["containerlab_lab_restore_latest"])
+        self.assertFalse(inputs["containerlab_lab_restore_require_source_match"])
 
     def test_containerlab_incomplete_recovery_markers_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

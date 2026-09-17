@@ -4466,6 +4466,57 @@ def _containerlab_recovery_files(step: dict[str, Any], paths) -> tuple[Path, Pat
     return archive, Path(f"{archive}.sha256"), Path(f"{archive}.json")
 
 
+def _containerlab_topology_relation(
+    inputs: dict[str, Any], metadata_path: Path
+) -> tuple[str, Path | None]:
+    """Compare the controller topology with the topology in a recovery set."""
+
+    if not bool(inputs.get("containerlab_lab_restore_require_source_match", True)):
+        return "unchecked", None
+
+    source_dir = str(inputs.get("containerlab_lab_source_dir") or "").strip()
+    if not source_dir:
+        return "unchecked", None
+    topology_relpath = str(
+        inputs.get("containerlab_lab_topology_relpath") or "lab.clab.yml"
+    ).strip()
+    topology_relative = Path(topology_relpath)
+    if (
+        not topology_relpath
+        or topology_relative.is_absolute()
+        or ".." in topology_relative.parts
+    ):
+        raise ValueError(
+            "Containerlab topology path must stay within the controller source"
+        )
+    source_path = Path(source_dir).expanduser() / topology_relative
+
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"Containerlab recovery metadata is invalid: {metadata_path}"
+        ) from exc
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Containerlab recovery metadata is invalid: {metadata_path}")
+    archived_sha256 = str(metadata.get("topology_sha256") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", archived_sha256):
+        raise ValueError(
+            "Containerlab recovery metadata has no valid topology identity"
+        )
+    if not source_path.is_file():
+        return "unavailable", source_path
+
+    digest = hashlib.sha256()
+    with source_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return (
+        "match" if digest.hexdigest() == archived_sha256 else "different",
+        source_path,
+    )
+
+
 def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple[bool, bool]:
     """Resolve Containerlab recovery before step inputs are materialised.
 
@@ -4513,8 +4564,20 @@ def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple
             "restoring Containerlab recovery state over an active lab requires --overwrite-labs"
         )
 
+    topology_relation = "unchecked"
+    source_topology: Path | None = None
+    if available and not skipped and (
+        requested or (not target_active and restore_default)
+    ):
+        topology_relation, source_topology = _containerlab_topology_relation(
+            inputs, metadata
+        )
+    topology_conflict = topology_relation in {"different", "unavailable"}
+
     if requested:
         inputs["containerlab_lab_restore_latest"] = True
+        if topology_conflict:
+            inputs["containerlab_lab_restore_require_source_match"] = False
         setattr(ns, "_containerlab_restore_handled", True)
         return True, False
     if skipped:
@@ -4531,6 +4594,52 @@ def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple
         return True, False
 
     setattr(ns, "_containerlab_restore_handled", True)
+    if topology_conflict:
+        if (
+            bool(getattr(ns, "yes", False))
+            or bool(getattr(ns, "json", False))
+            or not (sys.stdin.isatty() and sys.stdout.isatty())
+        ):
+            raise ValueError(
+                "Containerlab recovery and controller topologies differ; rerun "
+                "with --restore-labs to use the archived topology or "
+                "--skip-lab-restore to use the controller topology"
+            )
+
+        print(f"verified recovery state: {archive}")
+        if topology_relation == "different":
+            print(f"topology differs from controller source: {source_topology}")
+            print("  1. Restore the archived topology and saved state")
+            print("  2. Deploy the controller topology without saved state")
+            print("  3. Cancel")
+            choices = {"1": "restore", "2": "source", "3": "cancel"}
+            prompt = "Choose [1-3]: "
+        else:
+            print(f"controller topology is unavailable: {source_topology}")
+            print("  1. Restore the archived topology and saved state")
+            print("  2. Cancel")
+            choices = {"1": "restore", "2": "cancel"}
+            prompt = "Choose [1-2]: "
+        while True:
+            try:
+                answer = input(prompt).strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                setattr(ns, "_containerlab_restore_cancelled", True)
+                return True, True
+            selected = choices.get(answer)
+            if selected == "restore":
+                inputs["containerlab_lab_restore_latest"] = True
+                inputs["containerlab_lab_restore_require_source_match"] = False
+                return True, True
+            if selected == "source":
+                inputs["containerlab_lab_restore_latest"] = False
+                return True, True
+            if selected == "cancel":
+                setattr(ns, "_containerlab_restore_cancelled", True)
+                return True, True
+            print(f"invalid choice; enter exactly {', '.join(choices)}")
+
     if bool(getattr(ns, "yes", False)) or bool(getattr(ns, "json", False)):
         inputs["containerlab_lab_restore_latest"] = True
         return True, False

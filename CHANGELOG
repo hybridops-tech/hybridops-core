@@ -53,6 +53,9 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   typed confirmation before destroy.
 - Made retained Containerlab recovery an explicit deploy choice and prevented
   routine convergence of an active lab from replaying an older archive.
+- Resolved Containerlab topology drift before recovery by allowing interactive
+  selection of the verified archive or controller source and requiring the
+  equivalent explicit restore choice in unattended runs.
 - Revalidated SSH after Docker installation on fresh Containerlab hosts.
 - Kept staged and restored Containerlab topology trees readable by the declared
   operator account.
