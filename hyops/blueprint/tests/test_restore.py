@@ -292,6 +292,25 @@ class BlueprintLabRestoreTest(TestCase):
         self.assertTrue(inputs["containerlab_lab_restore_latest"])
         self.assertFalse(inputs["containerlab_lab_restore_require_source_match"])
 
+    def test_containerlab_skip_rejects_missing_controller_topology(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "missing-source"
+            _containerlab_recovery_files(root)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                self.assertRaisesRegex(ValueError, "controller topology is unavailable"),
+            ):
+                _configure_containerlab_restore(
+                    _namespace(skip_lab_restore=True),
+                    _containerlab_payload(source),
+                    paths,
+                )
+
     def test_containerlab_invalid_topology_metadata_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

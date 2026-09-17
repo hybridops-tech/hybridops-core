@@ -4466,17 +4466,12 @@ def _containerlab_recovery_files(step: dict[str, Any], paths) -> tuple[Path, Pat
     return archive, Path(f"{archive}.sha256"), Path(f"{archive}.json")
 
 
-def _containerlab_topology_relation(
-    inputs: dict[str, Any], metadata_path: Path
-) -> tuple[str, Path | None]:
-    """Compare the controller topology with the topology in a recovery set."""
-
-    if not bool(inputs.get("containerlab_lab_restore_require_source_match", True)):
-        return "unchecked", None
+def _containerlab_controller_topology(inputs: dict[str, Any]) -> Path | None:
+    """Return the declared controller topology without crossing its source root."""
 
     source_dir = str(inputs.get("containerlab_lab_source_dir") or "").strip()
     if not source_dir:
-        return "unchecked", None
+        return None
     topology_relpath = str(
         inputs.get("containerlab_lab_topology_relpath") or "lab.clab.yml"
     ).strip()
@@ -4489,7 +4484,20 @@ def _containerlab_topology_relation(
         raise ValueError(
             "Containerlab topology path must stay within the controller source"
         )
-    source_path = Path(source_dir).expanduser() / topology_relative
+    return Path(source_dir).expanduser() / topology_relative
+
+
+def _containerlab_topology_relation(
+    inputs: dict[str, Any], metadata_path: Path
+) -> tuple[str, Path | None]:
+    """Compare the controller topology with the topology in a recovery set."""
+
+    if not bool(inputs.get("containerlab_lab_restore_require_source_match", True)):
+        return "unchecked", None
+
+    source_path = _containerlab_controller_topology(inputs)
+    if source_path is None:
+        return "unchecked", None
 
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -4581,6 +4589,13 @@ def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple
         setattr(ns, "_containerlab_restore_handled", True)
         return True, False
     if skipped:
+        controller_topology = _containerlab_controller_topology(inputs)
+        if controller_topology is not None and not controller_topology.is_file():
+            raise ValueError(
+                "controller topology is unavailable: "
+                f"{controller_topology}; remove --skip-lab-restore or restore "
+                "the archived topology"
+            )
         inputs["containerlab_lab_restore_latest"] = False
         setattr(ns, "_containerlab_restore_handled", True)
         return True, False
