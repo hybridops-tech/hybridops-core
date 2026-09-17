@@ -1,3 +1,4 @@
+from subprocess import DEVNULL
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
@@ -29,7 +30,13 @@ class AnsibleLocalPrivilegeTest(TestCase):
                 {"local_execution": True, "become": True}
             )
         self.assertEqual(error, "")
-        self.assertEqual(run.call_count, 1)
+        run.assert_called_once_with(
+            ["/usr/bin/sudo", "-n", "true"],
+            stdin=DEVNULL,
+            stdout=DEVNULL,
+            stderr=DEVNULL,
+            check=False,
+        )
 
     def test_noninteractive_local_privilege_fails_cleanly(self) -> None:
         stdin = SimpleNamespace(isatty=lambda: False)

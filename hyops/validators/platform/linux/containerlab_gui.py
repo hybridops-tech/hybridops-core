@@ -33,7 +33,12 @@ def _require_absolute(value: Any, field: str) -> str:
 
 def _require_pinned_image(value: Any, field: str) -> str:
     image = require_non_empty_str(value, field)
-    if ":" not in image.rsplit("/", 1)[-1] or image.endswith(":latest"):
+    image_leaf = image.rsplit("/", 1)[-1]
+    if (
+        ":" not in image_leaf
+        or image_leaf.endswith(":")
+        or image.endswith(":latest")
+    ):
         raise ValueError(f"{field} must use an explicit non-latest tag")
     return image
 

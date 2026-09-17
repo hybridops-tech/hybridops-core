@@ -1,8 +1,8 @@
 # Local Linux Containerlab
 
-This blueprint runs Containerlab on Ubuntu Linux or Ubuntu 24.04 under WSL2.
-Core, Containerlab and the lab execute in the same Linux environment. On WSL2,
-the access command opens the GUI in the Windows browser.
+This blueprint runs Containerlab on Ubuntu 22.04 or 24.04, including Ubuntu
+24.04 under WSL2. Core, Containerlab and the lab execute in the same Linux
+environment. On WSL2, the access command opens the GUI in the Windows browser.
 
 ## Configure
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 import yaml
 
@@ -38,7 +39,11 @@ class ContainerlabGUIValidatorTest(TestCase):
     def test_local_operator_user_can_be_resolved_by_ansible(self) -> None:
         self.inputs["local_execution"] = True
         self.inputs["containerlab_gui_operator_user"] = "{{ ansible_user_id }}"
-        validate(self.inputs)
+        with patch(
+            "hyops.validators.platform.linux._eve_ng_common.Path.read_text",
+            return_value='ID=ubuntu\nVERSION_ID="24.04"\n',
+        ):
+            validate(self.inputs)
 
     def test_remote_operator_user_cannot_be_deferred(self) -> None:
         self.inputs["containerlab_gui_operator_user"] = "{{ ansible_user_id }}"
@@ -75,4 +80,9 @@ class ContainerlabGUIValidatorTest(TestCase):
         self.inputs["containerlab_gui_manage_operator_password"] = True
         self.inputs["containerlab_gui_operator_password"] = "bad:password"
         with self.assertRaisesRegex(ValueError, "unsupported character"):
+            validate(self.inputs)
+
+    def test_gui_image_requires_a_non_empty_tag(self) -> None:
+        self.inputs["containerlab_gui_web_image"] = "registry.example/gui:"
+        with self.assertRaisesRegex(ValueError, "explicit non-latest tag"):
             validate(self.inputs)
