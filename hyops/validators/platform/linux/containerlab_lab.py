@@ -18,6 +18,7 @@ from hyops.validators.platform.linux._eve_ng_common import validate_target_acces
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_BUILD_VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z._-]{0,63}$")
+_LINUX_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
 def _validate_local_image_archives(value: Any) -> set[str]:
@@ -115,6 +116,12 @@ def validate(inputs: dict[str, Any]) -> None:
         data.get("containerlab_lab_recovery_role_fqcn"),
         "inputs.containerlab_lab_recovery_role_fqcn",
     )
+    remote_owner = require_non_empty_str(
+        data.get("containerlab_lab_remote_owner"),
+        "inputs.containerlab_lab_remote_owner",
+    )
+    if not _LINUX_USER_RE.fullmatch(remote_owner):
+        raise ValueError("inputs.containerlab_lab_remote_owner is invalid")
     require_non_empty_str(
         data.get("containerlab_lab_image_cache_dir"),
         "inputs.containerlab_lab_image_cache_dir",
@@ -122,6 +129,10 @@ def validate(inputs: dict[str, Any]) -> None:
     require_bool(
         data.get("containerlab_lab_pull_missing_images"),
         "inputs.containerlab_lab_pull_missing_images",
+    )
+    require_bool(
+        data.get("containerlab_lab_destroy_all"),
+        "inputs.containerlab_lab_destroy_all",
     )
     archive_refs = _validate_local_image_archives(
         data.get("containerlab_lab_local_image_archives")

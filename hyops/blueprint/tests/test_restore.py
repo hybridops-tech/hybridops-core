@@ -11,6 +11,7 @@ from unittest.mock import patch
 from hyops.runtime import proc
 from hyops.blueprint.command import (
     _automatic_lab_restore_eligible,
+    _configure_containerlab_restore,
     _lab_restore_phase,
     _run_lab_restore,
     _select_lab_restore_mode,
@@ -46,7 +47,172 @@ def _payload():
     }
 
 
+def _containerlab_payload():
+    return {
+        "steps": [
+            {
+                "id": "containerlab_lab",
+                "module_ref": "platform/linux/containerlab-lab",
+                "state_instance": "containerlab_lab",
+                "inputs": {"containerlab_lab_restore_latest": True},
+            }
+        ]
+    }
+
+
+def _containerlab_recovery_files(root: Path) -> None:
+    recovery = root / "artifacts" / "containerlab" / "recovery"
+    recovery.mkdir(parents=True)
+    archive = recovery / "latest.tar.gz"
+    archive.write_bytes(b"containerlab recovery")
+    Path(f"{archive}.sha256").write_text("a" * 64 + "\n", encoding="utf-8")
+    Path(f"{archive}.json").write_text("{}\n", encoding="utf-8")
+
+
 class BlueprintLabRestoreTest(TestCase):
+    def test_containerlab_restore_choice_is_explicit_after_destroy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload()
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            ns = _namespace(yes=False)
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("builtins.input", return_value="1"),
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    ns, payload, paths
+                )
+
+        self.assertTrue(handled)
+        self.assertTrue(confirmed)
+        self.assertTrue(
+            payload["steps"][0]["inputs"]["containerlab_lab_restore_latest"]
+        )
+        self.assertTrue(ns._containerlab_restore_handled)
+
+    def test_containerlab_clean_deploy_choice_disables_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload()
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            ns = _namespace(yes=False)
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("builtins.input", return_value="2"),
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    ns, payload, paths
+                )
+
+        self.assertTrue(handled)
+        self.assertTrue(confirmed)
+        self.assertFalse(
+            payload["steps"][0]["inputs"]["containerlab_lab_restore_latest"]
+        )
+
+    def test_containerlab_cancel_choice_stops_deploy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _containerlab_recovery_files(root)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            ns = _namespace(yes=False)
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="destroyed",
+                ),
+                patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+                patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+                patch("builtins.input", return_value="3"),
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    ns, _containerlab_payload(), paths
+                )
+
+        self.assertTrue(handled)
+        self.assertTrue(confirmed)
+        self.assertTrue(ns._containerlab_restore_cancelled)
+
+    def test_containerlab_restore_flags_do_not_enter_generic_archive_flow(self):
+        ns = _namespace(restore_labs=True)
+        ns._containerlab_restore_handled = True
+
+        mode, archive = _select_lab_restore_mode(
+            ns,
+            _containerlab_payload(),
+            SimpleNamespace(),
+        )
+
+        self.assertEqual(mode, "none")
+        self.assertIsNone(archive)
+
+    def test_containerlab_active_converge_does_not_replay_old_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _containerlab_recovery_files(root)
+            payload = _containerlab_payload()
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="ok",
+                ),
+                patch("builtins.input") as prompt,
+            ):
+                handled, confirmed = _configure_containerlab_restore(
+                    _namespace(yes=False), payload, paths
+                )
+
+        self.assertTrue(handled)
+        self.assertFalse(confirmed)
+        self.assertFalse(
+            payload["steps"][0]["inputs"]["containerlab_lab_restore_latest"]
+        )
+        prompt.assert_not_called()
+
+    def test_containerlab_active_restore_requires_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _containerlab_recovery_files(root)
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with (
+                patch(
+                    "hyops.blueprint.command.module_state_status",
+                    return_value="ok",
+                ),
+                self.assertRaisesRegex(ValueError, "requires --overwrite-labs"),
+            ):
+                _configure_containerlab_restore(
+                    _namespace(restore_labs=True),
+                    _containerlab_payload(),
+                    paths,
+                )
+
+    def test_containerlab_incomplete_recovery_markers_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "artifacts" / "containerlab" / "recovery" / "latest.tar.gz"
+            archive.parent.mkdir(parents=True)
+            archive.write_bytes(b"incomplete")
+            paths = SimpleNamespace(root=root, state_dir=root / "state")
+            with self.assertRaisesRegex(ValueError, "markers are incomplete"):
+                _configure_containerlab_restore(
+                    _namespace(), _containerlab_payload(), paths
+                )
+
     def test_restore_phase_maps_long_running_tasks(self):
         self.assertEqual(
             _lab_restore_phase(

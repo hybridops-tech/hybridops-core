@@ -46,10 +46,21 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   Cisco IOL NVRAM survives disposable-host reconstruction.
 - Scoped private device SSH trust to each automation access session so rebuilt
   lab nodes can reuse management addresses without inheriting stale host keys.
+- Reconciled automatically discovered Containerlab targets when a managed
+  topology is replaced while retaining operator-defined static targets.
 - Replaced the generic confirmation for destroy-gated blueprints with an
   explicit choice between retention and verified recovery, followed by an exact
   typed confirmation before destroy.
+- Made retained Containerlab recovery an explicit deploy choice and prevented
+  routine convergence of an active lab from replaying an older archive.
 - Revalidated SSH after Docker installation on fresh Containerlab hosts.
+- Kept staged and restored Containerlab topology trees readable by the declared
+  operator account.
+- Kept local privilege prompts visible while concise progress is active.
+- Allowed local Containerlab automation discovery to use newly configured
+  Docker group membership without requiring a new login shell.
+- Scoped local Containerlab teardown to its managed topology while retaining
+  dedicated-host cleanup for disposable GCP execution.
 - Suppressed Python tracebacks when an operator cancels installation with
   `Ctrl-C`; transactional cleanup and exit status 130 are preserved.
 

@@ -203,6 +203,7 @@
       ansible.builtin.file:
         path: "{{ containerlab_lab_remote_dir }}"
         state: directory
+        owner: "{{ containerlab_lab_remote_owner }}"
         mode: "0750"
       when: _hyops_restore_available | bool
 
@@ -211,6 +212,7 @@
         src: "{{ containerlab_recovery_result.source_root | regex_replace('/+$', '') }}/"
         dest: "{{ containerlab_lab_remote_dir | regex_replace('/+$', '') }}/"
         remote_src: true
+        owner: "{{ containerlab_lab_remote_owner }}"
         mode: preserve
       when: _hyops_restore_available | bool
 

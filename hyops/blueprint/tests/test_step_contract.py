@@ -1,6 +1,13 @@
+import os
+import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
+from unittest.mock import patch
 
+import yaml
+
+from hyops.blueprint.contracts import resolved_step_inputs_file
 from hyops.blueprint.schema import load_blueprint, validate_blueprint
 
 
@@ -69,3 +76,27 @@ class BlueprintStepContractTest(TestCase):
         self.assertEqual(inputs.get("firewall_name"), "CHANGE_ME_CONTROL_FIREWALL_NAME")
         self.assertEqual(inputs.get("ssh_source_cidrs"), ["CHANGE_ME_OPERATOR_CIDR"])
         self.assertEqual(inputs.get("firewall_extra_tcp_ports"), [80, 443])
+
+    def test_materialized_inputs_resolve_controller_user_token(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            payload = {
+                "blueprint_ref": "test/step-contract@v1",
+                "path": str(root / "blueprint.yml"),
+            }
+            step = {
+                "id": "local_step",
+                "inputs": {
+                    "operator": "${USER}",
+                    "paths": ["/srv/${USER}/lab", "$HOME/remains-literal"],
+                },
+            }
+            paths = SimpleNamespace(work_dir=root / "work")
+
+            with patch.dict(os.environ, {"USER": "operator"}, clear=True):
+                inputs_file = resolved_step_inputs_file(step, payload, paths)
+
+            materialized = yaml.safe_load(inputs_file.read_text(encoding="utf-8"))
+            self.assertEqual(materialized["operator"], "operator")
+            self.assertEqual(materialized["paths"][0], "/srv/operator/lab")
+            self.assertEqual(materialized["paths"][1], "$HOME/remains-literal")

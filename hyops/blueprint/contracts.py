@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+import getpass
 import os
 import re
+from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -155,6 +156,22 @@ def _prune_empty_explicit_inputs(value: Any) -> Any:
     return value
 
 
+def _resolve_controller_input_tokens(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _resolve_controller_input_tokens(raw_value)
+            for key, raw_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_resolve_controller_input_tokens(item) for item in value]
+    if isinstance(value, str) and "${USER}" in value:
+        username = str(os.environ.get("USER") or getpass.getuser()).strip()
+        if not username:
+            raise ValueError("unable to resolve ${USER} in blueprint inputs")
+        return value.replace("${USER}", username)
+    return value
+
+
 def resolved_step_inputs_file(step: dict[str, Any], payload: dict[str, Any], paths) -> Path | None:
     inline_inputs = step.get("inputs") if isinstance(step.get("inputs"), dict) else None
     inputs_file_ref = str(step.get("inputs_file") or "").strip()
@@ -175,7 +192,9 @@ def resolved_step_inputs_file(step: dict[str, Any], payload: dict[str, Any], pat
     if inline_inputs is None:
         return resolved_file
 
-    merged = merge_mappings(file_inputs, inline_inputs)
+    merged = _resolve_controller_input_tokens(
+        merge_mappings(file_inputs, inline_inputs)
+    )
     bp_token = re.sub(r"[^A-Za-z0-9_.-]+", "_", payload["blueprint_ref"])
     out_dir = paths.work_dir / "blueprint-inputs" / bp_token
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -181,6 +181,44 @@ class AutomationAccessTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "topology is unavailable"):
                 _read_local_automation_state(automation)
 
+    def test_local_containerlab_discovery_uses_configured_docker_group(self) -> None:
+        denied = SimpleNamespace(returncode=1, stdout="", stderr="denied")
+        allowed = SimpleNamespace(returncode=0, stdout='{"demo": []}', stderr="")
+        automation = {
+            "discovery_mode": "containerlab-inspect",
+            "management_cidr": "172.20.20.0/24",
+            "discovery_topology_path": "/srv/labs/operator/demo/lab.clab.yml",
+        }
+
+        with (
+            patch("hyops.blueprint.command.Path.is_file", return_value=True),
+            patch(
+                "hyops.blueprint.command.shutil.which",
+                side_effect=lambda name: f"/usr/bin/{name}",
+            ),
+            patch(
+                "hyops.blueprint.command._configured_supplementary_group",
+                return_value=True,
+            ),
+            patch(
+                "hyops.blueprint.command.subprocess.run",
+                side_effect=[denied, allowed],
+            ) as run,
+        ):
+            output = _read_local_automation_state(automation)
+
+        self.assertEqual(output, allowed.stdout)
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            [
+                "/usr/bin/sg",
+                "docker",
+                "-c",
+                "/usr/bin/containerlab inspect -t "
+                "/srv/labs/operator/demo/lab.clab.yml -f json",
+            ],
+        )
+
     def test_session_writes_ssh_vscode_and_inventory_material(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -449,6 +487,88 @@ class AutomationAccessTests(unittest.TestCase):
             self.assertEqual(by_name["static-fw"]["host"], "172.29.128.80")
             self.assertEqual(by_name["r2"]["source"], "dhcp-lease")
             self.assertEqual(refreshed["new_targets"], ["r2"])
+
+    def test_containerlab_refresh_replaces_stale_discovered_targets(self) -> None:
+        automation = dict(
+            self.automation,
+            discovery_mode="containerlab-inspect",
+            management_network_label="clab",
+            management_cidr="172.20.20.0/24",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = SimpleNamespace(
+                root=Path(tmp),
+                config_dir=Path(tmp) / "config",
+            )
+            first = prepare_automation_session(
+                paths=paths,
+                blueprint_ref="linux/containerlab@v1",
+                env_name="local-lab",
+                automation=automation,
+                gateway=None,
+                discovery_text=json.dumps(
+                    {
+                        "linux": [
+                            {
+                                "name": "clab-linux-leaf1",
+                                "kind": "linux",
+                                "ipv4_address": "172.20.20.2/24",
+                            },
+                            {
+                                "name": "clab-linux-leaf2",
+                                "kind": "linux",
+                                "ipv4_address": "172.20.20.3/24",
+                            },
+                        ]
+                    }
+                ),
+                direct=True,
+            )
+            payload = yaml.safe_load(first["target_file"].read_text())
+            payload["targets"].append(
+                {
+                    "name": "static-service",
+                    "host": "172.20.20.80",
+                    "user": "operator",
+                }
+            )
+            first["target_file"].write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+            refreshed = prepare_automation_session(
+                paths=paths,
+                blueprint_ref="linux/containerlab@v1",
+                env_name="local-lab",
+                automation=automation,
+                gateway=None,
+                discovery_text=json.dumps(
+                    {
+                        "iol": [
+                            {
+                                "name": "clab-iol-r1",
+                                "kind": "cisco_iol",
+                                "ipv4_address": "172.20.20.2/24",
+                            },
+                            {
+                                "name": "clab-iol-r2",
+                                "kind": "cisco_iol",
+                                "ipv4_address": "172.20.20.3/24",
+                            },
+                        ]
+                    }
+                ),
+                direct=True,
+            )
+
+            by_name = {item["name"]: item for item in refreshed["targets"]}
+            self.assertEqual(
+                set(by_name),
+                {"clab-iol-r1", "clab-iol-r2", "static-service"},
+            )
+            self.assertEqual(by_name["clab-iol-r1"]["platform"], "cisco_iol")
+            self.assertEqual(
+                refreshed["new_targets"],
+                ["clab-iol-r1", "clab-iol-r2"],
+            )
 
     def test_device_list_shows_default_user_and_port(self) -> None:
         targets = [

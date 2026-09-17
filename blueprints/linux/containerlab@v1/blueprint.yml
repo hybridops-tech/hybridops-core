@@ -53,7 +53,7 @@ steps:
       containerlab_version: "0.78.0"
       containerlab_install_docker: true
       containerlab_post_install_connectivity_wait_s: 90
-      containerlab_operator_user: "{{ ansible_user_id }}"
+      containerlab_operator_user: "${USER}"
       containerlab_package_checksum: ""
       # Enable for VM-based node kinds that require hardware acceleration.
       containerlab_require_kvm: false
@@ -79,8 +79,10 @@ steps:
       # Use a Linux or WSL path containing lab.clab.yml.
       containerlab_lab_source_dir: ""
       containerlab_lab_topology_relpath: "lab.clab.yml"
-      containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/{{ ansible_user_id }}/local-containerlab"
+      containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/${USER}/local-containerlab"
+      containerlab_lab_remote_owner: "${USER}"
       containerlab_lab_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
+      containerlab_lab_destroy_all: false
       containerlab_lab_required_images: []
       containerlab_lab_pull_missing_images: false
       containerlab_lab_local_image_archives: []
@@ -109,7 +111,7 @@ steps:
       connectivity_check: false
       become: true
       become_user: "root"
-      containerlab_gui_operator_user: "{{ ansible_user_id }}"
+      containerlab_gui_operator_user: "${USER}"
       containerlab_gui_manage_operator_password: false
       containerlab_gui_labs_dir: "/var/lib/hybridops/containerlab/labs"
       containerlab_gui_state_dir: "/var/lib/hybridops/containerlab/gui"
@@ -138,7 +140,7 @@ steps:
       become_user: "root"
       containerlab_healthcheck_expected_version: "0.78.0"
       containerlab_healthcheck_require_kvm: false
-      containerlab_healthcheck_topology_path: "/var/lib/hybridops/containerlab/labs/{{ ansible_user_id }}/local-containerlab/lab.clab.yml"
+      containerlab_healthcheck_topology_path: "/var/lib/hybridops/containerlab/labs/${USER}/local-containerlab/lab.clab.yml"
       containerlab_healthcheck_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
       containerlab_healthcheck_require_deployed_lab: true
 
@@ -150,6 +152,7 @@ steps:
     destroy_gate: true
     requires:
       - local_containerlab_healthcheck
+      - local_containerlab_lab
     with_deps: false
     skip_if_state_ok: false
     contracts:
@@ -163,7 +166,7 @@ steps:
       become_user: "root"
       containerlab_recovery_action: "arm"
       containerlab_recovery_mode: "rebuild"
-      containerlab_recovery_source_root: "/var/lib/hybridops/containerlab/labs/{{ ansible_user_id }}/local-containerlab"
+      containerlab_recovery_source_root: "/var/lib/hybridops/containerlab/labs/${USER}/local-containerlab"
       containerlab_recovery_topology_relpath: "lab.clab.yml"
       containerlab_recovery_image_refs: []
       containerlab_recovery_labdir_base: "/var/lib/hybridops/containerlab/labdirs"

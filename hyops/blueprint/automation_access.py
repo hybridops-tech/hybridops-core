@@ -239,6 +239,11 @@ def _target_template(candidates: list[dict[str, Any]], management_label: str) ->
                     f"    mac: {item.get('mac', '')}",
                     f"    source: {item.get('source') or 'static'}",
                     *(
+                        [f"    discovery_identity: {item['name']}"]
+                        if item.get("source") == "containerlab-inspect"
+                        else []
+                    ),
+                    *(
                         [f"    platform: {item['platform']}"]
                         if item.get("platform")
                         else []
@@ -264,6 +269,42 @@ def _merge_discovered_targets(
         raise ValueError(f"automation target file must contain a targets list: {path}")
 
     targets = payload.get("targets") or []
+    candidate_identities: set[tuple[str, str]] = set()
+    active_sources: set[str] = set()
+    for candidate in candidates:
+        source = str(candidate.get("source") or "").strip()
+        identity_value = (
+            str(candidate.get("mac") or "").strip().lower()
+            if source == "dhcp-lease"
+            else str(candidate.get("name") or "").strip()
+        )
+        if source and identity_value:
+            active_sources.add(source)
+            candidate_identities.add((source, identity_value))
+
+    changed = False
+    retained_targets: list[dict[str, Any]] = []
+    for raw in targets:
+        if not isinstance(raw, dict):
+            retained_targets.append(raw)
+            continue
+        source = str(raw.get("source") or "").strip()
+        identity_value = (
+            str(raw.get("mac") or "").strip().lower()
+            if source == "dhcp-lease"
+            else str(raw.get("discovery_identity") or raw.get("name") or "").strip()
+        )
+        if (
+            source in active_sources
+            and identity_value
+            and (source, identity_value) not in candidate_identities
+        ):
+            changed = True
+            continue
+        retained_targets.append(raw)
+    targets = retained_targets
+    payload["targets"] = targets
+
     by_identity: dict[tuple[str, str], dict[str, Any]] = {}
     occupied_hosts: set[str] = set()
     occupied_names: set[str] = set()
@@ -281,9 +322,9 @@ def _merge_discovered_targets(
         if source == "dhcp-lease" and mac:
             by_identity[(source, mac)] = raw
         elif source == "containerlab-inspect" and name:
-            by_identity[(source, name)] = raw
+            identity_value = str(raw.get("discovery_identity") or name).strip()
+            by_identity[(source, identity_value)] = raw
 
-    changed = False
     added: list[str] = []
     for candidate in candidates:
         mac = str(candidate.get("mac") or "").lower()
@@ -319,6 +360,8 @@ def _merge_discovered_targets(
             "platform": str(candidate.get("platform") or ""),
             "groups": ["network_devices"],
         }
+        if source == "containerlab-inspect":
+            target["discovery_identity"] = str(candidate["name"])
         targets.append(target)
         by_identity[identity] = target
         occupied_names.add(name)

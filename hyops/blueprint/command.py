@@ -97,6 +97,7 @@ from .schema import load_blueprint, resolve_blueprint_file, validate_blueprint
 
 
 _PROJECT_SUPPORT_URL = "https://github.com/sponsors/hybridops-tech"
+_CONTAINERLAB_LAB_MODULE_REF = "platform/linux/containerlab-lab"
 _QUIESCENCE_DRAFT_MARKER = "HYOPS_QUIESCENCE_ACTION_NOT_CONFIGURED"
 _QUIESCENCE_TEMPLATE = """#!/bin/sh
 set -eu
@@ -3118,7 +3119,11 @@ def _read_local_automation_state(automation: dict[str, Any]) -> str:
     else:
         inspect_args.append("--all")
     inspect_args.extend(["-f", "json"])
-    commands = (inspect_args, ["sudo", "-n", *inspect_args])
+    commands = [inspect_args]
+    sg = shutil.which("sg")
+    if sg and _configured_supplementary_group("docker"):
+        commands.append([sg, "docker", "-c", shlex.join(inspect_args)])
+    commands.append(["sudo", "-n", *inspect_args])
     for command in commands:
         try:
             result = subprocess.run(
@@ -3153,6 +3158,18 @@ def _read_local_automation_state(automation: dict[str, Any]) -> str:
         "Containerlab runtime state is not readable by the current user; "
         "start a new shell after deployment, then retry"
     )
+
+
+def _configured_supplementary_group(name: str) -> bool:
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        import grp
+
+        configured = grp.getgrnam(name)
+    except (ImportError, KeyError):
+        return False
+    return getpass.getuser() in configured.gr_mem
 
 
 def _prepare_local_automation_access(
@@ -4385,6 +4402,11 @@ def _select_lab_restore_mode(
     overwrite = bool(getattr(ns, "overwrite_labs", False))
     overwrite_images = bool(getattr(ns, "overwrite_images", False))
 
+    if not isinstance(lifecycle, dict) and bool(
+        getattr(ns, "_containerlab_restore_handled", False)
+    ):
+        return "none", None
+
     if overwrite and not requested:
         raise ValueError("--overwrite-labs requires --restore-labs")
     if overwrite_images and not requested:
@@ -4419,6 +4441,126 @@ def _select_lab_restore_mode(
     if confirmed is None:
         return "skip", archive
     return ("restore" if confirmed else "skip"), archive
+
+
+def _containerlab_recovery_step(payload: dict[str, Any]) -> dict[str, Any] | None:
+    for step in payload.get("steps", []):
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("module_ref") or "").strip() != _CONTAINERLAB_LAB_MODULE_REF:
+            continue
+        inputs = step.get("inputs")
+        if isinstance(inputs, dict) and "containerlab_lab_restore_latest" in inputs:
+            return step
+    return None
+
+
+def _containerlab_recovery_files(step: dict[str, Any], paths) -> tuple[Path, Path, Path]:
+    inputs = step.get("inputs") if isinstance(step.get("inputs"), dict) else {}
+    configured = str(inputs.get("containerlab_lab_restore_latest_path") or "").strip()
+    archive = (
+        Path(configured).expanduser()
+        if configured
+        else paths.root / "artifacts" / "containerlab" / "recovery" / "latest.tar.gz"
+    )
+    return archive, Path(f"{archive}.sha256"), Path(f"{archive}.json")
+
+
+def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple[bool, bool]:
+    """Resolve Containerlab recovery before step inputs are materialised.
+
+    Returns ``(handled, confirmed)``. ``confirmed`` means the interactive
+    recovery choice also authorised this deployment, so a second generic
+    confirmation would be redundant.
+    """
+
+    step = _containerlab_recovery_step(payload)
+    if step is None:
+        return False, False
+
+    inputs = step["inputs"]
+    restore_default = bool(inputs.get("containerlab_lab_restore_latest", False))
+    requested = bool(getattr(ns, "restore_labs", False))
+    skipped = bool(getattr(ns, "skip_lab_restore", False))
+    overwrite = bool(getattr(ns, "overwrite_labs", False))
+    overwrite_images = bool(getattr(ns, "overwrite_images", False))
+    if overwrite and not requested:
+        raise ValueError("--overwrite-labs requires --restore-labs")
+    if overwrite_images:
+        raise ValueError("--overwrite-images is not supported by Containerlab recovery")
+    archive, checksum, metadata = _containerlab_recovery_files(step, paths)
+    present = (archive.exists(), checksum.is_file(), metadata.is_file())
+
+    if any(present) and not all(present):
+        raise ValueError(
+            "Containerlab recovery markers are incomplete; repair or remove the "
+            f"recovery set rooted at {archive}"
+        )
+    available = all(present)
+    target_status = module_state_status(paths.state_dir, step_state_ref(step))
+    target_active = bool(target_status) and target_status not in {
+        "absent",
+        "destroyed",
+        "missing",
+    }
+
+    if requested and not available:
+        raise ValueError(
+            "no verified Containerlab recovery state is available for this environment"
+        )
+    if requested and target_active and not overwrite:
+        raise ValueError(
+            "restoring Containerlab recovery state over an active lab requires --overwrite-labs"
+        )
+
+    if requested:
+        inputs["containerlab_lab_restore_latest"] = True
+        setattr(ns, "_containerlab_restore_handled", True)
+        return True, False
+    if skipped:
+        inputs["containerlab_lab_restore_latest"] = False
+        setattr(ns, "_containerlab_restore_handled", True)
+        return True, False
+
+    if target_active:
+        # A routine converge must not replay an older recovery archive over an
+        # active lab merely because the retained archive is still present.
+        inputs["containerlab_lab_restore_latest"] = False
+        return True, False
+    if not available or not restore_default:
+        return True, False
+
+    setattr(ns, "_containerlab_restore_handled", True)
+    if bool(getattr(ns, "yes", False)) or bool(getattr(ns, "json", False)):
+        inputs["containerlab_lab_restore_latest"] = True
+        return True, False
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        inputs["containerlab_lab_restore_latest"] = True
+        return True, False
+
+    print(f"verified recovery state: {archive}")
+    print("  1. Restore the latest verified state and deploy")
+    print("  2. Deploy without restoring saved state")
+    print("  3. Cancel")
+    choices = {"1": "restore", "2": "skip", "3": "cancel"}
+    while True:
+        try:
+            answer = input("Choose [1-3]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            setattr(ns, "_containerlab_restore_cancelled", True)
+            return True, True
+        selected = choices.get(answer)
+        if selected == "restore":
+            inputs["containerlab_lab_restore_latest"] = True
+            return True, True
+        if selected == "skip":
+            inputs["containerlab_lab_restore_latest"] = False
+            return True, True
+        if selected == "cancel":
+            setattr(ns, "_containerlab_restore_cancelled", True)
+            return True, True
+        print("invalid choice; enter exactly 1, 2, or 3")
 
 
 _ANSIBLE_TASK_LINE = re.compile(
@@ -4769,7 +4911,16 @@ def run_deploy(ns) -> int:
 
     ns.preflight_context = preflight_decision
 
-    confirm_rc = _confirm_deploy_if_needed(ns, payload, paths)
+    try:
+        _, recovery_confirmed = _configure_containerlab_restore(ns, payload, paths)
+    except (OSError, ValueError) as exc:
+        print(f"ERR: blueprint deploy failed: {exc}")
+        return OPERATOR_ERROR
+    if bool(getattr(ns, "_containerlab_restore_cancelled", False)):
+        print("blueprint deploy cancelled by operator")
+        return CANCELLED
+
+    confirm_rc = 0 if recovery_confirmed else _confirm_deploy_if_needed(ns, payload, paths)
     if confirm_rc != 0:
         if json_mode:
             print(
@@ -5226,21 +5377,24 @@ def run_deploy(ns) -> int:
 def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> str:
     archive = payload.get("archive_before_destroy")
     if not isinstance(archive, dict) or not archive:
-        if (
-            bool(getattr(ns, "archive_before_destroy", False))
-            or bool(getattr(ns, "skip_archive", False))
-            or bool(getattr(ns, "guest_quiesced", False))
-            or bool(str(getattr(ns, "quiesce_script", "") or "").strip())
-            or getattr(ns, "quiesce_timeout", None) is not None
-        ):
-            raise ValueError("this blueprint does not declare a lab archive lifecycle")
         destroy_gate = any(
             bool(step.get("destroy_gate", False))
             for step in payload.get("steps", [])
             if isinstance(step, dict)
         )
+        if (
+            bool(getattr(ns, "archive_before_destroy", False))
+            or bool(getattr(ns, "guest_quiesced", False))
+            or bool(str(getattr(ns, "quiesce_script", "") or "").strip())
+            or getattr(ns, "quiesce_timeout", None) is not None
+        ):
+            raise ValueError("this blueprint does not declare a lab archive lifecycle")
         if not destroy_gate:
+            if bool(getattr(ns, "skip_archive", False)):
+                raise ValueError("this blueprint does not declare a lab archive lifecycle")
             return "none"
+        if bool(getattr(ns, "skip_archive", False)):
+            return "skip"
         if bool(getattr(ns, "yes", False)):
             return "protected"
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -5249,17 +5403,18 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
         print("recovery state:")
         print("  1. Keep the environment running")
         print("  2. Preserve declared recovery state, verify, then destroy")
-        choices = {"1": "keep", "2": "protected"}
+        print("  3. Destroy without preserving recovery state")
+        choices = {"1": "keep", "2": "protected", "3": "skip"}
         while True:
             try:
-                answer = input("Choose [1-2]: ").strip()
+                answer = input("Choose [1-3]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return "cancel"
             selected = choices.get(answer)
             if selected is not None:
                 return selected
-            print("invalid choice; enter exactly 1 or 2")
+            print("invalid choice; enter exactly 1, 2, or 3")
 
     if bool(getattr(ns, "archive_before_destroy", False)):
         return "archive"
@@ -5805,7 +5960,7 @@ def _run_destroy_unlocked(ns) -> int:
             setattr(ns, "guest_quiesced", True)
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
-        if payload.get("archive_before_destroy") or archive_mode == "protected":
+        if payload.get("archive_before_destroy") or archive_mode in {"protected", "skip"}:
             if _confirm_archive_destroy(env_name) is not True:
                 print("destroy cancelled")
                 print("environment retained")
@@ -5965,6 +6120,27 @@ def _run_destroy_unlocked(ns) -> int:
         }
 
         state_ref = step_state_ref(step)
+        if archive_mode == "skip" and bool(step.get("destroy_gate", False)):
+            result = dict(base)
+            result.update(
+                {
+                    "status": "skipped",
+                    "reason": "recovery-preservation-skipped",
+                    "rc": 0,
+                }
+            )
+            step_results.append(result)
+            progress.finish(
+                step_id,
+                step_id,
+                "skipped",
+                plain=(
+                    f"step={step_id} status=skipped "
+                    "reason=recovery-preservation-skipped"
+                ),
+                detail=f"preservation skipped, {completed_detail}",
+            )
+            continue
         if bool(step.get("retain_on_destroy", False)):
             result = dict(base)
             result.update({"status": "retained", "reason": "retain_on_destroy", "rc": 0})

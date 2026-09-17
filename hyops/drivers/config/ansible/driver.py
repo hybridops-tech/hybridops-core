@@ -24,6 +24,7 @@ from hyops.runtime.credentials import (
 from hyops.runtime.module_state import read_module_state
 from hyops.runtime.evidence import EvidenceWriter
 from hyops.runtime.packs import resolve_pack_stack
+from hyops.runtime.progress import suspend_progress
 from hyops.runtime.provider_bootstrap import gcp_bootstrap_guard_message
 from hyops.runtime.coerce import as_bool, as_int
 from hyops.runtime.source_roots import discover_core_root
@@ -79,7 +80,8 @@ def _ensure_local_privilege(inputs: dict[str, Any]) -> str:
         return ""
     if not sys.stdin or not sys.stdin.isatty():
         return "local privileged execution requires an interactive sudo session"
-    refreshed = subprocess.run([sudo, "-v"], check=False)
+    with suspend_progress():
+        refreshed = subprocess.run([sudo, "-v"], check=False)
     if refreshed.returncode != 0:
         return "local privilege confirmation failed"
     return ""

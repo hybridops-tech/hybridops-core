@@ -9,6 +9,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from hyops.runtime import progress
 from hyops.runtime.progress import ProgressDisplay, concise_enabled
 
 
@@ -22,6 +23,14 @@ class _Stream(io.StringIO):
 
 
 class ProgressDisplayTests(unittest.TestCase):
+    def test_suspend_progress_clears_tty_and_restores_animation(self) -> None:
+        output = _Stream(True)
+        with patch("hyops.runtime.progress.sys.stdout", output):
+            with progress.suspend_progress():
+                self.assertTrue(progress._PROGRESS_PAUSED.is_set())
+            self.assertFalse(progress._PROGRESS_PAUSED.is_set())
+        self.assertEqual(output.getvalue(), "\r\x1b[2K")
+
     def test_non_tty_uses_stable_plain_lines(self) -> None:
         output = _Stream(False)
         display = ProgressDisplay(enabled=False)

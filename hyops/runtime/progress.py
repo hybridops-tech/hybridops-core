@@ -6,9 +6,26 @@ import os
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Iterator
 
 from hyops.runtime.terminal import colour_enabled, style
+
+
+_PROGRESS_PAUSED = threading.Event()
+
+
+@contextmanager
+def suspend_progress() -> Iterator[None]:
+    """Keep interactive prompts visible while progress animation is active."""
+    _PROGRESS_PAUSED.set()
+    if sys.stdout and sys.stdout.isatty():
+        print("\r\033[2K", end="", flush=True)
+    try:
+        yield
+    finally:
+        _PROGRESS_PAUSED.clear()
 
 
 def verbose_enabled() -> bool:
@@ -69,6 +86,8 @@ class ProgressDisplay:
         frames = ("|", "/", "-", "\\")
         frame = 0
         while not stopped.wait(0.2):
+            if _PROGRESS_PAUSED.is_set():
+                continue
             self._advance_tracked_percent(key)
             started = self._started.get(key, time.monotonic())
             current_label = self._labels.get(key, label)

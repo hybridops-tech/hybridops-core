@@ -44,10 +44,12 @@ inputs:
     containerlab_lab_source_dir: ""
     containerlab_lab_topology_relpath: "lab.clab.yml"
     containerlab_lab_remote_dir: "/var/lib/hybridops/containerlab/labs/gcp-containerlab"
+    containerlab_lab_remote_owner: "root"
     containerlab_lab_labdir_base: "/var/lib/hybridops/containerlab/labdirs"
     containerlab_lab_topology_path: ""
     containerlab_lab_restore_all_dir: ""
     containerlab_lab_cleanup: false
+    containerlab_lab_destroy_all: true
     containerlab_lab_required_images: []
     containerlab_lab_pull_missing_images: false
     containerlab_lab_local_image_archives: []

@@ -537,6 +537,41 @@ class ResumableBlueprintDestroyTest(TestCase):
             ["health", "vm"],
         )
 
+    def test_destroy_gate_is_skipped_only_after_explicit_bypass(self):
+        paths = SimpleNamespace(state_dir="/tmp/state", root=SimpleNamespace(name="test"))
+        payload = _payload()
+        payload["steps"][2]["destroy_gate"] = True
+        payload["steps"][2]["requires"] = ["vm"]
+        statuses = {
+            "network": "destroyed",
+            "vm": "ok",
+            "health": "absent",
+        }
+        ns = _namespace()
+        ns.skip_archive = True
+
+        def state_status(_state_dir, state_ref):
+            return statuses[state_ref.rsplit("#", 1)[-1]]
+
+        with (
+            patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+            patch("hyops.blueprint.command.require_runtime_selection"),
+            patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+            patch("hyops.blueprint.command.ensure_layout"),
+            patch("hyops.blueprint.command.require_runtime_writable"),
+            patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
+            patch("hyops.blueprint.command.module_state_status", side_effect=state_status),
+            patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+            patch("hyops.blueprint.command.run_step_module_command", return_value=0) as command,
+        ):
+            rc = run_destroy(ns)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [call.args[0]["id"] for call in command.call_args_list],
+            ["vm"],
+        )
+
     def test_destroy_runs_step_left_error_by_failed_apply(self):
         rc, inputs_file, command = self._run(
             {"network": "error", "vm": "destroyed", "health": "destroyed"},
@@ -591,6 +626,22 @@ class ResumableBlueprintDestroyTest(TestCase):
         output.assert_any_call(
             "  2. Preserve declared recovery state, verify, then destroy"
         )
+        output.assert_any_call("  3. Destroy without preserving recovery state")
+
+    def test_destroy_gate_offers_explicit_preservation_bypass(self):
+        ns = _namespace()
+        ns.yes = False
+        payload = _payload()
+        payload["steps"][-1]["destroy_gate"] = True
+
+        with (
+            patch("hyops.blueprint.command.sys.stdin.isatty", return_value=True),
+            patch("hyops.blueprint.command.sys.stdout.isatty", return_value=True),
+            patch("hyops.blueprint.command.input", return_value="3"),
+        ):
+            selected = _select_archive_destroy_mode(ns, payload, "test")
+
+        self.assertEqual(selected, "skip")
 
     def test_destroy_gate_yes_selects_protected_release(self):
         payload = _payload()

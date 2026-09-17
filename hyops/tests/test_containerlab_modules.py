@@ -60,6 +60,8 @@ class ContainerlabModuleContractTest(TestCase):
         self.assertEqual(defaults["containerlab_lab_topology_relpath"], "lab.clab.yml")
         self.assertEqual(defaults["containerlab_lab_required_images"], [])
         self.assertFalse(defaults["containerlab_lab_pull_missing_images"])
+        self.assertEqual(defaults["containerlab_lab_remote_owner"], "root")
+        self.assertTrue(defaults["containerlab_lab_destroy_all"])
         self.assertEqual(defaults["containerlab_lab_local_image_archives"], [])
         self.assertEqual(defaults["containerlab_lab_local_image_dir"], "")
         self.assertFalse(defaults["containerlab_lab_local_image_dir_authorised_use"])
@@ -144,7 +146,12 @@ class ContainerlabModuleContractTest(TestCase):
         self.assertIn("_containerlab_recovery_controller_dir:", recovery_destroy)
         self.assertNotIn("\n        containerlab_recovery_action: export", recovery_destroy)
         self.assertIn("_containerlab_lab_action: destroy", lab_destroy)
-        self.assertIn("_containerlab_lab_destroy_all: true", lab_destroy)
+        self.assertIn(
+            '_containerlab_lab_destroy_all: "{{ _hyops_destroy_all }}"',
+            lab_destroy,
+        )
+        self.assertIn('containerlab_lab_source_dir: ""', lab_destroy)
+        self.assertIn("Stop when scoped local cleanup fails", lab_destroy)
         self.assertNotIn("\n            containerlab_lab_action: destroy", lab_destroy)
         self.assertIn("_containerlab_recovery_action: import", lab_apply)
 

@@ -41,6 +41,7 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertEqual(lab["containerlab_lab_topology_relpath"], "lab.clab.yml")
         self.assertEqual(lab["containerlab_lab_required_images"], [])
         self.assertFalse(lab["containerlab_lab_pull_missing_images"])
+        self.assertTrue(lab["containerlab_lab_destroy_all"])
         self.assertEqual(lab["containerlab_lab_local_image_archives"], [])
         self.assertEqual(lab["containerlab_lab_local_image_dir"], "")
         self.assertFalse(lab["containerlab_lab_local_image_dir_authorised_use"])
@@ -72,7 +73,10 @@ class GCPContainerlabBlueprintTest(TestCase):
         self.assertFalse(self.blueprint["archive_before_destroy"])
         recovery = self.blueprint["steps"][6]
         inputs = recovery["inputs"]
-        self.assertEqual(recovery["requires"], ["gcp_containerlab_healthcheck"])
+        self.assertEqual(
+            recovery["requires"],
+            ["gcp_containerlab_healthcheck", "gcp_containerlab_lab"],
+        )
         self.assertTrue(recovery["destroy_gate"])
         self.assertEqual(inputs["containerlab_recovery_action"], "arm")
         self.assertEqual(inputs["containerlab_recovery_mode"], "rebuild")
@@ -136,6 +140,7 @@ class GCPContainerlabBlueprintTest(TestCase):
                 inputs["containerlab_gui_labs_dir"] + "/opsadmin/"
             )
         )
+        self.assertEqual(lab["containerlab_lab_remote_owner"], "opsadmin")
 
     def test_iol_example_is_self_contained(self) -> None:
         example_root = self.path.parent / "examples" / "two-node-iol"

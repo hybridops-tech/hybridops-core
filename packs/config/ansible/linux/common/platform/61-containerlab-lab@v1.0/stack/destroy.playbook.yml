@@ -11,24 +11,36 @@
         | default('/var/lib/hybridops/containerlab/labs/gcp-containerlab')
         | regex_replace('/+$', '')
       }}
+    _hyops_destroy_all: "{{ containerlab_lab_destroy_all | bool }}"
 
   tasks:
     - name: Initialize native cleanup status
       ansible.builtin.set_fact:
         _hyops_containerlab_cleanup_status: "ok"
 
-    - name: Ask Containerlab to clean the dedicated disposable host
+    - name: Ask Containerlab to remove the managed lab
       block:
-        - name: Delegate dedicated-host lab destruction to Containerlab
+        - name: Delegate native lab destruction to Containerlab
           ansible.builtin.include_role:
             name: "{{ containerlab_lab_role_fqcn }}"
           vars:
             _containerlab_lab_action: destroy
-            _containerlab_lab_destroy_all: true
+            _containerlab_lab_destroy_all: "{{ _hyops_destroy_all }}"
+            containerlab_lab_source_dir: ""
+            containerlab_lab_topology_path: >-
+              {{ _hyops_remote_dir }}/{{ containerlab_lab_topology_relpath }}
       rescue:
+        - name: Stop when scoped local cleanup fails
+          ansible.builtin.fail:
+            msg: >-
+              Containerlab could not remove the managed topology. The source
+              tree was retained for diagnosis.
+          when: not (_hyops_destroy_all | bool)
+
         - name: Record best-effort native cleanup failure
           ansible.builtin.set_fact:
             _hyops_containerlab_cleanup_status: "failed"
+          when: _hyops_destroy_all | bool
 
         - name: Report best-effort native cleanup failure
           ansible.builtin.debug:
@@ -37,6 +49,7 @@
               HybridOps will continue toward disposal of the dedicated managed
               execution host rather than keep cloud compute alive solely for
               container cleanup.
+          when: _hyops_destroy_all | bool
 
     - name: Remove staged Containerlab source tree
       ansible.builtin.file:

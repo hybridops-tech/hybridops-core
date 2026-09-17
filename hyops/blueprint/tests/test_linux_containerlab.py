@@ -32,6 +32,9 @@ class LinuxContainerlabBlueprintTest(TestCase):
         runtime = self.blueprint["steps"][0]
         recovery = self.blueprint["steps"][-1]
         self.assertTrue(runtime["retain_on_destroy"])
+        self.assertFalse(
+            self.blueprint["steps"][1]["inputs"]["containerlab_lab_destroy_all"]
+        )
         self.assertFalse(runtime["inputs"]["containerlab_require_kvm"])
         self.assertFalse(
             self.blueprint["steps"][3]["inputs"][
@@ -39,6 +42,7 @@ class LinuxContainerlabBlueprintTest(TestCase):
             ]
         )
         self.assertTrue(recovery["destroy_gate"])
+        self.assertIn("local_containerlab_lab", recovery["requires"])
         self.assertTrue(
             recovery["inputs"]["containerlab_recovery_include_lab_dir"]
         )
@@ -61,9 +65,10 @@ class LinuxContainerlabBlueprintTest(TestCase):
     def test_gui_workspace_contains_the_managed_topology(self) -> None:
         lab = self.blueprint["steps"][1]["inputs"]
         gui = self.blueprint["steps"][2]["inputs"]
+        self.assertEqual(lab["containerlab_lab_remote_owner"], "${USER}")
         self.assertTrue(
             lab["containerlab_lab_remote_dir"].startswith(
-                gui["containerlab_gui_labs_dir"] + "/{{ ansible_user_id }}/"
+                gui["containerlab_gui_labs_dir"] + "/${USER}/"
             )
         )
 

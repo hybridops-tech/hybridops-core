@@ -24,7 +24,15 @@ hyops blueprint validate --env containerlab-local --ref linux/containerlab@v1
 hyops blueprint preflight --env containerlab-local --ref linux/containerlab@v1
 hyops blueprint deploy --env containerlab-local --ref linux/containerlab@v1 --execute
 hyops blueprint access --env containerlab-local --ref linux/containerlab@v1 --automation
+hyops blueprint device list --env containerlab-local --ref linux/containerlab@v1
 ```
 
 The GUI uses the current Linux account. On WSL2, use the Ubuntu account and
 password created during HybridOps.Core installation.
+
+Protected teardown retains a verified recovery set. The next interactive
+deploy offers recovery or a clean deployment.
+
+## Documentation
+
+- [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-containerlab-local/)

@@ -28,6 +28,18 @@ class ContainerlabLabValidatorTests(unittest.TestCase):
     def test_default_contract_is_valid(self) -> None:
         validate(valid_inputs())
 
+    def test_invalid_remote_owner_is_rejected(self) -> None:
+        inputs = valid_inputs()
+        inputs["containerlab_lab_remote_owner"] = "bad:user"
+        with self.assertRaisesRegex(ValueError, "remote_owner is invalid"):
+            validate(inputs)
+
+    def test_destroy_scope_must_be_boolean(self) -> None:
+        inputs = valid_inputs()
+        inputs["containerlab_lab_destroy_all"] = "false"
+        with self.assertRaisesRegex(ValueError, "destroy_all must be a boolean"):
+            validate(inputs)
+
     def test_local_image_archive_is_valid(self) -> None:
         inputs = valid_inputs()
         inputs["containerlab_lab_local_image_archives"] = [
