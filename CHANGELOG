@@ -27,8 +27,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Changed
 
-- Pinned `hybridops.app` to `0.1.12` for secret-safe additional EVE-NG user
-  handling, authorised Containerlab image intake and native lab-state recovery.
+- Pinned `hybridops.app` to `0.1.13` for secret-safe additional EVE-NG user
+  handling and the managed Containerlab image, GUI and recovery lifecycle.
 - Made the authoritative-foundation blueprint use the logical
   `primary_ipam` authority while retaining the existing NetBox-specific syntax
   as an explicit compatibility form.
