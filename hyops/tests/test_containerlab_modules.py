@@ -155,6 +155,42 @@ class ContainerlabModuleContractTest(TestCase):
         self.assertNotIn("\n            containerlab_lab_action: destroy", lab_destroy)
         self.assertIn("_containerlab_recovery_action: import", lab_apply)
 
+    def test_recovery_authority_uses_private_role_inputs(self) -> None:
+        path = (
+            self.root
+            / "packs"
+            / "config"
+            / "ansible"
+            / "linux"
+            / "common"
+            / "platform"
+            / "61-containerlab-lab@v1.0"
+            / "stack"
+            / "playbook.yml"
+        )
+        text = path.read_text(encoding="utf-8")
+
+        expected = {
+            "_containerlab_lab_source_dir": "_hyops_effective_source_dir",
+            "_containerlab_lab_topology_path": "_hyops_effective_topology_path",
+            "_containerlab_lab_restore_all_dir": "_hyops_effective_restore_dir",
+            "_containerlab_lab_required_images": "_hyops_effective_required_images",
+        }
+        for role_input, effective_value in expected.items():
+            self.assertIn(
+                f'{role_input}: "{{{{ {effective_value} }}}}"',
+                text,
+            )
+
+        self.assertNotRegex(
+            text,
+            r'(?m)^\s+containerlab_lab_source_dir: "\{\{ _hyops_effective_source_dir \}\}"$',
+        )
+        self.assertNotRegex(
+            text,
+            r'(?m)^\s+containerlab_lab_topology_path: "\{\{ _hyops_effective_topology_path \}\}"$',
+        )
+
     def test_containerlab_pack_role_bindings_are_not_self_recursive(self) -> None:
         stack_paths = [
             self.root
@@ -199,4 +235,4 @@ class ContainerlabModuleContractTest(TestCase):
             app["repo"],
             "https://github.com/hybridops-tech/ansible-collection-app.git",
         )
-        self.assertEqual(app["ref"], "76263c900254c13bbcaa74a1c6616a1a88aadfca")
+        self.assertEqual(app["ref"], "5f951bbf66b62fd1c5fc30a9baafe9ad64629b65")

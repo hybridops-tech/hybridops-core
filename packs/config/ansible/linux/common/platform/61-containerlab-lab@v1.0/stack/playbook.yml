@@ -242,10 +242,10 @@
       ansible.builtin.include_role:
         name: "{{ containerlab_lab_role_fqcn }}"
       vars:
-        containerlab_lab_source_dir: "{{ _hyops_effective_source_dir }}"
-        containerlab_lab_topology_path: "{{ _hyops_effective_topology_path }}"
-        containerlab_lab_restore_all_dir: "{{ _hyops_effective_restore_dir }}"
-        containerlab_lab_required_images: "{{ _hyops_effective_required_images }}"
+        _containerlab_lab_source_dir: "{{ _hyops_effective_source_dir }}"
+        _containerlab_lab_topology_path: "{{ _hyops_effective_topology_path }}"
+        _containerlab_lab_restore_all_dir: "{{ _hyops_effective_restore_dir }}"
+        _containerlab_lab_required_images: "{{ _hyops_effective_required_images }}"
 
   post_tasks:
     - name: Write HyOps outputs
