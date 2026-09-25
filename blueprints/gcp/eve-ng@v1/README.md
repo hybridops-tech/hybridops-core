@@ -43,7 +43,7 @@ Plan the shape and session pattern before the first deploy when evaluating on
 trial credit. The reference shape running continuously consumes a significant
 share of an allowance within days, which is easy to overlook when lifecycle
 work spans several sittings. Release the environment between sessions rather
-than leaving it running:
+than leaving it running.
 
 Preservation covers lab definitions, saved device configurations and selected
 stopped-node state. Declared base images are restored from configured sources.
@@ -52,6 +52,8 @@ Files outside those boundaries and undeclared images are not archived.
 Before protected teardown, save device configurations and shut down QEMU guests
 cleanly, or configure a quiescence action with `hyops blueprint quiescence edit`.
 Stopped IOL nodes can be captured from saved NVRAM.
+
+Use the protected destroy and restore path:
 
     hyops blueprint destroy --env <env> --ref gcp/eve-ng@v1 \
       --execute --archive-before-destroy
