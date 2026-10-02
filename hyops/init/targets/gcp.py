@@ -57,7 +57,7 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
 
     p.add_argument("--project-id", default=None, help="Override GCP project id.")
     p.add_argument("--region", default=None, help="Override GCP region.")

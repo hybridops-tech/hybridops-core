@@ -86,7 +86,7 @@ _REMOTE_BOOTSTRAP_DEST = "/tmp/hyops-bootstrap-proxmox-remote.sh"
 def add_subparser(sp: argparse._SubParsersAction) -> None:
     p = sp.add_parser("proxmox", help="Initialise Proxmox target runtime and credentials.")
 
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
 
     p.add_argument("--host", default=None, help="Override proxmox.host from config.")
     p.add_argument("--proxmox-ip", dest="host", default=None, help="Alias of --host.")

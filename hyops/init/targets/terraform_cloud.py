@@ -40,7 +40,7 @@ TFC_CREDENTIALS_FILE=~/.terraform.d/credentials.tfrc.json
 def add_subparser(sp: argparse._SubParsersAction) -> None:
     p = sp.add_parser("terraform-cloud", help="Initialise Terraform Cloud credentials.")
 
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
     p.add_argument("--tfc-host", default=None, help="Override Terraform Cloud host.")
     p.add_argument("--tfc-org", default=None, help="Override Terraform Cloud organisation.")
     p.add_argument("--workspace-prefix", default=None, help="Override workspace prefix.")

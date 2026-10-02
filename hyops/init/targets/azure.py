@@ -75,7 +75,7 @@ def add_subparser(sp: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
 
     p.add_argument("--location", default=None, help="Override AZ_LOCATION.")
     p.add_argument("--sp-name", default=None, help="Override AZ_SP_NAME.")

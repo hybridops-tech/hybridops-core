@@ -15,7 +15,7 @@ from hyops.runtime.state import read_json
 
 def add_init_status_subparser(sp: argparse._SubParsersAction) -> None:
     p = sp.add_parser("status", help="Show target readiness markers.")
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
     p.set_defaults(_handler=run)
 
 

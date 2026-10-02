@@ -49,7 +49,7 @@ HCLOUD_TFVARS_OUT=
 def add_subparser(sp: argparse._SubParsersAction) -> None:
     p = sp.add_parser("hetzner", help="Initialise Hetzner runtime inputs and readiness.")
 
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
 
     p.add_argument("--api", default=None, help="Override HCLOUD_API.")
     p.add_argument("--token", default=None, help="Override HCLOUD_TOKEN (discouraged; prefer env/vault).")

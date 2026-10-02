@@ -48,7 +48,7 @@ AWS_TFVARS_OUT=
 def add_subparser(sp: argparse._SubParsersAction) -> None:
     p = sp.add_parser("aws", help="Initialise AWS runtime inputs and readiness.")
 
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
 
     p.add_argument("--region", default=None, help="Override AWS_REGION.")
     p.add_argument("--profile", default=None, help="Override AWS_PROFILE (optional).")

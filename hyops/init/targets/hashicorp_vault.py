@@ -42,7 +42,7 @@ VAULT_AUTH_METHOD=token
 
 def add_subparser(sp: argparse._SubParsersAction) -> None:
     p = sp.add_parser("hashicorp-vault", help="Initialise HashiCorp Vault runtime inputs.")
-    add_init_shared_args(p)
+    add_init_shared_args(p, suppress_defaults=True)
     p.add_argument(
         "--bootstrap",
         action="store_true",
