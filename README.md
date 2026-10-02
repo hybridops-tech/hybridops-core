@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  HybridOps Core verifies authority, dependencies and recovery conditions before infrastructure changes advance, coordinates execution across systems, and retains a structured record of every transition.
+  HybridOps Core verifies authority, dependencies and recovery conditions before an operation advances, dispatches governed stages through versioned contracts, and retains a structured record of every transition.
 </p>
 
 <p align="center">
@@ -18,18 +18,19 @@
   <a href="https://docs.hybridops.tech/guides/getting-started/quickstart/">Quickstart</a> ·
   <a href="https://docs.hybridops.tech/reference-scenarios/">Reference scenarios</a> ·
   <a href="https://docs.hybridops.tech">Documentation</a> ·
-  <a href="https://hybridops.tech/papers">Technical papers</a>
+  <a href="https://hybridops.tech/papers">Research</a>
 </p>
 
 ## From declared intent to a reviewable operation
 
 ```mermaid
 flowchart LR
-    intent["Declared intent"] --> resolve["Resolve contracts<br/>and policy"]
-    resolve --> preflight["Verify authority<br/>and dependencies"]
-    preflight --> execute["Execute through a<br/>versioned driver and pack"]
-    execute --> verify["Validate the<br/>result"]
-    verify --> record["Publish outputs and<br/>write a run record"]
+    intent["Declared operation"] --> resolve["Resolve contracts<br/>and policy"]
+    resolve --> ready["Evaluate authority<br/>and readiness"]
+    ready --> dispatch["Dispatch governed<br/>stages"]
+    dispatch --> verify["Verify required<br/>outcomes"]
+    verify --> close["Guard recovery<br/>and closure"]
+    close --> record["Write operation state<br/>and run record"]
 ```
 
 <table align="center">
@@ -47,12 +48,13 @@ Hybrid infrastructure operations carry authority, policy, dependency state, vali
 
 A `ModuleSpec` defines intended capability. A `Profile` carries environment policy. A `Driver` binds execution. A versioned `Pack` carries implementation assets. A `Blueprint` composes modules into a dependency-aware lifecycle. The runtime resolves these contracts, performs preflight, executes the selected implementation, publishes outputs and writes a structured run record.
 
-Core governs four connected stages:
+Core governs five connected responsibilities:
 
-- **contract resolution:** deterministic input merge, validation, dependency ordering and environment policy
-- **controlled execution:** driver-based dispatch through versioned implementation packs and isolated workdirs
-- **preflight and verification:** required conditions and module probes around execution
-- **run records:** non-secret execution records with metadata, outputs and redacted logs
+- **contract and policy resolution:** deterministic input merge, validation, dependency ordering and environment policy
+- **authority and readiness:** declared authority selection, required conditions and pre-dispatch checks
+- **governed dispatch:** ordered execution through versioned drivers and implementation packs
+- **verification and lifecycle control:** acceptance, recovery, release and closure conditions
+- **operation state and evidence:** outputs, lifecycle transitions and non-secret run records with redacted logs
 
 ## Reference scenarios
 
@@ -85,8 +87,6 @@ hyops show env list --json
 
 See the [authoritative foundation blueprint](blueprints/onprem/authoritative-foundation@v1/) or browse the [Blueprint Index](https://docs.hybridops.tech/platform/blueprints/).
 
-If this operating model is useful to your work, star the repository to follow its development.
-
 ## Run records
 
 Intent, policy, implementation and execution records remain separate. Blueprints add explicit ordering, required preflight evaluation and guarded lifecycle operations around the same runtime path.
@@ -115,7 +115,6 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 - **Public site:** [hybridops.tech](https://hybridops.tech)
 - **Contributing:** [Contribution guide](CONTRIBUTING.md)
 - **Security:** [Security policy](.github/SECURITY.md)
-- **Reference model:** [Anuket CNTT](https://cntt.readthedocs.io/en/latest/common/chapter00.html)
 
 ## License
 
