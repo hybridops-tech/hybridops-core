@@ -4,6 +4,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+## [v0.1.5] - 2026-10-02
+
 ### Added
 
 - Added stopped EVE-NG IOL NVRAM and VLAN database state to migration
@@ -33,11 +35,26 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   drifted and stale authority state across a dependent operation.
 - Added `hyops show env list` with concise and JSON views of local environment
   readiness, state, initialized targets, blueprint references and last activity.
+- Added verified same-platform migration intake for existing EVE-NG, GNS3 and
+  Containerlab labs. Imported bundles are inspected, checksum-verified, bound
+  to the selected blueprint reference and restored through the existing
+  lifecycle.
+- Added capacity gates for lab capture, migration import and target restore so
+  insufficient disk space is reported before existing lab data is replaced.
+- Added optional, checksummed migration of EVE-NG base images referenced by
+  captured lab definitions. Licence material remains outside the archive.
+- Added independent `--overwrite-images` control for explicit base-image
+  replacement during migration restore.
+- Added environment-managed EVE-NG guest quiescence actions for protected
+  teardown, operation-specific overrides for migration capture, bounded
+  QEMU-stop verification, and checksummed archive evidence.
 
 ### Changed
 
 - Required stopped-IOL evidence when an EVE-NG migration bundle contains IOL
   state while retaining compatibility with QEMU-only bundles.
+- Pinned `hybridops.common` to `0.1.7` for approval identity verification and
+  decision-record compatibility.
 - Pinned `hybridops.helper` to `0.1.11` for verified IOL configuration and
   stopped-node-state continuity across EVE-NG reconstruction.
 - Pinned `hybridops.app` to `0.1.13` for secret-safe additional EVE-NG user
@@ -50,6 +67,19 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   applying approval posture, rejects stale or incomplete approval records, and
   preserves the approved identity and audit context in `approved-ready` records.
   The downstream executor remains dry-run.
+- Preferred sparse-aware, parallel level-one compression for remote lab capture
+  when `pigz` is available, with `gzip -1` as the portable fallback.
+- Required an explicit guest-quiesced acknowledgement before EVE-NG QEMU
+  node-state capture and recorded the selected consistency boundary.
+- Made the legacy automatic-QEMU-stop setting inert during protected EVE-NG
+  teardown so existing environment overlays fail closed without being rewritten.
+- Staged migrated EVE-NG images before transactional promotion and rollback.
+- Reported migration capture stages, assessed source sizes, transferred bytes,
+  average rate and elapsed time during long-running archive streams.
+- Reported the active archive, image and node-state phase during long lab
+  restores instead of displaying an unqualified spinner.
+- Applied a bounded four-hour execution window to EVE-NG, GNS3 and Containerlab
+  archive operations instead of the shared one-hour configuration limit.
 
 ### Fixed
 
@@ -84,43 +114,6 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   dedicated-host cleanup for disposable GCP execution.
 - Suppressed Python tracebacks when an operator cancels installation with
   `Ctrl-C`; transactional cleanup and exit status 130 are preserved.
-
-## [v0.1.5] - 2026-09-09
-
-### Added
-
-- Added verified same-platform migration intake for existing EVE-NG, GNS3 and
-  Containerlab labs. Imported bundles are inspected, checksum-verified, bound
-  to the selected blueprint reference and restored through the existing
-  lifecycle.
-- Added capacity gates for lab capture, migration import and target restore so
-  insufficient disk space is reported before existing lab data is replaced.
-- Added optional, checksummed migration of EVE-NG base images referenced by
-  captured lab definitions. Licence material remains outside the archive.
-- Added independent `--overwrite-images` control for explicit base-image
-  replacement during migration restore.
-- Added environment-managed EVE-NG guest quiescence actions for protected
-  teardown, operation-specific overrides for migration capture, bounded
-  QEMU-stop verification, and checksummed archive evidence.
-
-### Changed
-
-- Preferred sparse-aware, parallel level-one compression for remote lab capture
-  when `pigz` is available, with `gzip -1` as the portable fallback.
-- Required an explicit guest-quiesced acknowledgement before EVE-NG QEMU
-  node-state capture and recorded the selected consistency boundary.
-- Made the legacy automatic-QEMU-stop setting inert during protected EVE-NG
-  teardown so existing environment overlays fail closed without being rewritten.
-- Staged migrated EVE-NG images before transactional promotion and rollback.
-- Reported migration capture stages, assessed source sizes, transferred bytes,
-  average rate and elapsed time during long-running archive streams.
-- Reported the active archive, image and node-state phase during long lab
-  restores instead of displaying an unqualified spinner.
-- Applied a bounded four-hour execution window to EVE-NG, GNS3 and Containerlab
-  archive operations instead of the shared one-hour configuration limit.
-
-### Fixed
-
 - Cleared cached Galaxy response metadata during forced targeted collection
   refreshes so a republished pinned collection can be installed safely.
 - Reported the active archive phase and verified size during protected teardown
