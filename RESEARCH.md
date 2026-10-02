@@ -12,11 +12,9 @@ The papers state the claim, show the implemented boundary and provide a focused 
 
 ## Research scope
 
-Automation can succeed within each individual system while the wider operation remains wrong. It may act on stale authority, publish an image before consumer-path acceptance, report recovery before the service is usable, or release an environment before the required continuity state has been protected.
+Automation can complete every local action while the operation as a whole remains wrong. It may act on stale authority, publish an image before consumer-path acceptance, report recovery before the service is usable, or release an environment before the required continuity state has been protected.
 
-HybridOps makes those cross-system decisions explicit. It separates requested outcome from environment policy and implementation, resolves dependency order, evaluates readiness, publishes declared outputs, verifies results and records lifecycle transitions. Native platforms remain authoritative for the resources and mechanisms they own. HybridOps governs whether the wider operation may advance from declaration through execution, verification, publication, recovery and closure.
-
-The constituent mechanisms are established engineering practice. HybridOps adds the runtime decision boundary that binds them into one operating contract: whether the cross-system operation may advance, publish, recover, release or close under its declared policy, dependency state and required observations. The implementation technologies provide the mechanisms; the contribution under review is the cross-system runtime contract they implement.
+HybridOps defines an executable contract for that operation. The runtime separates requested outcome from environment policy and versioned implementation, resolves dependency order, evaluates readiness, dispatches governed stages, verifies declared acceptance conditions and records lifecycle transitions. Resource platforms remain authoritative for their live state. HybridOps retains the decision and evidence boundary that determines whether the operation may advance, publish, recover, release or close.
 
 Review should test whether this boundary addresses a recognisable operating problem, whether the implementation supports the stated behaviour, and which partial-execution, recovery, authority, concurrency, implementation-substitution or scale case most strongly challenges it.
 
