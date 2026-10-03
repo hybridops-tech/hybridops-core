@@ -22,13 +22,17 @@ def _require_int_range(value: Any, field: str, min_value: int, max_value: int) -
     return value
 
 
-_SDN_ID_RE = re.compile(r"^[a-z][a-z0-9]{0,7}$")
+# Proxmox SDN object IDs are 2-8 characters. Core keeps its lowercase policy.
+_SDN_ID_RE = re.compile(r"^[a-z][a-z0-9]{1,7}$")
+_SDN_ID_RULE = (
+    "2-8 characters, start with a lowercase letter, and contain only lowercase letters and digits"
+)
 
 
 def _require_sdn_id(value: Any, field: str) -> str:
     text = _require_non_empty_str(value, field)
     if not _SDN_ID_RE.match(text):
-        raise ValueError(f"{field} must match ^[a-z][a-z0-9]{{0,7}}$ (lowercase, max 8 chars)")
+        raise ValueError(f"{field} must be {_SDN_ID_RULE}")
     return text
 
 
@@ -123,7 +127,10 @@ def validate(inputs: dict[str, Any]) -> None:
             raise ValueError(f"inputs.vnets.{vnet_name}.subnets must be a non-empty mapping")
 
         for subnet_key, subnet in subnets.items():
-            subnet_name = _require_sdn_id(subnet_key, f"inputs.vnets.{vnet_name}.subnets key")
+            subnet_name = _require_non_empty_str(
+                subnet_key,
+                f"inputs.vnets.{vnet_name}.subnets key",
+            )
             if not isinstance(subnet, dict):
                 raise ValueError(f"inputs.vnets.{vnet_name}.subnets.{subnet_name} must be a mapping")
 
