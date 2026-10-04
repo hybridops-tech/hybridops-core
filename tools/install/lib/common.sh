@@ -11,6 +11,47 @@ hyops_install_need_cmd() {
   }
 }
 
+hyops_install_administrator_access_ready() {
+  local effective_uid="${HYOPS_TEST_EUID:-${EUID:-$(id -u)}}"
+  if [[ "${effective_uid}" -eq 0 ]]; then
+    return 0
+  fi
+  command -v sudo >/dev/null 2>&1 || return 1
+  sudo -n true >/dev/null 2>&1 && return 0
+  sudo -v
+}
+
+hyops_install_run_as_root() {
+  local effective_uid="${HYOPS_TEST_EUID:-${EUID:-$(id -u)}}"
+  if [[ "${effective_uid}" -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+hyops_install_python_venv_ready() {
+  python3 -c 'import ensurepip, venv' >/dev/null 2>&1
+}
+
+hyops_install_ensure_python_venv() {
+  hyops_install_python_venv_ready && return 0
+
+  if [[ "$(uname -s 2>/dev/null || true)" == "Linux" ]] && command -v apt-get >/dev/null 2>&1; then
+    echo "[install] installing Python virtual environment support"
+    hyops_install_administrator_access_ready || {
+      echo "ERR: administrator access is required to install python3-venv" >&2
+      exit 3
+    }
+    hyops_install_run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update -y
+    hyops_install_run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv
+    hyops_install_python_venv_ready && return 0
+  fi
+
+  echo "ERR: Python virtual environment support is unavailable; install the Python venv package for this platform and retry" >&2
+  exit 2
+}
+
 hyops_install_is_windows_wsl() {
   local system_name="${HYOPS_TEST_SYSTEM_NAME:-}"
   if [[ -z "${system_name}" ]]; then

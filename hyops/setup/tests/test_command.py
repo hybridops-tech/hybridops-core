@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from hyops.cli import main
-from hyops.setup.command import _update_setup_progress
+from hyops.setup.command import _administrator_access_ready, _update_setup_progress
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -28,6 +28,25 @@ def _write_galaxy_marker(runtime: str) -> None:
 
 
 class SetupCommandTests(unittest.TestCase):
+    def test_administrator_check_accepts_noninteractive_sudo(self) -> None:
+        with patch("hyops.setup.command.subprocess.call", return_value=0) as call:
+            self.assertTrue(_administrator_access_ready())
+
+        call.assert_called_once_with(
+            ["sudo", "-n", "true"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def test_administrator_check_prompts_when_noninteractive_sudo_fails(self) -> None:
+        with patch(
+            "hyops.setup.command.subprocess.call",
+            side_effect=[1, 0],
+        ) as call:
+            self.assertTrue(_administrator_access_ready())
+
+        self.assertEqual(call.call_args_list[-1].args[0], ["sudo", "-v"])
+
     def test_galaxy_progress_advances_across_dependency_sets(self) -> None:
         display = MagicMock()
         positions: dict[str, int] = {}

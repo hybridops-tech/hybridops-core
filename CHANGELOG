@@ -4,6 +4,14 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+### Fixed
+
+- Installed Python virtual-environment support automatically on apt-based Linux
+  hosts when it is absent and accepted existing passwordless administrator
+  access during installation and setup.
+- Included Python virtual-environment support in Ubuntu 24.04 Proxmox templates
+  and allowed slow security-update completion before the first SSH connection.
+
 ## [v0.1.5] - 2026-10-02
 
 ### Added
