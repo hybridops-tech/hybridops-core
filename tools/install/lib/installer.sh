@@ -26,6 +26,7 @@ _hyops_install_run_transaction() {
   hyops_install_need_cmd cp
   hyops_install_need_cmd mkdir
   hyops_install_need_cmd find
+  hyops_install_ensure_python_venv
 
   PREFIX="$(hyops_install_abs_path "${PREFIX}")"
   BIN_DIR="$(hyops_install_abs_path "${BIN_DIR}")"
@@ -99,7 +100,7 @@ _hyops_install_run_transaction() {
     else
       hyops_install_need_cmd sudo
       echo "[install] sudo required for ${SYSTEM_LINK_PATH}"
-      sudo -v || {
+      hyops_install_administrator_access_ready || {
         echo "ERR: sudo cancelled; global hyops not installed" >&2
         exit 3
       }

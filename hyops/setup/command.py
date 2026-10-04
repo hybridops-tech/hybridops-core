@@ -105,6 +105,22 @@ def _setup_phase_count(step: str) -> int:
     return SETUP_PHASE_COUNTS.get(step, 1)
 
 
+def _administrator_access_ready() -> bool:
+    try:
+        if (
+            subprocess.call(
+                ["sudo", "-n", "true"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            == 0
+        ):
+            return True
+        return subprocess.call(["sudo", "-v"]) == 0
+    except OSError:
+        return False
+
+
 def _update_setup_progress(
     progress: ProgressDisplay,
     step: str,
@@ -502,7 +518,7 @@ def run(ns) -> int:
         )
         if requires_sudo and sys.stdin.isatty() and sys.stdout.isatty():
             print("Administrator access is required for system setup.")
-            if subprocess.call(["sudo", "-v"]) != 0:
+            if not _administrator_access_ready():
                 print("ERR: administrator authentication failed")
                 return OPERATOR_ERROR
         for step_index, step in enumerate(steps, start=1):
@@ -615,7 +631,7 @@ def run(ns) -> int:
         and sys.stdout.isatty()
     ):
         print("Administrator access is required for system setup.")
-        if subprocess.call(["sudo", "-v"]) != 0:
+        if not _administrator_access_ready():
             print("ERR: administrator authentication failed")
             return OPERATOR_ERROR
 

@@ -11,8 +11,8 @@ iso_file     = "ubuntu-24.04.3-live-server-amd64.iso"
 iso_url      = "https://releases.ubuntu.com/noble/ubuntu-24.04.3-live-server-amd64.iso"
 iso_checksum = "sha256:c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b"
 
-boot_wait      = "12s"
-boot_command   = [
+boot_wait = "12s"
+boot_command = [
   "<esc><wait5s>",
   "c<wait5s>",
   "linux /casper/vmlinuz --- autoinstall ds=nocloud-net\\;s=http://{{ .HTTPIP }}:{{ .HTTPPort }}/<enter><wait5s>",
@@ -20,8 +20,8 @@ boot_command   = [
   "boot<enter>"
 ]
 
-# Some environments take longer (ISO cache miss, slow mirrors, etc).
-ssh_timeout = "20m"
+# Allow the installer to finish mandatory security updates before first boot.
+ssh_timeout = "40m"
 
 provisioner = [
   "cloud-init status --wait || true",

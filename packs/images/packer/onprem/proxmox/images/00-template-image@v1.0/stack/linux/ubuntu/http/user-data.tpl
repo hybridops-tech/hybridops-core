@@ -39,6 +39,7 @@ autoinstall:
   - cloud-initramfs-growroot
   - openssh-server
   - python3
+  - python3-venv
 
   late-commands:
   - curtin in-target --target=/target -- systemctl enable qemu-guest-agent
