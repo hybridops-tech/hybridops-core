@@ -1,0 +1,10 @@
+target_host: "10.80.90.10"
+target_user: "opsadmin"
+ssh_private_key_file: "~/.ssh/id_ed25519"
+
+pinned_workload_id: "network-acceptance"
+pinned_workload_repository: "https://github.com/example/network-acceptance.git"
+pinned_workload_revision: "0123456789abcdef0123456789abcdef01234567"
+pinned_workload_entrypoint: "scripts/acceptance.sh"
+pinned_workload_evidence_paths:
+  - "reports"
