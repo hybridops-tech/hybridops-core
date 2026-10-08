@@ -1,0 +1,76 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "platform/linux/pinned-workload"
+
+metadata:
+  title: "Pinned Linux Workload"
+  description: "Execute an external workload at an exact Git commit and retain its declared evidence off-host."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    target_host: ""
+    local_execution: false
+    target_state_ref: ""
+    target_vm_key: ""
+    inventory_groups: {}
+    inventory_state_ref: ""
+    inventory_vm_groups: {}
+    target_user: "opsadmin"
+    target_port: 22
+    ssh_private_key_file: ""
+    ssh_access_mode: "direct"
+    ssh_proxy_jump_auto: false
+    ssh_proxy_jump_host: ""
+    ssh_proxy_jump_user: "opsadmin"
+    ssh_proxy_jump_port: 22
+    gcp_iap_instance: ""
+    gcp_iap_project_id: ""
+    gcp_iap_zone: ""
+    become: true
+    become_user: "root"
+    connectivity_check: true
+    connectivity_timeout_s: 5
+    connectivity_wait_s: 0
+    execution_timeout_s: 15000
+    required_env: []
+    required_env_destroy: []
+    load_vault_env: false
+    pinned_workload_role_fqcn: "hybridops.app.pinned_workload"
+    pinned_workload_action: "execute"
+    pinned_workload_id: ""
+    pinned_workload_repository: ""
+    pinned_workload_revision: ""
+    pinned_workload_checkout_root: "/var/lib/hybridops/workloads"
+    pinned_workload_owner: "opsadmin"
+    pinned_workload_entrypoint: ""
+    pinned_workload_arguments: []
+    pinned_workload_environment: {}
+    pinned_workload_runtime_files: []
+    pinned_workload_evidence_paths: []
+    pinned_workload_controller_evidence_dir: ""
+    pinned_workload_timeout_s: 14400
+
+execution:
+  driver: "config/ansible"
+  profile: "onprem-linux@v1.0"
+  pack_ref:
+    id: "linux/common/platform/65-pinned-workload@v1.0"
+
+outputs:
+  publish:
+    - cap.workload.pinned
+    - pinned_workload_id
+    - pinned_workload_revision
+    - pinned_workload_resolved_commit
+    - pinned_workload_exit_code
+    - pinned_workload_evidence_archive
+    - pinned_workload_evidence_sha256
+    - pinned_workload_missing_evidence
+
+probes: []
+constraints: []
+

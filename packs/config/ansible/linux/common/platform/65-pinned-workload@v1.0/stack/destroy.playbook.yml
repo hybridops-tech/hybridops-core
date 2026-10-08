@@ -1,0 +1,31 @@
+---
+- name: Destroy platform/linux/pinned-workload
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Remove managed pinned workload checkout
+      ansible.builtin.include_role:
+        name: "{{ pinned_workload_role_fqcn }}"
+      vars:
+        _pinned_workload_action: destroy
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.workload.pinned': 'absent',
+            'pinned_workload_id': pinned_workload_result.workload_id,
+            'pinned_workload_revision': '',
+            'pinned_workload_resolved_commit': '',
+            'pinned_workload_exit_code': 0,
+            'pinned_workload_evidence_archive': '',
+            'pinned_workload_evidence_sha256': '',
+            'pinned_workload_missing_evidence': []
+          } | to_json }}

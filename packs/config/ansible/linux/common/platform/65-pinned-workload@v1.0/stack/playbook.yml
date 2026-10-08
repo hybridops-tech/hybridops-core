@@ -1,0 +1,52 @@
+---
+- name: Apply platform/linux/pinned-workload
+  hosts: targets
+  become: true
+  gather_facts: false
+
+  vars:
+    _hyops_runtime_root: "{{ lookup('env', 'HYOPS_RUNTIME_ROOT') | default('', true) | trim }}"
+    _hyops_controller_evidence_dir: >-
+      {{
+        pinned_workload_controller_evidence_dir
+        if pinned_workload_controller_evidence_dir | default('') | trim | length > 0
+        else _hyops_runtime_root ~ '/artifacts/workloads/' ~ pinned_workload_id
+      }}
+
+  pre_tasks:
+    - name: Require runtime root for default workload evidence path
+      ansible.builtin.assert:
+        that:
+          - >-
+            pinned_workload_controller_evidence_dir | default('') | trim | length > 0 or
+            _hyops_runtime_root | length > 0
+        fail_msg: >-
+          HYOPS_RUNTIME_ROOT or pinned_workload_controller_evidence_dir is
+          required for off-host workload evidence.
+
+  tasks:
+    - name: Execute immutable external workload
+      ansible.builtin.include_role:
+        name: "{{ pinned_workload_role_fqcn }}"
+      vars:
+        _pinned_workload_action: execute
+        _pinned_workload_controller_evidence_dir: "{{ _hyops_controller_evidence_dir }}"
+
+  post_tasks:
+    - name: Write HyOps outputs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ hyops_outputs_file }}"
+        mode: "0600"
+        content: |
+          {{ {
+            'cap.workload.pinned': 'accepted',
+            'pinned_workload_id': pinned_workload_result.workload_id,
+            'pinned_workload_revision': pinned_workload_result.revision,
+            'pinned_workload_resolved_commit': pinned_workload_result.resolved_commit,
+            'pinned_workload_exit_code': pinned_workload_result.exit_code,
+            'pinned_workload_evidence_archive': pinned_workload_result.evidence_archive,
+            'pinned_workload_evidence_sha256': pinned_workload_result.evidence_sha256,
+            'pinned_workload_missing_evidence': pinned_workload_result.missing_evidence
+          } | to_json }}

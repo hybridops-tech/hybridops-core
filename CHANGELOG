@@ -4,6 +4,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+### Added
+
+- Added exact-commit external workload execution with protected runtime inputs,
+  fail-closed acceptance and checksummed off-host evidence retention.
+
 ### Fixed
 
 - Installed Python virtual-environment support automatically on apt-based Linux
