@@ -48,5 +48,6 @@
             'pinned_workload_exit_code': pinned_workload_result.exit_code,
             'pinned_workload_evidence_archive': pinned_workload_result.evidence_archive,
             'pinned_workload_evidence_sha256': pinned_workload_result.evidence_sha256,
-            'pinned_workload_missing_evidence': pinned_workload_result.missing_evidence
+            'pinned_workload_missing_evidence': pinned_workload_result.missing_evidence,
+            'pinned_workload_container_images': pinned_workload_result.container_images
           } | to_json }}

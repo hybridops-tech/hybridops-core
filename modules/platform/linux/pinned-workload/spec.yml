@@ -49,7 +49,10 @@ inputs:
     pinned_workload_entrypoint: ""
     pinned_workload_arguments: []
     pinned_workload_environment: {}
+    pinned_workload_packages: []
     pinned_workload_runtime_files: []
+    pinned_workload_container_image_archives: []
+    pinned_workload_container_image_cache_dir: "/var/cache/hybridops/pinned-workload/images"
     pinned_workload_evidence_paths: []
     pinned_workload_controller_evidence_dir: ""
     pinned_workload_timeout_s: 14400
@@ -70,6 +73,7 @@ outputs:
     - pinned_workload_evidence_archive
     - pinned_workload_evidence_sha256
     - pinned_workload_missing_evidence
+    - pinned_workload_container_images
 
 probes: []
 constraints: []

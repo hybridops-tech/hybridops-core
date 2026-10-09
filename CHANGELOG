@@ -8,6 +8,10 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 - Added exact-commit external workload execution with protected runtime inputs,
   fail-closed acceptance and checksummed off-host evidence retention.
+- Added checksummed operator-supplied container image archives to pinned
+  workload execution, with optional exact image-ID enforcement.
+- Added explicitly declared host-package prerequisites to pinned workload
+  execution.
 
 ### Fixed
 

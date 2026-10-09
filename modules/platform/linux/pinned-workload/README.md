@@ -11,3 +11,9 @@ retains the host and fails the module.
 Protected runtime files can be staged with `pinned_workload_runtime_files`.
 Their contents are not written to task output or the public execution manifest.
 
+Host prerequisites required by the entry point can be declared with
+`pinned_workload_packages`.
+
+Checksummed operator-supplied Docker archives can be loaded with
+`pinned_workload_container_image_archives`. Expected image IDs may be declared
+when reconstruction requires the same image artifacts on every host.

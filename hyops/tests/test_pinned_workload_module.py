@@ -25,6 +25,8 @@ class PinnedWorkloadModuleTest(TestCase):
         defaults = self.spec["inputs"]["defaults"]
         self.assertEqual(defaults["pinned_workload_revision"], "")
         self.assertEqual(defaults["pinned_workload_evidence_paths"], [])
+        self.assertEqual(defaults["pinned_workload_packages"], [])
+        self.assertEqual(defaults["pinned_workload_container_image_archives"], [])
         self.assertEqual(
             defaults["pinned_workload_role_fqcn"],
             "hybridops.app.pinned_workload",
@@ -40,6 +42,7 @@ class PinnedWorkloadModuleTest(TestCase):
         self.assertIn("/artifacts/workloads/", playbook)
         self.assertIn("pinned_workload_evidence_sha256", playbook)
         self.assertIn("pinned_workload_missing_evidence", playbook)
+        self.assertIn("pinned_workload_container_images", playbook)
 
     def test_destroy_pack_removes_only_managed_checkout(self) -> None:
         playbook = yaml.safe_load(
@@ -53,6 +56,7 @@ class PinnedWorkloadModuleTest(TestCase):
         self.assertIn("pinned_workload_resolved_commit", outputs)
         self.assertIn("pinned_workload_exit_code", outputs)
         self.assertIn("pinned_workload_evidence_sha256", outputs)
+        self.assertIn("pinned_workload_container_images", outputs)
 
 
 if __name__ == "__main__":
