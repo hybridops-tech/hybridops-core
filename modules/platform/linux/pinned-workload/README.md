@@ -10,6 +10,10 @@ retains the target and fails the module.
 
 Protected runtime files can be staged with `pinned_workload_runtime_files`.
 Their contents are not written to task output or the public execution manifest.
+Protected destinations and retained evidence paths must not overlap. The
+module rejects exact, parent and child path collisions before materialising the
+workload checkout. Symbolic-link indirection is rejected before protected
+files are staged or evidence is retained.
 
 Host prerequisites required by the entry point can be declared with
 `pinned_workload_packages`.

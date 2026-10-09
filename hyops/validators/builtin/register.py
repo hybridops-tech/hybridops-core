@@ -54,6 +54,7 @@ from hyops.validators.platform.linux import (
     eve_ng_labs,
     gns3_lab_archive,
     gns3_images,
+    pinned_workload,
 )
 from hyops.validators.platform.onprem import (
     argocd_bootstrap,
@@ -115,6 +116,7 @@ def register_all() -> None:
     register("platform/linux/gns3-lab-archive", gns3_lab_archive.validate)
     register("platform/linux/containerlab-lab", containerlab_lab.validate)
     register("platform/linux/containerlab-gui", containerlab_gui.validate)
+    register("platform/linux/pinned-workload", pinned_workload.validate)
     register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)
     register("platform/network/edge-observability", edge_observability.validate)
     register("platform/network/cloudflare-traffic-steering", cloudflare_traffic_steering.validate)
