@@ -5,7 +5,7 @@ module_ref: "platform/linux/pinned-workload"
 
 metadata:
   title: "Pinned Linux Workload"
-  description: "Execute an external workload at an exact Git commit and retain its declared evidence off-host."
+  description: "Execute an external workload at an exact Git commit and retain its declared evidence with the controller."
 
 requirements:
   credentials: []

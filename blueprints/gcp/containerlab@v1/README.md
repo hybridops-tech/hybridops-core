@@ -48,6 +48,11 @@ source, interactive deployment asks which one is authoritative. Unattended
 runs use `--restore-labs` for the archive or `--skip-lab-restore` for the
 controller source.
 
+Use the
+[pinned workload lifecycle](https://docs.hybridops.tech/ops/runbooks/platform/modules/hyops-pinned-workload-lifecycle/)
+when an exact external repository revision and its declared acceptance results
+must be repeated after compute replacement.
+
 ## Documentation
 
 - [Operator runbook](https://docs.hybridops.tech/ops/runbooks/platform/blueprints/hyops-blueprint-containerlab/)
