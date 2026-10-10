@@ -5,8 +5,9 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 
 DriverFunc = Callable[[dict[str, Any]], dict[str, Any]]
@@ -21,10 +22,39 @@ class DriverRegistration:
     execution_validator: ExecutionValidator | None = None
 
 
+class DriverUnavailableError(LookupError):
+    """Selected driver is unavailable after plugin discovery failed."""
+
+    def __init__(self, ref: str, failed_plugins: tuple[str, ...]) -> None:
+        self.ref = ref
+        self.failed_plugins = failed_plugins
+        names = ", ".join(failed_plugins)
+        super().__init__(
+            f"driver unavailable: {ref} (plugin registration failed: {names})"
+        )
+
+
 class DriverRegistry:
     def __init__(self) -> None:
         self._drivers: dict[str, DriverRegistration] = {}
         self._reserved: set[str] = set()
+        self._failed_plugins: set[str] = set()
+
+    @contextmanager
+    def plugin_registration(self, entrypoint: str) -> Iterator[None]:
+        """Roll back registrations when one plugin cannot load completely."""
+        name = str(entrypoint or "").strip() or "unknown"
+        drivers_before = dict(self._drivers)
+        reserved_before = set(self._reserved)
+        try:
+            yield
+        except Exception:
+            self._drivers = drivers_before
+            self._reserved = reserved_before
+            self._failed_plugins.add(name)
+            raise
+        else:
+            self._failed_plugins.discard(name)
 
     def reserve(self, ref: str) -> None:
         self._validate_ref(ref)
@@ -67,15 +97,11 @@ class DriverRegistry:
         )
 
     def resolve(self, ref: str) -> DriverFunc:
-        reg = self._drivers.get(ref)
-        if not reg:
-            raise KeyError(f"driver not registered: {ref}")
+        reg = self._require_registration(ref)
         return reg.fn
 
     def validate_execution(self, ref: str, execution: dict[str, Any]) -> None:
-        reg = self._drivers.get(ref)
-        if not reg:
-            raise KeyError(f"driver not registered: {ref}")
+        reg = self._require_registration(ref)
 
         if reg.execution_validator is None:
             return
@@ -87,6 +113,14 @@ class DriverRegistry:
 
     def list(self) -> list[DriverRegistration]:
         return sorted(self._drivers.values(), key=lambda r: r.ref)
+
+    def _require_registration(self, ref: str) -> DriverRegistration:
+        reg = self._drivers.get(ref)
+        if reg is not None:
+            return reg
+        if self._failed_plugins:
+            raise DriverUnavailableError(ref, tuple(sorted(self._failed_plugins)))
+        raise KeyError(f"driver not registered: {ref}")
 
     @staticmethod
     def _validate_ref(ref: str) -> None:
