@@ -501,7 +501,16 @@ class GcpNonInteractiveMissingConfigTest(TestCase):
             output = io.StringIO()
             with (
                 patch("hyops.init.targets.gcp._cmd_stdout", side_effect=fake_stdout),
-                patch.dict(os.environ, {"CI": "", "GOOGLE_APPLICATION_CREDENTIALS": ""}, clear=False),
+                patch.dict(
+                    os.environ,
+                    {
+                        "CI": "",
+                        "GOOGLE_APPLICATION_CREDENTIALS": "",
+                        "GCP_PROJECT_ID": "",
+                        "GCP_REGION": "",
+                    },
+                    clear=False,
+                ),
                 redirect_stdout(output),
             ):
                 code = run_gcp_init(ns)

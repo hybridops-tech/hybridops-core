@@ -4,6 +4,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+### Fixed
+
+- Stopped non-interactive GCP init from asking for prompts when
+  `GCP_PROJECT_ID` or `GCP_REGION` is missing.
+
 ## [v0.1.6] - 2026-11-03
 
 ### Added
