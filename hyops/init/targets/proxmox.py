@@ -19,6 +19,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 from urllib.parse import urlparse
 
 from hyops.runtime.config import write_template_if_missing
@@ -40,7 +41,7 @@ from hyops.runtime.paths import resolve_runtime_paths
 from hyops.runtime.proc import run as run_proc, run_capture, run_capture_sensitive
 from hyops.runtime.readiness import read_marker, write_marker
 from hyops.runtime.stamp import stamp_runtime
-from hyops.runtime.vault import VaultAuth, has_password_source, merge_set, read_env
+from hyops.runtime.vault import VaultAuth, has_password_source, merge_set, read_env, write_env
 
 
 _TEMPLATE = """# purpose: Proxmox init configuration for HybridOps.Core
@@ -645,6 +646,64 @@ def _remote_token_controls(*, token_secret: str, force: bool) -> list[str]:
     return []
 
 
+def _validate_vault_persistence(vault_path: Path, auth: VaultAuth) -> str:
+    vault_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_probe_path = tempfile.mkstemp(
+        prefix=".hyops-vault-probe.",
+        dir=str(vault_path.parent),
+    )
+    os.close(fd)
+    probe_path = Path(raw_probe_path)
+    probe_path.unlink()
+    try:
+        write_env(probe_path, auth, {})
+    except Exception as exc:
+        return str(exc)
+    finally:
+        try:
+            probe_path.unlink()
+        except FileNotFoundError:
+            pass
+    return ""
+
+
+def _rollback_created_remote_credentials(
+    *,
+    values: dict[str, str],
+    ssh_username: str,
+    ssh_opts: list[str],
+    evidence_dir: Path,
+    user_created: bool,
+    token_created: bool,
+) -> str:
+    if not user_created and not token_created:
+        return ""
+
+    user_fq = shlex.quote(values["user_fq"])
+    token_name = shlex.quote(values["token_name"])
+    actions: list[str] = ["set +e", "rc=0"]
+    if token_created:
+        actions.append(f"pveum user token remove {user_fq} {token_name} >/dev/null 2>&1 || rc=1")
+    if user_created:
+        actions.append(f"pveum user delete {user_fq} >/dev/null 2>&1 || rc=1")
+    actions.append("exit $rc")
+
+    result = run_capture_sensitive(
+        [
+            "ssh",
+            *ssh_opts,
+            f"{ssh_username}@{values['host']}",
+            "; ".join(actions),
+        ],
+        evidence_dir=evidence_dir,
+        label="remote_bootstrap_rollback",
+        timeout_s=60,
+    )
+    if result.rc != 0:
+        return "remote credential rollback failed; inspect remote_bootstrap_rollback.result.json"
+    return ""
+
+
 def _write_tfvars(
     path: Path,
     values: dict[str, str],
@@ -982,6 +1041,12 @@ def run(ns) -> int:
         print(f"run record: {evidence_dir}")
         return OK
 
+    if want_remote and ((not token_secret) or bool(getattr(ns, "force", False))):
+        vault_error = _validate_vault_persistence(vault_path, auth)
+        if vault_error:
+            print(f"vault persistence preflight failed: {vault_error}")
+            return SECRETS_FAILED
+
     if want_remote:
         if not _ensure_bootstrap_ssh_access(
             values,
@@ -1073,6 +1138,16 @@ def run(ns) -> int:
                 merge_set(vault_path, auth, {"PROXMOX_TOKEN_SECRET": token_secret})
             except Exception as e:
                 print(f"vault write failed: {e}")
+                rollback_error = _rollback_created_remote_credentials(
+                    values=values,
+                    ssh_username=ssh_username,
+                    ssh_opts=ssh_opts,
+                    evidence_dir=evidence_dir,
+                    user_created=exports.get("USER_CREATED") == "1",
+                    token_created=exports.get("TOKEN_CREATED") == "1",
+                )
+                if rollback_error:
+                    print(f"ERR: {rollback_error}")
                 return SECRETS_FAILED
 
         runtime["node"] = exports.get("NODE", runtime["node"])

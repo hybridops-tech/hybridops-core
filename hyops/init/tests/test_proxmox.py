@@ -3,8 +3,15 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from hyops.init.targets.proxmox import _remote_token_controls
+from hyops.init.targets.proxmox import (
+    _remote_token_controls,
+    _rollback_created_remote_credentials,
+    _validate_vault_persistence,
+)
+from hyops.runtime.vault import VaultAuth
 
 
 class ProxmoxTokenRotationTest(unittest.TestCase):
@@ -195,6 +202,53 @@ fi
         self.assertIn("EXPORT:TOKEN_SECRET=test-secret", result.stdout)
         self.assertFalse(any("token remove" in line for line in mutations))
         self.assertFalse(any("user delete" in line for line in mutations))
+
+    @patch("hyops.init.targets.proxmox.write_env")
+    def test_vault_persistence_probe_removes_temporary_vault(self, write_env_mock):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_path = Path(tmp) / "bootstrap.vault.env"
+            error = _validate_vault_persistence(vault_path, VaultAuth(password_file="unused"))
+
+            self.assertEqual(error, "")
+            probe_path = write_env_mock.call_args.args[0]
+            self.assertEqual(probe_path.parent, vault_path.parent)
+            self.assertFalse(probe_path.exists())
+
+    @patch(
+        "hyops.init.targets.proxmox.write_env",
+        side_effect=RuntimeError("vault password command failed"),
+    )
+    def test_vault_persistence_probe_reports_failure(self, _write_env_mock):
+        with tempfile.TemporaryDirectory() as tmp:
+            error = _validate_vault_persistence(
+                Path(tmp) / "bootstrap.vault.env",
+                VaultAuth(password_file="unused"),
+            )
+
+        self.assertEqual(error, "vault password command failed")
+
+    @patch(
+        "hyops.init.targets.proxmox.run_capture_sensitive",
+        return_value=SimpleNamespace(rc=0),
+    )
+    def test_local_vault_failure_rolls_back_created_remote_credentials(self, run_mock):
+        error = _rollback_created_remote_credentials(
+            values={
+                "host": "192.0.2.10",
+                "user_fq": "automation@pam",
+                "token_name": "infra-token",
+            },
+            ssh_username="root",
+            ssh_opts=["-o", "BatchMode=yes"],
+            evidence_dir=Path("/tmp/evidence"),
+            user_created=True,
+            token_created=True,
+        )
+
+        self.assertEqual(error, "")
+        command = run_mock.call_args.args[0][-1]
+        self.assertIn("pveum user token remove automation@pam infra-token", command)
+        self.assertIn("pveum user delete automation@pam", command)
 
 
 if __name__ == "__main__":
