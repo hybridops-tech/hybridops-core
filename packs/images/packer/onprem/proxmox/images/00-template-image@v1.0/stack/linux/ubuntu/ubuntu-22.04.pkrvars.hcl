@@ -11,8 +11,8 @@ iso_file     = "ubuntu-22.04.5-live-server-amd64.iso"
 iso_url      = "https://releases.ubuntu.com/jammy/ubuntu-22.04.5-live-server-amd64.iso"
 iso_checksum = "sha256:9bc6028870aef3f74f4e16b900008179e78b130e6b0b9a140635434a46aa98b0"
 
-boot_wait      = "12s"
-boot_command   = [
+boot_wait = "12s"
+boot_command = [
   "<esc><wait5s>",
   "c<wait5s>",
   "linux /casper/vmlinuz --- autoinstall ds=nocloud-net\\;s=http://{{ .HTTPIP }}:{{ .HTTPPort }}/<enter><wait5s>",
@@ -26,6 +26,7 @@ provisioner = [
   "sudo rm -f /etc/cloud/cloud.cfg.d/99-installer.cfg",
   "sudo rm -f /etc/netplan/00-installer-config.yaml",
   "sudo bash -c 'cat > /etc/netplan/01-netcfg.yaml <<EOF\nnetwork:\n  version: 2\n  ethernets:\n    id0:\n      match:\n        name: \"e*\"\n      dhcp4: true\nEOF'",
+  "sudo chmod 600 /etc/netplan/01-netcfg.yaml",
   "sudo netplan generate || true",
   "sudo rm -f /etc/machine-id /var/lib/dbus/machine-id",
   "sudo truncate -s 0 /etc/machine-id",

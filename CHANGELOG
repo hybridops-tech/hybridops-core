@@ -15,6 +15,14 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Made Proxmox bootstrap validate storage and bridge prerequisites before
+  credential mutation, grant scoped bridge authority, and remove newly created
+  credentials when later bootstrap steps fail.
+- Made Proxmox template preflight verify bridge authority and the selected ISO
+  path before a build, and reject Linux installer delivery from WSL NAT before
+  the long-running build starts.
+- Applied restrictive permissions to generated Ubuntu Netplan files and
+  identified temporary smoke-clone cleanup accurately.
 - Rejected exact, parent, child and symbolic-link overlap between protected
   pinned-workload runtime files and retained evidence.
 - Installed Python virtual-environment support automatically on apt-based Linux

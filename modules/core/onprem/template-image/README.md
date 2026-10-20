@@ -11,6 +11,8 @@ What this gives you:
 
 `hyops deploy` runs the same post-build smoke validation by default using the Proxmox API credentials already configured for the module. Smoke is warning-only by default and can be made required via `inputs.post_build_smoke.required: true`.
 
+Strict preflight verifies bridge authority and the selected ISO path before a build. `hyops init proxmox --bootstrap` validates the target storage and bridge before creating credentials. Linux template builds from WSL require mirrored networking for the temporary installer endpoint.
+
 ## Quick start
 
 ```bash

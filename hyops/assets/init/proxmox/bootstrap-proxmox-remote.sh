@@ -26,46 +26,7 @@ if [[ -z "${USER}" || -z "${REALM}" || "${USER_FQ}" != *"@"* ]]; then
   log_error "USER_FQ must be in the format user@realm"
   exit 1
 fi
-
-log_info "Provisioning API user: ${USER_FQ}"
-if pveum user list --output-format json 2>/dev/null | grep -q "\"userid\":\"${USER_FQ}\""; then
-  log_info "User exists"
-else
-  pveum user add "${USER_FQ}" --comment "HybridOps automation" 2>/dev/null || {
-    log_error "Failed to create user"
-    exit 1
-  }
-  log_info "User created"
-fi
-
-log_info "Ensuring token: ${TOKEN_NAME}"
 TOKEN_ID="${USER_FQ}!${TOKEN_NAME}"
-TOKEN_SECRET=""
-
-if [[ -n "${SKIP_TOKEN_GEN:-}" ]]; then
-  log_info "SKIP_TOKEN_GEN set; reusing existing vault secret"
-else
-  if pveum user token list "${USER_FQ}" --output-format json 2>/dev/null | grep -q "\"tokenid\":\"${TOKEN_NAME}\""; then
-    if [[ "${ALLOW_TOKEN_ROTATION:-}" != "1" ]]; then
-      log_error "Token ${TOKEN_ID} already exists and rotation was not authorised"
-      log_error "Choose a different token name or re-run with explicit --force authority"
-      exit 3
-    fi
-    log_info "Rotating token"
-    pveum user token remove "${USER_FQ}" "${TOKEN_NAME}" 2>/dev/null || true
-  fi
-
-  TOKEN_JSON="$(pveum user token add "${USER_FQ}" "${TOKEN_NAME}" --privsep=0 --expire=0 --output-format=json 2>/dev/null)" || {
-    log_error "Token generation failed"
-    exit 1
-  }
-  TOKEN_SECRET="$(printf '%s\n' "${TOKEN_JSON}" | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-
-  if [[ -z "${TOKEN_SECRET}" ]]; then
-    log_error "Token generation failed (empty secret)"
-    exit 1
-  fi
-fi
 
 NODE="$(hostname)"
 
@@ -192,15 +153,107 @@ log_info "Storage ISO=${STORAGE_ISO}"
 log_info "Storage snippets=${STORAGE_SNIPPETS}"
 log_info "Bridge=${BRIDGE}"
 
-pveum acl modify /vms                       --user "${USER_FQ}" --role PVEVMAdmin 2>/dev/null || log_warn "Failed to set ACL on /vms"
-pveum acl modify "/storage/${STORAGE_VM}"  --user "${USER_FQ}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set ACL on storage ${STORAGE_VM}"
-pveum acl modify "/storage/${STORAGE_ISO}" --user "${USER_FQ}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set ACL on storage ${STORAGE_ISO}"
-pveum acl modify "/storage/${STORAGE_SNIPPETS}" --user "${USER_FQ}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set ACL on storage ${STORAGE_SNIPPETS}"
+USER_CREATED=0
+TOKEN_CREATED=0
 
-pveum acl modify /                          --token "${TOKEN_ID}" --role PVEVMAdmin 2>/dev/null || log_warn "Failed to set token ACL on /"
-pveum acl modify "/storage/${STORAGE_VM}"  --token "${TOKEN_ID}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set token ACL on storage ${STORAGE_VM}"
-pveum acl modify "/storage/${STORAGE_ISO}" --token "${TOKEN_ID}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set token ACL on storage ${STORAGE_ISO}"
-pveum acl modify "/storage/${STORAGE_SNIPPETS}" --token "${TOKEN_ID}" --role PVEAdmin 2>/dev/null || log_warn "Failed to set token ACL on storage ${STORAGE_SNIPPETS}"
+cleanup_partial_credentials() {
+  local rc=$?
+  if [[ "${rc}" -eq 0 ]]; then
+    return
+  fi
+  set +e
+  if [[ "${TOKEN_CREATED}" -eq 1 ]]; then
+    if ! pveum user token remove "${USER_FQ}" "${TOKEN_NAME}" >/dev/null 2>&1; then
+      log_error "Failed to remove token ${TOKEN_ID} during rollback"
+    fi
+  fi
+  if [[ "${USER_CREATED}" -eq 1 ]]; then
+    if ! pveum user delete "${USER_FQ}" >/dev/null 2>&1; then
+      log_error "Failed to remove user ${USER_FQ} during rollback"
+    fi
+  fi
+}
+trap cleanup_partial_credentials EXIT
+
+log_info "Provisioning API user: ${USER_FQ}"
+if pveum user list --output-format json 2>/dev/null | grep -q "\"userid\":\"${USER_FQ}\""; then
+  log_info "User exists"
+else
+  pveum user add "${USER_FQ}" --comment "HybridOps automation" 2>/dev/null || {
+    log_error "Failed to create user"
+    exit 1
+  }
+  USER_CREATED=1
+  log_info "User created"
+fi
+
+log_info "Ensuring token: ${TOKEN_NAME}"
+TOKEN_SECRET=""
+TOKEN_EXISTS=0
+if pveum user token list "${USER_FQ}" --output-format json 2>/dev/null | grep -q "\"tokenid\":\"${TOKEN_NAME}\""; then
+  TOKEN_EXISTS=1
+fi
+
+if [[ -n "${SKIP_TOKEN_GEN:-}" ]]; then
+  if [[ "${TOKEN_EXISTS}" -ne 1 ]]; then
+    log_error "Token ${TOKEN_ID} does not exist for the stored vault secret"
+    exit 1
+  fi
+  log_info "SKIP_TOKEN_GEN set; reusing existing vault secret"
+else
+  if [[ "${TOKEN_EXISTS}" -eq 1 ]]; then
+    if [[ "${ALLOW_TOKEN_ROTATION:-}" != "1" ]]; then
+      log_error "Token ${TOKEN_ID} already exists and rotation was not authorised"
+      log_error "Choose a different token name or re-run with explicit --force authority"
+      exit 3
+    fi
+    log_info "Rotating token"
+    pveum user token remove "${USER_FQ}" "${TOKEN_NAME}" 2>/dev/null || true
+  fi
+
+  TOKEN_JSON="$(pveum user token add "${USER_FQ}" "${TOKEN_NAME}" --privsep=0 --expire=0 --output-format=json 2>/dev/null)" || {
+    log_error "Token generation failed"
+    exit 1
+  }
+  TOKEN_CREATED=1
+  TOKEN_SECRET="$(printf '%s\n' "${TOKEN_JSON}" | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+
+  if [[ -z "${TOKEN_SECRET}" ]]; then
+    log_error "Token generation failed (empty secret)"
+    exit 1
+  fi
+fi
+
+require_acl() {
+  local description="$1"
+  shift
+  if ! pveum acl modify "$@" 2>/dev/null; then
+    log_error "Failed to set ACL on ${description}"
+    exit 1
+  fi
+}
+
+grant_storage_acls() {
+  local subject_flag="$1"
+  local subject="$2"
+  local sid
+  local -A seen=()
+  for sid in "${STORAGE_VM}" "${STORAGE_ISO}" "${STORAGE_SNIPPETS}"; do
+    if [[ -n "${seen[${sid}]:-}" ]]; then
+      continue
+    fi
+    seen["${sid}"]=1
+    require_acl "storage ${sid}" "/storage/${sid}" "${subject_flag}" "${subject}" --role PVEAdmin
+  done
+}
+
+require_acl "/vms" /vms --user "${USER_FQ}" --role PVEVMAdmin
+require_acl "bridge ${BRIDGE}" "/sdn/zones/localnetwork/${BRIDGE}" --user "${USER_FQ}" --role PVESDNUser
+grant_storage_acls --user "${USER_FQ}"
+
+require_acl "/" / --token "${TOKEN_ID}" --role PVEVMAdmin
+require_acl "bridge ${BRIDGE}" "/sdn/zones/localnetwork/${BRIDGE}" --token "${TOKEN_ID}" --role PVESDNUser
+grant_storage_acls --token "${TOKEN_ID}"
 
 if [[ -n "${TOKEN_SECRET}" ]]; then
   printf 'EXPORT:TOKEN_SECRET=%s\n' "${TOKEN_SECRET}"

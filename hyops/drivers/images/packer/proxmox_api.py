@@ -226,6 +226,81 @@ def proxmox_pool_exists(
     return True, ""
 
 
+def proxmox_token_has_privilege(
+    *,
+    proxmox_url: str,
+    proxmox_token_id: str,
+    proxmox_token_secret: str,
+    skip_tls: bool,
+    resource_path: str,
+    privilege: str,
+) -> tuple[bool, str]:
+    requested_path = str(resource_path or "").strip()
+    requested_privilege = str(privilege or "").strip()
+    if not requested_path or not requested_privilege:
+        return False, "permission path and privilege are required"
+
+    payload, get_err = proxmox_request(
+        url=proxmox_url,
+        method="GET",
+        token_id=proxmox_token_id,
+        token_secret=proxmox_token_secret,
+        skip_tls=skip_tls,
+        path="/access/permissions",
+        params={"path": requested_path},
+    )
+    if get_err:
+        return False, get_err
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return False, "permission response did not contain an object"
+    direct = data.get(requested_privilege)
+    if direct in (1, True, "1"):
+        return True, ""
+    scoped = data.get(requested_path)
+    if isinstance(scoped, dict) and scoped.get(requested_privilege) in (1, True, "1"):
+        return True, ""
+    return False, ""
+
+
+def proxmox_storage_content_exists(
+    *,
+    proxmox_url: str,
+    proxmox_node: str,
+    proxmox_token_id: str,
+    proxmox_token_secret: str,
+    skip_tls: bool,
+    storage: str,
+    volume_id: str,
+) -> tuple[bool, str]:
+    node = urllib.parse.quote(str(proxmox_node).strip(), safe="")
+    storage_id = urllib.parse.quote(str(storage).strip(), safe="")
+    expected = str(volume_id or "").strip()
+    if not node or not storage_id or not expected:
+        return False, "node, storage and volume id are required"
+
+    payload, get_err = proxmox_request(
+        url=proxmox_url,
+        method="GET",
+        token_id=proxmox_token_id,
+        token_secret=proxmox_token_secret,
+        skip_tls=skip_tls,
+        path=f"/nodes/{node}/storage/{storage_id}/content",
+        params={"content": "iso"},
+    )
+    if get_err:
+        return False, get_err
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return False, "storage content response did not contain a list"
+    return any(
+        isinstance(item, dict) and str(item.get("volid") or "").strip() == expected
+        for item in data
+    ), ""
+
+
 def proxmox_resolve_vmid_by_name(
     *,
     proxmox_url: str,
@@ -503,8 +578,10 @@ def purge_template_vm(
     proxmox_token_secret: str,
     skip_tls: bool,
     vmid: int,
+    resource_label: str = "template",
 ) -> tuple[list[str], str]:
     warnings: list[str] = []
+    label = str(resource_label or "VM").strip()
     node = urllib.parse.quote(str(proxmox_node).strip(), safe="")
     vmid_token = urllib.parse.quote(str(vmid), safe="")
     vm_path = f"/nodes/{node}/qemu/{vmid_token}"
@@ -521,9 +598,9 @@ def purge_template_vm(
     if get_err:
         low = get_err.lower()
         if "http 404" in low or "not found" in low or "does not exist" in low:
-            warnings.append(f"template vmid={vmid} not found; nothing to purge")
+            warnings.append(f"{label} vmid={vmid} not found; nothing to purge")
             return warnings, ""
-        return warnings, f"failed to read template status vmid={vmid}: {get_err}"
+        return warnings, f"failed to read {label} status vmid={vmid}: {get_err}"
 
     status = ""
     if isinstance(payload, dict):
@@ -580,9 +657,9 @@ def purge_template_vm(
     if delete_err:
         low = delete_err.lower()
         if "http 404" in low or "not found" in low or "does not exist" in low:
-            warnings.append(f"template vmid={vmid} not found during delete; nothing to purge")
+            warnings.append(f"{label} vmid={vmid} not found during delete; nothing to purge")
             return warnings, ""
-        return warnings, f"failed to purge template vmid={vmid}: {delete_err}"
+        return warnings, f"failed to purge {label} vmid={vmid}: {delete_err}"
 
     deadline = time.time() + 300.0
     while time.time() < deadline:
@@ -614,7 +691,7 @@ def purge_template_vm(
         if probe_err:
             return warnings, f"purge verification failed for vmid={vmid}: {probe_err}"
         if exists:
-            return warnings, f"purge did not complete within 300s for template vmid={vmid}"
+            return warnings, f"purge did not complete within 300s for {label} vmid={vmid}"
 
-    warnings.append(f"purged template vmid={vmid}")
+    warnings.append(f"purged {label} vmid={vmid}")
     return warnings, ""

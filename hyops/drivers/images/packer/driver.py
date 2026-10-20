@@ -47,6 +47,7 @@ from .settings import (
     resolve_timeout as _resolve_timeout,
 )
 from .runtime_vars import map_runtime_vars as _map_runtime_vars
+from .preflight import validate_proxmox_build_readiness as _validate_proxmox_build_readiness
 from .render import (
     cleanup_files as _cleanup_files,
     derive_password_hash as _derive_password_hash,
@@ -84,6 +85,41 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
+
+
+def _existing_template_result(
+    *,
+    ev: EvidenceWriter,
+    result: dict[str, Any],
+    template_key: str,
+    template_name: str,
+    template_vmid: int,
+    proxmox_node: str,
+    workdir: Path,
+    command_name: str,
+) -> dict[str, Any]:
+    result["status"] = "ok"
+    result["warnings"] = [
+        (
+            f"template {template_name} (vmid={template_vmid}) already exists on node={proxmox_node}; "
+            "skipping build (set inputs.rebuild_if_exists=true to rebuild)"
+        )
+    ]
+    result["normalized_outputs"] = {
+        "published_outputs": {
+            "template_key": template_key,
+            "template_vm_id": int(template_vmid),
+            "template_name": template_name,
+            "template_vm_ids": {template_key: int(template_vmid)},
+            "templates": {template_key: {"vm_id": int(template_vmid), "name": template_name}},
+        },
+        "workdir": str(workdir),
+        "command": command_name,
+        "skipped": True,
+        "reason": "template-exists",
+    }
+    ev.write_json("driver_result.json", result)
+    return result
 
 
 def _http_bind_address_is_valid(value: str) -> bool:
@@ -137,6 +173,39 @@ def _detect_workstation_ip(target_host: str) -> str:
             if parts:
                 return parts[0]
     return ""
+
+
+def _detect_wsl_networking_mode() -> str:
+    if not os.environ.get("WSL_INTEROP") and "microsoft" not in os.uname().release.lower():
+        return ""
+    if not shutil.which("wslinfo"):
+        return "unknown"
+    result = _run_proc(["wslinfo", "--networking-mode"], timeout_s=5)
+    if result.rc != 0:
+        return "unknown"
+    mode = str(result.stdout or "").strip().lower()
+    return mode or "unknown"
+
+
+def _wsl_delivery_error(address: str) -> str:
+    mode = _detect_wsl_networking_mode()
+    if not mode or mode == "mirrored":
+        return ""
+    if mode == "nat":
+        return (
+            f"Packer HTTP address {address} is inside WSL NAT and is not reachable from the Proxmox guest; "
+            "enable WSL mirrored networking and allow the configured HTTP port before retrying"
+        )
+    return (
+        "unable to determine WSL networking mode for the Packer HTTP delivery path; "
+        "run `wslinfo --networking-mode` and use mirrored networking before retrying"
+    )
+
+
+def _proxmox_installer_delivery_error(template_key: str, address: str) -> str:
+    if str(template_key or "").strip().lower().startswith("windows-"):
+        return ""
+    return _wsl_delivery_error(address)
 
 
 def _normalize_proxmox_http_bind_address(
@@ -340,6 +409,7 @@ def _run_post_build_smoke(
                 proxmox_token_secret=proxmox_token_secret,
                 skip_tls=skip_tls,
                 vmid=int(temp_vmid),
+                resource_label="smoke clone",
             )
             cleanup_entry: dict[str, Any] = {"step": "cleanup", "smoke_vmid": int(temp_vmid)}
             if purge_warnings:
@@ -600,6 +670,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                 )
 
         rebuild_if_exists = bool(inputs.get("rebuild_if_exists") is True)
+        existing_vmid = 0
 
         if int(vmid) > 0:
             exists, exists_err = _proxmox_vmid_exists(
@@ -613,56 +684,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             if exists_err:
                 return _fail(ev, result, f"proxmox vmid check failed: {exists_err}")
             if exists:
-                if rebuild_if_exists and command_name == "apply":
-                    purge_warnings, purge_error = _purge_template_vm(
-                        proxmox_url=proxmox_url,
-                        proxmox_node=proxmox_node,
-                        proxmox_token_id=proxmox_token_id,
-                        proxmox_token_secret=proxmox_token_secret,
-                        skip_tls=skip_tls,
-                        vmid=int(vmid),
-                    )
-                    if purge_error:
-                        return _fail(ev, result, purge_error)
-                    if purge_warnings:
-                        result["warnings"] = list(purge_warnings)
-                elif rebuild_if_exists:
-                    result["warnings"] = [
-                        f"template vmid={int(vmid)} exists; rebuild_if_exists=true will purge before apply"
-                    ]
-                else:
-                    # Idempotent apply: if the template already exists, do not rebuild unless requested.
-                    if command_name in ("apply", "preflight"):
-                        result["status"] = "ok"
-                        result["warnings"] = [
-                            (
-                                f"template vmid={int(vmid)} already exists on node={proxmox_node}; "
-                                f"skipping build (set inputs.rebuild_if_exists=true to rebuild)"
-                            )
-                        ]
-                        published_outputs = {
-                            "template_key": template_key,
-                            "template_vm_id": int(vmid),
-                            "template_name": template_name,
-                            "template_vm_ids": {template_key: int(vmid)},
-                            "templates": {template_key: {"vm_id": int(vmid), "name": template_name}},
-                        }
-                        result["normalized_outputs"] = {
-                            "published_outputs": published_outputs,
-                            "workdir": str(workdir),
-                            "command": command_name,
-                            "skipped": True,
-                            "reason": "template-exists",
-                        }
-                        ev.write_json("driver_result.json", result)
-                        return result
-
-                    result["warnings"] = [
-                        (
-                            f"template vmid={int(vmid)} already exists on node={proxmox_node}; "
-                            f"no build will be performed unless inputs.rebuild_if_exists=true"
-                        )
-                    ]
+                existing_vmid = int(vmid)
         else:
             name_exists, name_err = _proxmox_name_exists(
                 proxmox_url=proxmox_url,
@@ -675,90 +697,81 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             if name_err:
                 return _fail(ev, result, f"proxmox name check failed: {name_err}")
             if name_exists:
-                if rebuild_if_exists:
-                    resolved, resolve_err = _proxmox_resolve_vmid_by_name(
-                        proxmox_url=proxmox_url,
-                        proxmox_node=proxmox_node,
-                        proxmox_token_id=proxmox_token_id,
-                        proxmox_token_secret=proxmox_token_secret,
-                        skip_tls=skip_tls,
-                        name=template_name,
+                resolved, resolve_err = _proxmox_resolve_vmid_by_name(
+                    proxmox_url=proxmox_url,
+                    proxmox_node=proxmox_node,
+                    proxmox_token_id=proxmox_token_id,
+                    proxmox_token_secret=proxmox_token_secret,
+                    skip_tls=skip_tls,
+                    name=template_name,
+                )
+                if resolve_err:
+                    return _fail(ev, result, f"failed to resolve template vmid by name: {resolve_err}")
+                if resolved is None:
+                    return _fail(
+                        ev,
+                        result,
+                        f"template name={template_name} exists but vmid could not be resolved; set inputs.vmid explicitly",
                     )
-                    if resolve_err:
-                        return _fail(ev, result, f"failed to resolve template vmid by name: {resolve_err}")
-                    if resolved is None:
-                        return _fail(
-                            ev,
-                            result,
-                            f"template name={template_name} exists but vmid could not be resolved; set inputs.vmid explicitly",
-                        )
-                    if command_name == "apply":
-                        purge_warnings, purge_error = _purge_template_vm(
-                            proxmox_url=proxmox_url,
-                            proxmox_node=proxmox_node,
-                            proxmox_token_id=proxmox_token_id,
-                            proxmox_token_secret=proxmox_token_secret,
-                            skip_tls=skip_tls,
-                            vmid=int(resolved),
-                        )
-                        if purge_error:
-                            return _fail(ev, result, purge_error)
-                        if purge_warnings:
-                            result["warnings"] = list(purge_warnings)
-                    else:
-                        result["warnings"] = [
-                            f"template name={template_name} exists; rebuild_if_exists=true will purge before apply"
-                        ]
-                else:
-                    # Idempotent apply: if the template already exists, do not rebuild unless requested.
-                    if command_name in ("apply", "preflight"):
-                        resolved, resolve_err = _proxmox_resolve_vmid_by_name(
-                            proxmox_url=proxmox_url,
-                            proxmox_node=proxmox_node,
-                            proxmox_token_id=proxmox_token_id,
-                            proxmox_token_secret=proxmox_token_secret,
-                            skip_tls=skip_tls,
-                            name=template_name,
-                        )
-                        if resolve_err:
-                            return _fail(ev, result, f"failed to resolve template vmid by name: {resolve_err}")
-                        if resolved is None:
-                            return _fail(
-                                ev,
-                                result,
-                                f"template name={template_name} exists but vmid could not be resolved; set inputs.vmid explicitly",
-                            )
+                existing_vmid = int(resolved)
 
-                        result["status"] = "ok"
-                        result["warnings"] = [
-                            (
-                                f"template name={template_name} already exists on node={proxmox_node}; "
-                                f"skipping build (set inputs.rebuild_if_exists=true to rebuild)"
-                            )
-                        ]
-                        published_outputs = {
-                            "template_key": template_key,
-                            "template_vm_id": int(resolved),
-                            "template_name": template_name,
-                            "template_vm_ids": {template_key: int(resolved)},
-                            "templates": {template_key: {"vm_id": int(resolved), "name": template_name}},
-                        }
-                        result["normalized_outputs"] = {
-                            "published_outputs": published_outputs,
-                            "workdir": str(workdir),
-                            "command": command_name,
-                            "skipped": True,
-                            "reason": "template-exists",
-                        }
-                        ev.write_json("driver_result.json", result)
-                        return result
+        if existing_vmid and not rebuild_if_exists:
+            if command_name in ("apply", "preflight"):
+                return _existing_template_result(
+                    ev=ev,
+                    result=result,
+                    template_key=template_key,
+                    template_name=template_name,
+                    template_vmid=existing_vmid,
+                    proxmox_node=proxmox_node,
+                    workdir=workdir,
+                    command_name=command_name,
+                )
+            result["warnings"] = [
+                (
+                    f"template {template_name} (vmid={existing_vmid}) already exists; "
+                    "no build will be performed unless inputs.rebuild_if_exists=true"
+                )
+            ]
 
-                    result["warnings"] = [
-                        (
-                            f"template name={template_name} already exists on node={proxmox_node}; "
-                            f"no build will be performed unless inputs.rebuild_if_exists=true"
-                        )
-                    ]
+        delivery_error = _proxmox_installer_delivery_error(
+            template_key,
+            str(runtime_vars.get("http_bind_address") or ""),
+        )
+        if delivery_error:
+            return _fail(ev, result, delivery_error)
+
+        readiness_error = _validate_proxmox_build_readiness(
+            proxmox_url=proxmox_url,
+            proxmox_node=proxmox_node,
+            proxmox_token_id=proxmox_token_id,
+            proxmox_token_secret=proxmox_token_secret,
+            skip_tls=skip_tls,
+            runtime_vars=runtime_vars,
+            base_vars=base_vars,
+            env=os.environ,
+        )
+        if readiness_error:
+            return _fail(ev, result, readiness_error)
+
+        if existing_vmid and rebuild_if_exists:
+            if command_name == "apply":
+                purge_warnings, purge_error = _purge_template_vm(
+                    proxmox_url=proxmox_url,
+                    proxmox_node=proxmox_node,
+                    proxmox_token_id=proxmox_token_id,
+                    proxmox_token_secret=proxmox_token_secret,
+                    skip_tls=skip_tls,
+                    vmid=existing_vmid,
+                )
+                if purge_error:
+                    return _fail(ev, result, purge_error)
+                if purge_warnings:
+                    result["warnings"] = list(purge_warnings)
+            else:
+                result["warnings"] = [
+                    f"template {template_name} (vmid={existing_vmid}) will be purged before apply"
+                ]
 
     if destroy_intent:
         if not proxmox_url or not proxmox_node or not proxmox_token_id or not proxmox_token_secret:
