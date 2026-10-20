@@ -6,6 +6,7 @@ from hyops.drivers.images.packer.proxmox_api import (
     purge_template_vm,
     proxmox_storage_content_exists,
     proxmox_token_has_privilege,
+    proxmox_vmid_is_template,
 )
 
 
@@ -158,6 +159,18 @@ class ProxmoxReadinessApiTest(unittest.TestCase):
         )
 
         self.assertTrue(exists)
+        self.assertEqual(error, "")
+
+    @patch("hyops.drivers.images.packer.proxmox_api.proxmox_request")
+    def test_template_status_uses_proxmox_configuration_flag(self, request):
+        request.return_value = ({"data": {"template": 1}}, "")
+
+        is_template, error = proxmox_vmid_is_template(
+            **BASE_ARGS,
+            vmid=981001,
+        )
+
+        self.assertTrue(is_template)
         self.assertEqual(error, "")
 
     @patch(

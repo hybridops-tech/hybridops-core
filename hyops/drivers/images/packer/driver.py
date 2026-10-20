@@ -35,6 +35,7 @@ from .proxmox_api import (
     proxmox_resolve_vmid_by_name as _proxmox_resolve_vmid_by_name,
     proxmox_start_vm as _proxmox_start_vm,
     proxmox_vmid_exists as _proxmox_vmid_exists,
+    proxmox_vmid_is_template as _proxmox_vmid_is_template,
     purge_template_vm as _purge_template_vm,
 )
 from .settings import (
@@ -714,6 +715,31 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                         f"template name={template_name} exists but vmid could not be resolved; set inputs.vmid explicitly",
                     )
                 existing_vmid = int(resolved)
+
+        if existing_vmid:
+            is_template, template_check_error = _proxmox_vmid_is_template(
+                proxmox_url=proxmox_url,
+                proxmox_node=proxmox_node,
+                proxmox_token_id=proxmox_token_id,
+                proxmox_token_secret=proxmox_token_secret,
+                skip_tls=skip_tls,
+                vmid=existing_vmid,
+            )
+            if template_check_error:
+                return _fail(
+                    ev,
+                    result,
+                    f"failed to verify existing VM vmid={existing_vmid}: {template_check_error}",
+                )
+            if not is_template and not rebuild_if_exists:
+                return _fail(
+                    ev,
+                    result,
+                    (
+                        f"vmid={existing_vmid} exists but is not a Proxmox template; "
+                        "choose another VMID or set inputs.rebuild_if_exists=true to replace it"
+                    ),
+                )
 
         if existing_vmid and not rebuild_if_exists:
             if command_name in ("apply", "preflight"):

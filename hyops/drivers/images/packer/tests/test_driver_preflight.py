@@ -69,6 +69,7 @@ class PackerDriverPreflightTest(unittest.TestCase):
 
     @patch("hyops.drivers.images.packer.driver._proxmox_installer_delivery_error")
     @patch("hyops.drivers.images.packer.driver._validate_proxmox_build_readiness")
+    @patch("hyops.drivers.images.packer.driver._proxmox_vmid_is_template", return_value=(True, ""))
     @patch("hyops.drivers.images.packer.driver._proxmox_vmid_exists", return_value=(True, ""))
     @patch("hyops.drivers.images.packer.driver.resolve_pack_stack")
     @patch("hyops.drivers.images.packer.driver.shutil.which", return_value="/usr/bin/packer")
@@ -77,6 +78,7 @@ class PackerDriverPreflightTest(unittest.TestCase):
         _which,
         resolve_pack,
         _vmid_exists,
+        _is_template,
         readiness,
         delivery,
     ):
@@ -88,6 +90,24 @@ class PackerDriverPreflightTest(unittest.TestCase):
         self.assertEqual(result["normalized_outputs"]["reason"], "template-exists")
         delivery.assert_not_called()
         readiness.assert_not_called()
+
+    @patch("hyops.drivers.images.packer.driver._proxmox_vmid_is_template", return_value=(False, ""))
+    @patch("hyops.drivers.images.packer.driver._proxmox_vmid_exists", return_value=(True, ""))
+    @patch("hyops.drivers.images.packer.driver.resolve_pack_stack")
+    @patch("hyops.drivers.images.packer.driver.shutil.which", return_value="/usr/bin/packer")
+    def test_incomplete_vm_is_not_accepted_as_existing_template(
+        self,
+        _which,
+        resolve_pack,
+        _vmid_exists,
+        _is_template,
+    ):
+        resolve_pack.return_value = self._pack_stack()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run(self._request(Path(tmp)))
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("exists but is not a Proxmox template", result["error"])
 
     @patch(
         "hyops.drivers.images.packer.driver._validate_proxmox_build_readiness",

@@ -21,6 +21,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 - Made Proxmox template preflight verify bridge authority and the selected ISO
   path before a build, and reject Linux installer delivery from WSL NAT before
   the long-running build starts.
+- Prevented interrupted Proxmox build VMs from being accepted as completed
+  templates on retry.
 - Applied restrictive permissions to generated Ubuntu Netplan files and
   identified temporary smoke-clone cleanup accurately.
 - Rejected exact, parent, child and symbolic-link overlap between protected

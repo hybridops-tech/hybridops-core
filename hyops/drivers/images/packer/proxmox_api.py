@@ -98,6 +98,34 @@ def proxmox_vmid_exists(
     return True, ""
 
 
+def proxmox_vmid_is_template(
+    *,
+    proxmox_url: str,
+    proxmox_node: str,
+    proxmox_token_id: str,
+    proxmox_token_secret: str,
+    skip_tls: bool,
+    vmid: int,
+) -> tuple[bool, str]:
+    node = urllib.parse.quote(str(proxmox_node).strip(), safe="")
+    vmid_token = urllib.parse.quote(str(vmid), safe="")
+    payload, get_err = proxmox_request(
+        url=proxmox_url,
+        method="GET",
+        token_id=proxmox_token_id,
+        token_secret=proxmox_token_secret,
+        skip_tls=skip_tls,
+        path=f"/nodes/{node}/qemu/{vmid_token}/config",
+    )
+    if get_err:
+        return False, get_err
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return False, "VM configuration response did not contain an object"
+    return data.get("template") in (1, True, "1"), ""
+
+
 def proxmox_name_exists(
     *,
     proxmox_url: str,
