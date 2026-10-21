@@ -4,6 +4,12 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+### Added
+
+- Added source checksum and build-run provenance for completed Proxmox template
+  builds. Query strings and credentials are not retained, and a skipped build
+  keeps the previous identity.
+
 ## [v0.1.6] - 2026-11-03
 
 ### Added
