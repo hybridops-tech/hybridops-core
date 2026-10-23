@@ -91,6 +91,12 @@ Legacy `ipam_authority` and `netbox_live_api_check` notes:
 
 Each shipped blueprint directory contains a `blueprint.yml` contract and a local `README.md`.
 
+### Azure
+
+| Blueprint | Outcome |
+|---|---|
+| [`azure/recovery-network-foundation@v1`](azure/recovery-network-foundation@v1) | Isolated Azure network boundary for recovery workloads. |
+
 ### On-prem
 
 | Blueprint | Outcome |

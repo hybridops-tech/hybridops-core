@@ -1,0 +1,53 @@
+api_version: hybridops/v1
+kind: BlueprintSpec
+
+blueprint_ref: "azure/recovery-network-foundation@v1"
+mode: "bootstrap"
+
+metadata:
+  title: "Azure Recovery Network Foundation"
+  description: "Establishes an isolated Azure network boundary for recovery workloads."
+  outcome: "A recovery network boundary is ready, with execution evidence retained."
+
+policy:
+  fail_fast: true
+  evidence_required: true
+
+steps:
+  - id: recovery_resource_group
+    module_ref: "core/azure/resource-group"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    inputs:
+      name_prefix: "hybridops"
+      context_id: "recovery"
+      resource_group_name: "rg-hybridops-recovery"
+      location: "uksouth"
+      tags:
+        project: "hybridops"
+        capability: "recovery-network-foundation"
+        managed_by: "hybridops"
+        lifecycle: "recovery"
+
+  - id: recovery_network
+    module_ref: "core/azure/vnet"
+    action: "deploy"
+    phase: "bootstrap"
+    with_deps: false
+    requires:
+      - recovery_resource_group
+    inputs:
+      name_prefix: "hybridops"
+      context_id: "recovery"
+      resource_group_name: "rg-hybridops-recovery"
+      location: "uksouth"
+      vnet_name: "vnet-hybridops-recovery"
+      address_space:
+        - "10.84.0.0/16"
+      dns_servers: []
+      tags:
+        project: "hybridops"
+        capability: "recovery-network-foundation"
+        managed_by: "hybridops"
+        lifecycle: "recovery"

@@ -6,9 +6,9 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
-import re
 
 from hyops.runtime.coerce import as_bool
 from hyops.runtime.module_inputs import parse_input_path, set_nested, try_get_nested
@@ -18,7 +18,6 @@ from hyops.runtime.refs import (
     infer_credential_requirements_from_pack_ref,
     normalize_module_ref,
 )
-
 
 _CRED_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
 _OUTPUT_KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
@@ -201,6 +200,9 @@ def resolve_dependencies(
             raise ValueError("spec.dependencies cannot reference the same module_ref")
 
         required = as_bool(dep.get("required"), default=True)
+        planned_dependency = bool(
+            assumed_state_ok is not None and dep_ref in assumed_state_ok
+        )
 
         raw_imports = dep.get("imports")
         if not isinstance(raw_imports, dict) or not raw_imports:
@@ -226,7 +228,7 @@ def resolve_dependencies(
             dep_state = read_module_state(state_dir, dep_ref)
         except Exception as e:
             msg = f"dependency state unavailable for {dep_ref}: {e}"
-            if required and (assumed_state_ok is None or dep_ref not in assumed_state_ok):
+            if required and not planned_dependency:
                 raise ValueError(msg) from e
 
             warnings.append(msg)
@@ -237,6 +239,7 @@ def resolve_dependencies(
                     "resolved": False,
                     "state_path": str(state_path),
                     "imports": imports,
+                    "deferred": planned_dependency,
                 }
             )
             continue
@@ -258,8 +261,11 @@ def resolve_dependencies(
             imported_count += 1
 
         if missing_outputs:
-            msg = f"dependency outputs missing for {dep_ref}: {', '.join(sorted(missing_outputs))}"
-            if required:
+            msg = (
+                f"dependency outputs missing for {dep_ref}: "
+                f"{', '.join(sorted(missing_outputs))}"
+            )
+            if required and not planned_dependency:
                 raise ValueError(msg)
             warnings.append(msg)
 
@@ -271,6 +277,7 @@ def resolve_dependencies(
                 "state_path": str(state_path),
                 "imports": imports,
                 "imported": imported_count,
+                "deferred": bool(missing_outputs and planned_dependency),
             }
         )
 
