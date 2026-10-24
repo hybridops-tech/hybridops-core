@@ -543,7 +543,14 @@ def run(ns) -> int:
             f"ERR: required config missing in {config_path} "
             f"(GCP_PROJECT_ID, GCP_REGION)"
         )
-        print("hint: re-run `hyops init gcp --with-cli-login` and answer the prompts.")
+        if non_interactive:
+            print(
+                "hint: set GCP_PROJECT_ID and GCP_REGION in that file, "
+                "or pass --project-id and --region. "
+                "--non-interactive does not prompt."
+            )
+        else:
+            print("hint: re-run `hyops init gcp --with-cli-login` and answer the prompts.")
         print(f"run record: {evidence_dir}")
         return OPERATOR_ERROR
 

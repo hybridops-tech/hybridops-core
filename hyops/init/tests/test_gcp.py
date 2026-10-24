@@ -25,7 +25,9 @@ from hyops.init.targets.gcp import (
     _verbose_print,
     _write_config_template,
     add_subparser,
+    run as run_gcp_init,
 )
+from hyops.runtime.exitcodes import OPERATOR_ERROR
 
 
 class GcpCommandBoundaryTest(TestCase):
@@ -452,3 +454,70 @@ class GcpSshKeySetupTest(TestCase):
         command = run_capture.call_args.args[0]
         self.assertEqual(command[0:3], ["ssh-keygen", "-t", "ed25519"])
         self.assertIn("-N", command)
+
+
+class GcpNonInteractiveMissingConfigTest(TestCase):
+    @patch("hyops.init.targets.gcp._cmd_ok", return_value=True)
+    @patch("hyops.init.targets.gcp._shell_ok", return_value=True)
+    @patch("hyops.init.targets.gcp.shutil.which", return_value="/usr/bin/gcloud")
+    @patch("builtins.input", side_effect=AssertionError("non-interactive init prompted"))
+    def test_missing_project_exits_without_prompt(self, _input, _which, _shell_ok, _cmd_ok):
+        from tempfile import TemporaryDirectory
+
+        def fake_stdout(argv, _evidence_dir, _label):
+            if "auth" in argv and "list" in argv:
+                return "bot@example.com"
+            return ""
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "config" / "gcp.conf"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                "GCP_PROJECT_ID=\nGCP_REGION=\nGCP_ZONE=\n",
+                encoding="utf-8",
+            )
+            ns = SimpleNamespace(
+                root=str(root),
+                env=None,
+                out_dir=None,
+                config=str(config),
+                dry_run=False,
+                non_interactive=True,
+                force=False,
+                with_cli_login=False,
+                project_id=None,
+                region=None,
+                zone=None,
+                billing_account_id=None,
+                runtime_sa_email=None,
+                terraform_sa_email=None,
+                quota_project_id=None,
+                adc_quota_project_id=None,
+                ssh_public_key=None,
+                credentials_out=None,
+                tfvars_out=None,
+            )
+            output = io.StringIO()
+            with (
+                patch("hyops.init.targets.gcp._cmd_stdout", side_effect=fake_stdout),
+                patch.dict(
+                    os.environ,
+                    {
+                        "CI": "",
+                        "GOOGLE_APPLICATION_CREDENTIALS": "",
+                        "GCP_PROJECT_ID": "",
+                        "GCP_REGION": "",
+                    },
+                    clear=False,
+                ),
+                redirect_stdout(output),
+            ):
+                code = run_gcp_init(ns)
+
+        rendered = output.getvalue()
+        self.assertEqual(code, OPERATOR_ERROR)
+        self.assertIn("GCP_PROJECT_ID, GCP_REGION", rendered)
+        self.assertIn("--non-interactive does not prompt", rendered)
+        self.assertNotIn("answer the prompts", rendered)
+        self.assertNotIn("available GCP projects", rendered)
