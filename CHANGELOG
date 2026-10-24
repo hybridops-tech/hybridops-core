@@ -6,6 +6,9 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added source checksum and build-run provenance for completed Proxmox template
+  builds. Query strings and credentials are not retained, and a skipped build
+  keeps the previous identity.
 - Added exact-commit external workload execution with protected runtime inputs,
   fail-closed acceptance and checksummed off-host evidence retention.
 - Added checksummed operator-supplied container image archives to pinned

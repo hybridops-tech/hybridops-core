@@ -49,6 +49,13 @@ from .settings import (
 )
 from .runtime_vars import map_runtime_vars as _map_runtime_vars
 from .preflight import validate_proxmox_build_readiness as _validate_proxmox_build_readiness
+from .provenance import (
+    build_template_manifest as _build_template_manifest,
+    lookup_packer_version as _lookup_packer_version,
+    previous_template_provenance as _previous_template_provenance,
+    source_from_vars as _source_from_vars,
+    write_template_manifest as _write_template_manifest,
+)
 from .render import (
     cleanup_files as _cleanup_files,
     derive_password_hash as _derive_password_hash,
@@ -98,6 +105,7 @@ def _existing_template_result(
     proxmox_node: str,
     workdir: Path,
     command_name: str,
+    provenance: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     result["status"] = "ok"
     result["warnings"] = [
@@ -112,7 +120,13 @@ def _existing_template_result(
             "template_vm_id": int(template_vmid),
             "template_name": template_name,
             "template_vm_ids": {template_key: int(template_vmid)},
-            "templates": {template_key: {"vm_id": int(template_vmid), "name": template_name}},
+            "templates": {
+                template_key: {
+                    "vm_id": int(template_vmid),
+                    "name": template_name,
+                    **dict(provenance or {}),
+                }
+            },
         },
         "workdir": str(workdir),
         "command": command_name,
@@ -743,6 +757,12 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
 
         if existing_vmid and not rebuild_if_exists:
             if command_name in ("apply", "preflight"):
+                kept = _previous_template_provenance(
+                    state_dir=str(runtime.get("state_dir") or ""),
+                    module_ref=module_ref,
+                    template_key=template_key,
+                    state_instance=str(request.get("state_instance") or "") or None,
+                )
                 return _existing_template_result(
                     ev=ev,
                     result=result,
@@ -752,6 +772,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                     proxmox_node=proxmox_node,
                     workdir=workdir,
                     command_name=command_name,
+                    provenance=kept,
                 )
             result["warnings"] = [
                 (
@@ -1039,12 +1060,39 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                 f"unable to resolve template vmid for name={template_name} after build; set inputs.vmid explicitly",
             )
 
+    template_entry: dict[str, Any] = {
+        "vm_id": int(resolved_vmid),
+        "name": template_name,
+    }
+    if build_executed:
+        source_url, source_checksum = _source_from_vars(base_vars, runtime_vars)
+        builder_version, version_warning = _lookup_packer_version(packer_bin)
+        if version_warning:
+            result["warnings"] = list(result.get("warnings") or []) + [version_warning]
+        manifest = _build_template_manifest(
+            run_id=run_id,
+            template_key=template_key,
+            template_name=template_name,
+            vmid=int(resolved_vmid),
+            source_url=source_url,
+            source_checksum=source_checksum,
+            profile=profile_ref,
+            pack_id=pack_id,
+            builder_version=builder_version,
+        )
+        try:
+            _write_template_manifest(evidence_dir, manifest)
+        except OSError as exc:
+            return _fail(ev, result, f"failed to write template manifest: {exc}")
+        template_entry["source_checksum"] = str(manifest["source_checksum"])
+        template_entry["build_run_id"] = run_id
+
     published_outputs = {
         "template_key": template_key,
         "template_vm_id": int(resolved_vmid),
         "template_name": template_name,
         "template_vm_ids": {template_key: int(resolved_vmid)},
-        "templates": {template_key: {"vm_id": int(resolved_vmid), "name": template_name}},
+        "templates": {template_key: template_entry},
     }
 
     post_build_smoke: dict[str, Any] | None = None

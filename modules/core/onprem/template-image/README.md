@@ -65,6 +65,11 @@ Common use:
 - `template_vm_ids`
 - `templates`
 
+`templates.<key>` keeps `vm_id` and `name`. A completed build also stores
+`source_checksum` and `build_run_id` there. Skipping a template that already
+exists does not replace those fields and does not write a new manifest. Older
+state without them is left unchanged.
+
 Use `template_state_ref` in `platform/onprem/platform-vm` to consume these outputs without hardcoding template IDs.
 
 ## Run Record Files
@@ -72,5 +77,6 @@ Use `template_state_ref` in `platform/onprem/platform-vm` to consume these outpu
 Template-image apply writes:
 
 - `packer.log`
+- `template_manifest.json` (after the VMID is known, before smoke)
 - `template_smoke.json` (automatic post-build smoke summary)
 - `template_smoke.log` (smoke step status stream)
