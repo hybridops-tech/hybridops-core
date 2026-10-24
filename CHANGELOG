@@ -15,6 +15,9 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Fixed
 
+- Kept module and driver-subprocess diagnostics off `preflight --json`
+  stdout so the response remains one JSON document. Plain-text output is
+  unchanged.
 - Made Proxmox bootstrap validate storage and bridge prerequisites before
   credential mutation, grant scoped bridge authority, and remove newly created
   credentials when later bootstrap steps fail.
