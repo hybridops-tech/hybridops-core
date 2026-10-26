@@ -32,11 +32,16 @@ def register_plugins(registry: DriverRegistry) -> None:
     eps.sort(key=lambda ep: ep.name)
 
     for ep in eps:
-        hook = ep.load()
-        if not callable(hook):
-            raise TypeError(f"driver plugin entrypoint not callable: group={group} name={ep.name}")
+        with registry.plugin_registration(ep.name):
+            hook = ep.load()
+            if not callable(hook):
+                raise TypeError(
+                    f"driver plugin entrypoint not callable: group={group} name={ep.name}"
+                )
 
-        try:
-            hook(registry)
-        except Exception as e:
-            raise RuntimeError(f"driver plugin hook failed: group={group} name={ep.name}") from e
+            try:
+                hook(registry)
+            except Exception as e:
+                raise RuntimeError(
+                    f"driver plugin hook failed: group={group} name={ep.name}"
+                ) from e
