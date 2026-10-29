@@ -46,6 +46,26 @@ requires. The repository checks below show the expected validation paths.
   layouts, customer environments, credentials, or application-specific flows.
 - Avoid broad formatting-only or unrelated refactors in a functional change.
 
+## Change history
+
+Name branches for the change, for example `feat/...`, `fix/...`, `docs/...`,
+or `release/...`. Branch names should describe the change rather than the
+development environment used to create it.
+
+Pull request titles become squash commit subjects and must use this form:
+
+```text
+type(optional-scope): concrete outcome
+```
+
+Allowed types are `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`,
+`refactor`, `release`, `revert`, `style`, and `test`. Keep the title within 72
+characters and name the behaviour or artifact changed. Generic titles such as
+`update`, `cleanup`, or `add files via upload` are rejected.
+
+Use the name and email of the contributor responsible for the change.
+Development environment metadata does not belong in authorship fields.
+
 ## Module and blueprint changes
 
 When adding or materially changing a module, include the pieces that make the

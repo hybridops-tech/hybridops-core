@@ -22,7 +22,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  change-metadata:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate change title
+        env:
+          PULL_REQUEST_TITLE: ${{ github.event.pull_request.title || '' }}
+        shell: bash
+        run: bash tools/ci/check-change-title.sh "${PULL_REQUEST_TITLE}"
+
   quality:
+    needs: change-metadata
     uses: ./.github/workflows/quality.yml
 
   build-and-verify-bundle:
