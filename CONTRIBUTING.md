@@ -48,10 +48,6 @@ requires. The repository checks below show the expected validation paths.
 
 ## Change history
 
-Name branches for the change, for example `feat/...`, `fix/...`, `docs/...`,
-or `release/...`. Branch names should describe the change rather than the
-development environment used to create it.
-
 Pull request titles become squash commit subjects and must use this form:
 
 ```text
