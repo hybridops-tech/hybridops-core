@@ -15,7 +15,7 @@
   "properties": {
     "api_version": {
       "type": "string",
-      "minLength": 1
+      "const": "hybridops/v1"
     },
     "kind": {
       "type": "string",

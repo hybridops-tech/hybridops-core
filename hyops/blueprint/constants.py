@@ -6,6 +6,7 @@ import re
 
 
 ACTION_SET = {"apply", "deploy", "plan", "validate"}
+SUPPORTED_BLUEPRINT_API_VERSIONS = frozenset({"hybridops/v1"})
 MODE_SET = {"bootstrap", "authoritative", "hybrid"}
 PHASE_SET = {"bootstrap", "authoritative", "operations"}
 ADDRESSING_MODE_SET = {"static", "dhcp", "ipam"}

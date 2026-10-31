@@ -20,6 +20,7 @@ from .constants import (
     MODE_SET,
     PHASE_SET,
     STEP_ID_RE,
+    SUPPORTED_BLUEPRINT_API_VERSIONS,
 )
 
 
@@ -206,7 +207,12 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
     if kind != "BlueprintSpec":
         raise ValueError("kind must be BlueprintSpec")
 
-    as_non_empty_string(spec.get("api_version"), "api_version")
+    api_version = as_non_empty_string(spec.get("api_version"), "api_version")
+    if api_version not in SUPPORTED_BLUEPRINT_API_VERSIONS:
+        raise ValueError(
+            "api_version must be one of: "
+            f"{', '.join(sorted(SUPPORTED_BLUEPRINT_API_VERSIONS))}"
+        )
 
     blueprint_ref = as_non_empty_string(spec.get("blueprint_ref"), "blueprint_ref")
     if not BLUEPRINT_REF_RE.fullmatch(blueprint_ref):
@@ -887,6 +893,7 @@ def validate_blueprint(spec: dict[str, Any], path: Path) -> dict[str, Any]:
 
     return {
         "path": str(path),
+        "api_version": api_version,
         "blueprint_ref": blueprint_ref,
         "mode": mode,
         "metadata": metadata if isinstance(metadata, dict) else {},

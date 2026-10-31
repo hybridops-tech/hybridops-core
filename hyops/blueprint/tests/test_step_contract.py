@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -31,6 +32,31 @@ class BlueprintStepContractTest(TestCase):
             r"steps\[1\].*shared_control_host.*unknown keys: firewall_name",
         ):
             validate_blueprint(spec, Path("blueprint.yml"))
+
+    def test_rejects_unsupported_api_version(self):
+        spec = self.spec()
+        spec["api_version"] = "hybrops/v1"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"api_version must be one of: hybridops/v1",
+        ):
+            validate_blueprint(spec, Path("blueprint.yml"))
+
+    def test_published_schema_requires_supported_api_version(self):
+        schema_path = (
+            Path(__file__).resolve().parents[3]
+            / "modules"
+            / "_shared"
+            / "contracts"
+            / "blueprint-spec.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            schema["properties"]["api_version"]["const"],
+            "hybridops/v1",
+        )
 
     def test_reports_all_unknown_keys_in_stable_order(self):
         spec = self.spec(z_option=True, a_option=False, inputs={})
