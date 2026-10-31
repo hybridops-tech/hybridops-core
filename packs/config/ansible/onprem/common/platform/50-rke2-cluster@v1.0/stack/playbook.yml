@@ -23,12 +23,14 @@
   vars:
     rke2_server_role_fqcn: "{{ rke2_server_role_fqcn | default(rke2_role_fqcn | default('rancherfederal.rke2_ansible.rke2_server')) }}"
     rke2_role_vars: "{{ rke2_role_vars | default({}) }}"
+    rke2_install_version: "{{ rke2_install_version | default('') }}"
     rke2_token_env: "{{ rke2_token_env | default('RKE2_TOKEN') }}"
     enable_longhorn_prereqs: "{{ enable_longhorn_prereqs | default(false) }}"
     rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
     rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
     rke2_reconcile_agent_server: "{{ rke2_reconcile_agent_server | default(false) }}"
     rke2_reconcile_server_config: "{{ rke2_reconcile_server_config | default(false) }}"
+    rke2_upgrade_runtime_cleanup: "{{ rke2_upgrade_runtime_cleanup | default(false) }}"
     rke2_reverse_path_filter_mode: "{{ rke2_reverse_path_filter_mode | default('preserve') }}"
 
   pre_tasks:
@@ -85,11 +87,29 @@
         enabled: true
         state: started
 
+    - name: Prepare clean runtime boundary for server upgrade
+      when: rke2_upgrade_runtime_cleanup | bool
+      vars:
+        _hyops_rke2_target_version: >-
+          {{
+            (rke2_install_version | string | trim)
+            or (
+              (rke2_role_vars if (rke2_role_vars is mapping) else {}).get('install_rke2_version', '')
+              | string
+              | trim
+            )
+          }}
+      ansible.builtin.include_tasks: upgrade-runtime-cleanup.yml
+
     - name: Build role vars
       no_log: true
       vars:
         _base_role_vars: "{{ (rke2_role_vars if (rke2_role_vars is mapping) else {}) }}"
-        _install_rke2_version_raw: "{{ (_base_role_vars.get('install_rke2_version', '') | string) }}"
+        _install_rke2_version_raw: >-
+          {{
+            (rke2_install_version | string | trim)
+            or (_base_role_vars.get('install_rke2_version', '') | string | trim)
+          }}
         _install_rke2_version_enc: "{{ _install_rke2_version_raw | regex_replace('\\+', '%2B') }}"
         _base_rke2_images_urls: "{{ (_base_role_vars.get('rke2_images_urls', []) if (_base_role_vars.get('rke2_images_urls', []) is sequence and (_base_role_vars.get('rke2_images_urls', []) is not string)) else []) }}"
         _custom_rke2_images_urls: "{{ (rke2_image_tarball_urls if (rke2_image_tarball_urls is sequence and (rke2_image_tarball_urls is not string)) else []) }}"
@@ -125,6 +145,7 @@
               )
             }
               | combine(_base_role_vars, recursive=True)
+              | combine({'install_rke2_version': _install_rke2_version_raw}, recursive=True)
               | combine(({'rke2_images_urls': _effective_rke2_images_urls} if (_effective_rke2_images_urls | length > 0) else {}), recursive=True))
           }}
       changed_when: false
@@ -238,15 +259,19 @@
   any_errors_fatal: true
   become: true
   gather_facts: true
-  serial: 10
+  # Keep workload capacity available during upgrades and do not advance until
+  # the reconciled worker has rejoined the cluster.
+  serial: 1
 
   vars:
     rke2_agent_role_fqcn: "{{ rke2_agent_role_fqcn | default('rancherfederal.rke2_ansible.rke2_agent') }}"
     rke2_role_vars: "{{ rke2_role_vars | default({}) }}"
+    rke2_install_version: "{{ rke2_install_version | default('') }}"
     rke2_token_env: "{{ rke2_token_env | default('RKE2_TOKEN') }}"
     enable_longhorn_prereqs: "{{ enable_longhorn_prereqs | default(false) }}"
     rke2_auto_image_tarballs: "{{ rke2_auto_image_tarballs | default(false) }}"
     rke2_image_tarball_urls: "{{ rke2_image_tarball_urls | default([]) }}"
+    rke2_upgrade_runtime_cleanup: "{{ rke2_upgrade_runtime_cleanup | default(false) }}"
     rke2_reverse_path_filter_mode: "{{ rke2_reverse_path_filter_mode | default('preserve') }}"
 
   pre_tasks:
@@ -300,11 +325,29 @@
         enabled: true
         state: started
 
+    - name: Prepare clean runtime boundary for agent upgrade
+      when: rke2_upgrade_runtime_cleanup | bool
+      vars:
+        _hyops_rke2_target_version: >-
+          {{
+            (rke2_install_version | string | trim)
+            or (
+              (rke2_role_vars if (rke2_role_vars is mapping) else {}).get('install_rke2_version', '')
+              | string
+              | trim
+            )
+          }}
+      ansible.builtin.include_tasks: upgrade-runtime-cleanup.yml
+
     - name: Build role vars
       no_log: true
       vars:
         _base_role_vars: "{{ (rke2_role_vars if (rke2_role_vars is mapping) else {}) }}"
-        _install_rke2_version_raw: "{{ (_base_role_vars.get('install_rke2_version', '') | string) }}"
+        _install_rke2_version_raw: >-
+          {{
+            (rke2_install_version | string | trim)
+            or (_base_role_vars.get('install_rke2_version', '') | string | trim)
+          }}
         _install_rke2_version_enc: "{{ _install_rke2_version_raw | regex_replace('\\+', '%2B') }}"
         _base_rke2_images_urls: "{{ (_base_role_vars.get('rke2_images_urls', []) if (_base_role_vars.get('rke2_images_urls', []) is sequence and (_base_role_vars.get('rke2_images_urls', []) is not string)) else []) }}"
         _custom_rke2_images_urls: "{{ (rke2_image_tarball_urls if (rke2_image_tarball_urls is sequence and (rke2_image_tarball_urls is not string)) else []) }}"
@@ -333,11 +376,14 @@
             ({
               'rke2_token': lookup('env', rke2_token_env),
               'kubernetes_api_server_host': (
-                hostvars[(groups.get('rke2_servers', []) | first)].ansible_host
-                | default((groups.get('rke2_servers', []) | first))
+                hostvars[(groups.get('rke2_servers', []) | first)].advertise_address
+                | default(hostvars[(groups.get('rke2_servers', []) | first)].node_ip, true)
+                | default(hostvars[(groups.get('rke2_servers', []) | first)].ansible_host, true)
+                | default((groups.get('rke2_servers', []) | first), true)
               )
             }
               | combine(_base_role_vars, recursive=True)
+              | combine({'install_rke2_version': _install_rke2_version_raw}, recursive=True)
               | combine(({'rke2_images_urls': _effective_rke2_images_urls} if (_effective_rke2_images_urls | length > 0) else {}), recursive=True))
           }}
       changed_when: false
@@ -444,6 +490,54 @@
       ansible.builtin.include_role:
         name: "{{ rke2_agent_role_fqcn }}"
 
+  post_tasks:
+    - name: Wait for agent kubelet process
+      when: not ansible_check_mode
+      ansible.builtin.command: ps -C kubelet -F -ww --no-headers
+      register: _hyops_agent_kubelet
+      until: _hyops_agent_kubelet.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Resolve agent Kubernetes node name
+      when: not ansible_check_mode
+      ansible.builtin.set_fact:
+        _hyops_agent_node_names: >-
+          {{
+            _hyops_agent_kubelet.stdout
+            | regex_findall('--hostname-override=([^ ]+)')
+          }}
+      changed_when: false
+
+    - name: Assert agent Kubernetes node name was resolved
+      when: not ansible_check_mode
+      ansible.builtin.assert:
+        that:
+          - _hyops_agent_node_names | length == 1
+        fail_msg: "could not resolve the Kubernetes node name from the agent kubelet process"
+
+    - name: Wait for agent node to report Ready
+      when: not ansible_check_mode
+      delegate_to: "{{ groups['rke2_servers'] | first }}"
+      ansible.builtin.command:
+        argv:
+          - /var/lib/rancher/rke2/bin/kubectl
+          - --kubeconfig
+          - /etc/rancher/rke2/rke2.yaml
+          - --server
+          - https://127.0.0.1:6443
+          - get
+          - node
+          - "{{ _hyops_agent_node_names | first }}"
+          - -o
+          - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+      register: _hyops_agent_ready
+      until: (_hyops_agent_ready.stdout | trim) == 'True'
+      retries: 30
+      delay: 10
+      changed_when: false
+
 - name: Platform/onprem/rke2-cluster (manifest play)
   hosts: rke2_servers
   any_errors_fatal: true
@@ -506,12 +600,18 @@
       when: _hyops_kubeconfig_raw is defined and (_hyops_kubeconfig_raw.content | default('')) | length > 0
       vars:
         _primary: "{{ (groups['rke2_servers'] | first) }}"
-        _primary_ip: "{{ hostvars[_primary].ansible_host | default(_primary) }}"
+        _api_host: >-
+          {{
+            hostvars[_primary].advertise_address
+            | default(hostvars[_primary].node_ip, true)
+            | default(hostvars[_primary].ansible_host, true)
+            | default(_primary, true)
+          }}
         _raw: "{{ (_hyops_kubeconfig_raw.content | b64decode) }}"
       ansible.builtin.copy:
         dest: "{{ _hyops_kubeconfig_out }}"
         mode: "0600"
-        content: "{{ _raw | regex_replace('127\\.0\\.0\\.1', _primary_ip) }}"
+        content: "{{ _raw | regex_replace('127\\.0\\.0\\.1', _api_host) }}"
 
     - name: Write HyOps outputs
       ansible.builtin.copy:

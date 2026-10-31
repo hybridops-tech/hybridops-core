@@ -47,6 +47,10 @@ inputs:
     rke2_image_preflight: true
     rke2_image_preflight_timeout_s: 60
 
+    # Required for apply/plan/preflight. Keep release selection explicit and
+    # reproducible instead of following an upstream channel implicitly.
+    rke2_install_version: ""
+
     # RKE2 role wiring
     # Backward compatible override key:
     #   rke2_role_fqcn (legacy) still maps to server role in playbook.
@@ -73,6 +77,10 @@ inputs:
     # reconciling its RKE2 configuration, then let the role start and verify it.
     # Disabled by default: ordinary config changes are handled by the role.
     rke2_reconcile_server_config: false
+    # Opt-in clean runtime boundary for upgrades where the replacement
+    # containerd cannot adopt shims left by the installed RKE2 release.
+    # Runs only when the installed and requested releases differ.
+    rke2_upgrade_runtime_cleanup: false
     # Multi-homed nodes with asymmetric return paths need loose reverse-path
     # filtering. "preserve" leaves the operating-system default unchanged;
     # "loose" persists rp_filter=2 without restarting RKE2.

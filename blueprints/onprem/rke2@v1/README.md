@@ -91,7 +91,10 @@ Verify that the cluster nodes are ready:
 KUBECONFIG="$HOME/.hybridops/envs/<env>/state/kubeconfigs/rke2.yaml" kubectl get nodes -o wide
 ```
 
-The kubeconfig server endpoint points to the first control-plane node's management IP. If the workstation cannot reach the management subnet, use the Proxmox jump host or another routed management path before running `kubectl`.
+The kubeconfig server endpoint uses the first control-plane node's advertised
+cluster address, then its node IP, and falls back to its SSH management address.
+If the workstation cannot reach the selected address, use the Proxmox jump host
+or another routed path before running `kubectl`.
 
 ## Related documentation
 

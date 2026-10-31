@@ -6,11 +6,46 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
-from hyops.drivers.config.ansible.connectivity import connectivity_check, probe_ssh_auth
+from hyops.drivers.config.ansible.connectivity import (
+    connectivity_check,
+    probe_ssh_auth,
+    rke2_image_preflight_check,
+)
 from hyops.drivers.config.ansible.inventory import write_inventory
 
 
 class AnsibleConnectivityTests(TestCase):
+    @patch("hyops.drivers.config.ansible.connectivity.run_capture")
+    @patch("hyops.drivers.config.ansible.connectivity.shutil.which")
+    def test_rke2_preflight_checks_selected_runtime_on_existing_nodes(self, which, run_capture) -> None:
+        which.return_value = "/usr/bin/ssh"
+        run_capture.return_value = SimpleNamespace(rc=0, stdout="", stderr="")
+
+        ok, error = rke2_image_preflight_check(
+            command_name="preflight",
+            module_ref="platform/onprem/rke2-cluster",
+            inputs={
+                "target_user": "opsadmin",
+                "inventory_groups": {
+                    "rke2_servers": [{"name": "rke2-cp-01", "host": "192.0.2.10"}]
+                },
+                "rke2_install_version": "v1.34.12+rke2r1",
+            },
+            cwd="/tmp",
+            env={},
+            evidence_dir=Path("/tmp/evidence"),
+            redact=True,
+        )
+
+        self.assertTrue(ok)
+        self.assertEqual(error, "")
+        remote_command = run_capture.call_args.args[0][-1]
+        self.assertIn("RKE2_VERSION=v1.34.12+rke2r1", remote_command)
+        self.assertIn(
+            'echo "index.docker.io/rancher/rke2-runtime:${RUNTIME_TAG}" >> "$refs_file"',
+            remote_command,
+        )
+
     def test_gcp_iap_inventory_disables_ssh_multiplexing(self) -> None:
         with TemporaryDirectory() as tmp:
             inventory = Path(tmp) / "inventory.ini"

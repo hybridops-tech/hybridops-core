@@ -514,7 +514,9 @@ def rke2_image_preflight_check(
     role_vars = inputs.get("rke2_role_vars")
     if not isinstance(role_vars, dict):
         role_vars = {}
-    install_version = str(role_vars.get("install_rke2_version") or "").strip()
+    install_version = str(
+        inputs.get("rke2_install_version") or role_vars.get("install_rke2_version") or ""
+    ).strip()
     if not install_version:
         return True, ""
 
@@ -573,10 +575,10 @@ if sudo test -d /var/lib/rancher/rke2/agent/images >/dev/null 2>&1; then
     | sort -u > "$refs_file" || true
 fi
 
-# Fallback for fresh hosts: at least validate the runtime image tag for chosen version.
-if [ ! -s "$refs_file" ]; then
-  echo "index.docker.io/rancher/rke2-runtime:${RUNTIME_TAG}" > "$refs_file"
-fi
+# Always validate the runtime image for the selected version. Existing nodes
+# may have image lists for their current version, not the requested upgrade.
+echo "index.docker.io/rancher/rke2-runtime:${RUNTIME_TAG}" >> "$refs_file"
+sort -u -o "$refs_file" "$refs_file"
 
 python3 - "$refs_file" <<'PY'
 import json
