@@ -5,6 +5,8 @@
 include:
   - install.sh
   - LICENSE
+  - LICENSE-DOCUMENTATION.md
+  - TRADEMARKS.md
   - README
   - CHANGELOG
   - bin/
