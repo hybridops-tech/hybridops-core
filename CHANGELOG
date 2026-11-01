@@ -12,6 +12,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   workload execution, with optional exact image-ID enforcement.
 - Added explicitly declared host-package prerequisites to pinned workload
   execution.
+- Added explicit RKE2 release selection, serial node-readiness gating and an
+  opt-in clean runtime boundary for controlled upgrades.
 
 ### Fixed
 
@@ -32,6 +34,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
   access during installation and setup.
 - Included Python virtual-environment support in Ubuntu 24.04 Proxmox templates
   and allowed slow security-update completion before the first SSH connection.
+- Preferred declared RKE2 cluster addresses for registration and kubeconfig
+  export, and checked the requested runtime image during preflight.
 
 ## [v0.1.5] - 2026-10-02
 

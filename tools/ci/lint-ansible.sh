@@ -24,6 +24,7 @@ hyops_ci::export_ansible_runtime "${tmpdir}"
 cd "${HYOPS_REPO_ROOT}"
 
 mapfile -t ansible_targets < <(hyops_ci::all_ansible_playbooks | sed "s#^${HYOPS_REPO_ROOT}/##")
+ansible_targets+=("tools/ci/ansible-rke2-upgrade-runtime-cleanup.yml")
 config_file="${HYOPS_REPO_ROOT}/tools/ci/ansible-lint.yml"
 ansible-lint \
   -c "${config_file}" \

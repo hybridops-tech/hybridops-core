@@ -21,6 +21,11 @@ hyops apply --env <env> \
 - `inventory_state_ref` (recommended): consume host inventory from `platform/onprem/platform-vm`.
 - `inventory_requires_ipam` (default `true`): fail fast when inventory state is not NetBox-IPAM aligned.
 - `required_env`: includes `RKE2_TOKEN` by default.
+- `rke2_install_version`: explicit stable RKE2 release to install.
+
+The module does not select a release channel or silently advance the cluster.
+The older `rke2_role_vars.install_rke2_version` input remains supported for
+existing environments.
 
 Use examples:
 
@@ -89,11 +94,23 @@ configuration change that has left a server in an in-flight start. The module
 stops and reconfigures one server at a time, then waits for it to be healthy
 before continuing to the next member.
 
+Set `rke2_upgrade_runtime_cleanup: true` only when an RKE2 version transition
+needs a clean container-runtime boundary. When the installed release differs
+from `rke2_install_version`, the module runs RKE2's bundled
+`rke2-killall.sh`, verifies that old containerd shims are gone, and then lets
+the pinned role install and start the requested release. RPM and role-supported
+tarball paths are detected, including the configured RKE2 data directory. This
+restarts pods on each serially processed node, so confirm workload redundancy
+and maintenance tolerance before enabling it.
+
 Operational note:
 
 - The exported kubeconfig rewrites the default localhost server endpoint to the
-  first control-plane node management IP.
-- If your workstation is not routed to that management subnet, use a bastion or
-  temporary SSH tunnel before running `kubectl` locally.
+  first control-plane node's `advertise_address`, then `node_ip`, and only falls
+  back to its SSH management address when neither node-network value is set.
+- Ensure your workstation can reach the selected API address. Otherwise, use a
+  bastion or temporary SSH tunnel before running `kubectl` locally.
+- Server and agent upgrades run one node at a time. Each node must report
+  `Ready` through the Kubernetes API before the module advances.
 - For control-plane host verification, use the bundled RKE2 client path:
   `/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml`.

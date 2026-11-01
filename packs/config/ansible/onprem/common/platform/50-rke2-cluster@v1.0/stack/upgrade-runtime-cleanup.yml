@@ -1,0 +1,157 @@
+---
+- name: Resolve supported RKE2 install paths
+  ansible.builtin.set_fact:
+    _hyops_rke2_tarball_dir: >-
+      {{
+        (
+          (
+            (rke2_role_vars if (rke2_role_vars is mapping) else {}).get('tarball_dir', '')
+            | string
+            | trim
+          )
+          or '/usr/local'
+        )
+        | regex_replace('/+$', '')
+      }}
+  changed_when: false
+
+- name: Inspect installed RKE2 binaries
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/bin/rke2
+    - /usr/local/bin/rke2
+    - /opt/rke2/bin/rke2
+    - "{{ _hyops_rke2_tarball_dir }}/bin/rke2"
+  register: _hyops_rke2_binaries
+
+- name: Select installed RKE2 binary
+  ansible.builtin.set_fact:
+    _hyops_rke2_binary: >-
+      {{
+        _hyops_rke2_binaries.results
+        | selectattr('stat.exists')
+        | map(attribute='item')
+        | first
+        | default('')
+      }}
+  changed_when: false
+
+- name: Read installed RKE2 release
+  when: _hyops_rke2_binary | length > 0
+  ansible.builtin.command:
+    argv:
+      - "{{ _hyops_rke2_binary }}"
+      - --version
+  register: _hyops_rke2_installed_release
+  check_mode: false
+  changed_when: false
+
+- name: Decide whether the RKE2 runtime needs cleanup
+  ansible.builtin.set_fact:
+    _hyops_rke2_runtime_cleanup_required: >-
+      {{
+        (_hyops_rke2_installed_release.rc | default(1) | int) == 0
+        and (_hyops_rke2_target_version | length > 0)
+        and (_hyops_rke2_target_version not in (_hyops_rke2_installed_release.stdout | default('')))
+      }}
+  changed_when: false
+
+- name: Inspect installed RKE2 configuration
+  when: _hyops_rke2_runtime_cleanup_required | bool
+  ansible.builtin.stat:
+    path: /etc/rancher/rke2/config.yaml
+  register: _hyops_rke2_config_file
+
+- name: Read installed RKE2 configuration
+  when:
+    - _hyops_rke2_runtime_cleanup_required | bool
+    - _hyops_rke2_config_file.stat.exists
+  ansible.builtin.slurp:
+    src: /etc/rancher/rke2/config.yaml
+  register: _hyops_rke2_config_raw
+  no_log: true
+
+- name: Resolve installed RKE2 data directory
+  when: _hyops_rke2_runtime_cleanup_required | bool
+  vars:
+    _hyops_rke2_existing_config: >-
+      {{
+        (_hyops_rke2_config_raw.content | b64decode | from_yaml)
+        if (_hyops_rke2_config_file.stat.exists)
+        else {}
+      }}
+    _hyops_rke2_requested_config: >-
+      {{
+        (rke2_role_vars if (rke2_role_vars is mapping) else {}).get('rke2_config', {})
+      }}
+  ansible.builtin.set_fact:
+    _hyops_rke2_data_dir: >-
+      {{
+        (
+          (
+            _hyops_rke2_existing_config.get('data-dir', '')
+            if (_hyops_rke2_existing_config is mapping)
+            else ''
+          )
+          or (
+            _hyops_rke2_requested_config.get('data-dir', '')
+            if (_hyops_rke2_requested_config is mapping)
+            else ''
+          )
+          or '/var/lib/rancher/rke2'
+        )
+        | string
+        | trim
+        | regex_replace('/+$', '')
+      }}
+  no_log: true
+  changed_when: false
+
+- name: Inspect bundled RKE2 runtime cleanup script
+  when: _hyops_rke2_runtime_cleanup_required | bool
+  ansible.builtin.stat:
+    path: "{{ _hyops_rke2_binary | dirname }}/rke2-killall.sh"
+  register: _hyops_rke2_cleanup_script
+
+- name: Require the bundled RKE2 runtime cleanup script
+  when: _hyops_rke2_runtime_cleanup_required | bool
+  ansible.builtin.assert:
+    that:
+      - _hyops_rke2_cleanup_script.stat.exists
+    fail_msg: >-
+      rke2_upgrade_runtime_cleanup requires the bundled rke2-killall.sh
+      script on an existing RKE2 node
+
+- name: Clean the installed RKE2 runtime before upgrade
+  when:
+    - _hyops_rke2_runtime_cleanup_required | bool
+    - not ansible_check_mode
+  ansible.builtin.command:
+    argv:
+      - "{{ _hyops_rke2_cleanup_script.stat.path }}"
+  environment:
+    RKE2_DATA_DIR: "{{ _hyops_rke2_data_dir }}"
+  changed_when: true
+
+- name: Check for remaining RKE2 containerd shims
+  when:
+    - _hyops_rke2_runtime_cleanup_required | bool
+    - not ansible_check_mode
+  ansible.builtin.command:
+    argv:
+      - pgrep
+      - -f
+      - "{{ (_hyops_rke2_data_dir | regex_escape) ~ '/data/.*/bin/containerd-shim' }}"
+  register: _hyops_rke2_remaining_shims
+  changed_when: false
+  failed_when: false
+
+- name: Require old RKE2 containerd shims to be stopped
+  when:
+    - _hyops_rke2_runtime_cleanup_required | bool
+    - not ansible_check_mode
+  ansible.builtin.assert:
+    that:
+      - (_hyops_rke2_remaining_shims.rc | int) == 1
+    fail_msg: "old RKE2 containerd shims remain after runtime cleanup"

@@ -17,5 +17,4 @@ ssh_proxy_jump_auto: true
 load_vault_env: true
 
 # Pin version for deterministic installs.
-rke2_role_vars:
-  install_rke2_version: "v1.34.3+rke2r1"
+rke2_install_version: "v1.34.12+rke2r1"

@@ -1,0 +1,151 @@
+---
+# purpose: Exercise the opt-in RKE2 runtime cleanup task with local fixtures.
+# maintainer: HybridOps.Tech
+
+- name: Verify RKE2 upgrade runtime cleanup behavior
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+  tasks:
+    - name: Inspect system RKE2 binary paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/rke2
+        - /usr/local/bin/rke2
+        - /opt/rke2/bin/rke2
+      register: _system_rke2
+
+    - name: Refuse to run on a host with an installed RKE2 binary
+      ansible.builtin.assert:
+        that:
+          - _system_rke2.results | selectattr('stat.exists') | list | length == 0
+        fail_msg: "cleanup fixture cannot run on a host with an installed RKE2 binary"
+
+    - name: Create isolated RKE2 cleanup fixture
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: rke2-cleanup-test
+      register: _fixture
+
+    - name: Exercise cleanup behavior
+      block:
+        - name: Create fixture binary directory
+          ansible.builtin.file:
+            path: "{{ _fixture.path }}/bin"
+            state: directory
+            mode: "0755"
+
+        - name: Install fixture RKE2 binary
+          ansible.builtin.copy:
+            dest: "{{ _fixture.path }}/bin/rke2"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              printf '%s\n' 'rke2 version v1.34.11+rke2r1'
+
+        - name: Install fixture RKE2 cleanup script
+          ansible.builtin.copy:
+            dest: "{{ _fixture.path }}/bin/rke2-killall.sh"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              set -eu
+              printf '%s\n' "${RKE2_DATA_DIR}" > "{{ _fixture.path }}/cleanup-data-dir"
+
+        - name: Run cleanup for a version transition
+          vars:
+            rke2_role_vars:
+              tarball_dir: "{{ _fixture.path }}"
+              rke2_config:
+                data-dir: "{{ _fixture.path }}/rke2-data"
+            _hyops_rke2_target_version: "v1.34.12+rke2r1"
+          ansible.builtin.include_tasks: ../../packs/config/ansible/onprem/common/platform/50-rke2-cluster@v1.0/stack/upgrade-runtime-cleanup.yml
+
+        - name: Read cleanup fixture result
+          ansible.builtin.slurp:
+            src: "{{ _fixture.path }}/cleanup-data-dir"
+          register: _cleanup_result
+
+        - name: Require cleanup to receive the configured data directory
+          ansible.builtin.assert:
+            that:
+              - >-
+                (_cleanup_result.content | b64decode | trim)
+                == (_fixture.path ~ '/rke2-data')
+
+        - name: Reset cleanup fixture result
+          ansible.builtin.file:
+            path: "{{ _fixture.path }}/cleanup-data-dir"
+            state: absent
+
+        - name: Remove fixture RKE2 cleanup script
+          ansible.builtin.file:
+            path: "{{ _fixture.path }}/bin/rke2-killall.sh"
+            state: absent
+
+        - name: Verify a transition fails closed without the cleanup script
+          block:
+            - name: Attempt transition without the cleanup script
+              vars:
+                rke2_role_vars:
+                  tarball_dir: "{{ _fixture.path }}"
+                _hyops_rke2_target_version: "v1.34.12+rke2r1"
+              ansible.builtin.include_tasks: ../../packs/config/ansible/onprem/common/platform/50-rke2-cluster@v1.0/stack/upgrade-runtime-cleanup.yml
+
+            - name: Reject an unblocked transition
+              ansible.builtin.fail:
+                msg: "cleanup task did not require the bundled cleanup script"
+
+          rescue:
+            - name: Require the expected missing-script failure
+              ansible.builtin.assert:
+                that:
+                  - >-
+                    (ansible_failed_result.assertion | default(''))
+                    == '_hyops_rke2_cleanup_script.stat.exists'
+
+            - name: Record the blocked transition
+              ansible.builtin.set_fact:
+                _missing_cleanup_script_blocked: true
+
+        - name: Require transition to fail closed without the cleanup script
+          ansible.builtin.assert:
+            that:
+              - _missing_cleanup_script_blocked | default(false) | bool
+
+        - name: Skip cleanup when the selected version is already installed
+          vars:
+            rke2_role_vars:
+              tarball_dir: "{{ _fixture.path }}"
+              rke2_config:
+                data-dir: "{{ _fixture.path }}/rke2-data"
+            _hyops_rke2_target_version: "v1.34.11+rke2r1"
+          ansible.builtin.include_tasks: ../../packs/config/ansible/onprem/common/platform/50-rke2-cluster@v1.0/stack/upgrade-runtime-cleanup.yml
+
+        - name: Inspect cleanup result for unchanged version
+          ansible.builtin.stat:
+            path: "{{ _fixture.path }}/cleanup-data-dir"
+          register: _unchanged_result
+
+        - name: Require unchanged version to remain untouched
+          ansible.builtin.assert:
+            that:
+              - not _unchanged_result.stat.exists
+
+        - name: Skip cleanup on a fresh host
+          vars:
+            rke2_role_vars:
+              tarball_dir: "{{ _fixture.path }}/fresh"
+            _hyops_rke2_target_version: "v1.34.12+rke2r1"
+          ansible.builtin.include_tasks: ../../packs/config/ansible/onprem/common/platform/50-rke2-cluster@v1.0/stack/upgrade-runtime-cleanup.yml
+
+      always:
+        - name: Remove isolated RKE2 cleanup fixture
+          ansible.builtin.file:
+            path: "{{ _fixture.path }}"
+            state: absent

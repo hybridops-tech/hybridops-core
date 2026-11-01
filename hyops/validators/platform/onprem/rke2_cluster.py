@@ -6,6 +6,7 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from hyops.validators.common import (
@@ -14,6 +15,10 @@ from hyops.validators.common import (
     require_non_empty_str,
     require_port,
 )
+
+
+_RKE2_RELEASE_RE = re.compile(r"^v\d+\.\d+\.\d+\+rke2r\d+$")
+
 
 def _require_vm_key_list(value: Any, field: str) -> list[str]:
     if not isinstance(value, list) or not value:
@@ -137,6 +142,10 @@ def validate(inputs: dict[str, Any]) -> None:
         data.get("rke2_reconcile_server_config"), bool
     ):
         raise ValueError("inputs.rke2_reconcile_server_config must be a boolean when set")
+    if data.get("rke2_upgrade_runtime_cleanup") is not None and not isinstance(
+        data.get("rke2_upgrade_runtime_cleanup"), bool
+    ):
+        raise ValueError("inputs.rke2_upgrade_runtime_cleanup must be a boolean when set")
     rpf_mode = str(data.get("rke2_reverse_path_filter_mode") or "preserve").strip().lower()
     if rpf_mode not in {"preserve", "loose"}:
         raise ValueError("inputs.rke2_reverse_path_filter_mode must be one of: preserve, loose")
@@ -169,6 +178,24 @@ def validate(inputs: dict[str, Any]) -> None:
     role_vars = data.get("rke2_role_vars")
     if role_vars is not None and not isinstance(role_vars, dict):
         raise ValueError("inputs.rke2_role_vars must be a mapping when set")
+    if lifecycle != "destroy":
+        role_vars = role_vars or {}
+        direct_version = str(data.get("rke2_install_version") or "").strip()
+        legacy_version = str(role_vars.get("install_rke2_version") or "").strip()
+        if direct_version and legacy_version and direct_version != legacy_version:
+            raise ValueError(
+                "inputs.rke2_install_version conflicts with "
+                "inputs.rke2_role_vars.install_rke2_version"
+            )
+        install_version = require_non_empty_str(
+            direct_version or legacy_version,
+            "inputs.rke2_install_version",
+        )
+        if not _RKE2_RELEASE_RE.fullmatch(install_version):
+            raise ValueError(
+                "inputs.rke2_install_version must be an explicit stable "
+                "RKE2 release such as v1.34.12+rke2r1"
+            )
 
     kubeconfig_out = data.get("rke2_kubeconfig_out")
     if kubeconfig_out is not None and not isinstance(kubeconfig_out, str):
