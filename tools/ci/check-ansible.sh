@@ -26,4 +26,8 @@ while IFS= read -r playbook; do
     "${playbook}"
 done < <(hyops_ci::all_ansible_playbooks)
 
+ansible-playbook \
+  -i "localhost," \
+  "${HYOPS_REPO_ROOT}/tools/ci/ansible-rke2-upgrade-runtime-cleanup.yml"
+
 python3 "${SCRIPT_DIR}/check-decision-approval-binding.py"

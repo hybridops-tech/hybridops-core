@@ -21,6 +21,7 @@
   loop:
     - /usr/bin/rke2
     - /usr/local/bin/rke2
+    - /opt/rke2/bin/rke2
     - "{{ _hyops_rke2_tarball_dir }}/bin/rke2"
   register: _hyops_rke2_binaries
 

@@ -26,6 +26,19 @@ class RKE2ClusterModuleContractTest(TestCase):
     def play(self, name: str) -> dict:
         return next(play for play in self.plays if play.get("name") == name)
 
+    @staticmethod
+    def valid_inputs() -> dict:
+        return {
+            "inventory_groups": {
+                "rke2_servers": [{"name": "rke2-cp-01", "host": "192.0.2.10"}],
+            },
+            "target_user": "opsadmin",
+            "target_port": 22,
+            "required_env": ["RKE2_TOKEN"],
+            "rke2_token_env": "RKE2_TOKEN",
+            "rke2_install_version": "v1.34.12+rke2r1",
+        }
+
     def test_exported_kubeconfig_prefers_cluster_node_address(self) -> None:
         publish = self.play("Platform/onprem/rke2-cluster (publish outputs)")
         write = next(task for task in publish["tasks"] if task.get("name") == "Write kubeconfig locally")
@@ -61,6 +74,20 @@ class RKE2ClusterModuleContractTest(TestCase):
         self.assertIn("regex_findall('--hostname-override=([^ ]+)')", node_names)
         self.assertTrue(all(task.get("when") == "not ansible_check_mode" for task in agent["post_tasks"]))
 
+    def test_selected_version_is_promoted_to_both_upstream_roles(self) -> None:
+        for play_name in (
+            "Platform/onprem/rke2-cluster (server play)",
+            "Platform/onprem/rke2-cluster (agent play)",
+        ):
+            play = self.play(play_name)
+            build_vars = next(task for task in play["pre_tasks"] if task.get("name") == "Build role vars")
+            version = build_vars["vars"]["_install_rke2_version_raw"]
+            promoted = build_vars["ansible.builtin.set_fact"]["_hyops_rke2_role_vars"]
+
+            self.assertIn("rke2_install_version", version)
+            self.assertIn("_base_role_vars.get('install_rke2_version'", version)
+            self.assertIn("'install_rke2_version': _install_rke2_version_raw", promoted)
+
     def test_runtime_cleanup_is_opt_in_and_shared_by_serial_plays(self) -> None:
         spec_path = self.root / "modules/platform/onprem/rke2-cluster/spec.yml"
         spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
@@ -93,6 +120,7 @@ class RKE2ClusterModuleContractTest(TestCase):
         )
         self.assertIn("/usr/bin/rke2", inspect_binaries["loop"])
         self.assertIn("/usr/local/bin/rke2", inspect_binaries["loop"])
+        self.assertIn("/opt/rke2/bin/rke2", inspect_binaries["loop"])
         self.assertIn("{{ _hyops_rke2_tarball_dir }}/bin/rke2", inspect_binaries["loop"])
 
         read_release = next(
@@ -138,16 +166,8 @@ class RKE2ClusterModuleContractTest(TestCase):
         self.assertRegex(next(iter(versions)), r"^v\d+\.\d+\.\d+\+rke2r\d+$")
 
     def test_module_requires_operator_selected_stable_release(self) -> None:
-        inputs = {
-            "inventory_groups": {
-                "rke2_servers": [{"name": "rke2-cp-01", "host": "192.0.2.10"}],
-            },
-            "target_user": "opsadmin",
-            "target_port": 22,
-            "required_env": ["RKE2_TOKEN"],
-            "rke2_token_env": "RKE2_TOKEN",
-            "rke2_install_version": "",
-        }
+        inputs = self.valid_inputs()
+        inputs["rke2_install_version"] = ""
 
         with self.assertRaisesRegex(ValueError, "rke2_install_version"):
             validate(inputs)
@@ -155,16 +175,42 @@ class RKE2ClusterModuleContractTest(TestCase):
         inputs["rke2_install_version"] = "v1.34.12+rke2r1"
         validate(inputs)
 
+    def test_module_retains_legacy_version_input_without_ambiguity(self) -> None:
+        inputs = self.valid_inputs()
         inputs["rke2_install_version"] = ""
         inputs["rke2_role_vars"] = {"install_rke2_version": "v1.34.11+rke2r1"}
         validate(inputs)
 
+        inputs["rke2_install_version"] = "v1.34.11+rke2r1"
+        validate(inputs)
+
         inputs["rke2_install_version"] = "v1.34.12+rke2r1"
-        inputs["rke2_role_vars"] = {"install_rke2_version": "v1.34.11+rke2r1"}
         with self.assertRaisesRegex(ValueError, "conflicts"):
             validate(inputs)
 
-        inputs["rke2_role_vars"] = {}
+    def test_module_rejects_non_stable_release_identifiers(self) -> None:
+        inputs = self.valid_inputs()
+        for version in (
+            "1.34.12+rke2r1",
+            "v1.34+rke2r1",
+            "v1.34.12-rke2r1",
+            "v1.34.12+rke2r1-rc1",
+            "stable",
+        ):
+            with self.subTest(version=version):
+                inputs["rke2_install_version"] = version
+                with self.assertRaisesRegex(ValueError, "explicit stable RKE2 release"):
+                    validate(inputs)
+
+    def test_destroy_does_not_require_an_install_release(self) -> None:
+        inputs = self.valid_inputs()
+        inputs["_hyops_lifecycle_command"] = "destroy"
+        inputs["rke2_install_version"] = ""
+        inputs["required_env"] = []
+        validate(inputs)
+
+    def test_runtime_cleanup_control_requires_a_boolean(self) -> None:
+        inputs = self.valid_inputs()
         inputs["rke2_upgrade_runtime_cleanup"] = "true"
         with self.assertRaisesRegex(ValueError, "rke2_upgrade_runtime_cleanup"):
             validate(inputs)
