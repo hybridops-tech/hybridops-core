@@ -83,6 +83,24 @@ class NetworkSdnValidatorTests(unittest.TestCase):
             validate(too_long)
         self.assertIn("2-8 characters", str(error.exception))
 
+    def test_whitespace_padded_zone_and_vnet_ids_fail(self) -> None:
+        zone_inputs = valid_inputs()
+        zone_inputs["zone_name"] = " ab"
+        with self.assertRaises(ValueError) as zone_error:
+            validate(zone_inputs)
+        zone_message = str(zone_error.exception)
+        self.assertIn("inputs.zone_name", zone_message)
+        self.assertIn("2-8 characters", zone_message)
+
+        vnet_inputs = valid_inputs()
+        vnet = vnet_inputs["vnets"].pop("vnetmgmt")
+        vnet_inputs["vnets"][" ab"] = vnet
+        with self.assertRaises(ValueError) as vnet_error:
+            validate(vnet_inputs)
+        vnet_message = str(vnet_error.exception)
+        self.assertIn("inputs.vnets key", vnet_message)
+        self.assertIn("2-8 characters", vnet_message)
+
     def test_local_subnet_key_is_not_an_sdn_id(self) -> None:
         inputs = valid_inputs()
         vnet = inputs["vnets"]["vnetmgmt"]

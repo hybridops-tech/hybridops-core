@@ -31,7 +31,7 @@ _SDN_ID_RULE = (
 
 def _require_sdn_id(value: Any, field: str) -> str:
     text = _require_non_empty_str(value, field)
-    if not _SDN_ID_RE.match(text):
+    if text != value or not _SDN_ID_RE.match(text):
         raise ValueError(f"{field} must be {_SDN_ID_RULE}")
     return text
 
