@@ -71,12 +71,16 @@ def _validate_allow_vm_set_replace(data: dict[str, Any]) -> None:
         raise ValueError("inputs.allow_vm_set_replace must be a boolean when set")
 
 
-def _validate_preserve_existing_vms(data: dict[str, Any]) -> None:
-    raw = data.get("preserve_existing_vms")
-    if raw is None:
-        return
-    if not isinstance(raw, bool):
-        raise ValueError("inputs.preserve_existing_vms must be a boolean when set")
+def _validate_preservation_controls(data: dict[str, Any]) -> None:
+    for field in ("preserve_existing_vms", "preserve_existing_resources"):
+        raw = data.get(field)
+        if raw is not None and not isinstance(raw, bool):
+            raise ValueError(f"inputs.{field} must be a boolean when set")
+
+    if data.get("preserve_existing_resources") is True and data.get("preserve_existing_vms") is not True:
+        raise ValueError(
+            "inputs.preserve_existing_resources=true requires inputs.preserve_existing_vms=true"
+        )
 
 
 def _validate_windows_config_drive(data: dict[str, Any]) -> None:
@@ -153,7 +157,7 @@ def validate_single_vm_inputs(inputs: dict[str, Any]) -> None:
     data = _require_mapping(inputs, "inputs")
     _validate_require_ipam(data)
     _validate_allow_vm_set_replace(data)
-    _validate_preserve_existing_vms(data)
+    _validate_preservation_controls(data)
     _validate_windows_config_drive(data)
 
     _require_vm_name(data.get("vm_name"), "inputs.vm_name")
@@ -228,7 +232,7 @@ def validate_vm_pool_inputs(inputs: dict[str, Any]) -> None:
     data = _require_mapping(inputs, "inputs")
     _validate_require_ipam(data)
     _validate_allow_vm_set_replace(data)
-    _validate_preserve_existing_vms(data)
+    _validate_preservation_controls(data)
     _validate_windows_config_drive(data)
 
     template_state_ref = str(data.get("template_state_ref") or "").strip()

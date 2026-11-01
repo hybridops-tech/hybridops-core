@@ -11,6 +11,7 @@ from hyops.drivers.iac.terragrunt.contracts.proxmox_vm import (
     _collect_windows_ipam_interfaces,
     _collect_windows_non_dhcp_interfaces,
 )
+from hyops.validators.platform.onprem._proxmox_vm import validate_vm_pool_inputs
 
 
 class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
@@ -21,7 +22,9 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
         requested: set[str],
         allow_replace: bool,
         preserve_existing_vms: bool = False,
-    ) -> tuple[dict, list[str], str]:
+        preserve_existing_resources: bool = False,
+        state_status: str = "ok",
+    ) -> tuple[dict, list[str], str, int]:
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp) / "state"
             module_dir = (
@@ -34,7 +37,7 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
             (module_dir / "platform_vms.json").write_text(
                 json.dumps(
                     {
-                        "status": "ok",
+                        "status": state_status,
                         "outputs": {
                             "vms": {name: {"vm_id": index + 100} for index, name in enumerate(sorted(existing))}
                         },
@@ -46,6 +49,7 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
                 "template_vm_id": 107,
                 "allow_vm_set_replace": allow_replace,
                 "preserve_existing_vms": preserve_existing_vms,
+                "preserve_existing_resources": preserve_existing_resources,
                 "vms": {name: {} for name in sorted(requested)},
             }
             credentials = {
@@ -57,8 +61,8 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
             with patch(
                 "hyops.drivers.iac.terragrunt.contracts.proxmox_vm._probe_proxmox_vm_exists",
                 return_value=(False, False, ""),
-            ):
-                return ProxmoxVmContract().preprocess_inputs(
+            ) as probe:
+                result = ProxmoxVmContract().preprocess_inputs(
                     command_name="plan",
                     module_ref="platform/onprem/platform-vm",
                     inputs=inputs,
@@ -71,9 +75,10 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
                     env={"HYOPS_ENV": "shared"},
                     credential_env=credentials,
                 )
+                return (*result, probe.call_count)
 
     def test_missing_template_is_allowed_for_confirmed_strict_subset(self) -> None:
-        _, warnings, error = self._run_contract(
+        _, warnings, error, _ = self._run_contract(
             existing={"netbox-01", "pgcore-01"},
             requested={"netbox-01"},
             allow_replace=True,
@@ -83,7 +88,7 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
         self.assertTrue(any("deletion-only VM-set shrink" in warning for warning in warnings))
 
     def test_missing_template_still_blocks_mixed_replacement(self) -> None:
-        _, _, error = self._run_contract(
+        _, _, error, _ = self._run_contract(
             existing={"netbox-01", "pgcore-01"},
             requested={"netbox-01", "replacement-01"},
             allow_replace=True,
@@ -92,7 +97,7 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
         self.assertIn("no VM/template with that ID exists", error)
 
     def test_vm_set_shrink_still_requires_explicit_confirmation(self) -> None:
-        _, _, error = self._run_contract(
+        _, _, error, _ = self._run_contract(
             existing={"netbox-01", "pgcore-01"},
             requested={"netbox-01"},
             allow_replace=False,
@@ -101,7 +106,7 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
         self.assertIn("allow_vm_set_replace=true", error)
 
     def test_missing_template_is_allowed_for_explicit_stable_vm_update(self) -> None:
-        _, warnings, error = self._run_contract(
+        _, warnings, error, probe_calls = self._run_contract(
             existing={"netbox-01", "pgcore-01"},
             requested={"netbox-01", "pgcore-01"},
             allow_replace=False,
@@ -110,16 +115,115 @@ class ProxmoxVmContractDeletionOnlyTests(unittest.TestCase):
 
         self.assertEqual(error, "")
         self.assertTrue(any("update-only run" in warning for warning in warnings))
+        self.assertEqual(probe_calls, 1)
 
     def test_stable_update_flag_does_not_allow_new_vm_names(self) -> None:
-        _, _, error = self._run_contract(
+        _, _, error, probe_calls = self._run_contract(
             existing={"netbox-01", "pgcore-01"},
             requested={"netbox-01", "replacement-01"},
             allow_replace=False,
             preserve_existing_vms=True,
         )
 
-        self.assertIn("vm set collision detected", error)
+        self.assertIn("requires the requested VM names to exactly match", error)
+        self.assertEqual(probe_calls, 0)
+
+    def test_preservation_requires_existing_state_ownership(self) -> None:
+        _, _, error, probe_calls = self._run_contract(
+            existing=set(),
+            requested={"netbox-01"},
+            allow_replace=False,
+            preserve_existing_vms=True,
+            preserve_existing_resources=True,
+        )
+
+        self.assertIn("non-empty managed VM set", error)
+        self.assertEqual(probe_calls, 0)
+
+    def test_preservation_requires_requested_vm_names(self) -> None:
+        _, _, error, probe_calls = self._run_contract(
+            existing={"netbox-01"},
+            requested=set(),
+            allow_replace=False,
+            preserve_existing_vms=True,
+            preserve_existing_resources=True,
+        )
+
+        self.assertIn("requires the requested VM names to exactly match", error)
+        self.assertEqual(probe_calls, 0)
+
+    def test_resource_preservation_requires_vm_set_preservation(self) -> None:
+        _, _, error, probe_calls = self._run_contract(
+            existing={"netbox-01"},
+            requested={"netbox-01"},
+            allow_replace=False,
+            preserve_existing_resources=True,
+        )
+
+        self.assertIn("preserve_existing_resources=true requires", error)
+        self.assertEqual(probe_calls, 0)
+
+    def test_exact_preservation_skips_retired_template_probe(self) -> None:
+        _, warnings, error, probe_calls = self._run_contract(
+            existing={"netbox-01", "pgcore-01"},
+            requested={"netbox-01", "pgcore-01"},
+            allow_replace=False,
+            preserve_existing_vms=True,
+            preserve_existing_resources=True,
+        )
+
+        self.assertEqual(error, "")
+        self.assertEqual(probe_calls, 0)
+        self.assertTrue(any("provider-side resource provenance" in warning for warning in warnings))
+
+    def test_error_and_running_state_retain_vm_ownership(self) -> None:
+        for state_status in ("error", "running"):
+            with self.subTest(state_status=state_status):
+                _, _, error, probe_calls = self._run_contract(
+                    existing={"netbox-01"},
+                    requested={"netbox-01"},
+                    allow_replace=False,
+                    preserve_existing_vms=True,
+                    preserve_existing_resources=True,
+                    state_status=state_status,
+                )
+
+                self.assertEqual(error, "")
+                self.assertEqual(probe_calls, 0)
+
+    @staticmethod
+    def _valid_vm_pool_inputs() -> dict:
+        return {
+            "require_ipam": False,
+            "template_vm_id": 107,
+            "cpu_cores": 2,
+            "memory_mb": 4096,
+            "disk_size_gb": 32,
+            "cpu_type": "host",
+            "os_type": "l26",
+            "dns_domain": "example.test",
+            "dns_servers": ["192.0.2.53"],
+            "tags": ["platform"],
+            "vms": {
+                "netbox-01": {
+                    "interfaces": [{"bridge": "vmbr0", "ipv4": {"address": "dhcp"}}]
+                }
+            },
+        }
+
+    def test_validator_requires_boolean_resource_preservation(self) -> None:
+        inputs = self._valid_vm_pool_inputs()
+        inputs["preserve_existing_resources"] = "true"
+
+        with self.assertRaisesRegex(ValueError, "must be a boolean"):
+            validate_vm_pool_inputs(inputs)
+
+    def test_validator_requires_vm_set_preservation_for_resources(self) -> None:
+        inputs = self._valid_vm_pool_inputs()
+        inputs["preserve_existing_resources"] = True
+
+        with self.assertRaisesRegex(ValueError, "requires inputs.preserve_existing_vms=true"):
+            validate_vm_pool_inputs(inputs)
 
     def test_windows_allows_multiple_dhcp_interfaces(self) -> None:
         inputs = {

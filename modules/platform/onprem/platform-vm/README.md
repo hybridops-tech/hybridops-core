@@ -106,9 +106,10 @@ VM-set collision guard:
 
 Retired clone-source recovery:
 - `preserve_existing_vms: true` is an explicit update-only mode for a VM set that is already managed in the current state but whose historical clone template has been retired.
-- HybridOps only permits this when the requested VM names exactly match the current state. It does not suppress Terraform changes: review the plan and require in-place updates before applying.
+- HybridOps only permits this when the requested VM names exactly match a non-empty VM set in the current state slot.
+- Run `hyops plan` first. Do not apply unless Terraform reports only in-place updates, with no create, delete, or replacement actions.
 - Use this for safe CPU/memory convergence while arranging a later state migration to a current template; it is not a creation or replacement bypass.
-- `preserve_existing_resources: true` is only for an imported legacy resource whose provider-side cloud-init provenance must remain unchanged during that update-only run.
+- `preserve_existing_resources: true` requires `preserve_existing_vms: true` and is only for an imported legacy resource whose provider-side cloud-init provenance must remain unchanged during that update-only run.
 
 VM power state:
 - `started` defaults to `true`. Set it explicitly to `false` and back to `true` through separate, targeted runs when a guest restart is required after a hardware change.

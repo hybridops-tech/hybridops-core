@@ -23,7 +23,11 @@ locals {
   # `preserve_existing_vms` is the contract safety rail. Resource-level
   # provenance preservation is opt-in separately because an ordinary managed
   # VM may still legitimately retain its clone declaration.
-  preserve_existing_resources = try(local.inputs.preserve_existing_resources, false)
+  preserve_existing_vms = try(local.inputs.preserve_existing_vms, false)
+  preserve_existing_resources = (
+    local.preserve_existing_vms
+    && try(local.inputs.preserve_existing_resources, false)
+  )
   effective_template_vm_id = local.preserve_existing_resources ? null : local.template_vm_id_in
   vm_ipv4_cidr = trimspace(try(tostring(local.inputs.vm_ipv4_cidr), ""))
   vm_gateway   = trimspace(try(tostring(local.inputs.vm_gateway), ""))
@@ -87,7 +91,7 @@ locals {
   # The existing initialization user account is still carried through by
   # `ssh_keys`; only the raw snippet is held stable for the resize.
   vyos_users_keys_block = (
-    !try(local.inputs.preserve_existing_vms, false)
+    !local.preserve_existing_vms
     && length(local.ssh_keys) > 0
   ) ? trimspace(yamlencode({
     users = [{
@@ -99,7 +103,7 @@ locals {
   # Preserve the exact caller-supplied snippet during an explicit recovery;
   # ordinary runs retain the historical trim/normalise behaviour.
   cloud_init_user_data_in = (
-    try(local.inputs.preserve_existing_vms, false)
+    local.preserve_existing_vms
     ? try(tostring(local.inputs.cloud_init_user_data), "")
     : trimspace(try(tostring(local.inputs.cloud_init_user_data), ""))
   )
