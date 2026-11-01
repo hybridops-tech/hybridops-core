@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import shlex
 import subprocess
 from pathlib import Path
@@ -20,7 +21,7 @@ from hyops.drivers.config.ansible.inventory import write_inventory
 class AnsibleConnectivityTests(TestCase):
     @patch("hyops.drivers.config.ansible.connectivity.run_capture")
     @patch("hyops.drivers.config.ansible.connectivity.shutil.which")
-    def test_rke2_preflight_checks_selected_runtime_on_existing_nodes(self, which, run_capture) -> None:
+    def test_rke2_preflight_loads_selected_release_image_list(self, which, run_capture) -> None:
         which.return_value = "/usr/bin/ssh"
         run_capture.return_value = SimpleNamespace(rc=0, stdout="", stderr="")
 
@@ -44,18 +45,27 @@ class AnsibleConnectivityTests(TestCase):
         self.assertEqual(error, "")
         remote_command = run_capture.call_args.args[0][-1]
         self.assertIn("RKE2_VERSION=v1.34.12+rke2r1", remote_command)
-        self.assertIn(
-            'echo "index.docker.io/rancher/rke2-runtime:${RUNTIME_TAG}" >> "$refs_file"',
-            remote_command,
-        )
+        self.assertIn('f"{release_tag}/rke2-images.linux-{architecture}.txt"', remote_command)
 
         remote_script = shlex.split(remote_command)[-1]
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            image_dir = root / "images"
-            image_dir.mkdir()
-            (image_dir / "current.txt").write_text(
-                "registry.example.test/rancher/rke2-runtime:v1.34.11-rke2r1\n",
+            architecture = {
+                "aarch64": "arm64",
+                "amd64": "amd64",
+                "arm64": "arm64",
+                "x86_64": "amd64",
+            }[platform.machine().lower()]
+            release_dir = root / "releases" / "v1.34.12+rke2r1"
+            release_dir.mkdir(parents=True)
+            (release_dir / f"rke2-images.linux-{architecture}.txt").write_text(
+                "\n".join(
+                    (
+                        "docker.io/rancher/rke2-runtime:v1.34.12-rke2r1",
+                        "docker.io/rancher/hardened-kubernetes:v1.34.12-rke2r1-build1",
+                    )
+                )
+                + "\n",
                 encoding="utf-8",
             )
             bin_dir = root / "bin"
@@ -66,7 +76,10 @@ class AnsibleConnectivityTests(TestCase):
 
             test_script = remote_script.replace(
                 "/etc/rancher/rke2/registries.yaml", str(root / "registries.yaml")
-            ).replace("/var/lib/rancher/rke2/agent/images", str(image_dir))
+            ).replace(
+                "https://github.com/rancher/rke2/releases/download",
+                (root / "releases").as_uri(),
+            )
             refs_script = test_script.split('\npython3 - "$refs_file"', maxsplit=1)[0]
             refs_script += '\ncat "$refs_file"\n'
             test_env = {
@@ -91,11 +104,11 @@ class AnsibleConnectivityTests(TestCase):
                 env=test_env,
             )
 
+        self.assertIn("docker.io/rancher/rke2-runtime:v1.34.12-rke2r1", result.stdout)
         self.assertIn(
-            "registry.example.test/rancher/rke2-runtime:v1.34.11-rke2r1",
+            "docker.io/rancher/hardened-kubernetes:v1.34.12-rke2r1-build1",
             result.stdout,
         )
-        self.assertIn("index.docker.io/rancher/rke2-runtime:v1.34.12-rke2r1", result.stdout)
         self.assertEqual(registry_result.stdout.strip(), '{"skipped":"configured_registry"}')
 
     @patch("hyops.drivers.config.ansible.connectivity.run_capture")
@@ -124,6 +137,35 @@ class AnsibleConnectivityTests(TestCase):
         self.assertTrue(ok)
         self.assertEqual(error, "")
         self.assertIn("RKE2_VERSION=v1.34.11+rke2r1", run_capture.call_args.args[0][-1])
+
+    @patch("hyops.drivers.config.ansible.connectivity.run_capture")
+    @patch("hyops.drivers.config.ansible.connectivity.shutil.which")
+    def test_rke2_preflight_reports_unavailable_release_list(self, which, run_capture) -> None:
+        which.return_value = "/usr/bin/ssh"
+        run_capture.return_value = SimpleNamespace(
+            rc=14,
+            stdout='{"error":"release_image_list_unavailable"}',
+            stderr="",
+        )
+
+        ok, error = rke2_image_preflight_check(
+            command_name="preflight",
+            module_ref="platform/onprem/rke2-cluster",
+            inputs={
+                "inventory_groups": {
+                    "rke2_servers": [{"name": "rke2-cp-01", "host": "192.0.2.10"}]
+                },
+                "rke2_install_version": "v1.34.12+rke2r1",
+            },
+            cwd="/tmp",
+            env={},
+            evidence_dir=Path("/tmp/evidence"),
+            redact=True,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("could not load the selected release image list", error)
+        self.assertIn("release_image_list_unavailable", error)
 
     @patch("hyops.drivers.config.ansible.connectivity.run_capture")
     @patch("hyops.drivers.config.ansible.connectivity.shutil.which")

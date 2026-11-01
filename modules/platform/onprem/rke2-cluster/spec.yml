@@ -42,9 +42,9 @@ inputs:
       - "RKE2_TOKEN"
     required_env_destroy: []
     load_vault_env: false
-    # Preflight: validate public registry availability for image tags referenced
-    # by the selected RKE2 package before long-running install steps. Custom
-    # registry configuration is applied and verified by RKE2 during the role.
+    # Preflight: load the selected release's published Linux image list and
+    # validate its public registry tags before long-running install steps.
+    # Custom registry configuration is applied and verified by RKE2.
     rke2_image_preflight: true
     rke2_image_preflight_timeout_s: 60
 
