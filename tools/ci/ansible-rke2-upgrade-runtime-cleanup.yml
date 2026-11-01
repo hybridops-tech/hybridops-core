@@ -11,6 +11,21 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
   tasks:
+    - name: Inspect system RKE2 binary paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/rke2
+        - /usr/local/bin/rke2
+        - /opt/rke2/bin/rke2
+      register: _system_rke2
+
+    - name: Refuse to run on a host with an installed RKE2 binary
+      ansible.builtin.assert:
+        that:
+          - _system_rke2.results | selectattr('stat.exists') | list | length == 0
+        fail_msg: "cleanup fixture cannot run on a host with an installed RKE2 binary"
+
     - name: Create isolated RKE2 cleanup fixture
       ansible.builtin.tempfile:
         state: directory

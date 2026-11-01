@@ -514,9 +514,9 @@ def rke2_image_preflight_check(
     role_vars = inputs.get("rke2_role_vars")
     if not isinstance(role_vars, dict):
         role_vars = {}
-    install_version = str(
-        inputs.get("rke2_install_version") or role_vars.get("install_rke2_version") or ""
-    ).strip()
+    selected_version = str(inputs.get("rke2_install_version") or "").strip()
+    legacy_version = str(role_vars.get("install_rke2_version") or "").strip()
+    install_version = selected_version or legacy_version
     if not install_version:
         return True, ""
 
@@ -528,6 +528,12 @@ def rke2_image_preflight_check(
     has_role_tar_urls = isinstance(role_tar_urls, list) and any(str(x).strip() for x in role_tar_urls)
     auto_tarballs = as_bool(inputs.get("rke2_auto_image_tarballs"), default=False)
     if has_explicit_tar_urls or has_role_tar_urls or (auto_tarballs and install_version):
+        return True, ""
+
+    # Registry rewrites, credentials, and custom trust are applied by RKE2.
+    # A direct HTTP probe cannot reproduce that configuration safely.
+    registry_config_path = str(role_vars.get("registry_config_file_path") or "").strip()
+    if registry_config_path:
         return True, ""
 
     target_label, target_host = pick_rke2_probe_target(inputs)
@@ -560,6 +566,11 @@ fi
 
 RKE2_VERSION="${RKE2_VERSION#v}"
 RUNTIME_TAG="v${RKE2_VERSION/+/-}"
+
+if sudo test -f /etc/rancher/rke2/registries.yaml >/dev/null 2>&1; then
+  echo '{"skipped":"configured_registry"}'
+  exit 0
+fi
 
 tmpd="$(mktemp -d)"
 cleanup() { rm -rf "$tmpd"; }

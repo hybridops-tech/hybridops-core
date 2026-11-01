@@ -157,10 +157,14 @@ class RKE2ClusterModuleContractTest(TestCase):
             for path in paths
         }
 
-        blueprint_path = self.root / "blueprints/onprem/rke2@v1/blueprint.yml"
-        blueprint = yaml.safe_load(blueprint_path.read_text(encoding="utf-8"))
-        cluster_step = next(step for step in blueprint["steps"] if step["id"] == "rke2_cluster")
-        versions.add(cluster_step["inputs"]["rke2_install_version"])
+        for relative_path in (
+            "blueprints/onprem/rke2@v1/blueprint.yml",
+            "blueprints/onprem/rke2-workloads@v1/blueprint.yml",
+        ):
+            blueprint_path = self.root / relative_path
+            blueprint = yaml.safe_load(blueprint_path.read_text(encoding="utf-8"))
+            cluster_step = next(step for step in blueprint["steps"] if step["id"] == "rke2_cluster")
+            versions.add(cluster_step["inputs"]["rke2_install_version"])
 
         self.assertEqual(len(versions), 1)
         self.assertRegex(next(iter(versions)), r"^v\d+\.\d+\.\d+\+rke2r\d+$")
