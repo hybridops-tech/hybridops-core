@@ -1450,10 +1450,26 @@ class ProxmoxVmContract(TerragruntModuleContract):
         requested_vm_names = _collect_requested_vm_names(out)
         confirmed_deletion_only_vm_set = False
         preserve_existing_vms = as_bool(out.get("preserve_existing_vms"), default=False)
+        preserve_existing_resources = as_bool(
+            out.get("preserve_existing_resources"), default=False
+        )
         existing_vm_set_is_stable = False
         existing_vm_names: set[str] = set()
         existing_interface_keys: set[str] = set()
         existing_interface_vms: set[str] = set()
+        if preserve_existing_resources and not preserve_existing_vms:
+            return (
+                out,
+                warnings,
+                "inputs.preserve_existing_resources=true requires inputs.preserve_existing_vms=true",
+            )
+        if preserve_existing_vms and not requested_vm_names:
+            return (
+                out,
+                warnings,
+                "inputs.preserve_existing_vms=true requires the requested VM names to exactly match "
+                "a non-empty managed VM set in the current state slot.",
+            )
         if requested_vm_names:
             raw_state_instance = str(runtime.get("state_instance") or "").strip().lower()
             current_slot = f"instance:{raw_state_instance}" if raw_state_instance else "latest"
@@ -1478,6 +1494,14 @@ class ProxmoxVmContract(TerragruntModuleContract):
             existing_vm_set_is_stable = bool(
                 existing_vm_names and existing_vm_names == requested_vm_names
             )
+            if preserve_existing_vms and not existing_vm_set_is_stable:
+                diff = _format_vm_set_diff(existing_vm_names, requested_vm_names)
+                return (
+                    out,
+                    warnings,
+                    "inputs.preserve_existing_vms=true requires the requested VM names to exactly match "
+                    f"a non-empty managed VM set in the current state slot; {diff}.",
+                )
             if existing_vm_names and existing_vm_names != requested_vm_names:
                 allow_replace = as_bool(out.get("allow_vm_set_replace"), default=False)
                 diff = _format_vm_set_diff(existing_vm_names, requested_vm_names)
@@ -1539,8 +1563,9 @@ class ProxmoxVmContract(TerragruntModuleContract):
         # normal probe for every other run, including preserve_existing_vms
         # runs that still manage ordinary (non-imported) resources.
         skip_template_probe = bool(
-            as_bool(out.get("preserve_existing_resources"), default=False)
+            preserve_existing_resources
             and preserve_existing_vms
+            and existing_vm_set_is_stable
         )
         if resolved_template_vm_id is not None and not skip_template_probe:
             meta_dir = (
