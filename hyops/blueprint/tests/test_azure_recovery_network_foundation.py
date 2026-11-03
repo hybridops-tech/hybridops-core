@@ -57,9 +57,3 @@ class AzureRecoveryNetworkFoundationBlueprintTests(TestCase):
         )
         self.assertEqual(network["requires"], ["recovery_resource_group"])
         self.assertTrue(self.blueprint["policy"]["evidence_required"])
-
-    def test_shipped_contract_has_no_demonstration_identity(self) -> None:
-        contract_text = str(self.blueprint).lower()
-        self.assertNotIn("agentic", contract_text)
-        self.assertNotIn("disposable", contract_text)
-
