@@ -1,0 +1,9 @@
+api_version: hybridops/v1
+kind: LocalArtifactContract
+
+artifact:
+  relative_path: "quickstart.json"
+  module_refs:
+    - "core/local/quickstart"
+  output_prefix: "quickstart"
+  capability: "cap.quickstart.local"

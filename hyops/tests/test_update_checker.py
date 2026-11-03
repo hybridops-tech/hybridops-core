@@ -70,6 +70,11 @@ class UpdateCheckerTests(unittest.TestCase):
             status = checker.check_for_update(root=directory, use_cache=False)
         self.assertEqual(status.state, "offline")
 
+    def test_quickstart_does_not_trigger_release_check(self) -> None:
+        with patch.object(checker, "check_for_update") as check:
+            checker.maybe_print_update_notice("quickstart")
+        check.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

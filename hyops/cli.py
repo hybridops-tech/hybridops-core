@@ -18,6 +18,7 @@ from hyops.inventory.command import add_inventory_subparser
 from hyops.lab.command import add_lab_subparser
 from hyops.module.command import add_module_subparser
 from hyops.preflight.command import add_preflight_subparser
+from hyops.quickstart.command import add_quickstart_subparser
 from hyops.runner.command import add_runner_subparser
 from hyops.secrets.command import add_secrets_subparser
 from hyops.show.command import add_show_subparser
@@ -112,6 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_vault_subparser(sp)
     add_show_subparser(sp)
     add_preflight_subparser(sp)
+    add_quickstart_subparser(sp)
     add_test_subparser(sp)
     add_runner_subparser(sp)
     add_setup_subparser(sp)

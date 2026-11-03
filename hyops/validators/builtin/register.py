@@ -9,6 +9,7 @@ from __future__ import annotations
 from hyops.validators.registry import register
 from hyops.validators.core.azure import nat_gateway, resource_group, vnet
 from hyops.validators.core.hetzner import vyos_image_register, vyos_image_seed
+from hyops.validators.core.local import quickstart
 from hyops.validators.core.onprem import network_sdn, template_image, vyos_template_import, vyos_template_seed
 from hyops.validators.core.shared import manual_gate, vyos_image_artifact, vyos_image_build
 from hyops.validators.org.aws import pgbackrest_repo as aws_pgbackrest_repo
@@ -95,6 +96,7 @@ def register_all() -> None:
     register("core/azure/nat-gateway", nat_gateway.validate)
     register("core/hetzner/vyos-image-seed", vyos_image_seed.validate)
     register("core/hetzner/vyos-image-register", vyos_image_register.validate)
+    register("core/local/quickstart", quickstart.validate)
     register("core/onprem/network-sdn", network_sdn.validate)
     register("core/onprem/template-image", template_image.validate)
     register("core/onprem/vyos-template-import", vyos_template_import.validate)

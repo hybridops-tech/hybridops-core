@@ -91,6 +91,7 @@ class UpdatePolicyTests(unittest.TestCase):
             )
         )
         self.assertFalse(policy.command_requires_supported_release(Namespace(cmd="show")))
+        self.assertFalse(policy.command_requires_supported_release(Namespace(cmd="quickstart")))
 
 
 if __name__ == "__main__":

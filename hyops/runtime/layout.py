@@ -17,7 +17,9 @@ class LayoutResult:
     ensured: list[Path]
 
 
-def _ensure_dir(path: Path, mode: int) -> bool:
+def _ensure_dir(path: Path, mode: int, *, reject_symlink: bool = False) -> bool:
+    if reject_symlink and path.is_symlink():
+        raise RuntimeError(f"Path must not be a symbolic link: {path}")
     if path.exists():
         if not path.is_dir():
             raise RuntimeError(f"Path exists but is not a directory: {path}")
@@ -28,7 +30,7 @@ def _ensure_dir(path: Path, mode: int) -> bool:
     return True
 
 
-def ensure_layout(paths) -> LayoutResult:
+def ensure_layout(paths, *, reject_symlinks: bool = False) -> LayoutResult:
     created: list[Path] = []
     ensured: list[Path] = []
     for d in [
@@ -41,7 +43,7 @@ def ensure_layout(paths) -> LayoutResult:
         paths.meta_dir,
         paths.work_dir,
     ]:
-        made = _ensure_dir(d, 0o700)
+        made = _ensure_dir(d, 0o700, reject_symlink=reject_symlinks)
         (created if made else ensured).append(d)
     return LayoutResult(created=created, ensured=ensured)
 
