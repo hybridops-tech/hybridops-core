@@ -137,7 +137,5 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 
 ## License
 
-Software is licensed under [MIT-0](LICENSE). Documentation covered by
-[LICENSE-DOCUMENTATION.md](LICENSE-DOCUMENTATION.md) is licensed under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). See
+HybridOps Core is licensed under [MIT-0](LICENSE). See
 [TRADEMARKS.md](TRADEMARKS.md) for the branding and trademark notice.

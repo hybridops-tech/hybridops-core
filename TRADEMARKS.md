@@ -1,7 +1,7 @@
 # Trademarks
 
 The HybridOps name, wordmark, and associated branding assets are proprietary to
-Jeleel Muibi. They are not licensed under MIT-0 or CC BY 4.0. No rights to use
+Jeleel Muibi. They are not licensed under MIT-0. No rights to use
 the branding are granted except for nominative, descriptive references, such as
 "built with HybridOps".
 
