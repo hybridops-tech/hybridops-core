@@ -47,6 +47,7 @@ HOME_DIR="${WORK_DIR}/home"
 INSTALL_ROOT="${HOME_DIR}/.hybridops/core"
 INSTALLED_APP="${INSTALL_ROOT}/app"
 INSTALLED_HYOPS="${HOME_DIR}/.local/bin/hyops"
+QUICKSTART_ROOT="${HOME_DIR}/.hybridops/quickstart-smoke"
 ROOT_HOME_DIR="${WORK_DIR}/root-home"
 ROOT_LINK_DIR="${WORK_DIR}/root-bin"
 ROOT_LINK_HYOPS="${ROOT_LINK_DIR}/hyops"
@@ -148,6 +149,30 @@ fi
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup galaxy --runtime-root "${HOME_DIR}/.hybridops" --dry-run >/dev/null
   env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" setup ansible --help >/dev/null
 )
+
+(
+  cd /
+  env -u PYTHONPATH HOME="${HOME_DIR}" \
+    "${INSTALLED_HYOPS}" quickstart --root "${QUICKSTART_ROOT}" >/dev/null
+  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" \
+    quickstart status --root "${QUICKSTART_ROOT}" --json > "${WORK_DIR}/quickstart-ready.json"
+  env -u PYTHONPATH HOME="${HOME_DIR}" \
+    "${INSTALLED_HYOPS}" quickstart reset --root "${QUICKSTART_ROOT}" >/dev/null
+  env -u PYTHONPATH HOME="${HOME_DIR}" "${INSTALLED_HYOPS}" \
+    quickstart status --root "${QUICKSTART_ROOT}" --json > "${WORK_DIR}/quickstart-reset.json"
+)
+python3 - "${WORK_DIR}/quickstart-ready.json" "${WORK_DIR}/quickstart-reset.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    ready = json.load(stream)
+with open(sys.argv[2], encoding="utf-8") as stream:
+    reset = json.load(stream)
+
+assert ready["status"] == "ready", ready
+assert reset["status"] == "reset", reset
+PY
 
 env "${install_env[@]}" \
   bash "${RELEASE_ROOT}/install.sh" --force --no-system-link --no-setup-all >/dev/null

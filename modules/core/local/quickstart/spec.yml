@@ -1,0 +1,34 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "core/local/quickstart"
+
+metadata:
+  title: "Local Quickstart Operation"
+  description: "Run a credential-free HybridOps operation through the standard module lifecycle."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    operation_id: "first-governed-operation"
+    declared_outcome: "local-artifact-present"
+
+execution:
+  driver: "local/artifact"
+  profile: "local@v1.0"
+  pack_ref:
+    id: "core/00-quickstart@v1.0"
+
+outputs:
+  publish:
+    - cap.quickstart.local
+    - quickstart.artifact_path
+    - quickstart.artifact_sha256
+    - quickstart.declared_outcome
+    - quickstart.operation_id
+    - quickstart.verified
+
+probes: []
+constraints: []

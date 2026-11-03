@@ -1,0 +1,11 @@
+api_version: hybridops/v1
+kind: DriverProfile
+
+profile_ref: "local@v1.0"
+driver: "local/artifact"
+description: "Credential-free local execution for the bounded HybridOps quickstart operation."
+
+policy:
+  credentials: []
+  external_tools: []
+  network_access: false

@@ -145,7 +145,7 @@ def automatic_checks_enabled() -> bool:
 
 
 def maybe_print_update_notice(command: str | None) -> None:
-    if command in {None, "update", "destroy"}:
+    if command in {None, "update", "destroy", "quickstart"}:
         return
     if not automatic_checks_enabled() or not sys.stderr.isatty():
         return

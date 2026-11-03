@@ -38,6 +38,7 @@ PUBLIC_COMMANDS = (
     "module",
     "plan",
     "preflight",
+    "quickstart",
     "rebuild",
     "runner",
     "secrets",

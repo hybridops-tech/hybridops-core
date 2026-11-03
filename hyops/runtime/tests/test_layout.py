@@ -72,6 +72,21 @@ class RuntimeLayoutTests(unittest.TestCase):
             msg = "Path exists but is not a directory"
             self.assertIn(msg, str(ctx.exception))
 
+    def test_ensure_dir_can_reject_symbolic_link_without_changing_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = root / "outside"
+            target = root / "linked_dir"
+            outside.mkdir()
+            os.chmod(outside, 0o755)
+            target.symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(RuntimeError, "symbolic link"):
+                _ensure_dir(target, 0o700, reject_symlink=True)
+
+            if os.name == "posix":
+                self.assertEqual(os.stat(outside).st_mode & 0o777, 0o755)
+
     def test_ensure_layout_tightens_loose_root_and_child(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / ".hybridops"

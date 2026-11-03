@@ -35,7 +35,7 @@ flowchart LR
 
 <table align="center">
   <tr>
-    <td align="center"><strong>86</strong><br><sub>runtime modules</sub></td>
+    <td align="center"><strong>87</strong><br><sub>runtime modules</sub></td>
     <td align="center"><strong>31</strong><br><sub>reference blueprints</sub></td>
     <td align="center"><strong>64</strong><br><sub>public decision records</sub></td>
     <td align="center"><strong>8</strong><br><sub>supported targets</sub></td>
@@ -69,7 +69,26 @@ See the full [reference scenario library](https://docs.hybridops.tech/reference-
 
 ## Quick start
 
-For installation, workstation setup, target initialisation, and first-run guidance, see the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/).
+After installation, run one complete HybridOps operation without cloud
+credentials, elevated privileges, or an external execution tool:
+
+```bash
+hyops quickstart
+```
+
+The command resolves a versioned module, profile, driver, and pack; performs
+preflight; verifies the declared outcome; and writes module state and a
+structured run record under the isolated `~/.hybridops/quickstart` runtime.
+
+Inspect or reset the operation at any time:
+
+```bash
+hyops quickstart status
+hyops quickstart reset
+```
+
+For installation, workstation setup, target initialisation, and broader
+first-run guidance, see the [Quickstart](https://docs.hybridops.tech/guides/getting-started/quickstart/).
 
 You can inspect blueprints locally without cloud credentials or a live environment. These commands validate the manifest and display the execution plan:
 
