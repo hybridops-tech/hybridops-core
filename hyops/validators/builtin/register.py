@@ -20,6 +20,7 @@ from hyops.validators.org.gcp import (
     gsm_eso_sa,
     pgbackrest_repo,
     project_factory,
+    wan_cloud_nat,
     wan_cloud_router,
     wan_hub_network,
     wan_vpn_to_edge,
@@ -40,21 +41,32 @@ from hyops.validators.platform.network import (
     decision_service,
     dns_routing,
     edge_observability,
+    powerdns_authority,
     vyos_edge_wan,
+    vyos_site_extension_edge,
+    vyos_site_extension_onprem,
 )
 from hyops.validators.platform.gcp import platform_vm as gcp_platform_vm
-from hyops.validators.platform.gcp import gke_cluster, gke_kubeconfig, lab_network
+from hyops.validators.platform.gcp import gke_cluster, gke_kubeconfig, lab_network, vm_firewall_rules
 from hyops.validators.platform.k8s import gcp_secret_store, gsm_bootstrap
 from hyops.validators.platform.linux import (
+    containerlab,
     containerlab_gui,
+    containerlab_healthcheck,
     containerlab_lab,
+    containerlab_recovery,
+    desktop_xrdp,
     eve_ng as linux_eve_ng,
     eve_ng_healthcheck,
     eve_ng_images,
     eve_ng_lab_archive,
     eve_ng_labs,
-    gns3_lab_archive,
+    gns3_healthcheck,
     gns3_images,
+    gns3_lab_archive,
+    gns3_server,
+    gns3_starter_lab,
+    ops_runner,
     pinned_workload,
 )
 from hyops.validators.platform.onprem import (
@@ -85,6 +97,7 @@ def register_all() -> None:
     register("org/gcp/project-factory", project_factory.validate)
     register("org/gcp/wan-hub-network", wan_hub_network.validate)
     register("org/gcp/wan-cloud-router", wan_cloud_router.validate)
+    register("org/gcp/wan-cloud-nat", wan_cloud_nat.validate)
     register("org/gcp/wan-vpn-to-edge", wan_vpn_to_edge.validate)
     register("org/hetzner/shared-private-network", shared_private_network.validate)
     register("org/hetzner/shared-control-host", shared_control_host.validate)
@@ -109,15 +122,24 @@ def register_all() -> None:
     register("platform/gcp/gke-cluster", gke_cluster.validate)
     register("platform/gcp/gke-kubeconfig", gke_kubeconfig.validate)
     register("platform/gcp/lab-network", lab_network.validate)
+    register("platform/gcp/vm-firewall-rules", vm_firewall_rules.validate)
+    register("platform/linux/containerlab", containerlab.validate)
+    register("platform/linux/containerlab-gui", containerlab_gui.validate)
+    register("platform/linux/containerlab-healthcheck", containerlab_healthcheck.validate)
+    register("platform/linux/containerlab-lab", containerlab_lab.validate)
+    register("platform/linux/containerlab-recovery", containerlab_recovery.validate)
+    register("platform/linux/desktop-xrdp", desktop_xrdp.validate)
     register("platform/linux/eve-ng", linux_eve_ng.validate)
+    register("platform/linux/eve-ng-healthcheck", eve_ng_healthcheck.validate)
     register("platform/linux/eve-ng-images", eve_ng_images.validate)
     register("platform/linux/eve-ng-lab-archive", eve_ng_lab_archive.validate)
     register("platform/linux/eve-ng-labs", eve_ng_labs.validate)
-    register("platform/linux/eve-ng-healthcheck", eve_ng_healthcheck.validate)
+    register("platform/linux/gns3-healthcheck", gns3_healthcheck.validate)
     register("platform/linux/gns3-images", gns3_images.validate)
     register("platform/linux/gns3-lab-archive", gns3_lab_archive.validate)
-    register("platform/linux/containerlab-lab", containerlab_lab.validate)
-    register("platform/linux/containerlab-gui", containerlab_gui.validate)
+    register("platform/linux/gns3-server", gns3_server.validate)
+    register("platform/linux/gns3-starter-lab", gns3_starter_lab.validate)
+    register("platform/linux/ops-runner", ops_runner.validate)
     register("platform/linux/pinned-workload", pinned_workload.validate)
     register("platform/network/vyos-edge-wan", vyos_edge_wan.validate)
     register("platform/network/edge-observability", edge_observability.validate)
@@ -127,6 +149,9 @@ def register_all() -> None:
     register("platform/network/decision-dispatcher", decision_dispatcher.validate)
     register("platform/network/decision-service", decision_service.validate)
     register("platform/network/dns-routing", dns_routing.validate)
+    register("platform/network/powerdns-authority", powerdns_authority.validate)
+    register("platform/network/vyos-site-extension-edge", vyos_site_extension_edge.validate)
+    register("platform/network/vyos-site-extension-onprem", vyos_site_extension_onprem.validate)
     register("platform/onprem/argocd-bootstrap", argocd_bootstrap.validate)
     register("platform/k8s/argocd-bootstrap", argocd_bootstrap.validate)
     register("platform/k8s/runtime-bundle-secret", runtime_bundle_secret.validate)

@@ -37,10 +37,15 @@ def register(module_ref: str, fn: ValidatorFn) -> None:
     _REGISTRY[m] = fn
 
 
-def validate_module_inputs(module_ref: str, inputs: dict[str, Any]) -> None:
+def validate_module_inputs(module_ref: str, inputs: dict[str, Any], require_validator: bool = False) -> None:
     m = (module_ref or "").strip()
     fn = _REGISTRY.get(m)
     if not fn:
+        if require_validator:
+            raise ModuleValidationError(
+                f"input validation required but no validator registered for {m}. "
+                "Production modules must have enforced input contracts."
+            )
         return
 
     if not isinstance(inputs, dict):
