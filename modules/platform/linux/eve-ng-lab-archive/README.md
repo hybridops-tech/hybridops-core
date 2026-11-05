@@ -53,18 +53,90 @@ subsequent teardown. The script runs on the EVE-NG host. HybridOps then verifies
 that no QEMU guest remains active and records the script checksum with the
 archive evidence. `--quiesce-script` remains an operation-specific override.
 
-To refresh saved device configurations before export, enable:
+## Device Configuration Export
+
+To export and preserve Cisco IOL device configurations during lab preservation, enable:
 
 ```yaml
 load_vault_env: true
 required_env: ["EVENG_ADMIN_PASSWORD"]
 eveng_lab_archive_capture_device_configs: true
 eveng_lab_archive_config_export_timeout_s: 300
+eveng_lab_archive_activate_saved_configs: true
 ```
 
-Capture uses the EVE-NG API on the target host. The timeout accepts values from
-1 to 3600 seconds. Failure stops the archive step and leaves the execution host
-in place.
+### How it works
+
+When `eveng_lab_archive_capture_device_configs` is enabled:
+
+1. **Pre-export**: EVE-NG is instructed to write running device configurations into saved startup configurations
+2. **Export**: Device configurations are exported using EVE-NG's native REST API (not as raw nvram files)
+3. **Archive**: Configurations are stored in a device-config manifest within the archive
+4. **Restore**: After recovery, the manifest is available for restoration using EVE-NG's native mechanism
+
+### Configuration
+
+- `eveng_lab_archive_capture_device_configs`: Enable device config capture (boolean)
+- `eveng_lab_archive_config_export_timeout_s`: Maximum time to wait for export completion (1-3600 seconds)
+- `eveng_lab_archive_activate_saved_configs`: Automatically activate saved configs during restore (boolean)
+- `eveng_lab_archive_api_base_url`: EVE-NG API endpoint (default: `http://127.0.0.1`)
+- `eveng_lab_archive_api_username`: EVE-NG API user (default: `admin`)
+- `eveng_lab_archive_api_password_env`: Environment variable containing API password
+
+### Capture behavior
+
+**Before export**:
+- Module calls EVE-NG API to request configuration export for each IOL device
+- Waits up to configured timeout for operations to complete
+- Exported configurations are read-only snapshots from the running devices
+- Sensitive license material (iourc) is excluded from archive
+
+**What is captured**:
+- Device type and node ID
+- Device configuration as formatted by IOL
+- Capture timestamp and metadata
+- Lab name and path
+
+**What is NOT captured**:
+- Raw IOL nvram_* runtime files (these are not portable across hosts)
+- License keys or authentication material
+- Dynamically allocated resources
+
+### Restore behavior
+
+Restored labs can recover device configurations through:
+
+1. **Manual activation**: Administrators can apply saved configurations using EVE-NG UI
+2. **Automated restore**: Using `eveng_lab_archive_activate_saved_configs: true` applies configs automatically
+3. **Verification**: Restored devices are verified to have the expected configuration before acceptance
+
+### Example workflow
+
+```bash
+# Export with device configuration capture
+hyops module run platform/linux/eve-ng-lab-archive \
+  --env production \
+  -i eveng_lab_archive_action=export \
+  -i eveng_lab_archive_capture_device_configs=true \
+  -i eveng_lab_archive_config_export_timeout_s=600 \
+  --execute
+
+# Later, restore with configuration
+hyops module run platform/linux/eve-ng-lab-archive \
+  --env recovery \
+  -i eveng_lab_archive_action=restore \
+  -i eveng_lab_archive_path=/path/to/labs.tar.gz \
+  -i eveng_lab_archive_expected_sha256=<checksum> \
+  -i eveng_lab_archive_activate_saved_configs=true \
+  --execute
+```
+
+### Troubleshooting
+
+**Export timeout**: Increase `eveng_lab_archive_config_export_timeout_s` if you have many devices
+**API connection failure**: Verify `eveng_lab_archive_api_base_url` and credentials
+**Configs not restoring**: Check that `eveng_lab_archive_activate_saved_configs` is true for recovery
+**Missing configurations**: Some device types may not support configuration export via EVE-NG API
 
 ## Restore
 
