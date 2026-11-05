@@ -7,6 +7,9 @@ maintainer: HybridOps.Tech
 from __future__ import annotations
 
 import argparse
+import os
+import sys
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -257,15 +260,18 @@ def run(ns) -> int:
                 module_root = resolve_module_root(str(ns.module_root or "modules"))
                 inputs_file = resolve_input_path(str(ns.inputs) if ns.inputs else None)
                 state_instance = normalize_state_instance(getattr(ns, "state_instance", None))
-                module_preflight = run_module_driver_preflight(
-                    paths=paths,
-                    env_name=getattr(ns, "env", None),
-                    module_ref=module_ref,
-                    module_root=module_root,
-                    inputs_file=inputs_file,
-                    lifecycle_command="apply",
-                    state_instance=state_instance,
-                )
+                # Keep module and driver diagnostics off the JSON stream,
+                # including child processes that inherit file descriptor 1.
+                with _module_preflight_output(bool(ns.json)):
+                    module_preflight = run_module_driver_preflight(
+                        paths=paths,
+                        env_name=getattr(ns, "env", None),
+                        module_ref=module_ref,
+                        module_root=module_root,
+                        inputs_file=inputs_file,
+                        lifecycle_command="apply",
+                        state_instance=state_instance,
+                    )
                 status = str(module_preflight.get("status") or "").strip().lower()
                 detail = str(module_preflight.get("error") or f"status={status}")
                 passed = status == "ok"
@@ -329,6 +335,36 @@ def run(ns) -> int:
         print(f"exit_code={code}")
 
     return int(code)
+
+
+@contextmanager
+def _module_preflight_output(json_mode: bool):
+    if not json_mode:
+        yield
+        return
+
+    saved_stdout = os.dup(1)
+    try:
+        try:
+            sys.stdout.flush()
+        except (AttributeError, OSError, ValueError):
+            pass
+        os.dup2(_stderr_fileno(), 1)
+        with redirect_stdout(sys.stderr):
+            yield
+    finally:
+        os.dup2(saved_stdout, 1)
+        os.close(saved_stdout)
+
+
+def _stderr_fileno() -> int:
+    fileno = getattr(sys.stderr, "fileno", None)
+    if fileno is not None:
+        try:
+            return int(fileno())
+        except (OSError, ValueError):
+            pass
+    return 2
 
 
 def _json_dumps(obj: Any) -> str:
