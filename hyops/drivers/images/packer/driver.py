@@ -60,6 +60,61 @@ from .render import (
 
 _DRIVER_DIR = Path(__file__).resolve().parent
 _PROFILES_DIR = _DRIVER_DIR / "profiles"
+_HCL_VAR_RE = re.compile(r'^(\w+)\s*=\s*"([^"]*)"', re.MULTILINE)
+
+
+def _extract_iso_info_from_pkrvars(pkrvars_path: Path) -> tuple[str, str, str]:
+    """Extract iso_checksum, iso_url, and iso_file from packer variable file.
+
+    Returns: (checksum, url, filename) or ("", "", "") if not found.
+    """
+    if not pkrvars_path.exists():
+        return "", "", ""
+
+    content = pkrvars_path.read_text(encoding="utf-8")
+    matches = _HCL_VAR_RE.findall(content)
+
+    iso_checksum = ""
+    iso_url = ""
+    iso_file = ""
+
+    for key, value in matches:
+        if key == "iso_checksum":
+            iso_checksum = value
+        elif key == "iso_url":
+            iso_url = value
+        elif key == "iso_file":
+            iso_file = value
+
+    return iso_checksum, iso_url, iso_file
+
+
+def _create_template_manifest(
+    *,
+    template_key: str,
+    template_name: str,
+    template_vmid: int,
+    source_checksum: str,
+    source_url: str,
+    source_filename: str,
+    profile_ref: str,
+    pack_id: str,
+    builder_version: str,
+    run_id: str,
+) -> dict[str, Any]:
+    """Create a template manifest with source provenance information."""
+    return {
+        "template_key": template_key,
+        "template_name": template_name,
+        "template_vm_id": int(template_vmid),
+        "source_checksum": source_checksum,
+        "source_url": source_url,
+        "source_filename": source_filename,
+        "profile": profile_ref,
+        "pack_id": pack_id,
+        "builder_version": builder_version,
+        "run_id": run_id,
+    }
 
 
 def _fail(ev: EvidenceWriter, result: dict[str, Any], msg: str) -> dict[str, Any]:
@@ -1039,12 +1094,48 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                 f"unable to resolve template vmid for name={template_name} after build; set inputs.vmid explicitly",
             )
 
+    # Extract source provenance information for template manifest
+    source_checksum = ""
+    source_url = ""
+    source_filename = ""
+    if build_executed:
+        iso_checksum, iso_url, iso_file = _extract_iso_info_from_pkrvars(var_file_path)
+        source_checksum = iso_checksum
+        source_url = iso_url
+        source_filename = iso_file
+
+        # Get packer version for manifest
+        packer_version_result = _run_proc([packer_bin, "version"], timeout_s=10)
+        packer_version = ""
+        if packer_version_result.rc == 0:
+            # Extract version from "Packer v..." output
+            version_match = re.search(r"Packer\s+v([\d.]+)", packer_version_result.stdout or "")
+            if version_match:
+                packer_version = version_match.group(1)
+
+        # Create and write template manifest
+        template_manifest = _create_template_manifest(
+            template_key=template_key,
+            template_name=template_name,
+            template_vmid=int(resolved_vmid),
+            source_checksum=source_checksum,
+            source_url=source_url,
+            source_filename=source_filename,
+            profile_ref=profile_ref,
+            pack_id=pack_id,
+            builder_version=packer_version,
+            run_id=run_id,
+        )
+        ev.write_json("template_manifest.json", template_manifest)
+
     published_outputs = {
         "template_key": template_key,
         "template_vm_id": int(resolved_vmid),
         "template_name": template_name,
         "template_vm_ids": {template_key: int(resolved_vmid)},
         "templates": {template_key: {"vm_id": int(resolved_vmid), "name": template_name}},
+        "source_checksum": source_checksum,
+        "build_run_id": run_id if build_executed else None,
     }
 
     post_build_smoke: dict[str, Any] | None = None
