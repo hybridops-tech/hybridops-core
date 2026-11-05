@@ -41,6 +41,8 @@ from hyops.validators.plugins import register_plugins as register_validator_plug
 
 _DRIVERS_REGISTERED = False
 _VALIDATORS_REGISTERED = False
+_FAILED_DRIVER_PLUGINS: set[str] = set()
+_FAILED_VALIDATOR_PLUGINS: set[str] = set()
 
 
 class _OperatorHelpFormatter(argparse.HelpFormatter):
@@ -53,7 +55,7 @@ class _OperatorHelpFormatter(argparse.HelpFormatter):
 
 
 def _register_drivers() -> None:
-    global _DRIVERS_REGISTERED
+    global _DRIVERS_REGISTERED, _FAILED_DRIVER_PLUGINS
     if _DRIVERS_REGISTERED:
         return
 
@@ -66,12 +68,20 @@ def _register_drivers() -> None:
         if strict:
             raise
         print(f"WARN: driver plugin registration failed: {e}", file=sys.stderr)
+        # Track the plugin name from the error message for later validation
+        error_str = str(e)
+        if "name=" in error_str:
+            # Extract plugin name from error like "group=hyops.drivers name=<plugin>"
+            parts = error_str.split("name=")
+            if len(parts) > 1:
+                plugin_name = parts[1].split()[0].strip("'\"")
+                _FAILED_DRIVER_PLUGINS.add(f"plugin:{plugin_name}")
 
     _DRIVERS_REGISTERED = True
 
 
 def _register_validators() -> None:
-    global _VALIDATORS_REGISTERED
+    global _VALIDATORS_REGISTERED, _FAILED_VALIDATOR_PLUGINS
     if _VALIDATORS_REGISTERED:
         return
 
@@ -84,8 +94,48 @@ def _register_validators() -> None:
         if strict:
             raise
         print(f"WARN: validator plugin registration failed: {e}", file=sys.stderr)
+        # Track the plugin name from the error message for later validation
+        error_str = str(e)
+        if "name=" in error_str:
+            # Extract plugin name from error like "group=hyops.validators name=<plugin>"
+            parts = error_str.split("name=")
+            if len(parts) > 1:
+                plugin_name = parts[1].split()[0].strip("'\"")
+                _FAILED_VALIDATOR_PLUGINS.add(f"plugin:{plugin_name}")
 
     _VALIDATORS_REGISTERED = True
+
+
+def is_driver_available(driver_ref: str) -> bool:
+    """Check if a driver is available (registered and not failed).
+
+    Args:
+        driver_ref: Driver reference string (e.g., "images/packer")
+
+    Returns:
+        True if the driver is registered and available, False otherwise
+    """
+    _register_drivers()
+    if driver_ref in _FAILED_DRIVER_PLUGINS:
+        return False
+    return driver_ref in REGISTRY._drivers
+
+
+def get_unavailable_driver_error(driver_ref: str) -> str | None:
+    """Get error message if driver is unavailable.
+
+    Args:
+        driver_ref: Driver reference string
+
+    Returns:
+        Error message if driver is unavailable, None otherwise
+    """
+    _register_drivers()
+    if driver_ref in _FAILED_DRIVER_PLUGINS:
+        return f"driver plugin failed to register: {driver_ref}"
+    if driver_ref not in REGISTRY._drivers:
+        return f"driver not found: {driver_ref}"
+    return None
 
 
 def build_parser() -> argparse.ArgumentParser:

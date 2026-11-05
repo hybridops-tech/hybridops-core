@@ -124,6 +124,13 @@ def run_module_driver_preflight(
         resolved.execution["profile"] = str(profile_override).strip()
 
     driver_ref = str(resolved.execution.get("driver") or "").strip()
+
+    # Check if the selected driver is available before proceeding
+    from hyops.cli import get_unavailable_driver_error
+    driver_error = get_unavailable_driver_error(driver_ref)
+    if driver_error:
+        raise ValueError(f"preflight failed: {driver_error}")
+
     driver_fn = REGISTRY.resolve(driver_ref)
 
     run_id = new_run_id("preflight")
