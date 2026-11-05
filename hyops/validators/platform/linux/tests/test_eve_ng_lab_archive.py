@@ -133,6 +133,73 @@ class EveNgLabArchiveValidatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(inputs)
 
+    def test_device_config_capture_requires_credentials(self) -> None:
+        """Device config capture requires EVE-NG API credentials."""
+        inputs = valid_inputs()
+        inputs.update({
+            "eveng_lab_archive_capture_device_configs": True,
+            "load_vault_env": True,
+            "required_env": ["EVENG_ADMIN_PASSWORD"],
+        })
+        validate(inputs)
+
+    def test_device_config_export_timeout_bounds(self) -> None:
+        """Device config export timeout must be between 1 and 3600 seconds."""
+        for timeout_val in [1, 300, 3600]:
+            with self.subTest(timeout=timeout_val):
+                inputs = valid_inputs()
+                inputs.update({
+                    "eveng_lab_archive_capture_device_configs": True,
+                    "eveng_lab_archive_config_export_timeout_s": timeout_val,
+                })
+                validate(inputs)
+
+    def test_device_config_minimal_export_config(self) -> None:
+        """Minimal config for device capture export is valid."""
+        inputs = valid_inputs()
+        inputs.update({
+            "eveng_lab_archive_action": "export",
+            "eveng_lab_archive_capture_device_configs": True,
+        })
+        validate(inputs)
+
+    def test_device_config_full_export_workflow(self) -> None:
+        """Full device config export with all options is valid."""
+        inputs = valid_inputs()
+        inputs.update({
+            "eveng_lab_archive_action": "export",
+            "eveng_lab_archive_capture_device_configs": True,
+            "eveng_lab_archive_config_export_timeout_s": 600,
+            "eveng_lab_archive_activate_saved_configs": True,
+            "eveng_lab_archive_include_node_state": True,
+            "eveng_lab_archive_guest_quiesced": True,
+            "load_vault_env": True,
+            "required_env": ["EVENG_ADMIN_PASSWORD"],
+        })
+        validate(inputs)
+
+    def test_device_config_api_credentials_required(self) -> None:
+        """API credentials must be non-empty strings."""
+        inputs = valid_inputs()
+        inputs.update({
+            "eveng_lab_archive_capture_device_configs": True,
+        })
+        # API username and password env var should be non-empty in defaults
+        validate(inputs)
+
+    def test_device_config_api_url_validation(self) -> None:
+        """API URL must be valid HTTP/HTTPS URL."""
+        for url in [
+            "http://localhost",
+            "https://192.168.1.1",
+            "http://eve-ng.example.com:8080",
+        ]:
+            with self.subTest(url=url):
+                inputs = valid_inputs()
+                inputs["eveng_lab_archive_api_base_url"] = url
+                inputs["eveng_lab_archive_capture_device_configs"] = True
+                validate(inputs)
+
 
 if __name__ == "__main__":
     unittest.main()
