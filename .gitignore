@@ -17,3 +17,5 @@ dist/
 .internal/
 .draft/
 .misc/
+config.bat
+node_modules
