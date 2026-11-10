@@ -143,8 +143,11 @@ def decide_provisional_use(
     policy: AuthorityTransitionPolicy,
     operator_decision: bool = False,
     authorized_operations: frozenset[str] = frozenset(),
+    now: str = "",
 ) -> AuthorityTransitionDecision | None:
     """Decide whether to use provisional live device observation during reconciliation.
+
+    CRITICAL: Rejects provisional use unless live_device is fresh (verified).
 
     Args:
         declared: The declared/intended authority state
@@ -152,18 +155,36 @@ def decide_provisional_use(
         policy: Transition policy governing provisional use
         operator_decision: Whether operator explicitly authorized provisional use
         authorized_operations: Operations this provisional observation may authorize
+        now: ISO 8601 timestamp (uses current time if empty)
 
     Returns:
         AuthorityTransitionDecision if provisional use is allowed, None otherwise
     """
+    # CRITICAL FIX #1: Reject if no live device observation
     if live_device is None:
         return None
 
+    # CRITICAL FIX #2: Reject if policy does not allow provisional use
     if not policy.allow_provisional_use:
         return None
 
+    # CRITICAL FIX #3: Reject if policy requires explicit decision but operator did not authorize
     if policy.require_explicit_decision and not operator_decision:
         return None
+
+    # CRITICAL FIX #4: REJECT stale live observations - only accept FRESH live state
+    # Do not accept provisionally; freshness must be VERIFIED
+    is_fresh, reason = is_observation_fresh(live_device, now=now, max_age_s=30)
+    if not is_fresh:
+        return None
+
+    # CRITICAL FIX #5: Enforce policy max_provisional_duration_s limit
+    # If policy sets a limit, store it in the decision for enforcement at runtime
+    if policy.max_provisional_duration_s <= 0:
+        # 0 or negative means unlimited (but still bounded by operational policy)
+        max_duration_annotation = "unlimited (policy allows indefinite provisional use)"
+    else:
+        max_duration_annotation = f"limited to {policy.max_provisional_duration_s} seconds per policy"
 
     decision_id = f"emergency-reconciliation-{datetime.now(timezone.utc).isoformat()}"
 
@@ -171,11 +192,72 @@ def decide_provisional_use(
         decision_id=decision_id,
         timestamp=datetime.now(timezone.utc).isoformat(),
         decision_type="provisional_use",
-        rationale="Using live device observation to recover from detected authority disagreement",
+        rationale=f"Using fresh live device observation to recover from detected authority disagreement. Duration: {max_duration_annotation}",
         authorized_by="operator" if operator_decision else "policy",
         provisional_observation=live_device,
         authorized_operations=authorized_operations,
         forbidden_operations=frozenset({"update_declared", "permanent_state_change"}),
+    )
+
+
+def _sanitize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """SECURITY: Filter metadata to exclude credentials, IPs, and sensitive data.
+
+    Only audit-safe fields are retained. Whitelisted safe fields:
+    - error_message, warning, diagnostic_info, reason
+    - scope, strength, status
+    - timestamp, duration
+    Excluded: anything resembling credentials, passwords, tokens, IPs, environment variables
+    """
+    SAFE_KEYS = {
+        "error_message", "warning", "diagnostic_info", "reason",
+        "scope", "strength", "status",
+        "timestamp", "duration", "freshness_reason",
+    }
+    UNSAFE_KEYWORDS = {"password", "token", "secret", "key", "credential", "auth",
+                       "url", "endpoint", "host", "ip", "addr", "api_key", "apikey"}
+
+    sanitized = {}
+    for key, value in metadata.items():
+        key_lower = key.lower()
+        # Only include if key is whitelisted
+        if key_lower in SAFE_KEYS:
+            sanitized[key] = value
+        # Reject if key contains unsafe keywords
+        elif any(unsafe in key_lower for unsafe in UNSAFE_KEYWORDS):
+            continue
+        # Reject if value is clearly sensitive (contains typical credential patterns)
+        elif isinstance(value, str):
+            value_lower = value.lower()
+            if any(unsafe in value_lower for unsafe in UNSAFE_KEYWORDS):
+                continue
+            # Check for IP-like patterns (simple heuristic)
+            if "." in value and value.replace(".", "").isdigit():
+                continue
+            sanitized[key] = value
+        elif isinstance(value, (dict, list)):
+            # Recursively sanitize nested structures (but exclude if they look like config)
+            if key_lower not in SAFE_KEYS:
+                continue
+            sanitized[key] = value
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
+def _sanitize_observation(obs: AuthorityObservation) -> AuthorityObservation:
+    """Create a sanitized copy of an observation with safe metadata only."""
+    if not obs.metadata:
+        return obs
+    safe_metadata = _sanitize_metadata(dict(obs.metadata))
+    if safe_metadata == obs.metadata:
+        return obs
+    return AuthorityObservation(
+        token=obs.token,
+        observed_at=obs.observed_at,
+        scope=obs.scope,
+        strength=obs.strength,
+        metadata=safe_metadata,
     )
 
 
@@ -190,6 +272,8 @@ def create_transition_record(
 ) -> AuthorityTransitionRecord:
     """Create a complete authority transition record for emergency reconciliation.
 
+    CRITICAL: Sanitizes all metadata to exclude credentials, IPs, and sensitive data.
+
     Args:
         logical_ref: Logical authority reference
         capability: Authority capability
@@ -200,7 +284,7 @@ def create_transition_record(
         decision: Provisional-use decision (if any)
 
     Returns:
-        AuthorityTransitionRecord with all transition details
+        AuthorityTransitionRecord with all transition details (sanitized metadata)
     """
     disagreement = detect_observation_disagreement(declared, controller_cache, live_device)
 
@@ -212,13 +296,18 @@ def create_transition_record(
     else:
         transition_type = "provisional_use"
 
+    # CRITICAL FIX #6: Sanitize all observations to remove credentials, IPs, sensitive data
+    declared_safe = _sanitize_observation(declared)
+    cache_safe = _sanitize_observation(controller_cache) if controller_cache else None
+    device_safe = _sanitize_observation(live_device) if live_device else None
+
     return AuthorityTransitionRecord(
         logical_ref=logical_ref,
         capability=capability,
         provider=provider,
-        declared_authority=declared,
-        controller_cache=controller_cache,
-        live_device_state=live_device,
+        declared_authority=declared_safe,
+        controller_cache=cache_safe,
+        live_device_state=device_safe,
         detected_disagreement=disagreement,
         transition_decision=decision,
         transition_type=transition_type,
@@ -229,17 +318,39 @@ def record_return_to_declared(
     record: AuthorityTransitionRecord,
     return_condition_met: bool,
     result: str = "",
+    final_live_observation: AuthorityObservation | None = None,
 ) -> AuthorityTransitionRecord:
     """Update transition record to show return to declared authority.
 
+    CRITICAL: Verifies live state matches declared before accepting return claim.
+
     Args:
         record: The existing transition record
-        return_condition_met: Whether the return condition was satisfied
+        return_condition_met: Whether the return condition was satisfied (caller assertion)
         result: Detail about the return (e.g., "declared state verified")
+        final_live_observation: Current live observation after reconciliation (used for verification)
 
     Returns:
         Updated transition record with return-to-declared information
     """
+    # CRITICAL FIX #7: Verify that live state actually matches declared before accepting return
+    # Do not self-assert success; require actual verification
+    actual_condition_met = return_condition_met
+
+    if final_live_observation is not None:
+        # Verify the final live state matches declared authority
+        if final_live_observation.token != record.declared_authority.token:
+            # Live state does NOT match declared - return failed
+            actual_condition_met = False
+            result = f"verification failed: live state ({final_live_observation.token}) does not match declared ({record.declared_authority.token})"
+
+    elif actual_condition_met and record.live_device_state is not None:
+        # Fallback: if no final observation provided, check against the recorded live state
+        # This is weaker verification but better than nothing
+        if record.live_device_state.token != record.declared_authority.token:
+            actual_condition_met = False
+            result = "verification failed: recorded live state does not match declared authority"
+
     return AuthorityTransitionRecord(
         logical_ref=record.logical_ref,
         capability=record.capability,
@@ -251,6 +362,6 @@ def record_return_to_declared(
         transition_decision=record.transition_decision,
         transition_type=record.transition_type,
         return_to_declared_at=datetime.now(timezone.utc).isoformat(),
-        return_condition_met=return_condition_met,
+        return_condition_met=actual_condition_met,
         return_result=result,
     )

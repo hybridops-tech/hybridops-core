@@ -192,6 +192,31 @@ class TestEmergencyReconciliation(unittest.TestCase):
 
         self.assertIsNone(decision)
 
+    def test_decide_provisional_use_rejects_stale_live_observation(self) -> None:
+        """CRITICAL: Provisional use rejected if live observation is stale."""
+        policy = AuthorityTransitionPolicy(
+            allow_provisional_use=True,
+            require_explicit_decision=False,
+            max_provisional_duration_s=300,
+            failure_mode="provisional_ok",
+            record_unverifiable=True,
+        )
+
+        # Create stale live observation (300+ seconds old)
+        stale_live = AuthorityObservation(
+            token="drift-state-v2",
+            observed_at=(datetime.now(timezone.utc) - timedelta(seconds=300)).isoformat(),
+            scope="device/live",
+            strength="observed",
+        )
+
+        # CRITICAL: Must reject stale live observation - not accept provisionally
+        decision = decide_provisional_use(
+            self.declared, stale_live, policy, operator_decision=True
+        )
+
+        self.assertIsNone(decision)
+
     def test_create_transition_record_no_transition(self) -> None:
         """Transition record with no transition when all agree."""
         record = create_transition_record(
@@ -222,8 +247,8 @@ class TestEmergencyReconciliation(unittest.TestCase):
         self.assertEqual(record.transition_type, "keep_declared")
         self.assertTrue(record.detected_disagreement)
 
-    def test_record_return_to_declared(self) -> None:
-        """Record return transition back to declared authority."""
+    def test_record_return_to_declared_verified(self) -> None:
+        """CRITICAL: Return succeeds only when final live observation matches declared."""
         initial_record = create_transition_record(
             "primary_ipam",
             "inventory_ipam",
@@ -234,13 +259,87 @@ class TestEmergencyReconciliation(unittest.TestCase):
             None,
         )
 
+        # Verify return with matching final observation
         return_record = record_return_to_declared(
-            initial_record, return_condition_met=True, result="declared state re-verified"
+            initial_record,
+            return_condition_met=True,
+            result="declared state re-verified",
+            final_live_observation=self.live_device_fresh_same,  # Matches declared token
         )
 
+        # Return succeeds because live state matches declared
         self.assertTrue(return_record.return_condition_met)
         self.assertEqual(return_record.return_result, "declared state re-verified")
         self.assertNotEqual(return_record.return_to_declared_at, "")
+
+    def test_record_return_to_declared_unverified(self) -> None:
+        """CRITICAL: Return fails when live observation does NOT match declared."""
+        initial_record = create_transition_record(
+            "primary_ipam",
+            "inventory_ipam",
+            "netbox",
+            self.declared,
+            None,
+            self.live_device_fresh_diff,
+            None,
+        )
+
+        # Attempt return WITHOUT passing final observation (falls back to recorded live state)
+        # The recorded live_device_fresh_diff has token "drift-state-v2" != "declared-state-v1"
+        return_record = record_return_to_declared(
+            initial_record,
+            return_condition_met=True,  # Caller claims success
+            result="declared state re-verified",
+            # No final_live_observation passed - verification will use recorded state
+        )
+
+        # Return FAILS because verification shows live state does NOT match declared
+        self.assertFalse(return_record.return_condition_met)
+        self.assertIn("does not match", return_record.return_result.lower())
+
+    def test_create_transition_record_sanitizes_metadata(self) -> None:
+        """CRITICAL: Metadata with credentials/IPs is sanitized (not stored)."""
+        # Create observation with sensitive metadata
+        sensitive_obs = AuthorityObservation(
+            token="test-token",
+            observed_at=datetime.now(timezone.utc).isoformat(),
+            scope="device/live",
+            strength="observed",
+            metadata={
+                "error_message": "Safe error description",
+                "api_key": "sk-1234567890abcdef",  # Should be removed
+                "password": "secretpass123",  # Should be removed
+                "endpoint": "https://192.168.1.1:443",  # Should be removed
+                "reason": "Safe diagnostic reason",  # Should be kept
+                "credential_token": "should-be-removed",  # Should be removed
+                "ip_address": "10.0.0.1",  # Should be removed
+            },
+        )
+
+        record = create_transition_record(
+            "test_auth",
+            "test_cap",
+            "test_provider",
+            self.declared,
+            None,
+            sensitive_obs,
+            None,
+        )
+
+        # Verify sensitive data was removed
+        evidence = record.to_evidence()
+        metadata = evidence.get("live_device_state", {}).get("metadata", {})
+
+        # Safe fields should be kept
+        self.assertIn("error_message", metadata)
+        self.assertIn("reason", metadata)
+
+        # Sensitive fields should be removed
+        self.assertNotIn("api_key", metadata)
+        self.assertNotIn("password", metadata)
+        self.assertNotIn("endpoint", metadata)
+        self.assertNotIn("credential_token", metadata)
+        self.assertNotIn("ip_address", metadata)
 
     def test_transition_record_to_evidence(self) -> None:
         """Transition record serializes to evidence without credentials."""
