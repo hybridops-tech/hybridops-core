@@ -9,10 +9,14 @@ from hyops.validators.registry import ModuleValidationError
 
 def validate(inputs: dict[str, Any]) -> None:
     allowed = {
-        "firewall_rules",
-        "_hyops_lifecycle_command",
-        "_hyops_invocation_command",
+        '_hyops_invocation_command',
+        '_hyops_lifecycle_command',
+        'context_id',
+        'name_prefix',
+        'network',
+        'project_id',
+        'rules'
     }
     unknown = sorted(str(key) for key in inputs if str(key) not in allowed)
     if unknown:
-        raise ModuleValidationError(f"unknown inputs: {', '.join(unknown)}")
+        raise ModuleValidationError(f"unknown inputs: {", ".join(unknown)}")
