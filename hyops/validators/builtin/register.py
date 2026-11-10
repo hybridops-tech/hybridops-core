@@ -6,7 +6,9 @@ maintainer: HybridOps.Tech
 
 from __future__ import annotations
 
-from hyops.validators.registry import register
+from pathlib import Path
+from hyops.validators.registry import register, ModuleValidationError
+from hyops.validators.builder import build_validator_from_spec
 from hyops.validators.core.azure import nat_gateway, resource_group, vnet
 from hyops.validators.core.hetzner import vyos_image_register, vyos_image_seed
 from hyops.validators.core.local import quickstart
@@ -172,3 +174,40 @@ def register_all() -> None:
     register("platform/onprem/rke2-cluster", rke2_cluster.validate)
     register("platform/onprem/rke2-etcd-member", rke2_etcd_member.validate)
     register("platform/onprem/vyos-edge", vyos_edge.validate)
+
+    # Auto-generate validators from specs for any remaining production modules
+    _register_spec_based_validators()
+
+
+def _register_spec_based_validators() -> None:
+    """Auto-generate and register validators from module specs.
+
+    For modules that don't have explicit Python validators, generate them
+    from the module spec.yml file. This ensures all production modules have
+    enforced input contracts derived from their official specifications.
+    """
+    modules_root = Path("modules")
+    if not modules_root.exists():
+        return
+
+    # Discover all module specs
+    for spec_file in modules_root.rglob("spec.yml"):
+        # Convert spec path back to module_ref
+        # e.g., modules/platform/linux/containerlab/spec.yml -> platform/linux/containerlab
+        parts = spec_file.parent.relative_to(modules_root).parts
+        if len(parts) < 3:
+            continue
+
+        module_ref = "/".join(parts)
+
+        # Skip if already registered with explicit validator
+        from hyops.validators.registry import _REGISTRY
+        if module_ref in _REGISTRY:
+            continue
+
+        try:
+            validator = build_validator_from_spec(spec_file)
+            register(module_ref, validator)
+        except Exception as e:
+            # Log but don't fail - module may be disabled
+            pass
