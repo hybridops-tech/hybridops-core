@@ -1,7 +1,7 @@
 # Research and External Review
 
 HybridOps technical papers examine operating boundaries implemented in Core.
-Each paper defines one question, maps it to the public implementation and
+Each paper defines one question, maps it to the implementation and
 documentation, and provides a focused review thread.
 
 ## Research scope

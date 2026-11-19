@@ -37,7 +37,7 @@ flowchart LR
   <tr>
     <td align="center"><strong>87</strong><br><sub>runtime modules</sub></td>
     <td align="center"><strong>31</strong><br><sub>reference blueprints</sub></td>
-    <td align="center"><strong>64</strong><br><sub>public decision records</sub></td>
+    <td align="center"><strong>64</strong><br><sub>decision records</sub></td>
     <td align="center"><strong>8</strong><br><sub>supported targets</sub></td>
   </tr>
 </table>
@@ -124,7 +124,7 @@ Run records are written under stable paths such as:
 
 ## Research and external review
 
-HybridOps Core is the public reference implementation for ongoing work in platform engineering and infrastructure automation.
+HybridOps Core is the reference implementation for ongoing work in platform engineering and infrastructure automation.
 
 See [Research and External Review](RESEARCH.md) for published papers, implementation maps, and external technical reviews.
 
