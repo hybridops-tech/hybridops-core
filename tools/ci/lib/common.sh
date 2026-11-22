@@ -130,12 +130,16 @@ hyops_ci::all_ansible_playbooks() {
 }
 
 hyops_ci::all_terraform_stacks() {
-  find "${HYOPS_REPO_ROOT}/packs/iac/terragrunt" -path '*/stack/terraform' -type d | sort
+  {
+    find "${HYOPS_REPO_ROOT}/packs/iac/terragrunt" -path '*/stack/terraform' -type d
+    printf '%s\n' "${HYOPS_REPO_ROOT}/tools/acceptance/authority_continuity/fixtures/packs/iac/terragrunt/authority-window/stack/modules/window"
+  } | sort
 }
 
 hyops_ci::all_python_quality_targets() {
   cat <<EOF
 ${HYOPS_REPO_ROOT}/hyops
+${HYOPS_REPO_ROOT}/tools/acceptance
 ${HYOPS_REPO_ROOT}/packs/config/ansible/linux/common/network/25-cloudflare-traffic-steering@v1.0/stack/bin/manage-cloudflare-traffic-steering.py
 EOF
 }
@@ -175,6 +179,7 @@ ${HYOPS_REPO_ROOT}/.github/workflows
 ${HYOPS_REPO_ROOT}/blueprints
 ${HYOPS_REPO_ROOT}/modules
 ${HYOPS_REPO_ROOT}/tools/ci
+${HYOPS_REPO_ROOT}/tools/acceptance/authority_continuity/fixtures/modules
 ${HYOPS_REPO_ROOT}/tools/setup/requirements
 ${HYOPS_REPO_ROOT}/hyops/drivers/config/ansible/profiles
 ${HYOPS_REPO_ROOT}/hyops/drivers/iac/terragrunt/profiles

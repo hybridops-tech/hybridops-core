@@ -1,8 +1,10 @@
-# Operation authority contract
+# Operation Authority Continuity
 
-HybridOps separates the authority an operation requires from the product that
-supplies it. A blueprint declares a logical authority and a capability, then
-binds that declaration to a shipped provider:
+HybridOps enforces the authority required by an infrastructure operation at
+admission and, when requested, verifies that authority again at completion.
+The runtime contract is independent of the infrastructure module and the
+system supplying authority. A blueprint declares a logical authority and a
+capability, then binds that declaration to a provider:
 
 ```yaml
 authorities:
@@ -22,7 +24,8 @@ steps:
 
 The resolver checks that the binding exists, that its declared capability
 matches the operation, and that the selected registered provider supports and
-admits that capability. Generic blueprint enforcement does not select products.
+admits that capability. Any blueprint step can use the contract; generic
+enforcement does not select a module, provider product, or deployment target.
 
 ## Shipped bindings
 
@@ -145,6 +148,59 @@ write.
 These semantics follow the Kubernetes API documentation for
 [efficient change detection and resource versions](https://kubernetes.io/docs/reference/using-api/api-concepts/#efficient-detection-of-changes).
 
+## Operator inspection
+
+List the authority providers and capabilities available to the current
+HybridOps installation:
+
+```bash
+hyops authority providers
+```
+
+Inspect authority outcomes from a normal blueprint deploy record:
+
+```bash
+hyops authority inspect --record /path/to/deploy.json
+```
+
+Inspection emits a deliberately limited view of the authority decision. It
+does not reproduce provider endpoints, observation tokens, credentials, or
+unrelated execution data. It validates the record schema and checks interval
+decisions against the runtime policy, then reports a SHA-256 hash of the input
+file. It does not authenticate a copied or externally supplied run record; use
+the hash to bind exported inspection output to the retained source record. Add
+`--json` to either command for structured output.
+
+## Provider extensions
+
+Optional providers are discovered through the Python entry-point group
+`hyops.authority_providers`. Each entry point is a callable that receives the
+authority registry and registers one or more providers:
+
+```toml
+[project.entry-points."hyops.authority_providers"]
+service-management = "example_authority:register"
+```
+
+```python
+def register(registry):
+    registry.register(ServiceManagementAuthorityProvider())
+```
+
+Providers implement the admission interface and may implement interval
+observation when their source can establish continuity. Duplicate provider
+names are rejected. Provider names and immutable capability sets must already
+be in canonical form. Discovery is atomic: if any entry point fails, none of
+the discovered providers are installed and provider inventory reports the
+failure. Provider distribution, version, entry point, and authority contract
+version are recorded in runtime receipts.
+
+Provider plugins execute as trusted in-process Python code with the same access
+as HybridOps. Install them only from distributions whose code and release
+provenance you trust. The current provider contract version is `1`.
+`HYOPS_NO_PLUGINS=1` disables discovery;
+`HYOPS_STRICT_PLUGINS=1` makes a plugin registration failure fatal.
+
 ## Fail-closed behavior and evidence
 
 Missing bindings, unknown providers, unsupported or mismatched capabilities,
@@ -213,3 +269,11 @@ This is an explicit compatibility form. It is translated to an internal
 NetBox provider. State-root resolution, state-only defaults, optional live API
 checking, and the previous live-check TLS behavior are preserved. New
 blueprints should use the canonical logical form.
+
+## Acceptance benchmark
+
+The fixed Kubernetes mutation scenarios live under
+`tools/acceptance/authority_continuity/`. They verify stable, persistent-drift,
+and reconverged-drift behavior against a disposable cluster. The benchmark and
+its Terraform barrier are maintainer verification fixtures, not installed
+runtime commands or supported infrastructure modules.

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import datetime, timezone
 import json
+from collections.abc import Mapping
+from datetime import UTC, datetime
 
 from .models import (
     AuthorityContext,
@@ -19,13 +19,32 @@ from .models import (
     AuthoritySession,
 )
 from .provider import AuthorityIntervalProvider
-from .registry import AuthorityProviderRegistry
-
+from .registry import AuthorityProviderRegistration, AuthorityProviderRegistry
 
 _INTERVAL_STATUSES = frozenset({"stable", "drifted", "unverifiable"})
 _COMPLETION_STATUSES = frozenset({"fresh", "stale", "unverifiable"})
 _EXPECTED_CHANGES = frozenset({"none", "operation"})
 _UNVERIFIABLE_ACTIONS = frozenset({"fail", "record"})
+
+
+def interval_decision(
+    interval_status: str,
+    completion_status: str,
+    on_unverifiable: str,
+) -> str:
+    """Return the canonical runtime decision for interval evidence."""
+
+    if interval_status not in _INTERVAL_STATUSES:
+        raise ValueError("invalid authority interval status")
+    if completion_status not in _COMPLETION_STATUSES:
+        raise ValueError("invalid authority completion status")
+    if on_unverifiable not in _UNVERIFIABLE_ACTIONS:
+        raise ValueError("invalid unverifiable authority policy")
+    if interval_status == "drifted" or completion_status == "stale":
+        return "deny"
+    if interval_status == "unverifiable" or completion_status == "unverifiable":
+        return "record" if on_unverifiable == "record" else "deny"
+    return "allow"
 
 
 class AuthorityResolver:
@@ -64,13 +83,14 @@ class AuthorityResolver:
             )
 
         try:
-            provider = self._registry.resolve(declaration.provider)
+            registration = self._registry.registration(declaration.provider)
         except ValueError as exc:
             raise ValueError(f"contract failed: {exc}") from exc
-        if requirement.capability not in provider.capabilities:
+        provider = registration.provider
+        if requirement.capability not in registration.capabilities:
             raise ValueError(
                 "contract failed: authority provider capability mismatch "
-                f"('{provider.name}' does not support '{requirement.capability}')"
+                f"('{registration.name}' does not support '{requirement.capability}')"
             )
 
         try:
@@ -79,18 +99,18 @@ class AuthorityResolver:
         except ValueError as exc:
             raise ValueError(
                 f"contract failed: authority '{requirement.logical_ref}' "
-                f"provider '{provider.name}': {exc}"
+                f"provider '{registration.name}': {exc}"
             ) from exc
         if not isinstance(evaluation, AuthorityEvaluation):
-            raise ValueError(
+            raise ValueError(  # noqa: TRY004 - provider violations are contract failures
                 f"contract failed: authority '{requirement.logical_ref}' "
-                f"provider '{provider.name}' returned an invalid evaluation"
+                f"provider '{registration.name}' returned an invalid evaluation"
             )
         if not evaluation.healthy:
             detail = evaluation.result or "authority is not ready"
             raise ValueError(
                 f"contract failed: authority '{requirement.logical_ref}' "
-                f"provider '{provider.name}' is not ready "
+                f"provider '{registration.name}' is not ready "
                 f"(state={evaluation.state or 'unknown'}): {detail}"
             )
 
@@ -100,10 +120,10 @@ class AuthorityResolver:
             except ValueError as exc:
                 raise ValueError(
                     f"contract failed: authority '{requirement.logical_ref}' "
-                    f"provider '{provider.name}': {exc}"
+                    f"provider '{registration.name}': {exc}"
                 ) from exc
 
-        receipt = self._receipt(requirement, provider.name, evaluation)
+        receipt = self._receipt(requirement, registration, evaluation)
         self._validate_evidence(receipt.to_evidence(), "authority admission evidence")
         session = AuthoritySession(
             requirement=requirement,
@@ -123,7 +143,8 @@ class AuthorityResolver:
         completion_floor: str,
     ) -> AuthorityIntervalReceipt:
         self._validate_policy(policy)
-        provider = self._registry.resolve(session.declaration.provider)
+        registration = self._registry.registration(session.declaration.provider)
+        provider = registration.provider
         before = session.admission.observation
 
         try:
@@ -138,7 +159,7 @@ class AuthorityResolver:
                 before=before,
                 result=f"completion authority observation failed: {exc}",
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - third-party provider boundary
             return self._unavailable_receipt(
                 session,
                 policy,
@@ -170,7 +191,8 @@ class AuthorityResolver:
             return AuthorityIntervalReceipt(
                 logical_ref=session.requirement.logical_ref,
                 capability=session.requirement.capability,
-                provider=provider.name,
+                provider=registration.name,
+                provider_identity=registration.identity,
                 expected_change=policy.expected_change,
                 on_unverifiable=policy.on_unverifiable,
                 interval_status="unverifiable",
@@ -213,7 +235,8 @@ class AuthorityResolver:
             return AuthorityIntervalReceipt(
                 logical_ref=session.requirement.logical_ref,
                 capability=session.requirement.capability,
-                provider=provider.name,
+                provider=registration.name,
+                provider_identity=registration.identity,
                 expected_change=policy.expected_change,
                 on_unverifiable=policy.on_unverifiable,
                 interval_status="unverifiable",
@@ -251,7 +274,7 @@ class AuthorityResolver:
                 after=after,
                 result=f"authority interval evaluation failed: {exc}",
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - third-party provider boundary
             return self._unavailable_receipt(
                 session,
                 policy,
@@ -302,7 +325,8 @@ class AuthorityResolver:
         return AuthorityIntervalReceipt(
             logical_ref=session.requirement.logical_ref,
             capability=session.requirement.capability,
-            provider=provider.name,
+            provider=registration.name,
+            provider_identity=registration.identity,
             expected_change=policy.expected_change,
             on_unverifiable=policy.on_unverifiable,
             interval_status=evaluation.interval_status,
@@ -318,13 +342,14 @@ class AuthorityResolver:
     @staticmethod
     def _receipt(
         requirement: AuthorityRequirement,
-        provider_name: str,
+        registration: AuthorityProviderRegistration,
         evaluation: AuthorityEvaluation,
     ) -> AuthorityReceipt:
         return AuthorityReceipt(
             logical_ref=requirement.logical_ref,
             capability=requirement.capability,
-            provider=provider_name,
+            provider=registration.name,
+            provider_identity=registration.identity,
             state=evaluation.state,
             result=evaluation.result or "admitted",
             instance=evaluation.instance,
@@ -344,7 +369,9 @@ class AuthorityResolver:
     @classmethod
     def _validate_observation(cls, observation: AuthorityObservation) -> None:
         if not isinstance(observation, AuthorityObservation):
-            raise ValueError("provider returned an invalid authority observation")
+            raise ValueError(  # noqa: TRY004 - provider violations are contract failures
+                "provider returned an invalid authority observation"
+            )
         for field, value in (
             ("token", observation.token),
             ("scope", observation.scope),
@@ -353,10 +380,14 @@ class AuthorityResolver:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"authority observation {field} must be a non-empty string")
         if not isinstance(observation.observed_at, str):
-            raise ValueError("authority observation time must be an ISO-8601 timestamp")
+            raise ValueError(  # noqa: TRY004 - provider violations are contract failures
+                "authority observation time must be an ISO-8601 timestamp"
+            )
         cls._parse_utc(observation.observed_at, "authority observation time")
         if not isinstance(observation.metadata, Mapping):
-            raise ValueError("authority observation metadata must be an object")
+            raise ValueError(  # noqa: TRY004 - provider violations are contract failures
+                "authority observation metadata must be an object"
+            )
         cls._validate_evidence(
             observation.to_evidence(),
             "authority observation",
@@ -398,7 +429,7 @@ class AuthorityResolver:
                 "contract failed: authority interval capability evaluation failed"
             ) from exc
         if not isinstance(verifiable, bool):
-            raise ValueError(
+            raise ValueError(  # noqa: TRY004 - provider violations are contract failures
                 "contract failed: authority provider returned an invalid interval capability"
             )
         if not verifiable:
@@ -413,28 +444,23 @@ class AuthorityResolver:
         if not text:
             raise ValueError(f"{field} is required")
         try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(text)
         except ValueError as exc:
             raise ValueError(f"{field} must be an ISO-8601 timestamp") from exc
         if parsed.tzinfo is None:
             raise ValueError(f"{field} must include a UTC offset")
-        return parsed.astimezone(timezone.utc)
+        return parsed.astimezone(UTC)
 
     @staticmethod
     def _decision(
         evaluation: AuthorityIntervalEvaluation,
         policy: AuthorityObservationPolicy,
     ) -> str:
-        if evaluation.interval_status == "drifted":
-            return "deny"
-        if evaluation.completion_status == "stale":
-            return "deny"
-        if (
-            evaluation.interval_status == "unverifiable"
-            or evaluation.completion_status == "unverifiable"
-        ):
-            return "record" if policy.on_unverifiable == "record" else "deny"
-        return "allow"
+        return interval_decision(
+            evaluation.interval_status,
+            evaluation.completion_status,
+            policy.on_unverifiable,
+        )
 
     @staticmethod
     def _unavailable_receipt(
@@ -448,7 +474,8 @@ class AuthorityResolver:
         return AuthorityIntervalReceipt(
             logical_ref=session.requirement.logical_ref,
             capability=session.requirement.capability,
-            provider=session.declaration.provider,
+            provider=session.admission.provider,
+            provider_identity=session.admission.provider_identity,
             expected_change=policy.expected_change,
             on_unverifiable=policy.on_unverifiable,
             interval_status="unverifiable",
@@ -474,7 +501,8 @@ class AuthorityResolver:
         return AuthorityIntervalReceipt(
             logical_ref=session.requirement.logical_ref,
             capability=session.requirement.capability,
-            provider=session.declaration.provider,
+            provider=session.admission.provider,
+            provider_identity=session.admission.provider_identity,
             expected_change=policy.expected_change,
             on_unverifiable=policy.on_unverifiable,
             interval_status="unverifiable",
@@ -499,8 +527,26 @@ def default_authority_registry() -> AuthorityProviderRegistry:
         from .providers.netbox import NetBoxAuthorityProvider
 
         registry = AuthorityProviderRegistry()
-        registry.register(NetBoxAuthorityProvider())
-        registry.register(NautobotAuthorityProvider())
-        registry.register(KubernetesAuthorityProvider())
+        from hyops import __version__
+
+        from .models import AuthorityProviderIdentity
+
+        for provider in (
+            NetBoxAuthorityProvider(),
+            NautobotAuthorityProvider(),
+            KubernetesAuthorityProvider(),
+        ):
+            provider_type = type(provider)
+            registry.register(
+                provider,
+                identity=AuthorityProviderIdentity(
+                    source="builtin",
+                    distribution="hybridops-core",
+                    version=__version__,
+                    entry_point=(
+                        f"{provider_type.__module__}:{provider_type.__qualname__}"
+                    ),
+                ),
+            )
         _DEFAULT_REGISTRY = registry
     return _DEFAULT_REGISTRY

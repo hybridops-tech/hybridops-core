@@ -6,6 +6,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Added
 
+- Added versioned authority-provider discovery through Python entry points,
+  immutable provider provenance in admission and interval receipts, and CLI
+  commands for provider inventory and bounded run-record inspection.
+- Added a clean-source Kubernetes acceptance benchmark for stable,
+  persistent-drift and mutate-then-reconverge authority intervals.
 - Added source checksum and build-run provenance for completed Proxmox template
   builds. Query strings and credentials are not retained, and a skipped build
   keeps the previous identity.

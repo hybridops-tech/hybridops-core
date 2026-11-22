@@ -1,0 +1,3 @@
+barrier_dir: "/tmp/hybridops-authority-window"
+run_nonce: "example-run"
+timeout_s: 60

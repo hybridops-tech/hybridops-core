@@ -20,6 +20,10 @@ python3 -m unittest discover \
   -s "${HYOPS_REPO_ROOT}/hyops" \
   -p 'test_*.py'
 
+PYTHONPATH="${HYOPS_REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" python3 -m unittest discover \
+  -s "${HYOPS_REPO_ROOT}/tools/acceptance/authority_continuity/tests" \
+  -p 'test_*.py'
+
 python3 - "${HYOPS_REPO_ROOT}" <<'PY'
 import importlib
 import pkgutil
