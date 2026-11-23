@@ -128,7 +128,9 @@ def _runtime_overlay_for_ref(ns, blueprint_ref: str) -> str:
     try:
         candidate.relative_to(overlay_root)
     except ValueError as exc:
-        raise ValueError(f"initialized blueprint resolves outside {overlay_root}: {unresolved}") from exc
+        raise ValueError(
+            f"initialized blueprint resolves outside {overlay_root}: {unresolved}"
+        ) from exc
 
     if unresolved.is_symlink() and not candidate.exists():
         raise FileNotFoundError(f"initialized blueprint link is broken: {unresolved}")
@@ -142,7 +144,9 @@ def _resolve_and_validate(
     *,
     allow_runtime_overlay: bool = True,
 ) -> dict[str, Any]:
-    blueprints_root = resolve_blueprints_root(getattr(ns, "blueprints_root", "blueprints"))
+    blueprints_root = resolve_blueprints_root(
+        getattr(ns, "blueprints_root", "blueprints")
+    )
     blueprint_ref = str(getattr(ns, "ref", "") or "").strip()
     explicit_file = str(getattr(ns, "file", "") or "").strip()
     overlay_file = ""
@@ -248,7 +252,9 @@ def _emit(payload: dict[str, Any], *, json_mode: bool) -> None:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
 
-    print(f"blueprint={payload.get('blueprint_ref', '')} mode={payload.get('mode', '')} status=ok")
+    print(
+        f"blueprint={payload.get('blueprint_ref', '')} mode={payload.get('mode', '')} status=ok"
+    )
     print(f"path={payload.get('path', '')}")
 
 
@@ -266,8 +272,12 @@ def _cancelled_deploy_actions(ns, payload: dict[str, Any]) -> dict[str, str]:
         selector = ["--ref", str(payload["blueprint_ref"])]
 
     return {
-        "resume": shlex.join(["hyops", "blueprint", "deploy", *selection, *selector, "--execute"]),
-        "destroy": shlex.join(["hyops", "blueprint", "destroy", *selection, *selector, "--execute"]),
+        "resume": shlex.join(
+            ["hyops", "blueprint", "deploy", *selection, *selector, "--execute"]
+        ),
+        "destroy": shlex.join(
+            ["hyops", "blueprint", "destroy", *selection, *selector, "--execute"]
+        ),
     }
 
 
@@ -411,7 +421,9 @@ def _published_eveng_image_labels(
     for value in published:
         name = Path(str(value).strip()).name
         if name:
-            labels.append(configured_labels.get(name) or _eveng_image_display_name(name))
+            labels.append(
+                configured_labels.get(name) or _eveng_image_display_name(name)
+            )
     return labels
 
 
@@ -463,7 +475,9 @@ def _step_presentation(
             items_label = str(presentation.get("items_label") or "includes").strip()
             inline_items = f"  {items_label}: {', '.join(item_values)}"
             if len(item_values) > 4 or len(inline_items) > 100:
-                item_line = "\n".join([f"  {items_label}:", *(f"    - {item}" for item in item_values)])
+                item_line = "\n".join(
+                    [f"  {items_label}:", *(f"    - {item}" for item in item_values)]
+                )
             else:
                 item_line = inline_items
 
@@ -576,7 +590,9 @@ def _emit_plan(payload: dict[str, Any], *, json_mode: bool) -> None:
         )
         return
 
-    print(f"blueprint={payload['blueprint_ref']} mode={payload['mode']} plan_steps={len(payload['order'])}")
+    print(
+        f"blueprint={payload['blueprint_ref']} mode={payload['mode']} plan_steps={len(payload['order'])}"
+    )
     print("order:")
     for step_id in payload["order"]:
         step = next(s for s in payload["steps"] if s["id"] == step_id)
@@ -656,7 +672,9 @@ def _evaluate_step_state_skip(step: dict[str, Any], paths) -> tuple[str, str]:
     )
 
 
-def _collect_deploy_risk_signals(payload: dict[str, Any], paths) -> list[dict[str, str]]:
+def _collect_deploy_risk_signals(
+    payload: dict[str, Any], paths
+) -> list[dict[str, str]]:
     signals: list[dict[str, str]] = []
     for step in payload.get("steps", []):
         action = str(step.get("action") or "").strip().lower()
@@ -722,7 +740,10 @@ def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
     if not signals:
         return 0
 
-    env_name = str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip() or "default"
+    env_name = (
+        str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip()
+        or "default"
+    )
     count = len(signals)
     noun = "step" if count == 1 else "steps"
     print(f"WARN: deploy may change {count} active blueprint {noun} in env={env_name}.")
@@ -740,7 +761,9 @@ def _confirm_deploy_if_needed(ns, payload: dict[str, Any], paths) -> int:
             )
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        print("WARN: non-interactive session detected; proceeding without prompt (use --yes to silence).")
+        print(
+            "WARN: non-interactive session detected; proceeding without prompt (use --yes to silence)."
+        )
         return 0
 
     confirmed = _prompt_yes_no("Proceed with blueprint deploy? [y/N]: ")
@@ -787,7 +810,9 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default=None,
         help="Override runtime root for blueprint overlay output.",
     )
-    i.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
+    i.add_argument(
+        "--env", default=None, help="Runtime environment namespace (e.g. dev, shared)."
+    )
     i.add_argument(
         "--dest-name",
         default="",
@@ -817,12 +842,16 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         help="Open a runtime blueprint file in a local editor.",
     )
     add_common_args(e)
-    e.add_argument("--root", default=None, help="Override runtime root for blueprint selection.")
+    e.add_argument(
+        "--root", default=None, help="Override runtime root for blueprint selection."
+    )
     e.add_argument("--env", default=None, help="Runtime environment namespace.")
     e.add_argument(
         "--editor",
         default="",
-        help=("Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."),
+        help=(
+            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."
+        ),
     )
     e.set_defaults(_handler=run_edit)
 
@@ -864,7 +893,9 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
 
     q = ssp.add_parser("validate", help="Validate a blueprint manifest.")
     add_common_args(q)
-    q.add_argument("--root", default=None, help="Override runtime root for overlay selection.")
+    q.add_argument(
+        "--root", default=None, help="Override runtime root for overlay selection."
+    )
     q.add_argument("--env", default=None, help="Runtime environment namespace.")
     q.set_defaults(_handler=run_validate)
 
@@ -873,8 +904,12 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         help="Check contracts, module resolution, and driver preflight for each step.",
     )
     add_common_args(u)
-    u.add_argument("--root", default=None, help="Override runtime root for state/contract checks.")
-    u.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
+    u.add_argument(
+        "--root", default=None, help="Override runtime root for state/contract checks."
+    )
+    u.add_argument(
+        "--env", default=None, help="Runtime environment namespace (e.g. dev, shared)."
+    )
     u.add_argument(
         "--module-root",
         default="modules",
@@ -884,7 +919,9 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
 
     r = ssp.add_parser("plan", help="Render blueprint execution order (skeleton).")
     add_common_args(r)
-    r.add_argument("--root", default=None, help="Override runtime root for overlay selection.")
+    r.add_argument(
+        "--root", default=None, help="Override runtime root for overlay selection."
+    )
     r.add_argument("--env", default=None, help="Runtime environment namespace.")
     r.set_defaults(_handler=run_plan)
 
@@ -898,7 +935,9 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default=0,
         help="Local port (default: choose an available port).",
     )
-    a.add_argument("--no-browser", action="store_true", help="Do not open the default browser.")
+    a.add_argument(
+        "--no-browser", action="store_true", help="Do not open the default browser."
+    )
     a.add_argument(
         "--native-consoles",
         action="store_true",
@@ -1003,7 +1042,9 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
     device_edit.add_argument(
         "--editor",
         default="",
-        help=("Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."),
+        help=(
+            "Editor command to use. Defaults to HYOPS_EDITOR, VISUAL, EDITOR, then common editors."
+        ),
     )
     device_edit.set_defaults(_handler=run_device)
 
@@ -1026,7 +1067,9 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         help="Open SSH to a device through the managed lab gateway.",
     )
     add_device_args(device_ssh)
-    device_ssh.add_argument("target", help="Discovered or operator-defined device name.")
+    device_ssh.add_argument(
+        "target", help="Discovered or operator-defined device name."
+    )
     device_ssh.set_defaults(_handler=run_device)
 
     device_web = device_commands.add_parser(
@@ -1107,8 +1150,12 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Execute ordered blueprint steps using module commands.",
     )
-    t.add_argument("--root", default=None, help="Override runtime root for step execution.")
-    t.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
+    t.add_argument(
+        "--root", default=None, help="Override runtime root for step execution."
+    )
+    t.add_argument(
+        "--env", default=None, help="Runtime environment namespace (e.g. dev, shared)."
+    )
     t.add_argument(
         "--module-root",
         default="modules",
@@ -1206,8 +1253,12 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Execute ordered blueprint step destruction.",
     )
-    d.add_argument("--root", default=None, help="Override runtime root for step execution.")
-    d.add_argument("--env", default=None, help="Runtime environment namespace (e.g. dev, shared).")
+    d.add_argument(
+        "--root", default=None, help="Override runtime root for step execution."
+    )
+    d.add_argument(
+        "--env", default=None, help="Runtime environment namespace (e.g. dev, shared)."
+    )
     d.add_argument(
         "--module-root",
         default="modules",
@@ -1277,7 +1328,9 @@ def add_blueprint_subparser(sp: argparse._SubParsersAction) -> None:
         default="modules",
         help="Module root directory for step execution.",
     )
-    b.add_argument("--out-dir", default=None, help="Override run-record root for module steps.")
+    b.add_argument(
+        "--out-dir", default=None, help="Override run-record root for module steps."
+    )
     b.add_argument(
         "--deps-inputs-dir",
         default=None,
@@ -1317,7 +1370,10 @@ def run_validate(ns) -> int:
 
 
 def _resolve_device_blueprint(ns, paths) -> dict[str, Any]:
-    if str(getattr(ns, "ref", "") or "").strip() or str(getattr(ns, "file", "") or "").strip():
+    if (
+        str(getattr(ns, "ref", "") or "").strip()
+        or str(getattr(ns, "file", "") or "").strip()
+    ):
         return _resolve_and_validate(ns)
 
     candidates: list[dict[str, Any]] = []
@@ -1327,14 +1383,20 @@ def _resolve_device_blueprint(ns, paths) -> dict[str, Any]:
             payload = validate_blueprint(load_blueprint(path), path)
         except (OSError, ValueError):
             continue
-        access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+        access = (
+            payload.get("access") if isinstance(payload.get("access"), dict) else {}
+        )
         if isinstance(access.get("automation"), dict) and access["automation"]:
             candidates.append(payload)
     if not candidates:
-        raise ValueError("no initialized automation blueprint was found; pass --ref or run blueprint init")
+        raise ValueError(
+            "no initialized automation blueprint was found; pass --ref or run blueprint init"
+        )
     if len(candidates) > 1:
         refs = ", ".join(str(item.get("blueprint_ref") or "") for item in candidates)
-        raise ValueError(f"multiple automation blueprints are initialized ({refs}); pass --ref")
+        raise ValueError(
+            f"multiple automation blueprints are initialized ({refs}); pass --ref"
+        )
     return candidates[0]
 
 
@@ -1347,7 +1409,9 @@ def _device_material(ns) -> tuple[dict[str, Any], dict[str, Any]]:
     paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
     payload = _resolve_device_blueprint(ns, paths)
     access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
-    automation = access.get("automation") if isinstance(access.get("automation"), dict) else {}
+    automation = (
+        access.get("automation") if isinstance(access.get("automation"), dict) else {}
+    )
     if not automation:
         raise ValueError("blueprint does not declare device automation access")
     env_name = str(getattr(ns, "env", "") or Path(paths.root).name)
@@ -1363,7 +1427,9 @@ def _device_context(ns) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, 
     automation, material = _device_material(ns)
     target_file = material["target_file"]
     if not target_file.is_file():
-        raise ValueError("device targets are unavailable; run blueprint access with --automation")
+        raise ValueError(
+            "device targets are unavailable; run blueprint access with --automation"
+        )
     targets = load_automation_targets(target_file, automation["management_cidr"])
     return automation, material, targets
 
@@ -1414,14 +1480,21 @@ def _device_web_requests(
         raise ValueError("device web accepts target names or --all, not both")
     if use_all:
         selected = [
-            (str(target["host"]), target) for target in targets if isinstance(target.get("web"), dict)
+            (str(target["host"]), target)
+            for target in targets
+            if isinstance(target.get("web"), dict)
         ]
         if not selected:
-            raise ValueError("no targets declare web access; run device edit and add a web mapping")
+            raise ValueError(
+                "no targets declare web access; run device edit and add a web mapping"
+            )
     else:
         if not target_tokens:
             raise ValueError("device web requires at least one target or --all")
-        selected = [_resolve_device_target(token, automation, targets) for token in target_tokens]
+        selected = [
+            _resolve_device_target(token, automation, targets)
+            for token in target_tokens
+        ]
 
     scheme_override = str(getattr(ns, "scheme", None) or "").strip().lower()
     if scheme_override and scheme_override not in {"http", "https"}:
@@ -1444,8 +1517,12 @@ def _device_web_requests(
         declared = target.get("web") if target else None
         web = declared if isinstance(declared, dict) else {}
         scheme = scheme_override or str(web.get("scheme") or "https")
-        remote_port = port_override or int(web.get("port") or (443 if scheme == "https" else 80))
-        path = str(path_override if path_override is not None else web.get("path") or "/")
+        remote_port = port_override or int(
+            web.get("port") or (443 if scheme == "https" else 80)
+        )
+        path = str(
+            path_override if path_override is not None else web.get("path") or "/"
+        )
         requests.append(
             {
                 "address": address,
@@ -1485,7 +1562,9 @@ def _run_device_web(
                 "-o",
                 "ExitOnForwardFailure=yes",
                 "-L",
-                (f"127.0.0.1:{local_port}:{request['address']}:{request['remote_port']}"),
+                (
+                    f"127.0.0.1:{local_port}:{request['address']}:{request['remote_port']}"
+                ),
                 gateway_alias,
             ]
             proc = subprocess.Popen(
@@ -1501,9 +1580,7 @@ def _run_device_web(
                 _stop_process(proc)
                 raise
             local_url = f"{request['scheme']}://127.0.0.1:{local_port}{request['path']}"
-            target_url = (
-                f"{request['scheme']}://{request['address']}:{request['remote_port']}{request['path']}"
-            )
+            target_url = f"{request['scheme']}://{request['address']}:{request['remote_port']}{request['path']}"
             sessions.append(
                 {
                     "label": request["label"],
@@ -1521,7 +1598,9 @@ def _run_device_web(
         else:
             print(f"device web access: {len(sessions)} targets")
             for session in sessions:
-                print(f"- {session['label']}  local={session['local_url']}  target={session['target_url']}")
+                print(
+                    f"- {session['label']}  local={session['local_url']}  target={session['target_url']}"
+                )
         print("press Ctrl-C to close access")
 
         open_all = bool(getattr(ns, "open_all", False))
@@ -1540,7 +1619,8 @@ def _run_device_web(
                     continue
                 detail = (proc.stderr.read() if proc.stderr else "").strip()
                 raise ValueError(
-                    detail or f"device web tunnel for {session['label']} exited with rc={return_code}"
+                    detail
+                    or f"device web tunnel for {session['label']} exited with rc={return_code}"
                 )
             time.sleep(0.25)
     except KeyboardInterrupt:
@@ -1609,9 +1689,14 @@ def _device_process_environment(material: dict[str, Any]) -> dict[str, str]:
     }
     for label, path in required.items():
         if not path.is_file():
-            raise ValueError(f"{label} is unavailable; run blueprint access with --automation")
+            raise ValueError(
+                f"{label} is unavailable; run blueprint access with --automation"
+            )
     try:
-        session = yaml.safe_load(Path(material["session_file"]).read_text(encoding="utf-8")) or {}
+        session = (
+            yaml.safe_load(Path(material["session_file"]).read_text(encoding="utf-8"))
+            or {}
+        )
     except (OSError, yaml.YAMLError) as exc:
         raise ValueError("device session metadata is invalid") from exc
     proxy = str(session.get("socks_proxy") or "").strip()
@@ -1651,7 +1736,9 @@ def run_device(ns) -> int:
             automation, material = _device_material(ns)
             target_file = Path(material["target_file"])
             if not target_file.is_file():
-                raise ValueError("device targets are unavailable; run blueprint access with --automation")
+                raise ValueError(
+                    "device targets are unavailable; run blueprint access with --automation"
+                )
             editor_argv = _editor_argv(ns)
             editor_argv.append(str(target_file))
             print(f"Opening device targets for edit: {target_file}")
@@ -1671,7 +1758,9 @@ def run_device(ns) -> int:
                 )
             else:
                 for target in targets:
-                    source = "DHCP" if target.get("source") == "dhcp-lease" else "static"
+                    source = (
+                        "DHCP" if target.get("source") == "dhcp-lease" else "static"
+                    )
                     platform = target.get("platform") or "unspecified"
                     user = str(target["user"])
                     if source == "DHCP" and user == automation["default_user"]:
@@ -1741,7 +1830,9 @@ def run_device(ns) -> int:
                 check=False,
             )
             if result.returncode == 255:
-                print(f"ERR: device SSH failed for {target['name']} as {target['user']}.")
+                print(
+                    f"ERR: device SSH failed for {target['name']} as {target['user']}."
+                )
                 print(f"device targets: {material['target_file']}")
                 print(f"edit: {_device_edit_command(ns)}")
             return int(result.returncode)
@@ -1763,7 +1854,9 @@ def run_device(ns) -> int:
         if action in {"shell", "run"}:
             environment = _device_process_environment(material)
             if action == "shell":
-                shell = str(os.environ.get("SHELL") or shutil.which("bash") or "").strip()
+                shell = str(
+                    os.environ.get("SHELL") or shutil.which("bash") or ""
+                ).strip()
                 if not shell:
                     raise ValueError("an interactive shell is unavailable")
                 print("device automation environment ready; exit to leave")
@@ -1800,12 +1893,15 @@ def run_init(ns) -> int:
             command_label="hyops blueprint init",
         )
         payload = _resolve_and_validate(ns, allow_runtime_overlay=False)
-        paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None), getattr(ns, "env", None)
+        )
         ensure_layout(paths)
         dest_dir = (paths.config_dir / "blueprints").resolve()
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_name = _normalize_dest_name(
-            getattr(ns, "dest_name", "") or _default_overlay_name(payload["blueprint_ref"])
+            getattr(ns, "dest_name", "")
+            or _default_overlay_name(payload["blueprint_ref"])
         )
         dest_path = (dest_dir / dest_name).resolve()
         if dest_path.exists() and not bool(getattr(ns, "force", False)):
@@ -1915,9 +2011,7 @@ def _quiescence_context(ns) -> tuple[Any, dict[str, Any], Path]:
     )
     payload = _resolve_and_validate(ns)
     if not _archive_requires_guest_quiescence(payload):
-        raise ValueError(
-            "blueprint does not declare EVE-NG node-state preservation"
-        )
+        raise ValueError("blueprint does not declare EVE-NG node-state preservation")
     return paths, payload, _quiescence_action_path(paths, payload)
 
 
@@ -1944,8 +2038,7 @@ def run_quiescence(ns) -> int:
                 print(json.dumps(status, indent=2, sort_keys=True))
             else:
                 print(
-                    f"blueprint={status['blueprint_ref']} "
-                    f"quiescence={status['status']}"
+                    f"blueprint={status['blueprint_ref']} quiescence={status['status']}"
                 )
                 print(f"path={status['path']}")
                 if status.get("sha256"):
@@ -2022,7 +2115,9 @@ def run_preflight(ns) -> int:
             getattr(ns, "env", None),
             command_label="hyops blueprint preflight",
         )
-        paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None), getattr(ns, "env", None)
+        )
         ensure_layout(paths)
         require_runtime_writable(paths.root)
         _enforce_runtime_blueprint_file_scope(
@@ -2034,7 +2129,9 @@ def run_preflight(ns) -> int:
         print(f"ERR: blueprint preflight failed: {format_runtime_storage_error(exc)}")
         return OPERATOR_ERROR
 
-    step_results, required_failures, optional_failures = compute_preflight(payload, ns, paths)
+    step_results, required_failures, optional_failures = compute_preflight(
+        payload, ns, paths
+    )
 
     status = "ok" if not required_failures else "failed"
     out = {
@@ -2056,7 +2153,9 @@ def run_preflight(ns) -> int:
             f"preflight_status={status} steps={len(step_results)}"
         )
         for item in step_results:
-            print(f"  - {item['id']}: {item['status']} {item['action']} {item['module_ref']}")
+            print(
+                f"  - {item['id']}: {item['status']} {item['action']} {item['module_ref']}"
+            )
             if item["status"] == "blocked":
                 detail = _step_failure_detail(item)
                 if detail:
@@ -2089,7 +2188,9 @@ def _available_local_port(requested: int) -> int:
         return int(sock.getsockname()[1])
 
 
-def _wait_for_local_port(port: int, proc: subprocess.Popen, timeout_s: float = 15.0) -> None:
+def _wait_for_local_port(
+    port: int, proc: subprocess.Popen, timeout_s: float = 15.0
+) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -2130,7 +2231,9 @@ def _require_local_ports_available(ports: list[int]) -> None:
                 raise
             sockets.append(sock)
     except OSError as exc:
-        raise ValueError(f"local port {port} is unavailable on localhost: {exc}") from exc
+        raise ValueError(
+            f"local port {port} is unavailable on localhost: {exc}"
+        ) from exc
     finally:
         for sock in sockets:
             sock.close()
@@ -2160,7 +2263,8 @@ def _discover_eve_qemu_console_ports(
     )
     if probe.returncode != 0:
         raise ValueError(
-            "failed to discover native EVE-NG consoles: " + _ssh_access_error(probe.stderr, known_hosts_file)
+            "failed to discover native EVE-NG consoles: "
+            + _ssh_access_error(probe.stderr, known_hosts_file)
         )
     return _parse_eve_qemu_console_ports(probe.stdout)
 
@@ -2472,7 +2576,9 @@ def _print_cost_estimate(
     if not estimate.available:
         print("estimated fixed cost: unavailable")
         return
-    print(f"estimated fixed cost: {format_money(estimate.hourly, estimate.currency)}/hour")
+    print(
+        f"estimated fixed cost: {format_money(estimate.hourly, estimate.currency)}/hour"
+    )
     state_seconds = _state_age_seconds(state.get("updated_at"))
     if state_seconds:
         print(
@@ -2525,7 +2631,11 @@ def _gcp_cost_estimate_with_progress(
         "cloud-cost",
         "Cloud cost estimate",
         "ok" if estimate.available else "skipped",
-        plain=("cloud cost estimate: ready" if estimate.available else "cloud cost estimate: unavailable"),
+        plain=(
+            "cloud cost estimate: ready"
+            if estimate.available
+            else "cloud cost estimate: unavailable"
+        ),
     )
     return estimate
 
@@ -2614,23 +2724,31 @@ def _destroy_lifecycle_snapshot(
     resolved_estimate = estimate
     if resolved_estimate is None:
         resolved_estimate = _gcp_blueprint_cost_estimate(payload, paths)
-    estimate_available = bool(isinstance(resolved_estimate, CostEstimate) and resolved_estimate.available)
+    estimate_available = bool(
+        isinstance(resolved_estimate, CostEstimate) and resolved_estimate.available
+    )
     return {
         "provider": "gcp",
-        "resource_generation_started_at": (started.isoformat().replace("+00:00", "Z") if started else None),
+        "resource_generation_started_at": (
+            started.isoformat().replace("+00:00", "Z") if started else None
+        ),
         "observed_at": observed.isoformat().replace("+00:00", "Z"),
         "duration_seconds": duration_seconds,
         "estimate": {
             "available": estimate_available,
             "currency": (resolved_estimate.currency if estimate_available else "USD"),
-            "fixed_hourly": (str(resolved_estimate.hourly) if estimate_available else None),
+            "fixed_hourly": (
+                str(resolved_estimate.hourly) if estimate_available else None
+            ),
             "fixed_total": (
                 str(resolved_estimate.amount_for_seconds(duration_seconds))
                 if estimate_available and duration_seconds is not None
                 else None
             ),
             "basis": (resolved_estimate.basis if estimate_available else "unavailable"),
-            "classification": ("public list-price estimate; not a GCP invoice or billing total"),
+            "classification": (
+                "public list-price estimate; not a GCP invoice or billing total"
+            ),
         },
     }
 
@@ -2649,7 +2767,9 @@ def _complete_destroy_lifecycle(
     estimate = dict(lifecycle["estimate"])
     if resources == "released":
         estimate["ongoing_hourly"] = "0.00"
-        lifecycle["released_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        lifecycle["released_at"] = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
     elif resources == "retained" and estimate["available"]:
         estimate["ongoing_hourly"] = estimate["fixed_hourly"]
     else:
@@ -2687,7 +2807,9 @@ def _print_destroy_lifecycle_summary(lifecycle: dict[str, Any] | None) -> None:
     if ongoing is None:
         print("estimated ongoing rate: unverified")
     else:
-        print(f"estimated ongoing rate: {format_money(Decimal(str(ongoing)), currency)}/hour")
+        print(
+            f"estimated ongoing rate: {format_money(Decimal(str(ongoing)), currency)}/hour"
+        )
     if estimate.get("basis") and estimate["basis"] != "unavailable":
         print(f"pricing basis: {estimate['basis']}")
     print("estimate only; not a GCP invoice or billing total")
@@ -2722,7 +2844,9 @@ def _offer_access_close_destroy(
     print(f"resource state age: {_state_age(state.get('updated_at'))}")
     if cost_estimate is not None:
         access_seconds = (
-            max(0, int(time.monotonic() - access_started_at)) if access_started_at is not None else None
+            max(0, int(time.monotonic() - access_started_at))
+            if access_started_at is not None
+            else None
         )
         _print_cost_estimate(
             cost_estimate,
@@ -2731,9 +2855,7 @@ def _offer_access_close_destroy(
         )
     print("billable resources may remain active after access closes")
 
-    destroy_command = (
-        f"hyops blueprint destroy --env {env_name} --ref {payload.get('blueprint_ref', '')} --execute"
-    )
+    destroy_command = f"hyops blueprint destroy --env {env_name} --ref {payload.get('blueprint_ref', '')} --execute"
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print(f"destroy when finished: {destroy_command}")
         return 0
@@ -2762,13 +2884,17 @@ def _expire_access_session(
             if current is None or str(current.get("session_id") or "") != str(
                 session_record.get("session_id") or ""
             ):
-                raise ValueError("access-session authority record changed before expiry")
+                raise ValueError(
+                    "access-session authority record changed before expiry"
+                )
             if str(current.get("status") or "") != "active":
                 raise ValueError(
                     f"access-session expiry is not authorised in state {current.get('status', 'unknown')}"
                 )
             access = payload.get("access")
-            state_ref = str((access if isinstance(access, dict) else {}).get("state_ref") or "")
+            state_ref = str(
+                (access if isinstance(access, dict) else {}).get("state_ref") or ""
+            )
             module_ref, state_instance = split_module_state_ref(state_ref)
             state = read_module_state(
                 paths.state_dir,
@@ -2792,7 +2918,9 @@ def _expire_access_session(
             destroy_ns = argparse.Namespace(**vars(ns))
             destroy_ns.execute = True
             destroy_ns.yes = True
-            destroy_ns.archive_before_destroy = bool(payload.get("archive_before_destroy"))
+            destroy_ns.archive_before_destroy = bool(
+                payload.get("archive_before_destroy")
+            )
             destroy_ns.skip_archive = False
             destroy_ns._cost_estimate = cost_estimate
             destroy_ns._lifecycle_lock_held = True
@@ -2882,7 +3010,9 @@ def _print_session(output: dict[str, Any]) -> None:
     outcome = output.get("outcome")
     if isinstance(outcome, dict) and outcome:
         if "resources_released" in outcome:
-            print(f"resources_released={'yes' if bool(outcome['resources_released']) else 'no'}")
+            print(
+                f"resources_released={'yes' if bool(outcome['resources_released']) else 'no'}"
+            )
         if outcome.get("reason"):
             print(f"reason={outcome['reason']}")
     print(f"run record: {output.get('run_record', '')}")
@@ -2915,7 +3045,9 @@ def run_session(ns) -> int:
                     if minutes < 1 or minutes > 7 * 24 * 60:
                         raise ValueError("--minutes must be between 1 and 10080")
                     if effective_session_status(record) != "active":
-                        raise ValueError("only a supervised active session can be extended")
+                        raise ValueError(
+                            "only a supervised active session can be extended"
+                        )
                     if _current_access_generation(payload, paths) != str(
                         record.get("resource_generation") or ""
                     ):
@@ -2925,7 +3057,9 @@ def run_session(ns) -> int:
                             "stale-generation",
                             reason="resource generation changed before extension",
                         )
-                        raise ValueError("resource generation changed; session not extended")
+                        raise ValueError(
+                            "resource generation changed; session not extended"
+                        )
                     extend_session(paths, record, seconds=minutes * 60)
                 elif command == "cancel":
                     if str(record.get("status") or "") != "active":
@@ -2999,7 +3133,10 @@ def _ssh_access_error(
     uses_dhcp: bool = False,
 ) -> str:
     detail = str(stderr or "").strip()
-    if "REMOTE HOST IDENTIFICATION HAS CHANGED" in detail or "Host key verification failed" in detail:
+    if (
+        "REMOTE HOST IDENTIFICATION HAS CHANGED" in detail
+        or "Host key verification failed" in detail
+    ):
         return (
             "SSH host identity changed unexpectedly for the current VM state; access was stopped. "
             f"Review the deployed VM and its scoped trust record: {known_hosts_file}. "
@@ -3035,7 +3172,9 @@ def _stop_process(proc: subprocess.Popen | None) -> None:
 
 
 def _automation_settings(access: dict[str, Any], ns) -> dict[str, Any] | None:
-    requested = bool(getattr(ns, "automation", False) or getattr(ns, "route_lab", False))
+    requested = bool(
+        getattr(ns, "automation", False) or getattr(ns, "route_lab", False)
+    )
     if not requested:
         return None
     automation = access.get("automation")
@@ -3050,9 +3189,7 @@ def _read_automation_leases(
     automation: dict[str, Any],
 ) -> str:
     if automation.get("discovery_mode") == "containerlab-inspect":
-        topology_path = str(
-            automation.get("discovery_topology_path") or ""
-        ).strip()
+        topology_path = str(automation.get("discovery_topology_path") or "").strip()
         inspect_command = "sudo -n containerlab inspect"
         if topology_path:
             inspect_command += f" -t {shlex.quote(topology_path)}"
@@ -3076,9 +3213,7 @@ def _read_automation_leases(
     lease_file = str(automation.get("lease_file") or "").strip()
     if not lease_file:
         return ""
-    remote_command = (
-        f"cat -- {shlex.quote(lease_file)} 2>/dev/null || sudo -n cat -- {shlex.quote(lease_file)}"
-    )
+    remote_command = f"cat -- {shlex.quote(lease_file)} 2>/dev/null || sudo -n cat -- {shlex.quote(lease_file)}"
     result = subprocess.run(
         [*ssh_base, ssh_target, remote_command],
         cwd=str(Path.home()),
@@ -3104,9 +3239,7 @@ def _read_local_automation_state(automation: dict[str, Any]) -> str:
     containerlab = shutil.which("containerlab")
     if not containerlab:
         raise ValueError("containerlab is unavailable; deploy the blueprint first")
-    topology_path = str(
-        automation.get("discovery_topology_path") or ""
-    ).strip()
+    topology_path = str(automation.get("discovery_topology_path") or "").strip()
     if topology_path:
         topology_path = os.path.expanduser(topology_path)
         if "${USER}" in topology_path:
@@ -3211,11 +3344,15 @@ def _prepare_automation_access(
     ssh_target: str,
     reserved_ports: list[int] | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    requested_port = int(getattr(ns, "socks_port", 0) or 0) or int(automation.get("local_socks_port") or 0)
+    requested_port = int(getattr(ns, "socks_port", 0) or 0) or int(
+        automation.get("local_socks_port") or 0
+    )
     socks_port = _available_local_port(requested_port)
     reserved = set(reserved_ports or [])
     if socks_port in reserved and requested_port:
-        raise ValueError(f"device proxy port {socks_port} is already used by this access session")
+        raise ValueError(
+            f"device proxy port {socks_port} is already used by this access session"
+        )
     while socks_port in reserved:
         socks_port = _available_local_port(0)
     _require_local_ports_available([socks_port])
@@ -3285,7 +3422,9 @@ def _print_automation_access(
     *,
     route_requested: bool = False,
 ) -> None:
-    print(f"automation network: {automation['management_network_label']} ({automation['management_cidr']})")
+    print(
+        f"automation network: {automation['management_network_label']} ({automation['management_cidr']})"
+    )
     if automation.get("discovery_mode") == "containerlab-inspect":
         print("device discovery: reading Containerlab runtime state")
     else:
@@ -3333,7 +3472,9 @@ def _start_lab_route(
         )
     conflicts = local_route_conflicts(automation["management_cidr"])
     if conflicts:
-        raise ValueError("management subnet conflicts with a local route: " + conflicts[0])
+        raise ValueError(
+            "management subnet conflicts with a local route: " + conflicts[0]
+        )
     ip_command = shutil.which("ip")
     if not ip_command:
         raise ValueError("--route-lab requires the ip command")
@@ -3341,7 +3482,9 @@ def _start_lab_route(
         raise ValueError("--route-lab requires Linux TUN support at /dev/net/tun")
     plan = linux_tunnel_plan(scope)
     if Path(f"/sys/class/net/{plan['interface']}").exists():
-        raise ValueError(f"local tunnel interface is already in use: {plan['interface']}")
+        raise ValueError(
+            f"local tunnel interface is already in use: {plan['interface']}"
+        )
     privilege: list[str] = []
     if os.geteuid() != 0:
         sudo = shutil.which("sudo")
@@ -3428,7 +3571,9 @@ def _start_lab_route(
             check=False,
         )
         if gateway_probe.returncode != 0:
-            raise ValueError("private management gateway did not respond through the lab route")
+            raise ValueError(
+                "private management gateway did not respond through the lab route"
+            )
         plan["privilege"] = privilege
         plan["ip_command"] = ip_command
         return route_proc, plan
@@ -3514,7 +3659,9 @@ def _access_resource_generation(
     identities: dict[str, dict[str, str]] = {}
     for name, raw in sorted(vms.items()):
         vm = raw if isinstance(raw, dict) else {}
-        identities[str(name)] = {key: str(vm.get(key) or "") for key in ("vm_id", "vm_name", "zone")}
+        identities[str(name)] = {
+            key: str(vm.get(key) or "") for key in ("vm_id", "vm_name", "zone")
+        }
     material = {
         "blueprint_ref": str(payload.get("blueprint_ref") or ""),
         "state_ref": str(access.get("state_ref") or ""),
@@ -3527,7 +3674,9 @@ def _access_resource_generation(
 
 
 def _session_warning_seconds(duration_seconds: int) -> tuple[int, ...]:
-    return tuple(threshold for threshold in (1800, 600, 300, 60) if threshold < duration_seconds)
+    return tuple(
+        threshold for threshold in (1800, 600, 300, 60) if threshold < duration_seconds
+    )
 
 
 def _wait_for_managed_access(
@@ -3666,10 +3815,14 @@ def run_access(ns) -> int:
     try:
         payload = _resolve_and_validate(ns)
         session_seconds, expiry_action = _session_options(ns, payload)
-        access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+        access = (
+            payload.get("access") if isinstance(payload.get("access"), dict) else {}
+        )
         if not access:
             raise ValueError("blueprint does not declare an access path")
-        require_runtime_selection(ns.root, getattr(ns, "env", None), command_label="hyops blueprint access")
+        require_runtime_selection(
+            ns.root, getattr(ns, "env", None), command_label="hyops blueprint access"
+        )
         paths = resolve_runtime_paths(ns.root, getattr(ns, "env", None))
         access_type = str(access.get("type") or "").strip()
         if access_type == "linux-host-http":
@@ -3681,7 +3834,9 @@ def run_access(ns) -> int:
             )
         state_ref = str(access.get("state_ref") or "").strip()
         module_ref, state_instance = split_module_state_ref(state_ref)
-        state = read_module_state(paths.state_dir, module_ref, state_instance=state_instance)
+        state = read_module_state(
+            paths.state_dir, module_ref, state_instance=state_instance
+        )
         if session_seconds:
             env_name = str(getattr(ns, "env", None) or paths.root.name).strip()
             with LifecycleLock(paths, "start access session"):
@@ -3712,10 +3867,14 @@ def run_access(ns) -> int:
         if access_type in {"direct-http", "ssh-forward", "ssh-tcp-forward"}:
             host = _extract_access_host(outputs)
             if not host:
-                raise ValueError(f"VM state does not contain a usable IPv4 address: {state_ref}")
+                raise ValueError(
+                    f"VM state does not contain a usable IPv4 address: {state_ref}"
+                )
             if access_type == "direct-http":
                 if automation:
-                    raise ValueError("device automation access requires an SSH-forward access path")
+                    raise ValueError(
+                        "device automation access requires an SSH-forward access path"
+                    )
                 url = f"{scheme}://{host}:{remote_port}{path}"
                 print("opening direct EVE-NG access")
                 print(f"URL: {url}")
@@ -3746,8 +3905,7 @@ def run_access(ns) -> int:
                 str(ssh_key),
             ]
             uses_dhcp = (
-                str(vm.get("ipv4_configured_primary") or "").strip().lower()
-                == "dhcp"
+                str(vm.get("ipv4_configured_primary") or "").strip().lower() == "dhcp"
             )
             try:
                 identity_check = subprocess.run(
@@ -3791,7 +3949,9 @@ def run_access(ns) -> int:
                 if console_ports:
                     _require_local_ports_available(console_ports)
 
-            requested_port = int(getattr(ns, "local_port", 0) or 0) or int(access.get("local_port") or 0)
+            requested_port = int(getattr(ns, "local_port", 0) or 0) or int(
+                access.get("local_port") or 0
+            )
             port = _available_local_port(requested_port)
             if requested_port:
                 _require_local_ports_available([port])
@@ -3823,7 +3983,9 @@ def run_access(ns) -> int:
             if automation:
                 argv.extend(["-D", f"127.0.0.1:{socks_port}"])
             for console_port in console_ports:
-                argv.extend(["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"])
+                argv.extend(
+                    ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
+                )
             argv.append(ssh_target)
 
             if access_type == "ssh-tcp-forward":
@@ -3916,7 +4078,9 @@ def run_access(ns) -> int:
                         native_console_stop()
                     _stop_process(proc)
                     raise
-            if access_type != "ssh-tcp-forward" and not bool(getattr(ns, "no_browser", False)):
+            if access_type != "ssh-tcp-forward" and not bool(
+                getattr(ns, "no_browser", False)
+            ):
                 open_operator_url(url)
             print("press Ctrl-C to close access")
             try:
@@ -3986,7 +4150,9 @@ def run_access(ns) -> int:
         console_ports: list[int] = []
         if str(access.get("type") or "") == "gcp-iap-ssh-forward":
             ssh_user = str(access.get("ssh_user") or "").strip()
-            ssh_key = str(Path(str(access.get("ssh_key_file") or "")).expanduser().resolve())
+            ssh_key = str(
+                Path(str(access.get("ssh_key_file") or "")).expanduser().resolve()
+            )
             if not Path(ssh_key).exists():
                 raise ValueError(f"declared SSH key does not exist: {ssh_key}")
             ssh = shutil.which("ssh")
@@ -4064,13 +4230,19 @@ def run_access(ns) -> int:
             if automation:
                 argv.extend(["-D", f"127.0.0.1:{socks_port}"])
             for console_port in console_ports:
-                argv.extend(["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"])
+                argv.extend(
+                    ["-L", f"127.0.0.1:{console_port}:127.0.0.1:{console_port}"]
+                )
             argv.append(ssh_target)
         else:
             if automation:
-                raise ValueError("device automation access requires an SSH-forward access path")
+                raise ValueError(
+                    "device automation access requires an SSH-forward access path"
+                )
             if bool(getattr(ns, "native_consoles", False)):
-                raise ValueError("native consoles require an SSH-forward access declaration")
+                raise ValueError(
+                    "native consoles require an SSH-forward access declaration"
+                )
             argv = [
                 gcloud,
                 "compute",
@@ -4098,7 +4270,9 @@ def run_access(ns) -> int:
             )
         validated, enabled, _detail = diagnose_project_billing(project)
         print(
-            f"billing: {'enabled' if enabled else 'disabled'}" if validated else "billing: unable to verify"
+            f"billing: {'enabled' if enabled else 'disabled'}"
+            if validated
+            else "billing: unable to verify"
         )
         _print_cost_estimate(cost_estimate, state=state)
         if bool(getattr(ns, "native_consoles", False)):
@@ -4275,9 +4449,13 @@ def _lab_archive_contract(lifecycle: dict[str, Any]) -> dict[str, Any]:
     prefix = str(lifecycle.get("contract_prefix") or "eveng_lab_archive").strip()
     return {
         "prefix": prefix,
-        "contents_label": str(lifecycle.get("contents_label") or "lab definitions").strip(),
+        "contents_label": str(
+            lifecycle.get("contents_label") or "lab definitions"
+        ).strip(),
         "node_state": bool(lifecycle.get("node_state", True)),
-        "restore_overwrite_default": bool(lifecycle.get("restore_overwrite_default", False)),
+        "restore_overwrite_default": bool(
+            lifecycle.get("restore_overwrite_default", False)
+        ),
         "path_output": f"{prefix}_path",
         "previous_path_output": f"{prefix}_previous_path",
         "sha256_output": f"{prefix}_sha256",
@@ -4330,29 +4508,39 @@ def _verified_lab_archive(
     node_checksum = ""
     if contract["node_state"]:
         candidate_value = str(outputs.get(contract["node_path_output"]) or "").strip()
-        candidate_checksum = str(outputs.get(contract["node_sha256_output"]) or "").strip().lower()
+        candidate_checksum = (
+            str(outputs.get(contract["node_sha256_output"]) or "").strip().lower()
+        )
         node_state_declared = bool(outputs.get(contract["node_included_output"], False))
         node_state_metadata_present = bool(candidate_value or candidate_checksum)
         if node_state_declared or node_state_metadata_present:
             candidate = Path(candidate_value).expanduser()
-            if not candidate.is_file() or not re.fullmatch(r"[0-9a-f]{64}", candidate_checksum):
+            if not candidate.is_file() or not re.fullmatch(
+                r"[0-9a-f]{64}", candidate_checksum
+            ):
                 raise ValueError("node-state archive is missing or unverifiable")
             node_digest = hashlib.sha256()
             with candidate.open("rb") as handle:
                 for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     node_digest.update(chunk)
             if node_digest.hexdigest() != candidate_checksum:
-                raise ValueError(f"node-state archive checksum verification failed: {candidate}")
+                raise ValueError(
+                    f"node-state archive checksum verification failed: {candidate}"
+                )
             node_archive = candidate.resolve()
             node_checksum = candidate_checksum
     image_archive: Path | None = None
     image_checksum = ""
     candidate_value = str(outputs.get(contract["images_path_output"]) or "").strip()
-    candidate_checksum = str(outputs.get(contract["images_sha256_output"]) or "").strip().lower()
+    candidate_checksum = (
+        str(outputs.get(contract["images_sha256_output"]) or "").strip().lower()
+    )
     images_declared = bool(outputs.get(contract["images_included_output"], False))
     if images_declared or candidate_value or candidate_checksum:
         candidate = Path(candidate_value).expanduser()
-        if not candidate.is_file() or not re.fullmatch(r"[0-9a-f]{64}", candidate_checksum):
+        if not candidate.is_file() or not re.fullmatch(
+            r"[0-9a-f]{64}", candidate_checksum
+        ):
             raise ValueError("image archive is missing or unverifiable")
         image_digest = hashlib.sha256()
         with candidate.open("rb") as handle:
@@ -4423,7 +4611,9 @@ def _select_lab_restore_mode(
     archive = _verified_lab_archive(payload, paths)
     if archive is None:
         if requested:
-            raise ValueError("no verified lab archive is available for this environment")
+            raise ValueError(
+                "no verified lab archive is available for this environment"
+            )
         return "none", None
     if overwrite_images and archive[4] is None:
         raise ValueError("--overwrite-images requires a verified image archive")
@@ -4461,7 +4651,9 @@ def _containerlab_recovery_step(payload: dict[str, Any]) -> dict[str, Any] | Non
     return None
 
 
-def _containerlab_recovery_files(step: dict[str, Any], paths) -> tuple[Path, Path, Path]:
+def _containerlab_recovery_files(
+    step: dict[str, Any], paths
+) -> tuple[Path, Path, Path]:
     inputs = step.get("inputs") if isinstance(step.get("inputs"), dict) else {}
     configured = str(inputs.get("containerlab_lab_restore_latest_path") or "").strip()
     archive = (
@@ -4531,7 +4723,9 @@ def _containerlab_topology_relation(
     )
 
 
-def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple[bool, bool]:
+def _configure_containerlab_restore(
+    ns, payload: dict[str, Any], paths
+) -> tuple[bool, bool]:
     """Resolve Containerlab recovery before step inputs are materialised.
 
     Returns ``(handled, confirmed)``. ``confirmed`` means the interactive
@@ -4580,8 +4774,10 @@ def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple
 
     topology_relation = "unchecked"
     source_topology: Path | None = None
-    if available and not skipped and (
-        requested or (not target_active and restore_default)
+    if (
+        available
+        and not skipped
+        and (requested or (not target_active and restore_default))
     ):
         topology_relation, source_topology = _containerlab_topology_relation(
             inputs, metadata
@@ -4693,9 +4889,7 @@ def _configure_containerlab_restore(ns, payload: dict[str, Any], paths) -> tuple
         print("invalid choice; enter exactly 1, 2, or 3")
 
 
-_ANSIBLE_TASK_LINE = re.compile(
-    r"^TASK \[(?:[^:\]]+ : )?(?P<task>.+?)\]\s*\*+\s*$"
-)
+_ANSIBLE_TASK_LINE = re.compile(r"^TASK \[(?:[^:\]]+ : )?(?P<task>.+?)\]\s*\*+\s*$")
 
 
 def _lab_restore_phase(line: str) -> str:
@@ -4756,10 +4950,7 @@ def _lab_archive_phase(line: str) -> str:
 
     if "quiescence" in lowered or "stopped eve-ng qemu" in lowered:
         return "checking guest shutdown"
-    if (
-        "native configuration export" in lowered
-        or "saved configuration" in lowered
-    ):
+    if "native configuration export" in lowered or "saved configuration" in lowered:
         return "exporting saved configurations"
     if "node-state" in lowered or "node state" in lowered or "qemu overlay" in lowered:
         if "build" in lowered:
@@ -4854,7 +5045,9 @@ def _run_lab_restore(
         restore_inputs.update(
             {
                 f"{prefix}_restore_images": True,
-                f"{prefix}_overwrite_images": bool(getattr(ns, "overwrite_images", False)),
+                f"{prefix}_overwrite_images": bool(
+                    getattr(ns, "overwrite_images", False)
+                ),
                 f"{prefix}_images_path": str(image_archive_path),
                 f"{prefix}_images_expected_sha256": image_checksum,
             }
@@ -4928,9 +5121,11 @@ def _authority_completion_receipt(
     policy = step_authority_observation_policy(step)
     if session is None or policy is None:
         return None
-    completion_floor = datetime.now(timezone.utc).isoformat(
-        timespec="microseconds"
-    ).replace("+00:00", "Z")
+    completion_floor = (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
     return complete_step_authority(
         session,
         policy,
@@ -4994,7 +5189,9 @@ def run_deploy(ns) -> int:
             getattr(ns, "env", None),
             command_label="hyops blueprint deploy",
         )
-        paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None), getattr(ns, "env", None)
+        )
         ensure_layout(paths)
         require_runtime_writable(paths.root)
         _enforce_runtime_blueprint_file_scope(
@@ -5025,12 +5222,18 @@ def run_deploy(ns) -> int:
     )
     preflight_summary: dict[str, Any] | None = None
     if not skip_preflight:
-        preflight_steps, preflight_required, preflight_optional = compute_preflight(payload, ns, paths)
+        preflight_steps, preflight_required, preflight_optional = compute_preflight(
+            payload, ns, paths
+        )
         preflight_status = "ok" if not preflight_required else "failed"
         preflight_decision = complete_preflight_decision(
             preflight_decision,
             passed=not preflight_required,
-            detail=("" if not preflight_required else f"required_failures={','.join(preflight_required)}"),
+            detail=(
+                ""
+                if not preflight_required
+                else f"required_failures={','.join(preflight_required)}"
+            ),
         )
         preflight_summary = {
             "status": preflight_status,
@@ -5072,7 +5275,9 @@ def run_deploy(ns) -> int:
                 )
             return OPERATOR_ERROR
     elif not json_mode:
-        print("WARN: blueprint preflight bypassed; decision will be recorded with executed steps")
+        print(
+            "WARN: blueprint preflight bypassed; decision will be recorded with executed steps"
+        )
 
     ns.preflight_context = preflight_decision
 
@@ -5085,7 +5290,9 @@ def run_deploy(ns) -> int:
         print("blueprint deploy cancelled by operator")
         return CANCELLED
 
-    confirm_rc = 0 if recovery_confirmed else _confirm_deploy_if_needed(ns, payload, paths)
+    confirm_rc = (
+        0 if recovery_confirmed else _confirm_deploy_if_needed(ns, payload, paths)
+    )
     if confirm_rc != 0:
         if json_mode:
             print(
@@ -5108,8 +5315,7 @@ def run_deploy(ns) -> int:
     run_id = new_run_id("deploy")
     logs_dir = getattr(paths, "logs_dir", None)
     records_authority_interval = any(
-        step_authority_observation_policy(step) is not None
-        for step in payload["steps"]
+        step_authority_observation_policy(step) is not None for step in payload["steps"]
     )
     record_dir = (
         Path(logs_dir) / "blueprint" / record_token / run_id
@@ -5137,15 +5343,24 @@ def run_deploy(ns) -> int:
     iol_repair_used = False
     repair_results: list[dict[str, Any]] = []
     progress = ProgressDisplay(
-        enabled=bool(sys.stdout and sys.stdout.isatty() and not json_mode and not os.getenv("HYOPS_VERBOSE")),
+        enabled=bool(
+            sys.stdout
+            and sys.stdout.isatty()
+            and not json_mode
+            and not os.getenv("HYOPS_VERBOSE")
+        ),
         show_elapsed=False,
     )
 
     total_steps = len(payload["order"])
     for step_position, step_id in enumerate(payload["order"], start=1):
         step = by_id[step_id]
-        progress_before = int(((step_position - 1) * 100) / total_steps) if total_steps else 0
-        progress_after = int((step_position * 100) / total_steps) if total_steps else 100
+        progress_before = (
+            int(((step_position - 1) * 100) / total_steps) if total_steps else 0
+        )
+        progress_after = (
+            int((step_position * 100) / total_steps) if total_steps else 100
+        )
         display_label = _step_display_label(step)
         running_label = f"{display_label}  stage {step_position}/{total_steps}"
         completed_label = display_label
@@ -5211,7 +5426,9 @@ def run_deploy(ns) -> int:
             and step["action"] in ("apply", "deploy")
             and module_state_ok(paths.state_dir, step_state_ref(step))
         ):
-            inputs_changed, inputs_detail = explicit_step_inputs_changed(step, payload, paths)
+            inputs_changed, inputs_detail = explicit_step_inputs_changed(
+                step, payload, paths
+            )
             if inputs_changed:
                 drift_detail = "inputs-drift"
                 if inputs_detail:
@@ -5223,7 +5440,9 @@ def run_deploy(ns) -> int:
                     skip_status, skip_detail = "safe", ""
                 else:
                     try:
-                        skip_status, skip_detail = _evaluate_step_state_skip(step, paths)
+                        skip_status, skip_detail = _evaluate_step_state_skip(
+                            step, paths
+                        )
                     except Exception as exc:
                         skip_status = "error"
                         skip_detail = f"live state verification failed: {exc}"
@@ -5258,7 +5477,9 @@ def run_deploy(ns) -> int:
                                 )
                             )
                             result = dict(base)
-                            result.update({"status": "skipped", "reason": detail, "rc": 0})
+                            result.update(
+                                {"status": "skipped", "reason": detail, "rc": 0}
+                            )
                             step_results.append(result)
                             progress.finish(
                                 step_id,
@@ -5284,7 +5505,9 @@ def run_deploy(ns) -> int:
                         result["status"] = "failed-optional"
                         optional_failures.append(step_id)
                         step_results.append(result)
-                        print(f"step={step_id} status=failed-optional reason={result['reason']}")
+                        print(
+                            f"step={step_id} status=failed-optional reason={result['reason']}"
+                        )
                         continue
 
                     required_failures.append(step_id)
@@ -5335,7 +5558,9 @@ def run_deploy(ns) -> int:
         progress.start(
             step_id,
             running_label,
-            plain=(f"step={step_id} status=running action={step['action']} module={step['module_ref']}"),
+            plain=(
+                f"step={step_id} status=running action={step['action']} module={step['module_ref']}"
+            ),
         )
         previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
         failure_state_before = _step_failure_state(step, paths)
@@ -5366,7 +5591,8 @@ def run_deploy(ns) -> int:
             and mismatch is not None
             and bool(getattr(ns, "repair_iol_license", False))
             and not iol_repair_used
-            and str(step.get("module_ref") or "").strip().lower() == IOL_IMAGES_MODULE_REF
+            and str(step.get("module_ref") or "").strip().lower()
+            == IOL_IMAGES_MODULE_REF
             and str(step.get("action") or "").strip().lower() in {"apply", "deploy"}
         ):
             iol_repair_used = True
@@ -5427,6 +5653,7 @@ def run_deploy(ns) -> int:
                     err = _new_step_failure_detail(step, paths, retry_failure_before)
                 repair_results[-1]["status"] = "ok" if rc == 0 else "retry-failed"
 
+        module_rc = int(rc)
         try:
             interval_receipt = _authority_completion_receipt(
                 step,
@@ -5439,6 +5666,7 @@ def run_deploy(ns) -> int:
         else:
             if interval_receipt is not None:
                 base["authority_interval"] = interval_receipt.to_evidence()
+                base["module_rc"] = module_rc
                 if rc == 0 and interval_receipt.decision == "deny":
                     rc = OPERATOR_ERROR
                     err = (
@@ -5467,7 +5695,9 @@ def run_deploy(ns) -> int:
             continue
 
         result = dict(base)
-        result.update({"status": "failed", "rc": int(rc), "reason": err or "step command failed"})
+        result.update(
+            {"status": "failed", "rc": int(rc), "reason": err or "step command failed"}
+        )
         if int(rc) == CANCELLED:
             result["status"] = "cancelled"
             step_results.append(result)
@@ -5521,7 +5751,11 @@ def run_deploy(ns) -> int:
             step_results.append(
                 {
                     "id": "restore_archived_labs",
-                    "module_ref": str((payload.get("archive_before_destroy") or {}).get("module_ref", "")),
+                    "module_ref": str(
+                        (payload.get("archive_before_destroy") or {}).get(
+                            "module_ref", ""
+                        )
+                    ),
                     "action": "deploy",
                     "phase": "operations",
                     "optional": False,
@@ -5549,7 +5783,9 @@ def run_deploy(ns) -> int:
                 if restore_rc != 0:
                     required_failures.append("restore_archived_labs")
             elif restore_mode == "skip" and lab_archive is not None:
-                print("lab archive retained; deploy again with --restore-labs to restore it")
+                print(
+                    "lab archive retained; deploy again with --restore-labs to restore it"
+                )
 
     final_status = "ok" if not required_failures else "failed"
     if cancelled:
@@ -5578,7 +5814,9 @@ def run_deploy(ns) -> int:
     elif not required_failures:
         output["next_actions"] = _successful_deploy_actions(ns, payload)
     elif required_failures and _failed_deploy_has_resources(payload, paths):
-        output["next_actions"] = {"destroy": _cancelled_deploy_actions(ns, payload)["destroy"]}
+        output["next_actions"] = {
+            "destroy": _cancelled_deploy_actions(ns, payload)["destroy"]
+        }
 
     record_file: Path | None = None
     if record_writer is not None:
@@ -5591,14 +5829,18 @@ def run_deploy(ns) -> int:
                 output["required_failures"] = required_failures
                 output.pop("next_actions", None)
                 final_status = "failed"
-                print(f"ERR: failed to persist authority evidence: {exc}", file=sys.stderr)
+                print(
+                    f"ERR: failed to persist authority evidence: {exc}", file=sys.stderr
+                )
         else:
             output["run_record"] = str(record_file)
 
     if json_mode:
         print(json.dumps(output, indent=2, sort_keys=True))
     else:
-        ready_message = str((payload.get("metadata") or {}).get("ready_message") or "").strip()
+        ready_message = str(
+            (payload.get("metadata") or {}).get("ready_message") or ""
+        ).strip()
         if final_status == "ok" and ready_message and progress.enabled:
             print()
             progress.finish(
@@ -5662,7 +5904,9 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
             raise ValueError("this blueprint does not declare a lab archive lifecycle")
         if not destroy_gate:
             if bool(getattr(ns, "skip_archive", False)):
-                raise ValueError("this blueprint does not declare a lab archive lifecycle")
+                raise ValueError(
+                    "this blueprint does not declare a lab archive lifecycle"
+                )
             return "none"
         if bool(getattr(ns, "skip_archive", False)):
             return "skip"
@@ -5690,15 +5934,19 @@ def _select_archive_destroy_mode(ns, payload: dict[str, Any], env_name: str) -> 
     if bool(getattr(ns, "archive_before_destroy", False)):
         return "archive"
     if bool(getattr(ns, "skip_archive", False)):
-        if bool(getattr(ns, "guest_quiesced", False)) or bool(
-            str(getattr(ns, "quiesce_script", "") or "").strip()
-        ) or getattr(ns, "quiesce_timeout", None) is not None:
+        if (
+            bool(getattr(ns, "guest_quiesced", False))
+            or bool(str(getattr(ns, "quiesce_script", "") or "").strip())
+            or getattr(ns, "quiesce_timeout", None) is not None
+        ):
             raise ValueError(
                 "guest quiescence options require --archive-before-destroy"
             )
         return "skip"
 
-    if bool(getattr(ns, "yes", False)) or not (sys.stdin.isatty() and sys.stdout.isatty()):
+    if bool(getattr(ns, "yes", False)) or not (
+        sys.stdin.isatty() and sys.stdout.isatty()
+    ):
         raise ValueError(
             "this blueprint protects lab data; select --archive-before-destroy or --skip-archive"
         )
@@ -5789,8 +6037,7 @@ def _confirm_guest_quiescence(ns, payload: dict[str, Any], paths) -> bool | None
             "and stopping their EVE-NG nodes."
         )
     confirmed = _prompt_yes_no(
-        "Confirm stateful guests were shut down and EVE-NG nodes stopped "
-        "[y/N]: "
+        "Confirm stateful guests were shut down and EVE-NG nodes stopped [y/N]: "
     )
     if confirmed is True:
         setattr(ns, "_quiescence_source", "operator-attestation")
@@ -5835,10 +6082,7 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
     if str(getattr(ns, "quiesce_script", "") or "").strip():
         source = str(getattr(ns, "_quiescence_source", "") or "")
         qualifier = "configured " if source == "environment" else ""
-        print(
-            "preparing saved lab state; running "
-            f"{qualifier}guest quiescence action"
-        )
+        print(f"preparing saved lab state; running {qualifier}guest quiescence action")
     else:
         print("preparing saved lab state; stateful nodes must already be stopped")
     print("this may take several minutes, depending on lab size")
@@ -5913,7 +6157,9 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
         )
         outputs = state.get("outputs") if isinstance(state.get("outputs"), dict) else {}
         contract = _lab_archive_contract(archive)
-        archive_path = Path(str(outputs.get(contract["path_output"]) or "")).expanduser()
+        archive_path = Path(
+            str(outputs.get(contract["path_output"]) or "")
+        ).expanduser()
         expected = str(outputs.get(contract["sha256_output"]) or "").strip().lower()
         if not archive_path.is_file() or not expected:
             raise ValueError("lab export did not publish a verifiable archive")
@@ -5938,23 +6184,35 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
             "failed",
             plain="lab_archive status=failed",
         )
-        print("ERR: lab archive checksum verification failed; no resources were destroyed")
+        print(
+            "ERR: lab archive checksum verification failed; no resources were destroyed"
+        )
         return OPERATOR_ERROR
     verified_bytes = archive_path.stat().st_size
     archive_contents = [contract["contents_label"]]
     if bool(outputs.get(contract["device_configs_captured_output"], False)):
         archive_contents.append("saved device configurations")
-    previous_archive_path = Path(str(outputs.get(contract["previous_path_output"]) or "")).expanduser()
+    previous_archive_path = Path(
+        str(outputs.get(contract["previous_path_output"]) or "")
+    ).expanduser()
     if previous_archive_path.is_file():
         archive_contents.append("previous generation retained")
     verbose = bool(os.getenv("HYOPS_VERBOSE"))
     if verbose:
         print(f"lab archive: {archive_path}")
         print(f"sha256: {actual}")
-    if contract["node_state"] and bool(outputs.get(contract["node_included_output"], False)):
-        node_archive_path = Path(str(outputs.get(contract["node_path_output"]) or "")).expanduser()
-        node_expected = str(outputs.get(contract["node_sha256_output"]) or "").strip().lower()
-        if not node_archive_path.is_file() or not re.fullmatch(r"[0-9a-f]{64}", node_expected):
+    if contract["node_state"] and bool(
+        outputs.get(contract["node_included_output"], False)
+    ):
+        node_archive_path = Path(
+            str(outputs.get(contract["node_path_output"]) or "")
+        ).expanduser()
+        node_expected = (
+            str(outputs.get(contract["node_sha256_output"]) or "").strip().lower()
+        )
+        if not node_archive_path.is_file() or not re.fullmatch(
+            r"[0-9a-f]{64}", node_expected
+        ):
             progress.finish(
                 archive_step["id"],
                 "Lab archive",
@@ -5975,7 +6233,9 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
                 "failed",
                 plain="lab_archive status=failed",
             )
-            print("ERR: node-state archive checksum verification failed; no resources were destroyed")
+            print(
+                "ERR: node-state archive checksum verification failed; no resources were destroyed"
+            )
             return OPERATOR_ERROR
         verified_bytes += node_archive_path.stat().st_size
         archive_contents.append("stopped node state")
@@ -5996,7 +6256,9 @@ def _run_archive_before_destroy(ns, payload: dict[str, Any], paths) -> int:
 
 
 def run_destroy(ns) -> int:
-    if not bool(getattr(ns, "execute", False)) or bool(getattr(ns, "_lifecycle_lock_held", False)):
+    if not bool(getattr(ns, "execute", False)) or bool(
+        getattr(ns, "_lifecycle_lock_held", False)
+    ):
         return _run_destroy_unlocked(ns)
     try:
         require_runtime_selection(
@@ -6051,10 +6313,16 @@ def _run_destroy_unlocked(ns) -> int:
             print("execution disabled; destroy order:")
             for step_id in destroy_order:
                 step = next(s for s in payload["steps"] if s["id"] == step_id)
-                action = "retain" if bool(step.get("retain_on_destroy", False)) else "destroy"
+                action = (
+                    "retain"
+                    if bool(step.get("retain_on_destroy", False))
+                    else "destroy"
+                )
                 print(f"  - {_step_display_label(step)}: {action}")
                 if os.getenv("HYOPS_VERBOSE"):
-                    print(f"    id={step_id} module={step['module_ref']} ref={step_state_ref(step)}")
+                    print(
+                        f"    id={step_id} module={step['module_ref']} ref={step_state_ref(step)}"
+                    )
         return 0
 
     json_mode = bool(getattr(ns, "json", False))
@@ -6064,7 +6332,9 @@ def _run_destroy_unlocked(ns) -> int:
             getattr(ns, "env", None),
             command_label="hyops blueprint destroy",
         )
-        paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None), getattr(ns, "env", None)
+        )
         ensure_layout(paths)
         require_runtime_writable(paths.root)
         _enforce_runtime_blueprint_file_scope(
@@ -6077,7 +6347,10 @@ def _run_destroy_unlocked(ns) -> int:
         return OPERATOR_ERROR
 
     by_id = {step["id"]: step for step in payload["steps"]}
-    env_name = str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip() or "default"
+    env_name = (
+        str(getattr(ns, "env", None) or getattr(paths.root, "name", "") or "").strip()
+        or "default"
+    )
     lifecycle_snapshot = _destroy_lifecycle_snapshot(
         payload,
         paths,
@@ -6111,9 +6384,7 @@ def _run_destroy_unlocked(ns) -> int:
                     "env": env_name,
                     "run_id": run_id,
                     "status": status,
-                    "guest_quiesced": bool(
-                        getattr(ns, "guest_quiesced", False)
-                    ),
+                    "guest_quiesced": bool(getattr(ns, "guest_quiesced", False)),
                     "quiescence_method": (
                         "operator-script"
                         if str(getattr(ns, "quiesce_script", "") or "").strip()
@@ -6150,10 +6421,14 @@ def _run_destroy_unlocked(ns) -> int:
             step = by_id[step_id]
             state_ref = step_state_ref(step)
             status = module_state_status(paths.state_dir, state_ref) or "missing"
-            preview_status = "pending" if _destroy_gate_required(step, by_id, paths) else status
+            preview_status = (
+                "pending" if _destroy_gate_required(step, by_id, paths) else status
+            )
             print(f"  - {_destroy_preview_label(step, preview_status)}")
             if os.getenv("HYOPS_VERBOSE"):
-                print(f"    id={step_id} module={step['module_ref']} state={status} ref={state_ref}")
+                print(
+                    f"    id={step_id} module={step['module_ref']} state={status} ref={state_ref}"
+                )
         cost_estimate = getattr(ns, "_cost_estimate", None)
         if cost_estimate is None and lifecycle_snapshot is not None:
             estimate_payload = lifecycle_snapshot["estimate"]
@@ -6232,7 +6507,10 @@ def _run_destroy_unlocked(ns) -> int:
             setattr(ns, "guest_quiesced", True)
 
     if not bool(getattr(ns, "yes", False)) and not json_mode:
-        if payload.get("archive_before_destroy") or archive_mode in {"protected", "skip"}:
+        if payload.get("archive_before_destroy") or archive_mode in {
+            "protected",
+            "skip",
+        }:
             if _confirm_archive_destroy(env_name) is not True:
                 print("destroy cancelled")
                 print("environment retained")
@@ -6295,7 +6573,12 @@ def _run_destroy_unlocked(ns) -> int:
     optional_failures: list[str] = []
     cancelled = False
     progress = ProgressDisplay(
-        enabled=bool(sys.stdout and sys.stdout.isatty() and not json_mode and not os.getenv("HYOPS_VERBOSE")),
+        enabled=bool(
+            sys.stdout
+            and sys.stdout.isatty()
+            and not json_mode
+            and not os.getenv("HYOPS_VERBOSE")
+        ),
         show_elapsed=False,
     )
     deferred_by_parent: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
@@ -6331,7 +6614,9 @@ def _run_destroy_unlocked(ns) -> int:
                 {
                     "module_ref": child_ref,
                     "status": "destroyed",
-                    "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "updated_at": datetime.now(timezone.utc).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
                     "outputs": {},
                     "output_count": 0,
                     "destroyed_by_blueprint_step": parent_id,
@@ -6375,8 +6660,12 @@ def _run_destroy_unlocked(ns) -> int:
     total_steps = len(destroy_order)
     for step_position, step_id in enumerate(destroy_order, start=1):
         step = by_id[step_id]
-        progress_before = int(((step_position - 1) * 100) / total_steps) if total_steps else 0
-        progress_after = int((step_position * 100) / total_steps) if total_steps else 100
+        progress_before = (
+            int(((step_position - 1) * 100) / total_steps) if total_steps else 0
+        )
+        progress_after = (
+            int((step_position * 100) / total_steps) if total_steps else 100
+        )
         running_label = f"{step_id}  stage {step_position}/{total_steps}"
         completed_detail = f"overall {progress_after}%"
         # Override action to destroy regardless of what the blueprint step declares.
@@ -6415,20 +6704,26 @@ def _run_destroy_unlocked(ns) -> int:
             continue
         if bool(step.get("retain_on_destroy", False)):
             result = dict(base)
-            result.update({"status": "retained", "reason": "retain_on_destroy", "rc": 0})
+            result.update(
+                {"status": "retained", "reason": "retain_on_destroy", "rc": 0}
+            )
             step_results.append(result)
             progress.finish(
                 step_id,
                 step_id,
                 "retained",
-                plain=(f"step={step_id} status=retained reason=retain_on_destroy progress={progress_after}%"),
+                plain=(
+                    f"step={step_id} status=retained reason=retain_on_destroy progress={progress_after}%"
+                ),
                 detail=f"retain_on_destroy, {completed_detail}",
             )
             continue
 
         state_status = module_state_status(paths.state_dir, state_ref)
         destroy_gate_required = _destroy_gate_required(step, by_id, paths)
-        if not destroy_gate_required and (not state_status or state_status in {"destroyed", "absent"}):
+        if not destroy_gate_required and (
+            not state_status or state_status in {"destroyed", "absent"}
+        ):
             reason = "no-state" if not state_status else f"state-{state_status}"
             result = dict(base)
             result.update({"status": "skipped", "reason": reason, "rc": 0})
@@ -6460,7 +6755,9 @@ def _run_destroy_unlocked(ns) -> int:
                 step_id,
                 step_id,
                 "deferred",
-                plain=(f"step={step_id} status=deferred reason=destroy-subsumed-by-{destroy_parent}"),
+                plain=(
+                    f"step={step_id} status=deferred reason=destroy-subsumed-by-{destroy_parent}"
+                ),
                 detail=f"awaiting {destroy_parent}, {completed_detail}",
             )
             continue
@@ -6478,7 +6775,9 @@ def _run_destroy_unlocked(ns) -> int:
         progress.start(
             step_id,
             running_label,
-            plain=(f"step={step_id} status=running action=destroy module={step['module_ref']}"),
+            plain=(
+                f"step={step_id} status=running action=destroy module={step['module_ref']}"
+            ),
         )
         previous_child = os.environ.get("HYOPS_PROGRESS_CHILD")
         failure_state_before = _step_failure_state(destroy_step, paths)
@@ -6522,7 +6821,9 @@ def _run_destroy_unlocked(ns) -> int:
             continue
 
         result = dict(base)
-        result.update({"status": "failed", "rc": int(rc), "reason": err or "step command failed"})
+        result.update(
+            {"status": "failed", "rc": int(rc), "reason": err or "step command failed"}
+        )
         if int(rc) == CANCELLED:
             result["status"] = "cancelled"
             step_results.append(result)
@@ -6635,7 +6936,9 @@ def _run_destroy_unlocked(ns) -> int:
 
 
 def run_rebuild(ns) -> int:
-    if not bool(getattr(ns, "execute", False)) or bool(getattr(ns, "_lifecycle_lock_held", False)):
+    if not bool(getattr(ns, "execute", False)) or bool(
+        getattr(ns, "_lifecycle_lock_held", False)
+    ):
         return _run_rebuild_unlocked(ns)
     try:
         require_runtime_selection(
@@ -6711,7 +7014,9 @@ def _run_rebuild_unlocked(ns) -> int:
             getattr(ns, "env", None),
             command_label="hyops blueprint rebuild",
         )
-        paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
+        paths = resolve_runtime_paths(
+            getattr(ns, "root", None), getattr(ns, "env", None)
+        )
         ensure_layout(paths)
     except Exception as exc:
         print(f"ERR: blueprint rebuild failed: {exc}")
@@ -6719,7 +7024,9 @@ def _run_rebuild_unlocked(ns) -> int:
 
     env_name = str(getattr(ns, "env", None) or paths.root.name).strip()
     if not bool(getattr(ns, "yes", False)):
-        print(f"WARN: blueprint rebuild will destroy and recreate owned resources in env={env_name}.")
+        print(
+            f"WARN: blueprint rebuild will destroy and recreate owned resources in env={env_name}."
+        )
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             print("ERR: non-interactive rebuild requires --yes")
             return OPERATOR_ERROR
@@ -6737,7 +7044,9 @@ def _run_rebuild_unlocked(ns) -> int:
     record_file = record_dir / "rebuild.json"
     record_writer = EvidenceWriter(record_dir)
 
-    def write_record(status: str, destroy_rc: int | None, deploy_rc: int | None) -> None:
+    def write_record(
+        status: str, destroy_rc: int | None, deploy_rc: int | None
+    ) -> None:
         record_writer.write_json(
             record_file.name,
             {

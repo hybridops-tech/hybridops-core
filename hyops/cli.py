@@ -9,10 +9,12 @@ import argparse
 import os
 import sys
 
-from hyops.runtime.exitcodes import CANCELLED
-from hyops.runtime.command_evidence import PythonCommandEvidence, command_evidence_dir
-from hyops.runtime.layout import ensure_layout
-from hyops.runtime.paths import resolve_runtime_paths
+from hyops.authority.command import add_authority_subparser
+from hyops.authority.plugins import register_plugins as register_authority_plugins
+from hyops.authority.resolver import default_authority_registry
+from hyops.drivers.builtin.register import register_all as register_builtin_drivers
+from hyops.drivers.plugins import register_plugins as register_driver_plugins
+from hyops.drivers.registry import REGISTRY
 from hyops.init.command import add_init_subparser
 from hyops.inventory.command import add_inventory_subparser
 from hyops.lab.command import add_lab_subparser
@@ -20,27 +22,28 @@ from hyops.module.command import add_module_subparser
 from hyops.preflight.command import add_preflight_subparser
 from hyops.quickstart.command import add_quickstart_subparser
 from hyops.runner.command import add_runner_subparser
+from hyops.runtime.command_evidence import PythonCommandEvidence, command_evidence_dir
+from hyops.runtime.exitcodes import CANCELLED
+from hyops.runtime.layout import ensure_layout
+from hyops.runtime.paths import resolve_runtime_paths
 from hyops.secrets.command import add_secrets_subparser
-from hyops.show.command import add_show_subparser
 from hyops.setup.command import add_setup_subparser
-from hyops.state.command import add_state_subparser
+from hyops.show.command import add_show_subparser
 from hyops.stacks.command import add_stacks_subparser
-from hyops.test.command import add_test_subparser
+from hyops.state.command import add_state_subparser
 from hyops.terragrunt.command import add_terragrunt_subparser
+from hyops.test.command import add_test_subparser
 from hyops.tfc.command import add_tfc_subparser
-from hyops.vault.command import add_vault_subparser
 from hyops.update.command import add_update_subparser
-
-from hyops.drivers.builtin.register import register_all as register_builtin_drivers
-from hyops.drivers.plugins import register_plugins as register_driver_plugins
-from hyops.drivers.registry import REGISTRY
-
-from hyops.validators.builtin.register import register_all as register_builtin_validators
+from hyops.validators.builtin.register import (
+    register_all as register_builtin_validators,
+)
 from hyops.validators.plugins import register_plugins as register_validator_plugins
-
+from hyops.vault.command import add_vault_subparser
 
 _DRIVERS_REGISTERED = False
 _VALIDATORS_REGISTERED = False
+_AUTHORITY_PROVIDERS_REGISTERED = False
 
 
 class _OperatorHelpFormatter(argparse.HelpFormatter):
@@ -88,6 +91,26 @@ def _register_validators() -> None:
     _VALIDATORS_REGISTERED = True
 
 
+def _register_authority_providers() -> None:
+    global _AUTHORITY_PROVIDERS_REGISTERED
+    if _AUTHORITY_PROVIDERS_REGISTERED:
+        return
+
+    strict = os.environ.get("HYOPS_STRICT_PLUGINS", "").strip() == "1"
+    try:
+        registry = default_authority_registry()
+        register_authority_plugins(registry)
+    except Exception as e:
+        marker = getattr(locals().get("registry"), "record_discovery_error", None)
+        if callable(marker):
+            marker(str(e))
+        if strict:
+            raise
+        print(f"WARN: authority provider plugin registration failed: {e}", file=sys.stderr)
+
+    _AUTHORITY_PROVIDERS_REGISTERED = True
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hyops",
@@ -109,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = p.add_subparsers(dest="cmd", required=False, metavar="COMMAND")
 
     add_init_subparser(sp)
+    add_authority_subparser(sp)
     add_module_subparser(sp)
     add_vault_subparser(sp)
     add_show_subparser(sp)
@@ -144,6 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     _register_drivers()
     _register_validators()
+    _register_authority_providers()
 
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
@@ -191,7 +216,10 @@ def main(argv: list[str] | None = None) -> int:
         if ns.cmd == "preflight":
             paths = resolve_runtime_paths(getattr(ns, "root", None), getattr(ns, "env", None))
             ensure_layout(paths)
-            from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
+            from hyops.runtime.storage import (
+                format_runtime_storage_error,
+                require_runtime_writable,
+            )
 
             try:
                 require_runtime_writable(paths.root)

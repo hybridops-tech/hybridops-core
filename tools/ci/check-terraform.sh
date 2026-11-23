@@ -33,6 +33,7 @@ if ! find "${TF_PLUGIN_CACHE_DIR}" -mindepth 1 -print -quit | grep -q .; then
 fi
 
 terraform fmt -check -recursive "${HYOPS_REPO_ROOT}/packs/iac/terragrunt"
+terraform fmt -check -recursive "${HYOPS_REPO_ROOT}/tools/acceptance/authority_continuity/fixtures/packs/iac/terragrunt"
 
 while IFS= read -r stack_dir; do
   hyops_ci::retry 3 \

@@ -14,14 +14,22 @@ from hyops.authority import (
     AuthorityContext,
     AuthorityDeclaration,
     AuthorityIntervalReceipt,
+    AuthorityProviderIdentity,
     AuthorityReceipt,
     AuthorityRequirement,
     AuthoritySession,
 )
 from hyops.blueprint.command import _successful_deploy_actions, run_deploy
+from hyops.runner.command import _remote_blueprint_command
 from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.paths import RuntimePaths
-from hyops.runner.command import _remote_blueprint_command
+
+_PROVIDER_IDENTITY = AuthorityProviderIdentity(
+    source="direct",
+    distribution="hybridops-core",
+    version="0.1.6",
+    entry_point="test:fixture",
+)
 
 
 def _payload() -> dict:
@@ -85,6 +93,7 @@ def _authority_session() -> AuthoritySession:
             logical_ref="primary_ipam",
             capability="inventory_ipam",
             provider="fixture",
+            provider_identity=_PROVIDER_IDENTITY,
             state="ready",
             result="admitted",
         ),
@@ -96,19 +105,24 @@ def _interval_receipt(*, decision: str) -> AuthorityIntervalReceipt:
         logical_ref="primary_ipam",
         capability="inventory_ipam",
         provider="fixture",
+        provider_identity=_PROVIDER_IDENTITY,
         expected_change="none",
         on_unverifiable="fail",
         interval_status="stable" if decision == "allow" else "drifted",
         completion_status="fresh",
         decision=decision,
-        result="authority remained stable" if decision == "allow" else "authority drifted",
+        result="authority remained stable"
+        if decision == "allow"
+        else "authority drifted",
         detection_strength="revision-and-audit",
         freshness_basis="resource revision",
     )
 
 
 class BlueprintPreflightBypassTest(TestCase):
-    def test_successful_deploy_actions_include_access_credentials_and_support(self) -> None:
+    def test_successful_deploy_actions_include_access_credentials_and_support(
+        self,
+    ) -> None:
         payload = _payload()
         payload["access"] = {"type": "gcp-iap-ssh-forward"}
         payload["metadata"] = {"credential_secret": "EVENG_ADMIN_PASSWORD"}
@@ -136,13 +150,20 @@ class BlueprintPreflightBypassTest(TestCase):
             root = Path(tmp)
             paths = RuntimePaths.from_root(root)
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=_payload(),
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command.run_step_module_command") as step_command,
+                patch(
+                    "hyops.blueprint.command.run_step_module_command"
+                ) as step_command,
             ):
                 rc = run_deploy(_namespace(root, reason=None))
 
@@ -160,14 +181,24 @@ class BlueprintPreflightBypassTest(TestCase):
             root = Path(tmp)
             paths = RuntimePaths.from_root(root)
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=_payload(),
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch(
                     "hyops.blueprint.command.begin_step_contracts",
@@ -183,6 +214,7 @@ class BlueprintPreflightBypassTest(TestCase):
                             logical_ref="primary_ipam",
                             capability="inventory_ipam",
                             provider="nautobot",
+                            provider_identity=_PROVIDER_IDENTITY,
                             state="ready",
                             result="admitted",
                             endpoint="https://nautobot.example",
@@ -190,11 +222,12 @@ class BlueprintPreflightBypassTest(TestCase):
                         ),
                     ),
                 ),
-                patch("hyops.blueprint.command.run_step_module_command", side_effect=run_step),
+                patch(
+                    "hyops.blueprint.command.run_step_module_command",
+                    side_effect=run_step,
+                ),
             ):
-                rc = run_deploy(
-                    _namespace(root, reason="controlled provider recovery")
-                )
+                rc = run_deploy(_namespace(root, reason="controlled provider recovery"))
 
         self.assertEqual(rc, 0)
         self.assertEqual(captured["scope"], "blueprint")
@@ -216,9 +249,14 @@ class BlueprintPreflightBypassTest(TestCase):
             paths = RuntimePaths.from_root(root)
             preflight_steps = [{"id": "host", "status": "ready"}]
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=_payload(),
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
@@ -226,11 +264,19 @@ class BlueprintPreflightBypassTest(TestCase):
                     "hyops.blueprint.command.compute_preflight",
                     return_value=(preflight_steps, [], []),
                 ),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch("hyops.blueprint.command.begin_step_contracts"),
-                patch("hyops.blueprint.command.run_step_module_command", side_effect=run_step),
+                patch(
+                    "hyops.blueprint.command.run_step_module_command",
+                    side_effect=run_step,
+                ),
             ):
                 rc = run_deploy(
                     _namespace(
@@ -251,23 +297,38 @@ class BlueprintPreflightBypassTest(TestCase):
             root = Path(tmp)
             paths = RuntimePaths.from_root(root)
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=_payload()),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=_payload(),
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch("hyops.blueprint.command.begin_step_contracts"),
-                patch("hyops.blueprint.command.run_step_module_command", return_value=2),
-                patch("hyops.blueprint.command._failed_deploy_has_resources", return_value=True),
-                patch("hyops.blueprint.command._offer_failed_deploy_destroy") as cleanup,
+                patch(
+                    "hyops.blueprint.command.run_step_module_command", return_value=2
+                ),
+                patch(
+                    "hyops.blueprint.command._failed_deploy_has_resources",
+                    return_value=True,
+                ),
+                patch(
+                    "hyops.blueprint.command._offer_failed_deploy_destroy"
+                ) as cleanup,
             ):
-                rc = run_deploy(
-                    _namespace(root, reason="controlled provider recovery")
-                )
+                rc = run_deploy(_namespace(root, reason="controlled provider recovery"))
 
         self.assertEqual(rc, OPERATOR_ERROR)
         cleanup.assert_called_once()
@@ -286,20 +347,32 @@ class BlueprintPreflightBypassTest(TestCase):
             ns = _namespace(root, reason="controlled provider recovery")
             ns.json = True
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=payload,
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch(
                     "hyops.blueprint.command.begin_step_contracts",
                     return_value=_authority_session(),
                 ),
-                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch(
+                    "hyops.blueprint.command.run_step_module_command", return_value=0
+                ),
                 patch(
                     "hyops.blueprint.command.complete_step_authority",
                     return_value=_interval_receipt(decision="allow"),
@@ -338,25 +411,40 @@ class BlueprintPreflightBypassTest(TestCase):
             ns = _namespace(root, reason="controlled provider recovery")
             ns.json = True
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=payload,
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch(
                     "hyops.blueprint.command.begin_step_contracts",
                     return_value=_authority_session(),
                 ),
-                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch(
+                    "hyops.blueprint.command.run_step_module_command", return_value=0
+                ),
                 patch(
                     "hyops.blueprint.command.complete_step_authority",
                     return_value=_interval_receipt(decision="deny"),
                 ),
-                patch("hyops.blueprint.command._failed_deploy_has_resources", return_value=False),
+                patch(
+                    "hyops.blueprint.command._failed_deploy_has_resources",
+                    return_value=False,
+                ),
                 patch("builtins.print") as output,
             ):
                 rc = run_deploy(ns)
@@ -367,6 +455,7 @@ class BlueprintPreflightBypassTest(TestCase):
             rendered["steps"][0]["authority_interval"]["decision"],
             "deny",
         )
+        self.assertEqual(rendered["steps"][0]["module_rc"], 0)
 
     def test_failed_dispatch_still_records_closing_authority_observation(self) -> None:
         payload = _payload()
@@ -382,25 +471,40 @@ class BlueprintPreflightBypassTest(TestCase):
             ns = _namespace(root, reason="controlled provider recovery")
             ns.json = True
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=payload,
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch(
                     "hyops.blueprint.command.begin_step_contracts",
                     return_value=_authority_session(),
                 ),
-                patch("hyops.blueprint.command.run_step_module_command", return_value=2),
+                patch(
+                    "hyops.blueprint.command.run_step_module_command", return_value=2
+                ),
                 patch(
                     "hyops.blueprint.command.complete_step_authority",
                     return_value=_interval_receipt(decision="allow"),
                 ) as complete,
-                patch("hyops.blueprint.command._failed_deploy_has_resources", return_value=False),
+                patch(
+                    "hyops.blueprint.command._failed_deploy_has_resources",
+                    return_value=False,
+                ),
                 patch("builtins.print") as output,
             ):
                 rc = run_deploy(ns)
@@ -411,6 +515,7 @@ class BlueprintPreflightBypassTest(TestCase):
             rendered["steps"][0]["authority_interval"]["decision"],
             "allow",
         )
+        self.assertEqual(rendered["steps"][0]["module_rc"], OPERATOR_ERROR)
         complete.assert_called_once()
 
     def test_cancelled_dispatch_records_closing_authority_observation(self) -> None:
@@ -427,20 +532,33 @@ class BlueprintPreflightBypassTest(TestCase):
             ns = _namespace(root, reason="controlled provider recovery")
             ns.json = True
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=payload,
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch(
                     "hyops.blueprint.command.begin_step_contracts",
                     return_value=_authority_session(),
                 ),
-                patch("hyops.blueprint.command.run_step_module_command", return_value=CANCELLED),
+                patch(
+                    "hyops.blueprint.command.run_step_module_command",
+                    return_value=CANCELLED,
+                ),
                 patch(
                     "hyops.blueprint.command.complete_step_authority",
                     return_value=_interval_receipt(decision="allow"),
@@ -471,20 +589,32 @@ class BlueprintPreflightBypassTest(TestCase):
             ns = _namespace(root, reason="controlled provider recovery")
             ns.json = True
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=payload,
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=False),
                 patch(
                     "hyops.blueprint.command.begin_step_contracts",
                     return_value=_authority_session(),
                 ),
-                patch("hyops.blueprint.command.run_step_module_command", return_value=0),
+                patch(
+                    "hyops.blueprint.command.run_step_module_command", return_value=0
+                ),
                 patch(
                     "hyops.blueprint.command.complete_step_authority",
                     return_value=_interval_receipt(decision="allow"),
@@ -516,16 +646,29 @@ class BlueprintPreflightBypassTest(TestCase):
             paths = RuntimePaths.from_root(root)
             ns = _namespace(root, reason="controlled provider recovery")
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=payload,
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=True),
-                patch("hyops.blueprint.command.explicit_step_inputs_changed", return_value=(False, "")),
+                patch(
+                    "hyops.blueprint.command.explicit_step_inputs_changed",
+                    return_value=(False, ""),
+                ),
                 patch(
                     "hyops.blueprint.command.begin_step_contracts",
                     return_value=_authority_session(),
@@ -535,7 +678,10 @@ class BlueprintPreflightBypassTest(TestCase):
                     return_value=_interval_receipt(decision="deny"),
                 ),
                 patch("hyops.blueprint.command.run_step_module_command") as command,
-                patch("hyops.blueprint.command._failed_deploy_has_resources", return_value=False),
+                patch(
+                    "hyops.blueprint.command._failed_deploy_has_resources",
+                    return_value=False,
+                ),
             ):
                 rc = run_deploy(ns)
 
@@ -550,14 +696,24 @@ class BlueprintPreflightBypassTest(TestCase):
             paths = RuntimePaths.from_root(root)
             ns = _namespace(root, reason="controlled provider recovery")
             with (
-                patch("hyops.blueprint.command._resolve_and_validate", return_value=payload),
+                patch(
+                    "hyops.blueprint.command._resolve_and_validate",
+                    return_value=payload,
+                ),
                 patch("hyops.blueprint.command.require_runtime_selection"),
-                patch("hyops.blueprint.command.resolve_runtime_paths", return_value=paths),
+                patch(
+                    "hyops.blueprint.command.resolve_runtime_paths", return_value=paths
+                ),
                 patch("hyops.blueprint.command.ensure_layout"),
                 patch("hyops.blueprint.command.require_runtime_writable"),
                 patch("hyops.blueprint.command._enforce_runtime_blueprint_file_scope"),
-                patch("hyops.blueprint.command._confirm_deploy_if_needed", return_value=0),
-                patch("hyops.blueprint.command.resolved_step_inputs_file", return_value=None),
+                patch(
+                    "hyops.blueprint.command._confirm_deploy_if_needed", return_value=0
+                ),
+                patch(
+                    "hyops.blueprint.command.resolved_step_inputs_file",
+                    return_value=None,
+                ),
                 patch("hyops.blueprint.command.module_state_ok", return_value=True),
                 patch(
                     "hyops.blueprint.command.explicit_step_inputs_changed",

@@ -1,0 +1,29 @@
+api_version: hybridops/v1
+kind: ModuleSpec
+
+module_ref: "acceptance/core/authority-window"
+
+metadata:
+  title: "Authority Observation Window"
+  description: "Open a bounded operation window for authority continuity exercises."
+
+requirements:
+  credentials: []
+
+inputs:
+  defaults:
+    barrier_dir: ""
+    run_nonce: ""
+    timeout_s: 60
+
+execution:
+  driver: "iac/terragrunt"
+  profile: "local@v1.0"
+  pack_ref:
+    id: "authority-window"
+
+outputs:
+  publish: []
+
+probes: []
+constraints: []

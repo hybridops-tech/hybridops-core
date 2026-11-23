@@ -2,9 +2,32 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
+
+AUTHORITY_PROVIDER_CONTRACT_VERSION = "1"
+
+
+@dataclass(frozen=True)
+class AuthorityProviderIdentity:
+    """Installed code identity responsible for an authority decision."""
+
+    source: str
+    distribution: str
+    version: str
+    entry_point: str
+    contract_version: str = AUTHORITY_PROVIDER_CONTRACT_VERSION
+
+    def to_evidence(self) -> dict[str, str]:
+        return {
+            "source": self.source,
+            "distribution": self.distribution,
+            "version": self.version,
+            "entry_point": self.entry_point,
+            "contract_version": self.contract_version,
+        }
 
 
 @dataclass(frozen=True)
@@ -56,7 +79,7 @@ class AuthorityEvaluation:
     endpoint: str = ""
     revision: str = ""
     freshness: Mapping[str, Any] = field(default_factory=dict)
-    observation: "AuthorityObservation | None" = None
+    observation: AuthorityObservation | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +122,7 @@ class AuthorityIntervalReceipt:
     logical_ref: str
     capability: str
     provider: str
+    provider_identity: AuthorityProviderIdentity
     expected_change: str
     on_unverifiable: str
     interval_status: str
@@ -115,6 +139,7 @@ class AuthorityIntervalReceipt:
             "logical_authority": self.logical_ref,
             "capability": self.capability,
             "provider": self.provider,
+            "provider_identity": self.provider_identity.to_evidence(),
             "expected_change": self.expected_change,
             "on_unverifiable": self.on_unverifiable,
             "interval_status": self.interval_status,
@@ -138,6 +163,7 @@ class AuthorityReceipt:
     logical_ref: str
     capability: str
     provider: str
+    provider_identity: AuthorityProviderIdentity
     state: str
     result: str
     instance: str = ""
@@ -151,6 +177,7 @@ class AuthorityReceipt:
             "logical_authority": self.logical_ref,
             "capability": self.capability,
             "provider": self.provider,
+            "provider_identity": self.provider_identity.to_evidence(),
             "verified_state": self.state,
             "result": self.result,
         }

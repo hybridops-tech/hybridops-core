@@ -1,6 +1,7 @@
 """Provider-neutral operation authority contracts."""
 
 from .models import (
+    AUTHORITY_PROVIDER_CONTRACT_VERSION,
     AuthorityContext,
     AuthorityDeclaration,
     AuthorityEvaluation,
@@ -8,6 +9,7 @@ from .models import (
     AuthorityIntervalReceipt,
     AuthorityObservation,
     AuthorityObservationPolicy,
+    AuthorityProviderIdentity,
     AuthorityReceipt,
     AuthorityRequirement,
     AuthoritySession,
@@ -15,6 +17,7 @@ from .models import (
 from .resolver import AuthorityResolver, default_authority_registry
 
 __all__ = [
+    "AUTHORITY_PROVIDER_CONTRACT_VERSION",
     "AuthorityContext",
     "AuthorityDeclaration",
     "AuthorityEvaluation",
@@ -22,6 +25,7 @@ __all__ = [
     "AuthorityIntervalReceipt",
     "AuthorityObservation",
     "AuthorityObservationPolicy",
+    "AuthorityProviderIdentity",
     "AuthorityReceipt",
     "AuthorityRequirement",
     "AuthorityResolver",
