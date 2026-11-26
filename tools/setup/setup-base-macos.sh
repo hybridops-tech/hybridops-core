@@ -18,18 +18,16 @@ command -v brew >/dev/null 2>&1 || {
 }
 
 echo "[setup] macOS Homebrew base prerequisites"
-progress "Preparing package repositories"
-brew tap hashicorp/tap
-progress "Installing infrastructure runtime"
-brew install hashicorp/tap/terraform hashicorp/tap/packer
-progress "Installing automation and vault support"
-brew install python terragrunt kubectl ansible pipx gnupg pass pinentry-mac
+progress "Installing managed runtime"
+brew install python terragrunt kubectl
+progress "Installing vault support"
+brew install gnupg pass pinentry-mac
 
 progress "Verifying base setup"
-for required_cmd in python3 terraform terragrunt packer kubectl ansible-playbook pipx gpg pass pinentry-mac; do
+for required_cmd in python3 terragrunt kubectl gpg pass pinentry-mac; do
   command -v "${required_cmd}" >/dev/null 2>&1 || {
     echo "ERR: ${required_cmd} was installed but is not available on PATH" >&2
     exit 1
   }
 done
-echo "[setup] macOS base prerequisites installed"
+echo "[setup] macOS base ready"

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,9 +7,12 @@ name = "hybridops-core"
 version = "0.1.7"
 description = "HybridOps.Core runtime scaffold"
 requires-python = ">=3.11"
-license = {file = "LICENSE"}
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
   "cryptography>=41,<51",
+  "jmespath>=1.0,<2",
+  "netaddr>=0.8,<2",
   "PyYAML>=6.0,<7",
   "requests>=2.31,<3",
 ]
