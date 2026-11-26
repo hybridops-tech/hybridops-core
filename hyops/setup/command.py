@@ -37,7 +37,7 @@ SETUP_LABELS = {
 }
 
 SETUP_PHASE_COUNTS = {
-    "base": 7,
+    "base": 6,
     "cloud-gcp": 3,
     "cloud-azure": 3,
     "galaxy": 8,
@@ -101,7 +101,7 @@ PROGRESS_PREFIX = "[hyops-progress] "
 
 def _setup_phase_count(step: str) -> int:
     if step == "base" and os.uname().sysname == "Darwin":
-        return 5
+        return 4
     return SETUP_PHASE_COUNTS.get(step, 1)
 
 
@@ -258,7 +258,7 @@ def add_setup_subparser(sp: argparse._SubParsersAction) -> None:
     _add(
         ssp,
         "base",
-        "Install managed prerequisites and verify external executors.",
+        "Install HybridOps-managed prerequisites.",
         parents=[common],
     )
     _add(

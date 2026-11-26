@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,38 @@ _MODULE_ID_ALIASES: dict[str, tuple[str, ...]] = {
     "platform__postgresql-ha-backup": ("platform__onprem__postgresql-ha-backup",),
     "platform__onprem__postgresql-ha-backup": ("platform__postgresql-ha-backup",),
 }
+
+
+def _vendor_controller_package(sources: list[Path], destination: Path) -> bool:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for source in sources:
+        if not source.is_dir():
+            continue
+        staging_root = Path(
+            tempfile.mkdtemp(
+                prefix=f".{destination.name}.",
+                dir=destination.parent,
+            )
+        )
+        candidate = staging_root / "candidate"
+        previous = staging_root / "previous"
+        try:
+            shutil.copytree(source, candidate)
+            had_previous = destination.exists() or destination.is_symlink()
+            if had_previous:
+                os.replace(destination, previous)
+            try:
+                os.replace(candidate, destination)
+            except Exception:
+                if had_previous and (previous.exists() or previous.is_symlink()):
+                    os.replace(previous, destination)
+                raise
+            return True
+        except Exception:
+            continue
+        finally:
+            shutil.rmtree(staging_root, ignore_errors=True)
+    return destination.is_dir()
 
 
 def _append_search_path(out: list[str], raw_path: str) -> None:
@@ -183,28 +216,12 @@ def prepare_ansible_controller_env(*, env: dict[str, str], runtime_root: Path, a
             _add_search_root(site)
 
     for pkg in vendor_pkgs:
-        dst = vendor_dir / pkg
-        if dst.is_dir():
-            continue
+        sources: list[Path] = []
         packaged_source = packaged_sources.get(pkg)
-        if packaged_source and packaged_source.is_dir():
-            try:
-                vendor_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(packaged_source, dst, dirs_exist_ok=True)
-            except Exception:
-                pass
-            if dst.is_dir():
-                continue
-        for root in search_roots:
-            src = root / pkg
-            if not src.is_dir():
-                continue
-            try:
-                vendor_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(src, dst, dirs_exist_ok=True)
-            except Exception:
-                pass
-            break
+        if packaged_source:
+            sources.append(packaged_source)
+        sources.extend(root / pkg for root in search_roots)
+        _vendor_controller_package(sources, vendor_dir / pkg)
 
     if any((vendor_dir / pkg).is_dir() for pkg in vendor_pkgs):
         py_path = str(env.get("PYTHONPATH") or "").strip()
@@ -218,9 +235,12 @@ def prepare_ansible_controller_env(*, env: dict[str, str], runtime_root: Path, a
     # deps are still missing. This avoids opaque runtime task failures.
     if controller_python:
         probe_script = (
-            "import importlib.util,sys;"
+            "import importlib,sys;"
             "mods=('jmespath','netaddr');"
-            "missing=[m for m in mods if importlib.util.find_spec(m) is None];"
+            "missing=[];"
+            "exec(\"for m in mods:\\n"
+            " try: importlib.import_module(m)\\n"
+            " except Exception: missing.append(m)\");"
             "print(','.join(missing));"
             "raise SystemExit(0 if not missing else 2)"
         )

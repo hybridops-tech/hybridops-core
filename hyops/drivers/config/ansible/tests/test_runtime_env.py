@@ -9,10 +9,57 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from hyops.drivers.config.ansible import runtime_env
 from hyops.drivers.config.ansible.runtime_env import prepare_ansible_controller_env
 
 
 class PrepareAnsibleControllerEnvTests(unittest.TestCase):
+    def test_vendor_package_recovers_from_partial_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = Path(raw_tmp)
+            broken = tmp / "broken"
+            healthy = tmp / "healthy"
+            destination = tmp / "vendor" / "jmespath"
+            for source in (broken, healthy):
+                source.mkdir()
+            (broken / "__init__.py").write_text("broken", encoding="utf-8")
+            (healthy / "__init__.py").write_text("healthy", encoding="utf-8")
+            (healthy / "parser.py").write_text("parser", encoding="utf-8")
+
+            copytree = runtime_env.shutil.copytree
+
+            def fail_mid_copy(source: Path, target: Path, *args, **kwargs):
+                if Path(source) == broken:
+                    target.mkdir(parents=True)
+                    (target / "__init__.py").write_text("partial", encoding="utf-8")
+                    raise OSError("copy failed")
+                return copytree(source, target, *args, **kwargs)
+
+            with patch(
+                "hyops.drivers.config.ansible.runtime_env.shutil.copytree",
+                side_effect=fail_mid_copy,
+            ):
+                installed = runtime_env._vendor_controller_package(
+                    [broken, healthy], destination
+                )
+
+            self.assertTrue(installed)
+            self.assertEqual(
+                (destination / "__init__.py").read_text(encoding="utf-8"),
+                "healthy",
+            )
+            self.assertTrue((destination / "parser.py").is_file())
+            self.assertEqual(list(destination.parent.glob(".jmespath.*")), [])
+
+            (healthy / "parser.py").write_text("updated", encoding="utf-8")
+            self.assertTrue(
+                runtime_env._vendor_controller_package([healthy], destination)
+            )
+            self.assertEqual(
+                (destination / "parser.py").read_text(encoding="utf-8"),
+                "updated",
+            )
+
     def test_vendors_core_managed_controller_packages(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)

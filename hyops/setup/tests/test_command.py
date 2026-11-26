@@ -211,7 +211,7 @@ class SetupCommandTests(unittest.TestCase):
 
         self.assertEqual(rc, 7)
         failed_label = display.finish.call_args_list[-1].args[1]
-        self.assertIn("46%", failed_label)
+        self.assertIn("42%", failed_label)
         self.assertNotIn("100%", failed_label)
 
     def test_target_dry_run_lists_composed_steps(self) -> None:
@@ -491,7 +491,7 @@ class SetupCommandTests(unittest.TestCase):
         def run_with_progress(*args, **kwargs):
             callback = kwargs["line_callback"]
             callback("[hyops-progress] Preparing system packages")
-            callback("[hyops-progress] Installing automation runtime")
+            callback("[hyops-progress] Installing managed runtime")
             return 0
 
         with tempfile.TemporaryDirectory() as runtime, patch(
@@ -515,7 +515,7 @@ class SetupCommandTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         progress_class.assert_called_once_with(show_elapsed=False)
-        self.assertIn("21%", display.update.call_args_list[-1].args[1])
+        self.assertIn("25%", display.update.call_args_list[-1].args[1])
         self.assertIn("100%", display.finish.call_args.args[1])
 
     def test_individual_setup_reports_cancellation(self) -> None:

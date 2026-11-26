@@ -6,8 +6,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Changed
 
-- `hyops setup base` now verifies operator-supplied Terraform, Packer and
-  Ansible executors without downloading, installing or updating them.
+- `hyops setup base` now limits installation to HybridOps-managed
+  prerequisites. Execution engines remain outside project-managed setup.
 
 ## [v0.1.7] - 2026-11-26
 

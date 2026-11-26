@@ -18,8 +18,6 @@ RELEASE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
 # shellcheck source=/dev/null
 source "${RELEASE_ROOT}/tools/setup/lib/toolchain_lock.sh"
-# shellcheck source=/dev/null
-source "${RELEASE_ROOT}/tools/setup/lib/external_executors.sh"
 
 cmd_path() { command -v "$1" 2>/dev/null || true; }
 
@@ -55,7 +53,6 @@ print_header() {
   echo "[setup] toolchain_lock=${lock_path}"
   echo "[setup] bin_prefix=/usr/local/bin"
   echo "[setup] managed: terragrunt>=${TERRAGRUNT_VERSION} kubectl>=${KUBECTL_VERSION}"
-  echo "[setup] external: terraform>=${TERRAFORM_VERSION} packer>=${PACKER_VERSION} ansible-core>=${ANSIBLE_CORE_VERSION}"
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -301,9 +298,6 @@ main() {
   progress "Installing managed runtime"
   ensure_terragrunt
   ensure_kubectl
-  progress "Checking external executors"
-  hyops_setup_verify_external_executors \
-    "${TERRAFORM_VERSION}" "${PACKER_VERSION}" "${ANSIBLE_CORE_VERSION}"
   progress "Installing supporting components"
   ensure_gh
   ensure_vault_pass_deps

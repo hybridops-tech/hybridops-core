@@ -2,8 +2,7 @@
 
 **Purpose:** Install system prerequisites for HybridOps.
 
-Use `hyops setup ...` to install HybridOps-managed prerequisites and verify
-external executors required by init targets and drivers.
+Use `hyops setup ...` to install HybridOps-managed prerequisites.
 
 ## Commands
 
@@ -28,11 +27,10 @@ hyops setup all --sudo
 - `hyops setup gcp` and `hyops setup azure` are operator-friendly aliases for
   `cloud-gcp` and `cloud-azure`.
 - Linux system installers require sudo.
-- Terraform, Packer and Ansible are operator-supplied executors. Install them
-  on `PATH` before running `hyops setup base`; HybridOps verifies their minimum
-  versions but does not install or update them.
-- `hyops setup base` installs the managed system utilities, Terragrunt, kubectl
-  and vault support used by the runtime.
+- Execution engines used by individual drivers remain operator supplied;
+  `hyops setup base` does not install or update them.
+- Use `hyops setup check --target base` to inspect command readiness.
+- `hyops setup base` installs the managed system utilities and runtime support.
 - `hyops setup cloud-gcp --sudo` installs both `gcloud` and `gke-gcloud-auth-plugin`; it also repairs older machines where `gcloud` is already present but the GKE auth plugin is missing.
 - Ansible Galaxy dependencies are installed into the selected runtime root:
   - `<runtime_root>/state/ansible/galaxy_collections`
