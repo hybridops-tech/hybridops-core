@@ -258,7 +258,7 @@ cp "${WINDOWS_INSTALLER_SOURCE}" "${WINDOWS_STAGE}/Install HybridOps.cmd"
 cp "${TARBALL_PATH}" "${WINDOWS_PAYLOAD_STAGE}/hybridops-core.tar.gz"
 cp "${WINDOWS_HELPER_PATH}" "${WINDOWS_PAYLOAD_STAGE}/install-wsl.sh"
 cp "${WINDOWS_LAUNCHER_SOURCE}" "${WINDOWS_PAYLOAD_STAGE}/launcher.cmd"
-cp "${REPO_ROOT}/assets/windows/hybridops.ico" "${WINDOWS_PAYLOAD_STAGE}/hybridops.ico"
+cp "${REPO_ROOT}/pkg/assets/windows/hybridops.ico" "${WINDOWS_PAYLOAD_STAGE}/hybridops.ico"
 cp "${REPO_ROOT}/NOTICE" "${WINDOWS_STAGE}/NOTICE.txt"
 (
   cd "${WINDOWS_PAYLOAD_STAGE}"

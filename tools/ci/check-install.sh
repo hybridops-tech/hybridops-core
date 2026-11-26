@@ -115,8 +115,8 @@ if grep -Fq 'open-hybridops.cmd' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"; then
   echo "ERR: Windows bundle exposes a launcher before installation" >&2
   exit 1
 fi
-grep -Fq 'assets/windows/hybridops.ico' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
-test -s "${HYOPS_REPO_ROOT}/assets/windows/hybridops.ico"
+grep -Fq 'pkg/assets/windows/hybridops.ico' "${HYOPS_REPO_ROOT}/pkg/build_release.sh"
+test -s "${HYOPS_REPO_ROOT}/pkg/assets/windows/hybridops.ico"
 grep -Fq -- '-u !WSL_USER! -- bash "%WSL_HELPER%"' "${WINDOWS_INSTALLER}"
 grep -Fq -- '-u !WSL_USER! -- bash -lc "command -v hyops' "${WINDOWS_INSTALLER}"
 grep -Fq 'Support: https://github.com/hybridops-tech/hybridops-core/discussions' \
@@ -210,7 +210,7 @@ if grep -Fq '("license", "license.html", None)' \
   echo "ERR: macOS package still declares a click-through licence pane" >&2
   exit 1
 fi
-test -s "${HYOPS_REPO_ROOT}/assets/macos/hybridops.png"
+test -s "${HYOPS_REPO_ROOT}/pkg/assets/macos/hybridops.png"
 grep -Fq 'tech.hybridops.core.launcher' \
   "${HYOPS_REPO_ROOT}/pkg/macos/app/Info.plist"
 grep -Fq 'exec /usr/bin/open -a Terminal' \
