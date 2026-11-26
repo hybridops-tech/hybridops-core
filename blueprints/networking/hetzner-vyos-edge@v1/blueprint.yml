@@ -7,7 +7,7 @@ mode: "hybrid"
 metadata:
   title: "Provision Hetzner VyOS Edge"
   description: "Seed or discover a Hetzner VyOS image and provision the routed Hetzner edge pair as the default WAN edge path."
-  outcome: "A VyOS-based Hetzner routed edge pair is available for future IPsec/BGP integration."
+  outcome: "A VyOS-based Hetzner routed edge pair establishes the foundation for governed IPsec and BGP operations."
   notes:
     - "Shipped source is a scaffold. Copy it into runtime config with `hyops blueprint init` and replace every `CHANGE_ME_*` value before deploy."
 
@@ -64,8 +64,8 @@ steps:
       # HyOps consumes the shared VyOS artifact state by default.
       # Set image_source_url only when you intentionally bypass the shared artifact contract.
       image_source_url: ""
-      # Required for the built-in qcow2 wrapper path. This must be a publicly reachable base URL
-      # for the execution host so Hetzner rescue can fetch the temporary wrapped raw image.
+      # Required for the built-in qcow2 conversion path. This must be a publicly reachable base URL
+      # for the execution host so Hetzner rescue can fetch the temporary raw image.
       seed_wrapper_public_base_url: ""
       # Optional: pin a Hetzner location (for example nbg1) when your project
       # does not allow the seed tool default location.
@@ -74,7 +74,7 @@ steps:
       # size exceeds default import server disk.
       seed_server_type: ""
       seed_if_missing: true
-      # Override seed_command if you need an ISO-to-image workflow or another custom wrapper.
+      # Override seed_tool if you need another image-import workflow.
       seed_tool: "hcloud-upload-image"
 
   - id: hetzner_shared_network

@@ -5,9 +5,9 @@
 # It requires a healthy Patroni leader (REST API reachable); if you have not yet
 # bootstrapped the cluster, run with inputs.apply_mode=bootstrap.
 
-# Thin wrapper around vitabaks.autobase playbooks.
-# We keep HyOps-level inputs stable and translate only the minimal pieces we own
-# (apps -> postgresql_users/databases/privs; allowed_clients -> pg_hba entries).
+# HybridOps PostgreSQL HA maintenance entry point.
+# It preserves the operation contract while mapping declared application and
+# client policy to cluster inputs.
 
 - name: platform/postgresql-ha (seed patroni passwords)
   hosts: postgres_cluster

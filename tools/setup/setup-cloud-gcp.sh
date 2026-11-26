@@ -51,7 +51,7 @@ EOF
 
 apt-get update -y
 
-progress "Installing cloud integration"
+progress "Installing GCP runtime prerequisites"
 if [[ "${have_gcloud}" != true ]]; then
   gcloud_ver="$(toolchain_get GCLOUD_CLI_VERSION)"
   if [[ -n "${gcloud_ver}" ]]; then

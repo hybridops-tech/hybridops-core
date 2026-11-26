@@ -5,7 +5,7 @@ module_ref: "org/gcp/pgbackrest-repo"
 
 metadata:
   title: "GCP pgBackRest Repository (GCS Bucket + Service Account)"
-  description: "Provisions a GCS bucket and dedicated service account for pgBackRest backups. Specialized wrapper over org/gcp/object-repo defaults."
+  description: "Provisions a GCS bucket and dedicated service account under the shared HybridOps object-repository lifecycle for pgBackRest backups."
 
 requirements:
   credentials: ["gcp"]

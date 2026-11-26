@@ -52,7 +52,7 @@ carry the current artefact identity for provenance.
 
 - It does not execute `hyops`.
 - It does not mutate dispatcher request files.
-- It does not replace the runner model.
+- Runner execution remains governed by the runner model.
 - It does not authenticate filesystem writers or provide signed approvals. The
   request and approval directories remain trusted boundaries.
 - It does not perform the separate final live-state precondition check that

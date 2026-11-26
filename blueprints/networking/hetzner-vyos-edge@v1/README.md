@@ -2,7 +2,7 @@
 
 Seed or discover a VyOS image in Hetzner, create the shared private network, and provision the routed edge pair.
 
-Outcome: a VyOS-based Hetzner routed edge pair is available for IPsec and BGP integration.
+Outcome: a VyOS-based Hetzner routed edge pair establishes the foundation for governed IPsec and BGP operations.
 
 ## Chain
 

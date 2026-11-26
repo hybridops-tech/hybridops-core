@@ -1,8 +1,7 @@
 # drivers/secrets
 
-**Purpose:** Provide optional secrets helpers used by HybridOps.Core targets and drivers.
-
-This directory is not a Driver API implementation. It is an operator-facing helper surface for secure secret handling and syncing strategies.
+**Purpose:** Provide operator-facing secret handling and synchronisation paths
+for HybridOps targets and drivers.
 
 ## Layout
 

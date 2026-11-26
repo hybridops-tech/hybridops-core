@@ -19,10 +19,10 @@ What it does not do:
 - it does not install Longhorn
 - it does not create application PVCs or rebind workloads
 - it does not cut DNS
-- it does not replace application-specific recovery validation
+- application-specific recovery validation remains required
 
 Promotion boundary:
-- this module is a reusable restore primitive, not a complete application failover workflow
+- this module provides the reusable restore primitive within application failover workflows
 - merge it on its own merits
 - add application-specific DR blueprints only when the target cluster and workloads recovery path are real
 

@@ -9,7 +9,7 @@ packer {
 
 variable "source_iso_path" {
   type        = string
-  description = "Local path to the VyOS installer ISO prepared by the wrapper."
+  description = "Local path to the VyOS installer ISO prepared by the image-build lifecycle."
 }
 
 variable "build_output_directory" {

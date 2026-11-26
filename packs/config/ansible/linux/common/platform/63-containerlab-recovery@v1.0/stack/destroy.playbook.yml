@@ -24,7 +24,7 @@
       {{ (containerlab_recovery_source_root | regex_replace('/+$', '')) ~ '/' ~ containerlab_recovery_topology_relpath }}
 
   pre_tasks:
-    - name: Materialize recovery destroy wrapper inputs before role delegation
+    - name: Materialize recovery destroy inputs before role delegation
       ansible.builtin.set_fact:
         _hyops_effective_controller_dir: "{{ _hyops_controller_dir }}"
         _hyops_effective_topology_path: "{{ _hyops_topology_path }}"

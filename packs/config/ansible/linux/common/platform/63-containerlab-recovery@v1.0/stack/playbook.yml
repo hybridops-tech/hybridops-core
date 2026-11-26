@@ -5,7 +5,7 @@
   gather_facts: false
 
   tasks:
-    - name: Materialize recovery wrapper inputs before role delegation
+    - name: Materialize recovery inputs before role delegation
       ansible.builtin.set_fact:
         _hyops_requested_action: "{{ containerlab_recovery_action | default('arm') | trim }}"
         _hyops_recovery_archive_path: >-

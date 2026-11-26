@@ -5,7 +5,7 @@ module_ref: "org/aws/pgbackrest-repo"
 
 metadata:
   title: "AWS pgBackRest Repository (S3 Bucket + IAM User)"
-  description: "Provisions an S3 bucket and a dedicated IAM user for pgBackRest backups. Specialized wrapper over org/aws/object-repo defaults."
+  description: "Provisions an S3 bucket and a dedicated IAM user under the shared HybridOps object-repository lifecycle for pgBackRest backups."
 
 requirements:
   credentials: ["aws"]

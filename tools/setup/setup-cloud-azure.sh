@@ -45,7 +45,7 @@ EOF
 
 apt-get update -y
 
-progress "Installing cloud integration"
+progress "Installing Azure runtime prerequisites"
 az_ver="$(toolchain_get AZ_CLI_VERSION)"
 if [[ -n "${az_ver}" ]]; then
   apt-get install -y "azure-cli=${az_ver}" || {
