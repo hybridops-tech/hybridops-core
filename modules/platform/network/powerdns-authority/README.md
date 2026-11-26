@@ -24,7 +24,7 @@ Recommended topology for HybridOps:
 
 - does not provision the host VM
 - does not provision public DNS
-- does not replace NetBox as IPAM / source-of-truth metadata
+- retains NetBox as the IPAM and source-of-truth metadata authority
 
 ## Required secret
 

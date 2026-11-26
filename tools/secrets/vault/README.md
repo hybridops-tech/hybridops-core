@@ -11,7 +11,7 @@
 - `vault-pass.sh --bootstrap-stdin` — store entry from stdin (requires pass already initialized)
 - `vault-pass.sh --reset` — delete stored entry
 
-## Recommended integration
+## Recommended use
 
 ```bash
 hyops init proxmox --vault-password-command 'tools/secrets/vault/vault-pass.sh' ...

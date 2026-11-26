@@ -76,4 +76,4 @@ that PostgreSQL will actually see, not a stale pre-NAT runner IP.
   - `pglogical_enable=true`
   - `pending_restart=true`
 - `db_*` outputs are preserved from the selected application contract to support export-driven DR paths.
-- This module is the source-side building block for the managed DR lane; it does not replace the existing backup/restore DR path.
+- This module establishes the source-side contract for managed DR while the backup/restore DR path remains independently available.
