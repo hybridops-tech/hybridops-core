@@ -6,9 +6,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Changed
 
-- `hyops setup base` now limits installation to HybridOps-managed
-  prerequisites. Selected modules enforce readiness for operator-supplied
-  execution dependencies.
+- `hyops setup base` now installs HybridOps-managed prerequisites.
 
 ## [v0.1.7] - 2026-11-26
 

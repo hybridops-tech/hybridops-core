@@ -27,8 +27,6 @@ hyops setup all --sudo
 - `hyops setup gcp` and `hyops setup azure` are operator-friendly aliases for
   `cloud-gcp` and `cloud-azure`.
 - Linux system installers require sudo.
-- Selected modules enforce readiness for operator-supplied execution
-  dependencies.
 - Use `hyops setup check base` to inspect command readiness.
 - `hyops setup base` installs the managed system utilities and runtime support.
 - `hyops setup cloud-gcp --sudo` installs both `gcloud` and `gke-gcloud-auth-plugin`; it also repairs older machines where `gcloud` is already present but the GKE auth plugin is missing.
@@ -49,8 +47,8 @@ hyops setup all --sudo
   - the primary public install contract remains the released collection set
 - For local source-tree iteration, point `hyops setup` at the checkout you want to use:
   - `hyops setup galaxy --root /path/to/hybridops-core --hybridops-source git`
-- Drivers and modules do not install dependencies automatically; they fail fast
-  and report the relevant setup command.
+- Each operation validates its runtime requirements before mutation and reports
+  the relevant setup action.
 
 ## Documentation
 
