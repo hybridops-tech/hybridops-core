@@ -16,7 +16,7 @@
 
 <p align="center">
   <a href="https://docs.hybridops.tech/guides/getting-started/quickstart/">Quickstart</a> ·
-  <a href="https://docs.hybridops.tech/reference-scenarios/">Reference scenarios</a> ·
+  <a href="https://docs.hybridops.tech/reference-scenarios/">Validated operations</a> ·
   <a href="https://docs.hybridops.tech">Documentation</a> ·
   <a href="https://hybridops.tech/papers">Research</a>
 </p>
@@ -56,7 +56,9 @@ Core governs five connected responsibilities:
 - **verification and lifecycle control:** acceptance, recovery, release and closure conditions
 - **operation state and evidence:** outputs, lifecycle transitions and non-secret run records with redacted logs
 
-## Reference scenarios
+<a id="reference-scenarios"></a>
+
+## Validated operations
 
 HybridOps is exercised through complete platform paths rather than isolated configuration examples.
 
@@ -65,7 +67,7 @@ HybridOps is exercised through complete platform paths rather than isolated conf
 - **[Kubernetes HA platform foundation](https://docs.hybridops.tech/reference-scenarios/gitops-kubernetes-foundation/):** highly available cluster foundation with GitOps delivery
 - **[Network lab continuity](https://docs.hybridops.tech/reference-scenarios/network-lab-continuity/):** verified intake, private access, preservation and reconstruction for EVE-NG, GNS3 and Containerlab
 
-See the full [reference scenario library](https://docs.hybridops.tech/reference-scenarios/).
+See the full [validated operations library](https://docs.hybridops.tech/reference-scenarios/).
 
 ## Quick start
 
@@ -130,7 +132,7 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 
 ## Documentation
 
-- **Full docs and reference scenarios:** [docs.hybridops.tech](https://docs.hybridops.tech)
+- **Full docs and validated operations:** [docs.hybridops.tech](https://docs.hybridops.tech)
 - **Public site:** [hybridops.tech](https://hybridops.tech)
 - **Contributing:** [Contribution guide](CONTRIBUTING.md)
 - **Security:** [Security policy](.github/SECURITY.md)
