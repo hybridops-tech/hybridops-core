@@ -5,6 +5,7 @@
 include:
   - install.sh
   - LICENSE
+  - NOTICE
   - TRADEMARKS.md
   - README
   - CHANGELOG
