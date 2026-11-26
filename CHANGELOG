@@ -4,6 +4,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+### Changed
+
+- `hyops setup base` now verifies operator-supplied Terraform, Packer and
+  Ansible executors without downloading, installing or updating them.
+
 ## [v0.1.7] - 2026-11-26
 
 ### Added

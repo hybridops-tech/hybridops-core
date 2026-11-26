@@ -2,7 +2,8 @@
 
 **Purpose:** Install system prerequisites for HybridOps.
 
-Use `hyops setup ...` to install required tools for init targets and drivers.
+Use `hyops setup ...` to install HybridOps-managed prerequisites and verify
+external executors required by init targets and drivers.
 
 ## Commands
 
@@ -27,6 +28,11 @@ hyops setup all --sudo
 - `hyops setup gcp` and `hyops setup azure` are operator-friendly aliases for
   `cloud-gcp` and `cloud-azure`.
 - Linux system installers require sudo.
+- Terraform, Packer and Ansible are operator-supplied executors. Install them
+  on `PATH` before running `hyops setup base`; HybridOps verifies their minimum
+  versions but does not install or update them.
+- `hyops setup base` installs the managed system utilities, Terragrunt, kubectl
+  and vault support used by the runtime.
 - `hyops setup cloud-gcp --sudo` installs both `gcloud` and `gke-gcloud-auth-plugin`; it also repairs older machines where `gcloud` is already present but the GKE auth plugin is missing.
 - Ansible Galaxy dependencies are installed into the selected runtime root:
   - `<runtime_root>/state/ansible/galaxy_collections`
@@ -41,11 +47,12 @@ hyops setup all --sudo
   - `hyops setup galaxy --hybridops-source git`
   - `hyops setup galaxy --hybridops-source git --hybridops-git-manifest /path/to/manifest.json`
   - builds and installs pinned `hybridops.common`, `hybridops.helper`, and `hybridops.app` from Git into runtime state
-  - requires access to the private collection release workspaces named in the manifest
+  - requires access to the collection repositories named in the manifest
   - the primary public install contract remains the released collection set
 - For local source-tree iteration, point `hyops setup` at the checkout you want to use:
   - `hyops setup galaxy --root /path/to/hybridops-core --hybridops-source git`
-- Drivers and modules do not install dependencies automatically; they fail fast and instruct which `hyops setup` command to run.
+- Drivers and modules do not install dependencies automatically; they fail fast
+  and report the relevant setup command.
 
 ## Documentation
 

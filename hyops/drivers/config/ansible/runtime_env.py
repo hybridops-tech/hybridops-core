@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shlex
 import shutil
@@ -146,7 +147,14 @@ def prepare_ansible_controller_env(*, env: dict[str, str], runtime_root: Path, a
     vendor_dir = runtime_root / "state" / "python" / "vendor"
     vendor_pkgs = ("jmespath", "netaddr")
     controller_python = resolve_ansible_controller_python(ansible_bin)
+    packaged_sources: dict[str, Path] = {}
     search_roots: list[Path] = []
+
+    for pkg in vendor_pkgs:
+        spec = importlib.util.find_spec(pkg)
+        locations = list(spec.submodule_search_locations or ()) if spec else []
+        if locations:
+            packaged_sources[pkg] = Path(locations[0])
 
     def _add_search_root(path: Path) -> None:
         if not path.is_dir():
@@ -178,6 +186,15 @@ def prepare_ansible_controller_env(*, env: dict[str, str], runtime_root: Path, a
         dst = vendor_dir / pkg
         if dst.is_dir():
             continue
+        packaged_source = packaged_sources.get(pkg)
+        if packaged_source and packaged_source.is_dir():
+            try:
+                vendor_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(packaged_source, dst, dirs_exist_ok=True)
+            except Exception:
+                pass
+            if dst.is_dir():
+                continue
         for root in search_roots:
             src = root / pkg
             if not src.is_dir():
