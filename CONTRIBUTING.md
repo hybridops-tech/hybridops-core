@@ -193,7 +193,8 @@ Linked issues close only when their stated acceptance criteria are met.
 ## Conduct
 
 Participation is governed by the HybridOps
-[Code of Conduct](https://github.com/hybridops-tech/.github/blob/main/.github/CODE_OF_CONDUCT.md).
+[Code of Conduct](CODE_OF_CONDUCT.md). Project roles and decisions follow
+[GOVERNANCE.md](GOVERNANCE.md).
 
 ## Contribution licence
 

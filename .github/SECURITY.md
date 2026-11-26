@@ -4,8 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| `main` (current) | Yes |
-| Older tags | No — upgrade to the latest release |
+| Latest stable release | Yes |
+| `main` and pre-releases | Development and evaluation; reports accepted |
+| Older stable releases | No — upgrade to the latest stable release |
 
 ## Reporting a vulnerability
 
@@ -21,4 +22,8 @@ We acknowledge all reports within **5 business days** and will coordinate a fix 
 
 ## Scope
 
-This policy covers the `hyops` CLI, drivers, modules, and packs shipped in this repository. Configuration examples and documentation are out of scope for vulnerability reports but we welcome corrections via the normal issue tracker.
+This policy covers the `hyops` CLI, drivers, modules, and packs shipped in this
+repository, together with the official `common`, `helper`, and `app`
+subprojects. Configuration examples and documentation are out of scope for
+vulnerability reports, but corrections are welcome through the normal issue
+tracker.
