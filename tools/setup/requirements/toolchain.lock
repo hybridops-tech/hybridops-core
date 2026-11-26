@@ -3,7 +3,7 @@
 # Architecture Decision: ADR-N/A
 # maintainer: HybridOps.Tech
 
-# Operator-supplied executors verified by setup.
+# Executor compatibility baselines.
 TERRAFORM_VERSION=1.10.5
 PACKER_VERSION=1.11.1
 ANSIBLE_CORE_VERSION=2.18.0
