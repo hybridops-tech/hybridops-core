@@ -4,6 +4,11 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+### Changed
+
+- Relicensed HybridOps Core from MIT-0 to Apache-2.0 and added the standard
+  distribution notice.
+
 ### Added
 
 - Added versioned authority-provider discovery through Python entry points,

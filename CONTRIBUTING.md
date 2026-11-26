@@ -195,6 +195,12 @@ Linked issues close only when their stated acceptance criteria are met.
 Participation is governed by the HybridOps
 [Code of Conduct](https://github.com/hybridops-tech/.github/blob/main/.github/CODE_OF_CONDUCT.md).
 
+## Contribution licence
+
+Unless stated otherwise, a contribution intentionally submitted for inclusion
+in HybridOps Core is provided under the project’s
+[Apache-2.0 licence](LICENSE).
+
 ## Security
 
 Do not report vulnerabilities in a public issue or pull request. Follow

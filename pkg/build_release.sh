@@ -259,6 +259,7 @@ cp "${TARBALL_PATH}" "${WINDOWS_PAYLOAD_STAGE}/hybridops-core.tar.gz"
 cp "${WINDOWS_HELPER_PATH}" "${WINDOWS_PAYLOAD_STAGE}/install-wsl.sh"
 cp "${WINDOWS_LAUNCHER_SOURCE}" "${WINDOWS_PAYLOAD_STAGE}/launcher.cmd"
 cp "${REPO_ROOT}/assets/windows/hybridops.ico" "${WINDOWS_PAYLOAD_STAGE}/hybridops.ico"
+cp "${REPO_ROOT}/NOTICE" "${WINDOWS_STAGE}/NOTICE.txt"
 (
   cd "${WINDOWS_PAYLOAD_STAGE}"
   sha256sum hybridops-core.tar.gz >hybridops-core.tar.gz.sha256
@@ -332,6 +333,7 @@ import zipfile
 expected = {
     "Install HybridOps.cmd",
     "LICENSE.txt",
+    "NOTICE.txt",
     "README.txt",
     "payload/hybridops-core.tar.gz",
     "payload/hybridops-core.tar.gz.sha256",

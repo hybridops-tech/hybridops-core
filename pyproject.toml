@@ -7,6 +7,7 @@ name = "hybridops-core"
 version = "0.1.7"
 description = "HybridOps.Core runtime scaffold"
 requires-python = ">=3.11"
+license = {file = "LICENSE"}
 dependencies = [
   "cryptography>=41,<51",
   "PyYAML>=6.0,<7",
