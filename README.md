@@ -135,6 +135,10 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 - **Full docs and validated operations:** [docs.hybridops.tech](https://docs.hybridops.tech)
 - **Public site:** [hybridops.tech](https://hybridops.tech)
 - **Contributing:** [Contribution guide](CONTRIBUTING.md)
+- **Governance:** [Project governance](GOVERNANCE.md)
+- **Maintainers:** [Maintainer record](MAINTAINERS.md)
+- **Roadmap:** [Project roadmap](ROADMAP.md)
+- **Conduct:** [Code of Conduct](CODE_OF_CONDUCT.md)
 - **Security:** [Security policy](.github/SECURITY.md)
 
 ## License
