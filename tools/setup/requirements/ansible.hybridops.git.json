@@ -3,17 +3,17 @@
     {
       "name": "hybridops.common",
       "repo": "https://github.com/hybridops-tech/ansible-collection-common.git",
-      "ref": "2edb8befd166c4a8c14965463fea59a853c146a3"
+      "ref": "7ef028b3262f0cabb670110f33034053634860d8"
     },
     {
       "name": "hybridops.helper",
       "repo": "https://github.com/hybridops-tech/ansible-collection-helper.git",
-      "ref": "d8e034d3e4c6bc9b0d7d8677e97146829d64ac77"
+      "ref": "012b7cc17604d761f9b3bc7ed4233c116786e2d8"
     },
     {
       "name": "hybridops.app",
       "repo": "https://github.com/hybridops-tech/ansible-collection-app.git",
-      "ref": "037acecd9c6ea6770efe99f78caabcc6edec3541"
+      "ref": "ed71cd1d6784240eb1907f7e9c4d1efe00a58061"
     }
   ]
 }
