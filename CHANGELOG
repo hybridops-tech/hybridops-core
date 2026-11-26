@@ -7,7 +7,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 ### Changed
 
 - `hyops setup base` now limits installation to HybridOps-managed
-  prerequisites. Execution engines remain outside project-managed setup.
+  prerequisites. Operator-supplied execution engines are resolved by the
+  selected module driver.
 
 ## [v0.1.7] - 2026-11-26
 
