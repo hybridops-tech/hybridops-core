@@ -114,7 +114,7 @@ PY
 
 command -v sips >/dev/null 2>&1 || { echo "ERR: sips is required" >&2; exit 2; }
 command -v iconutil >/dev/null 2>&1 || { echo "ERR: iconutil is required" >&2; exit 2; }
-ICON_SOURCE="${REPO_ROOT}/assets/macos/hybridops.png"
+ICON_SOURCE="${REPO_ROOT}/pkg/assets/macos/hybridops.png"
 [[ -f "${ICON_SOURCE}" ]] || { echo "ERR: macOS launcher icon not found: ${ICON_SOURCE}" >&2; exit 2; }
 for specification in \
   "16 icon_16x16.png" \

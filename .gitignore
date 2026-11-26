@@ -3,17 +3,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.coverage
 
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.ansible/
 
 build/
 dist/
 *.egg-info/
-
-# Local internal/draft/misc working notes (not part of the public repo or release artifacts)
-.internal/
-.draft/
-.misc/
