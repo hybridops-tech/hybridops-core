@@ -12,9 +12,16 @@ from pathlib import Path
 from typing import Any
 
 from hyops.runtime.evidence import EvidenceWriter
-from hyops.runtime.vault import VaultAuth, read_env
+from hyops.runtime.environment import (
+    merge_vault_env as _merge_vault_env,
+    missing_env as _missing_env,
+)
 
 from .hotfixes import apply_collection_hotfixes
+
+
+merge_vault_env = _merge_vault_env
+missing_env = _missing_env
 
 
 _MODULE_ID_ALIASES: dict[str, tuple[str, ...]] = {
@@ -364,33 +371,6 @@ def ensure_hybridops_collections_available(env: dict[str, str]) -> str:
     if _has_hybridops_collection(collections_path):
         return ""
     return "missing HybridOps Ansible collections; run: hyops setup galaxy"
-
-
-def merge_vault_env(env: dict[str, str], runtime_root: Path) -> tuple[dict[str, str], str]:
-    vault_file = (runtime_root / "vault" / "bootstrap.vault.env").resolve()
-    if not vault_file.exists():
-        return {}, ""
-
-    try:
-        vault_env = read_env(vault_file, VaultAuth())
-    except Exception as exc:
-        return {}, f"vault decrypt failed: {exc}"
-
-    # Env precedence: keep explicit env vars set by operator.
-    for k, v in vault_env.items():
-        if (env.get(k) or "").strip():
-            continue
-        env[k] = str(v)
-
-    return vault_env, ""
-
-
-def missing_env(env: dict[str, str], required: list[str]) -> list[str]:
-    missing: list[str] = []
-    for key in required:
-        if not (env.get(key) or "").strip():
-            missing.append(key)
-    return missing
 
 
 def materialize_ssh_private_key_from_env(

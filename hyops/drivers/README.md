@@ -13,11 +13,14 @@ Driver output: mapping with at minimum:
 - `run_id`
 - `normalized_outputs` (mapping)
 
+Drivers may also register controller-readiness and live-state inspection
+capabilities. Runtime planning consumes these capabilities through the registry.
+
 ## Location
 
 Drivers live under: `hyops/drivers/<domain>/<driver>/...`
 
 ## Registration
 
-- Built-ins are registered by `hyops.runtime.driver_builtin`.
+- Built-ins are registered by `hyops.drivers.builtin.register`.
 - Optional plugins are discovered via Python entrypoints group `hyops.drivers`.

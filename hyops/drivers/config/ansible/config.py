@@ -8,6 +8,10 @@ from typing import Any
 import yaml
 
 from hyops.runtime.coerce import as_argv, as_bool, as_int
+from hyops.runtime.environment import resolve_required_env as _resolve_required_env
+
+
+resolve_required_env = _resolve_required_env
 
 
 def load_profile(profile_ref: str, profiles_dir: Path) -> tuple[dict[str, Any], Path, str]:
@@ -47,27 +51,6 @@ def resolve_required_credentials(request: dict[str, Any]) -> list[str]:
         seen.add(token)
         out.append(token)
     return out
-
-
-def resolve_required_env(inputs: dict[str, Any], *, key: str = "required_env") -> tuple[list[str], str]:
-    raw = inputs.get(key)
-    if raw is None:
-        return [], ""
-    if not isinstance(raw, list):
-        return [], f"inputs.{key} must be a list when set"
-
-    out: list[str] = []
-    seen: set[str] = set()
-    for idx, item in enumerate(raw, start=1):
-        if not isinstance(item, str) or not item.strip():
-            return [], f"inputs.{key}[{idx}] must be a non-empty string"
-        token = item.strip()
-        if token in seen:
-            continue
-        seen.add(token)
-        out.append(token)
-
-    return out, ""
 
 
 def resolve_policy_defaults(profile: dict[str, Any]) -> tuple[int | None, int, bool]:

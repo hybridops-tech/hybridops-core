@@ -39,11 +39,12 @@ class RequiredEnvironmentPreflightTest(TestCase):
 
 
 class PlannedDependencyPreflightTest(TestCase):
-    @patch(
-        "hyops.drivers.config.ansible.runtime_env.ensure_hybridops_collections_available",
-        return_value="missing HybridOps Ansible collections; run: hyops setup galaxy",
-    )
-    def test_missing_collections_block_linux_steps(self, _collections):
+    @patch("hyops.blueprint.planner.check_driver_controller")
+    @patch("hyops.blueprint.planner.module_driver_ref", return_value="config/ansible")
+    def test_missing_collections_block_linux_steps(self, _driver_ref, controller_check):
+        controller_check.return_value = (
+            "missing HybridOps Ansible collections; run: hyops setup galaxy"
+        )
         payload = {
             "order": ["config"],
             "steps": [
@@ -68,12 +69,9 @@ class PlannedDependencyPreflightTest(TestCase):
         self.assertEqual(required_failures, ["ansible_controller"])
         self.assertEqual(optional_failures, [])
 
-    @patch(
-        "hyops.drivers.config.ansible.runtime_env.ensure_hybridops_collections_available",
-        return_value="",
-    )
+    @patch("hyops.blueprint.planner._controller_readiness_failure", return_value=None)
     @patch("hyops.blueprint.planner.preflight_step")
-    def test_remote_check_waits_for_configuration(self, preflight_step, _collections):
+    def test_remote_check_waits_for_configuration(self, preflight_step, _controller):
         payload = {
             "order": ["config", "health"],
             "steps": [
@@ -172,10 +170,12 @@ class PlannedDependencyPreflightTest(TestCase):
         driver_preflight.assert_not_called()
 
     @patch("hyops.blueprint.planner.module_state_ok", return_value=True)
+    @patch("hyops.blueprint.planner._controller_readiness_failure", return_value=None)
     @patch("hyops.blueprint.planner.preflight_step")
     def test_changed_upstream_state_defers_downstream_checks(
         self,
         preflight_step,
+        _controller,
         _module_state_ok,
     ):
         payload = {
@@ -220,13 +220,10 @@ class PlannedDependencyPreflightTest(TestCase):
             {"platform/gcp/lab-network#student_network"},
         )
 
-    @patch(
-        "hyops.drivers.config.ansible.runtime_env.ensure_hybridops_collections_available",
-        return_value="",
-    )
+    @patch("hyops.blueprint.planner._controller_readiness_failure", return_value=None)
     @patch("hyops.blueprint.planner.preflight_step")
     def test_upstream_failure_defers_dependency_chain(
-        self, preflight_step, _collections
+        self, preflight_step, _controller
     ):
         payload = {
             "order": ["network", "vm", "config"],

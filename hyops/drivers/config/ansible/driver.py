@@ -23,6 +23,7 @@ from hyops.runtime.credentials import (
 )
 from hyops.runtime.module_state import read_module_state
 from hyops.runtime.evidence import EvidenceWriter
+from hyops.runtime.environment import merge_vault_env, missing_env, resolve_required_env
 from hyops.runtime.packs import resolve_pack_stack
 from hyops.runtime.progress import suspend_progress
 from hyops.runtime.provider_bootstrap import gcp_bootstrap_guard_message
@@ -34,7 +35,6 @@ from .config import (
     resolve_execution_timeout,
     resolve_policy_defaults,
     resolve_required_credentials,
-    resolve_required_env,
 )
 from .connectivity import (
     apply_proxy_jump_auto,
@@ -50,8 +50,6 @@ from .runtime_env import (
     configure_ansible_search_paths,
     ensure_hybridops_collections_available,
     materialize_ssh_private_key_from_env,
-    merge_vault_env,
-    missing_env,
     prepare_ansible_controller_env,
 )
 
