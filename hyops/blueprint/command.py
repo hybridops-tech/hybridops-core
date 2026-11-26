@@ -32,7 +32,6 @@ from hyops.authority import (
     AuthorityObservationPolicy,
     AuthoritySession,
 )
-from hyops.drivers.iac.terragrunt.contracts import get_contract
 from hyops.runtime.browser import is_windows_wsl, open_operator_url
 from hyops.runtime.cost import CostEstimate, format_money
 from hyops.runtime.evidence import EvidenceWriter, new_run_id
@@ -40,6 +39,7 @@ from hyops.runtime.exitcodes import CANCELLED, OPERATOR_ERROR
 from hyops.runtime.gcp import diagnose_project_billing
 from hyops.runtime.gcp_cost import estimate_gcp_vm_cost, gcp_vm_lifecycle_started_at
 from hyops.runtime.layout import ensure_layout
+from hyops.runtime.module_driver import inspect_module_state
 from hyops.runtime.module_state import (
     read_module_state,
     split_module_state_ref,
@@ -55,7 +55,7 @@ from hyops.runtime.preflight_decision import (
 from hyops.runtime.proc import observe_stream_output
 from hyops.runtime.progress import ProgressDisplay, verbose_enabled
 from hyops.runtime.root import require_runtime_selection
-from hyops.runtime.source_roots import resolve_blueprints_root
+from hyops.runtime.source_roots import resolve_blueprints_root, resolve_module_root
 from hyops.runtime.storage import format_runtime_storage_error, require_runtime_writable
 from hyops.runtime.vault import VaultAuth, read_env
 
@@ -659,16 +659,23 @@ def _new_step_failure_detail(
     return concise_error(current[2])
 
 
-def _evaluate_step_state_skip(step: dict[str, Any], paths) -> tuple[str, str]:
-    contract = get_contract(step["module_ref"])
-    return contract.evaluate_state_skip(
-        command_name="deploy",
+def _evaluate_step_state_skip(
+    step: dict[str, Any],
+    paths,
+    module_root: Path,
+) -> tuple[str, str]:
+    return inspect_module_state(
         module_ref=step["module_ref"],
-        state_root=paths.state_dir,
-        state_instance=str(step.get("state_instance") or "").strip() or None,
-        credentials_dir=paths.credentials_dir,
-        runtime_root=paths.root,
-        env={str(k): str(v) for k, v in os.environ.items()},
+        module_root=module_root,
+        request={
+            "command_name": "deploy",
+            "module_ref": step["module_ref"],
+            "state_root": paths.state_dir,
+            "state_instance": str(step.get("state_instance") or "").strip() or None,
+            "credentials_dir": paths.credentials_dir,
+            "runtime_root": paths.root,
+            "env": {str(k): str(v) for k, v in os.environ.items()},
+        },
     )
 
 
@@ -5352,6 +5359,7 @@ def run_deploy(ns) -> int:
         show_elapsed=False,
     )
 
+    module_root = resolve_module_root(getattr(ns, "module_root", "modules"))
     total_steps = len(payload["order"])
     for step_position, step_id in enumerate(payload["order"], start=1):
         step = by_id[step_id]
@@ -5441,7 +5449,7 @@ def run_deploy(ns) -> int:
                 else:
                     try:
                         skip_status, skip_detail = _evaluate_step_state_skip(
-                            step, paths
+                            step, paths, module_root
                         )
                     except Exception as exc:
                         skip_status = "error"

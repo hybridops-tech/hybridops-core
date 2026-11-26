@@ -8,9 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from hyops.authority import AuthorityReceipt
-from hyops.drivers.iac.terragrunt.contracts import get_contract
-from hyops.drivers.config.ansible.config import resolve_required_env
-from hyops.drivers.config.ansible.runtime_env import merge_vault_env, missing_env
+from hyops.runtime.environment import merge_vault_env, missing_env, resolve_required_env
+from hyops.runtime.module_driver import (
+    check_driver_controller,
+    inspect_module_state,
+    module_driver_ref,
+)
 from hyops.runtime.module_resolve import resolve_module
 from hyops.runtime.source_roots import resolve_module_root
 from hyops.preflight.command import run_module_driver_preflight
@@ -73,6 +76,38 @@ def _required_env_error(*, inputs: dict[str, Any], action: str, env_name: str, r
     return hint
 
 
+def _controller_readiness_failure(
+    payload: dict[str, Any],
+    ns,
+    paths,
+) -> tuple[str, str] | None:
+    module_root = resolve_module_root(getattr(ns, "module_root", "modules"))
+    by_id = {step["id"]: step for step in payload["steps"]}
+    checked: set[str] = set()
+    for step_id in payload["order"]:
+        step = by_id[step_id]
+        try:
+            driver_ref = module_driver_ref(step["module_ref"], module_root)
+        except (FileNotFoundError, ValueError):
+            continue
+        if driver_ref in checked:
+            continue
+        checked.add(driver_ref)
+        try:
+            detail = check_driver_controller(
+                driver_ref=driver_ref,
+                request={
+                    "env": {str(key): str(value) for key, value in os.environ.items()},
+                    "runtime_root": Path(paths.root),
+                },
+            )
+        except Exception as exc:
+            detail = f"driver controller check failed: {exc}"
+        if detail:
+            return driver_ref, detail
+    return None
+
+
 def preflight_step(
     step: dict[str, Any],
     payload: dict[str, Any],
@@ -82,6 +117,7 @@ def preflight_step(
     assumed_state_ok: set[str] | None = None,
     deferred_driver_preflight_refs: set[str] | None = None,
 ) -> dict[str, Any]:
+    module_root = resolve_module_root(getattr(ns, "module_root", "modules"))
     result: dict[str, Any] = {
         "id": step["id"],
         "module_ref": step["module_ref"],
@@ -138,15 +174,19 @@ def preflight_step(
             skip_status = "safe"
             skip_detail = ""
             try:
-                contract = get_contract(step["module_ref"])
-                skip_status, skip_detail = contract.evaluate_state_skip(
-                    command_name="preflight",
+                skip_status, skip_detail = inspect_module_state(
                     module_ref=step["module_ref"],
-                    state_root=paths.state_dir,
-                    state_instance=str(step.get("state_instance") or "").strip() or None,
-                    credentials_dir=paths.credentials_dir,
-                    runtime_root=paths.root,
-                    env={str(k): str(v) for k, v in os.environ.items()},
+                    module_root=module_root,
+                    request={
+                        "command_name": "preflight",
+                        "module_ref": step["module_ref"],
+                        "state_root": paths.state_dir,
+                        "state_instance": str(step.get("state_instance") or "").strip()
+                        or None,
+                        "credentials_dir": paths.credentials_dir,
+                        "runtime_root": paths.root,
+                        "env": {str(k): str(v) for k, v in os.environ.items()},
+                    },
                 )
             except Exception as exc:
                 skip_status = "error"
@@ -204,7 +244,6 @@ def preflight_step(
         return result
 
     try:
-        module_root = resolve_module_root(getattr(ns, "module_root", "modules"))
         resolved = resolve_module(
             step["module_ref"],
             module_root,
@@ -298,40 +337,27 @@ def compute_preflight(
     assumed_state_ok: set[str] = set()
     step_status_by_id: dict[str, str] = {}
 
-    if any(str(step.get("module_ref") or "").startswith("platform/linux/") for step in payload["steps"]):
-        from hyops.drivers.config.ansible.runtime_env import ensure_hybridops_collections_available
-
-        ansible_env = os.environ.copy()
-        if not str(ansible_env.get("ANSIBLE_COLLECTIONS_PATH") or "").strip():
-            runtime_root = Path(getattr(paths, "root", Path.home() / ".hybridops"))
-            candidates = [
-                runtime_root / "state" / "ansible" / "galaxy_collections",
-                runtime_root / "state" / "ansible" / "collections",
-                Path.home() / ".hybridops" / "state" / "ansible" / "galaxy_collections",
-                Path.home() / ".hybridops" / "state" / "ansible" / "collections",
-                Path.home() / ".ansible" / "collections",
-                Path("/usr/share/ansible/collections"),
-            ]
-            ansible_env["ANSIBLE_COLLECTIONS_PATH"] = os.pathsep.join(
-                str(path) for path in candidates if path.is_dir()
-            )
-        collections_error = ensure_hybridops_collections_available(ansible_env)
-        if collections_error:
-            return (
-                [
-                    {
-                        "id": "ansible_controller",
-                        "module_ref": "config/ansible",
-                        "action": "preflight",
-                        "phase": "bootstrap",
-                        "optional": False,
-                        "status": "blocked",
-                        "checks": [{"name": "collections", "ok": False, "detail": collections_error}],
-                    }
-                ],
-                ["ansible_controller"],
-                [],
-            )
+    controller_failure = _controller_readiness_failure(payload, ns, paths)
+    if controller_failure is not None:
+        driver_ref, detail = controller_failure
+        controller_id = f"{driver_ref.rsplit('/', 1)[-1]}_controller"
+        return (
+            [
+                {
+                    "id": controller_id,
+                    "module_ref": driver_ref,
+                    "action": "preflight",
+                    "phase": "bootstrap",
+                    "optional": False,
+                    "status": "blocked",
+                    "checks": [
+                        {"name": "controller", "ok": False, "detail": detail}
+                    ],
+                }
+            ],
+            [controller_id],
+            [],
+        )
 
     for step_id in payload["order"]:
         step = by_id[step_id]

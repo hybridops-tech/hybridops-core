@@ -84,6 +84,55 @@ def _merge_operator_inputs(target: dict[str, Any], operator: dict[str, Any]) -> 
         target[key] = value
 
 
+def _load_module_spec(
+    module_ref: str,
+    module_root: Path,
+) -> tuple[str, Path, dict[str, Any]]:
+    normalized_ref = normalize_module_ref(module_ref)
+    if not normalized_ref:
+        raise ValueError("module_ref is required")
+
+    module_dir = (module_root / normalized_ref).resolve()
+    spec_path = module_dir / "spec.yml"
+    if not spec_path.exists():
+        raise FileNotFoundError(f"spec not found: {spec_path}")
+
+    spec = _load_yaml(spec_path)
+    spec_module_ref = normalize_module_ref(str(spec.get("module_ref") or "").strip())
+    if spec_module_ref and spec_module_ref != normalized_ref:
+        raise ValueError(
+            f"spec.module_ref mismatch: expected {normalized_ref}, found {spec_module_ref}"
+        )
+    return normalized_ref, module_dir, spec
+
+
+def _resolve_execution(spec: dict[str, Any]) -> dict[str, Any]:
+    raw_exec = spec.get("execution") or {}
+    if not isinstance(raw_exec, dict):
+        raise ValueError("spec.execution must be a mapping")
+
+    driver = str(raw_exec.get("driver") or "").strip()
+    profile = str(raw_exec.get("profile") or "").strip()
+    pack_ref = raw_exec.get("pack_ref") or {}
+    if not isinstance(pack_ref, dict):
+        raise ValueError("spec.execution.pack_ref must be a mapping")
+    pack_id = str(pack_ref.get("id") or "").strip()
+    if not driver or not profile or not pack_id:
+        raise ValueError("spec.execution requires driver, profile, and pack_ref.id")
+
+    return {
+        "driver": driver,
+        "profile": profile,
+        "pack_id": pack_id,
+        "hooks": _resolve_execution_hooks(raw_exec),
+    }
+
+
+def resolve_module_execution(module_ref: str, module_root: Path) -> dict[str, Any]:
+    _, _, spec = _load_module_spec(module_ref, module_root)
+    return _resolve_execution(spec)
+
+
 def resolve_module(
     module_ref: str,
     module_root: Path,
@@ -94,45 +143,9 @@ def resolve_module(
     invocation_command: str | None = None,
     assumed_state_ok: set[str] | None = None,
 ) -> ModuleResolved:
-    module_ref = normalize_module_ref(module_ref)
-    if not module_ref:
-        raise ValueError("module_ref is required")
-
-    module_dir = (module_root / module_ref).resolve()
-    spec_path = module_dir / "spec.yml"
-    if not spec_path.exists():
-        raise FileNotFoundError(f"spec not found: {spec_path}")
-
-    spec = _load_yaml(spec_path)
-
-    spec_module_ref = normalize_module_ref(str(spec.get("module_ref") or "").strip())
-    if spec_module_ref and spec_module_ref != module_ref:
-        raise ValueError(
-            f"spec.module_ref mismatch: expected {module_ref}, found {spec_module_ref}"
-        )
-
-    raw_exec = spec.get("execution") or {}
-    if not isinstance(raw_exec, dict):
-        raise ValueError("spec.execution must be a mapping")
-
-    driver = str(raw_exec.get("driver") or "").strip()
-    profile = str(raw_exec.get("profile") or "").strip()
-
-    pack_ref = raw_exec.get("pack_ref") or {}
-    if not isinstance(pack_ref, dict):
-        raise ValueError("spec.execution.pack_ref must be a mapping")
-
-    pack_id = str(pack_ref.get("id") or "").strip()
-
-    if not driver or not profile or not pack_id:
-        raise ValueError("spec.execution requires driver, profile, and pack_ref.id")
-
-    execution = {
-        "driver": driver,
-        "profile": profile,
-        "pack_id": pack_id,
-        "hooks": _resolve_execution_hooks(raw_exec),
-    }
+    module_ref, module_dir, spec = _load_module_spec(module_ref, module_root)
+    execution = _resolve_execution(spec)
+    pack_id = str(execution["pack_id"])
 
     required_credentials = _resolve_required_credentials(spec, module_ref, pack_id)
     outputs_publish = _resolve_outputs_publish(spec)

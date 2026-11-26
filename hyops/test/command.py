@@ -27,12 +27,11 @@ from hyops.drivers.config.ansible.runtime_env import (
     configure_ansible_search_paths,
     ensure_hybridops_collections_available,
     materialize_ssh_private_key_from_env,
-    merge_vault_env,
-    missing_env,
     prepare_ansible_controller_env,
     resolve_ansible_controller_python,
 )
 from hyops.runtime.evidence import EvidenceWriter, init_evidence_dir, new_run_id
+from hyops.runtime.environment import merge_vault_env, missing_env
 from hyops.runtime.exitcodes import DEPENDENCY_MISSING, OK, OPERATOR_ERROR, REMOTE_FAILED, SECRETS_FAILED
 from hyops.runtime.layout import ensure_layout
 from hyops.runtime.module_state_contracts import resolve_inventory_groups_from_state
