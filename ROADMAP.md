@@ -15,7 +15,7 @@ criteria remain in linked issues and pull requests.
 
 ## Project completeness
 
-- Publish the required `common`, `helper`, and `app` collection source as
+- Maintain the public `common`, `helper`, and `app` collection source as
   governed subprojects.
 - Establish one compatibility record across Core and required subproject
   releases.

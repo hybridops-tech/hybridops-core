@@ -134,6 +134,7 @@ See [Research and External Review](RESEARCH.md) for published papers, implementa
 
 - **Full docs and validated operations:** [docs.hybridops.tech](https://docs.hybridops.tech)
 - **Public site:** [hybridops.tech](https://hybridops.tech)
+- **Collection source:** [common](https://github.com/hybridops-tech/ansible-collection-common) · [helper](https://github.com/hybridops-tech/ansible-collection-helper) · [app](https://github.com/hybridops-tech/ansible-collection-app)
 - **Contributing:** [Contribution guide](CONTRIBUTING.md)
 - **Governance:** [Project governance](GOVERNANCE.md)
 - **Maintainers:** [Maintainer record](MAINTAINERS.md)
