@@ -13,7 +13,7 @@ decision.
 
 - Technical decisions are made in the interests of the project and its users.
 - Decisions, rationale, and implementation are public except for embargoed
-  security matters.
+  security and confidential conduct matters.
 - Maintainer authority is earned through sustained project work and is not
   attached permanently to a company or founder.
 - Contributor access does not depend on employment, sponsorship, or foundation
@@ -135,8 +135,9 @@ participate in its resolution.
 
 A proposal to obtain or transfer project resources begins in a public
 governance issue. It follows the normal comment period and requires a simple
-majority of all unconflicted maintainers unless it changes project scope,
-governance, or transferred assets.
+majority of all unconflicted maintainers. A decision that changes project
+scope or governance, or transfers project assets, requires a two-thirds
+majority.
 
 ## Amendments
 
