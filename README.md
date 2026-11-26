@@ -124,7 +124,7 @@ Run records are written under stable paths such as:
 
 ## Research and external review
 
-HybridOps Core is the reference implementation for ongoing work in platform engineering and infrastructure automation.
+Published research and external review map to released runtime paths, operating procedures, and recorded verification.
 
 See [Research and External Review](RESEARCH.md) for published papers, implementation maps, and external technical reviews.
 
