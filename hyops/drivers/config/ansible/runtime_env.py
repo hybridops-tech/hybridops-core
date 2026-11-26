@@ -26,16 +26,22 @@ _MODULE_ID_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def _vendor_controller_package(sources: list[Path], destination: Path) -> bool:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return destination.is_dir()
     for source in sources:
         if not source.is_dir():
             continue
-        staging_root = Path(
-            tempfile.mkdtemp(
-                prefix=f".{destination.name}.",
-                dir=destination.parent,
+        try:
+            staging_root = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{destination.name}.",
+                    dir=destination.parent,
+                )
             )
-        )
+        except Exception:
+            continue
         candidate = staging_root / "candidate"
         previous = staging_root / "previous"
         try:

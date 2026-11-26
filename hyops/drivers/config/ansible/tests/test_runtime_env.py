@@ -14,6 +14,29 @@ from hyops.drivers.config.ansible.runtime_env import prepare_ansible_controller_
 
 
 class PrepareAnsibleControllerEnvTests(unittest.TestCase):
+    def test_vendor_package_keeps_existing_copy_when_staging_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = Path(raw_tmp)
+            source = tmp / "source"
+            destination = tmp / "vendor" / "jmespath"
+            source.mkdir()
+            destination.mkdir(parents=True)
+            (destination / "__init__.py").write_text("existing", encoding="utf-8")
+
+            with patch(
+                "hyops.drivers.config.ansible.runtime_env.tempfile.mkdtemp",
+                side_effect=PermissionError("read only"),
+            ):
+                installed = runtime_env._vendor_controller_package(
+                    [source], destination
+                )
+
+            self.assertTrue(installed)
+            self.assertEqual(
+                (destination / "__init__.py").read_text(encoding="utf-8"),
+                "existing",
+            )
+
     def test_vendor_package_recovers_from_partial_copy(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)

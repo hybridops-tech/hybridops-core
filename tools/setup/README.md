@@ -29,7 +29,7 @@ hyops setup all --sudo
 - Linux system installers require sudo.
 - Execution engines used by individual drivers remain operator supplied;
   `hyops setup base` does not install or update them.
-- Use `hyops setup check --target base` to inspect command readiness.
+- Use `hyops setup check base` to inspect command readiness.
 - `hyops setup base` installs the managed system utilities and runtime support.
 - `hyops setup cloud-gcp --sudo` installs both `gcloud` and `gke-gcloud-auth-plugin`; it also repairs older machines where `gcloud` is already present but the GKE auth plugin is missing.
 - Ansible Galaxy dependencies are installed into the selected runtime root:
