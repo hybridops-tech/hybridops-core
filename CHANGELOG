@@ -8,6 +8,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 - Relicensed HybridOps Core from MIT-0 to Apache-2.0 and added the standard
   distribution notice.
+- Pinned `hybridops.common` 0.1.8, `hybridops.helper` 0.1.12 and
+  `hybridops.app` 0.1.15 as the Apache-2.0 collection release set.
 
 ### Added
 
