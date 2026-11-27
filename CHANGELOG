@@ -12,8 +12,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ### Changed
 
-- Bound module execution to the declared driver and its registered
-  capabilities. Incompatible blueprint actions now fail before dispatch.
+- Routed blueprint controller readiness and live-state inspection through the
+  module-declared registered driver.
 - `hyops setup base` now installs HybridOps-managed prerequisites.
 - `hyops setup galaxy` now installs the HybridOps collection set by default.
   Module-declared operation prerequisites are checked before mutation and
