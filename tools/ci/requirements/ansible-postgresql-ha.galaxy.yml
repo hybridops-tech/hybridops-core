@@ -1,0 +1,31 @@
+collections:
+  - name: amazon.aws
+    version: "11.4.0"
+  - name: ansible.posix
+    version: "2.2.2"
+  - name: ansible.utils
+    version: "6.1.0"
+  - name: ansible.windows
+    version: "3.7.0"
+  - name: azure.azcollection
+    version: "3.21.0"
+  - name: community.aws
+    version: "11.1.0"
+  - name: community.crypto
+    version: "3.3.0"
+  - name: community.digitalocean
+    version: "1.27.0"
+  - name: community.docker
+    version: "5.2.2"
+  - name: community.general
+    version: "13.3.0"
+  - name: community.postgresql
+    version: "4.2.0"
+  - name: community.windows
+    version: "3.3.0"
+  - name: google.cloud
+    version: "1.14.0"
+  - name: hetzner.hcloud
+    version: "7.0.0"
+  - name: vitabaks.autobase
+    version: "2.5.2"

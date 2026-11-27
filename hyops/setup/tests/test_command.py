@@ -344,6 +344,13 @@ class SetupCommandTests(unittest.TestCase):
         ):
             self.assertFalse((REPO_ROOT / "tools/setup/requirements" / name).exists())
 
+        ci_requirements = REPO_ROOT / "tools/ci/requirements"
+        self.assertTrue((ci_requirements / "ansible-platform.galaxy.yml").is_file())
+        self.assertTrue(
+            (ci_requirements / "ansible-postgresql-ha.galaxy.yml").is_file()
+        )
+        self.assertTrue((ci_requirements / "ansible-rke2.galaxy.yml").is_file())
+
     def test_targeted_collection_install_has_no_yaml_runtime_dependency(self) -> None:
         installer = REPO_ROOT / "tools" / "setup" / "setup-ansible.sh"
         expected_versions = {"helper": "0.1.12", "app": "0.1.15"}
