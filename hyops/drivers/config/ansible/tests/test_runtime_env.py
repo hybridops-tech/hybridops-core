@@ -52,6 +52,103 @@ class PrepareAnsibleControllerEnvTests(unittest.TestCase):
             ],
         )
 
+    def test_operation_prerequisites_expand_environment_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = Path(raw_tmp)
+            (root / "collections" / "ansible_collections" / "ansible" / "posix").mkdir(
+                parents=True
+            )
+            (root / "roles" / "geerlingguy.postgresql").mkdir(parents=True)
+            env = {
+                "VENDOR_ROOT": str(root),
+                "ANSIBLE_COLLECTIONS_PATH": "$VENDOR_ROOT/collections",
+                "ANSIBLE_ROLES_PATH": "${VENDOR_ROOT}/roles",
+            }
+
+            missing = missing_operation_prerequisites(
+                env,
+                required_collections=["ansible.posix"],
+                required_roles=["geerlingguy.postgresql"],
+            )
+
+        self.assertEqual(missing, [])
+
+    def test_operation_prerequisites_leave_unset_variables_unresolved(self) -> None:
+        missing = missing_operation_prerequisites(
+            {
+                "ANSIBLE_COLLECTIONS_PATH": "$UNSET_ROOT/collections",
+                "ANSIBLE_ROLES_PATH": "${UNSET_ROOT}/roles",
+            },
+            required_collections=["ansible.posix"],
+            required_roles=["geerlingguy.postgresql"],
+        )
+
+        self.assertEqual(
+            missing,
+            ["collection ansible.posix", "role geerlingguy.postgresql"],
+        )
+
+    def test_operation_prerequisites_resolve_relative_to_pack_stack(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            pack_stack = Path(raw_tmp) / "stack"
+            (
+                pack_stack
+                / "vendor_collections"
+                / "ansible_collections"
+                / "ansible"
+                / "posix"
+            ).mkdir(parents=True)
+            (pack_stack / "vendor_roles" / "geerlingguy.postgresql").mkdir(
+                parents=True
+            )
+            env = {
+                "ANSIBLE_COLLECTIONS_PATH": "./vendor_collections",
+                "ANSIBLE_ROLES_PATH": "./vendor_roles",
+            }
+
+            missing = missing_operation_prerequisites(
+                env,
+                required_collections=["ansible.posix"],
+                required_roles=["geerlingguy.postgresql"],
+                cwd=pack_stack,
+            )
+
+        self.assertEqual(missing, [])
+
+    def test_operation_prerequisites_resolve_controller_sys_path_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = Path(raw_tmp)
+            collection = root / "ansible_collections" / "example" / "demo"
+            collection.mkdir(parents=True)
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.pathsep.join(
+                [str(root), str(env.get("PYTHONPATH") or "")]
+            ).rstrip(os.pathsep)
+
+            missing = missing_operation_prerequisites(
+                env,
+                required_collections=["example.demo"],
+                required_roles=[],
+                controller_python=sys.executable,
+            )
+
+        self.assertEqual(missing, [])
+
+    def test_operation_prerequisites_honor_disabled_sys_path_scan(self) -> None:
+        env = {
+            "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH": "false",
+            "PYTHONPATH": "/unused",
+        }
+
+        missing = missing_operation_prerequisites(
+            env,
+            required_collections=["example.demo"],
+            required_roles=[],
+            controller_python=sys.executable,
+        )
+
+        self.assertEqual(missing, ["collection example.demo"])
+
     def test_vendor_package_keeps_existing_copy_when_staging_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)

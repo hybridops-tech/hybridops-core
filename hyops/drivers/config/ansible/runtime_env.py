@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shlex
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from string import Template
 from typing import Any
 
 from hyops.runtime.evidence import EvidenceWriter
@@ -86,13 +88,35 @@ def _extend_search_path(out: list[str], raw_path: str) -> None:
         _append_search_path(out, token)
 
 
-def _collection_search_roots(raw_path: str) -> list[Path]:
+def _resolve_search_path(
+    raw_path: str,
+    *,
+    env: dict[str, str] | None = None,
+    base_dir: Path | None = None,
+) -> Path:
+    raw = str(raw_path or "").strip()
+    try:
+        expanded = Template(raw).safe_substitute(env or {})
+    except ValueError:
+        expanded = raw
+    candidate = Path(expanded).expanduser()
+    if base_dir is not None and not candidate.is_absolute():
+        candidate = base_dir / candidate
+    return candidate
+
+
+def _collection_search_roots(
+    raw_path: str,
+    *,
+    env: dict[str, str] | None = None,
+    base_dir: Path | None = None,
+) -> list[Path]:
     roots: list[Path] = []
-    for token in str(raw_path or "").split(":"):
+    for token in str(raw_path or "").split(os.pathsep):
         raw = str(token or "").strip()
         if not raw:
             continue
-        roots.append(Path(raw).expanduser())
+        roots.append(_resolve_search_path(raw, env=env, base_dir=base_dir))
     return roots
 
 
@@ -105,11 +129,17 @@ def _has_hybridops_collection(raw_path: str) -> bool:
     return False
 
 
-def _has_collection(raw_path: str, fqcn: str) -> bool:
+def _has_collection(
+    raw_path: str,
+    fqcn: str,
+    *,
+    env: dict[str, str] | None = None,
+    base_dir: Path | None = None,
+) -> bool:
     namespace, separator, name = str(fqcn or "").strip().partition(".")
     if not separator or not namespace or not name:
         return False
-    for root in _collection_search_roots(raw_path):
+    for root in _collection_search_roots(raw_path, env=env, base_dir=base_dir):
         candidates = [
             root if root.name == "ansible_collections" else root / "ansible_collections"
         ]
@@ -118,11 +148,57 @@ def _has_collection(raw_path: str, fqcn: str) -> bool:
     return False
 
 
+def _controller_sys_path_collections(
+    *,
+    controller_python: str,
+    env: dict[str, str],
+    required_collections: list[str],
+    cwd: Path | None,
+) -> set[str]:
+    if not controller_python or not required_collections:
+        return set()
+    scan_sys_path = str(env.get("ANSIBLE_COLLECTIONS_SCAN_SYS_PATH", "true")).strip().lower()
+    if scan_sys_path in {"0", "false", "no", "off"}:
+        return set()
+
+    probe_script = (
+        "import importlib.util,json,sys;"
+        "names=json.loads(sys.argv[1]);"
+        "found=[];"
+        "exec(\"for name in names:\\n"
+        " try:\\n"
+        "  if importlib.util.find_spec('ansible_collections.' + name) is not None: found.append(name)\\n"
+        " except (ImportError, ModuleNotFoundError, ValueError): pass\");"
+        "print(json.dumps(found))"
+    )
+    try:
+        probe = subprocess.run(
+            [controller_python, "-c", probe_script, json.dumps(required_collections)],
+            cwd=str(cwd) if cwd is not None else None,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if int(probe.returncode or 0) != 0:
+        return set()
+    try:
+        found = json.loads(str(probe.stdout or "[]"))
+    except (TypeError, ValueError):
+        return set()
+    return {str(item) for item in found if str(item).strip()}
+
+
 def missing_operation_prerequisites(
     env: dict[str, str],
     *,
     required_collections: list[str],
     required_roles: list[str],
+    cwd: Path | None = None,
+    controller_python: str = "",
 ) -> list[str]:
     collections_path = str(
         env.get("ANSIBLE_COLLECTIONS_PATH")
@@ -131,15 +207,26 @@ def missing_operation_prerequisites(
     ).strip()
     roles_path = str(env.get("ANSIBLE_ROLES_PATH") or "").strip()
 
+    unresolved_collections = [
+        fqcn
+        for fqcn in required_collections
+        if not _has_collection(collections_path, fqcn, env=env, base_dir=cwd)
+    ]
+    controller_collections = _controller_sys_path_collections(
+        controller_python=controller_python,
+        env=env,
+        required_collections=unresolved_collections,
+        cwd=cwd,
+    )
     missing = [
         f"collection {fqcn}"
-        for fqcn in required_collections
-        if not _has_collection(collections_path, fqcn)
+        for fqcn in unresolved_collections
+        if fqcn not in controller_collections
     ]
     for role in required_roles:
         if not any(
-            (Path(token).expanduser() / role).is_dir()
-            for token in roles_path.split(":")
+            (_resolve_search_path(token, env=env, base_dir=cwd) / role).is_dir()
+            for token in roles_path.split(os.pathsep)
             if token.strip()
         ):
             missing.append(f"role {role}")

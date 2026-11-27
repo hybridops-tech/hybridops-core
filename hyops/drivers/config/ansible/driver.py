@@ -52,6 +52,7 @@ from .runtime_env import (
     materialize_ssh_private_key_from_env,
     missing_operation_prerequisites,
     prepare_ansible_controller_env,
+    resolve_ansible_controller_python,
 )
 
 
@@ -269,6 +270,29 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
 
     pack_stack = resolved.stack_dir
 
+    inputs = request.get("inputs")
+    if not isinstance(inputs, dict):
+        inputs = {}
+
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return _fail(ev, result, f"workdir setup failed: {exc}")
+
+    outputs_path = workdir / "hyops.outputs.json"
+    short_circuit_result = _maybe_short_circuit_destroy_for_absent_inventory(
+        ev=ev,
+        result=result,
+        runtime_root=runtime_root,
+        workdir=workdir,
+        outputs_path=outputs_path,
+        module_ref=module_ref,
+        command_name=command_name,
+        inputs=inputs,
+    )
+    if short_circuit_result is not None:
+        return short_circuit_result
+
     required_credentials = resolve_required_credentials(request)
     env = os.environ.copy()
     env["HYOPS_RUNTIME_ROOT"] = str(runtime_root)
@@ -327,6 +351,8 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         env,
         required_collections=list(execution.get("required_collections") or []),
         required_roles=list(execution.get("required_roles") or []),
+        cwd=pack_stack,
+        controller_python=resolve_ansible_controller_python(ansible_bin),
     )
     if missing_prerequisites:
         return _fail(
@@ -336,10 +362,6 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             + ", ".join(missing_prerequisites)
             + "; install them in the configured Ansible collection and role paths",
         )
-
-    inputs = request.get("inputs")
-    if not isinstance(inputs, dict):
-        inputs = {}
 
     timeout_s, timeout_error = resolve_execution_timeout(inputs, default=timeout_s)
     if timeout_error:
@@ -375,11 +397,6 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
 
     missing_after_vault = missing_env(env, required_env)
 
-    try:
-        workdir.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
-        return _fail(ev, result, f"workdir setup failed: {exc}")
-
     materialized_ssh_key = ""
     try:
         materialized_ssh_key = materialize_ssh_private_key_from_env(
@@ -394,20 +411,6 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     inventory_error = write_inventory(inventory_path, inputs)
     if inventory_error:
         return _fail(ev, result, inventory_error)
-
-    outputs_path = workdir / "hyops.outputs.json"
-    short_circuit_result = _maybe_short_circuit_destroy_for_absent_inventory(
-        ev=ev,
-        result=result,
-        runtime_root=runtime_root,
-        workdir=workdir,
-        outputs_path=outputs_path,
-        module_ref=module_ref,
-        command_name=command_name,
-        inputs=inputs,
-    )
-    if short_circuit_result is not None:
-        return short_circuit_result
 
     extra_vars = dict(inputs)
     # Avoid clobbering Ansible reserved keywords (these are configured via inventory vars).
