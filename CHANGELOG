@@ -4,11 +4,20 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 
 ## Unreleased
 
+## [v0.1.8] - 2026-11-27
+
+### Added
+
+- Added public governance, maintainer, conduct and roadmap records.
+
 ### Changed
 
+- Routed blueprint controller readiness and live-state inspection through the
+  module-declared registered driver.
 - `hyops setup base` now installs HybridOps-managed prerequisites.
 - `hyops setup galaxy` now installs the HybridOps collection set by default.
-  External operation prerequisites are checked before mutation.
+  Module-declared operation prerequisites are checked before mutation and
+  missing components are reported.
 
 ## [v0.1.7] - 2026-11-26
 
@@ -364,6 +373,7 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 - Hardened destroy-time validation, replay safety, validator cleanup, image and template flows, database services, edge networking, and release installation.
 - Added shell, Python, YAML, infrastructure, installation, and release quality gates.
 
+[v0.1.8]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.7...v0.1.8
 [v0.1.7]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.6...v0.1.7
 [v0.1.6]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.5...v0.1.6
 [v0.1.5]: https://github.com/hybridops-tech/hybridops-core/compare/v0.1.4...v0.1.5
