@@ -47,17 +47,12 @@ class SetupCommandTests(unittest.TestCase):
 
         self.assertEqual(call.call_args_list[-1].args[0], ["sudo", "-v"])
 
-    def test_galaxy_progress_advances_across_dependency_sets(self) -> None:
+    def test_galaxy_progress_advances_across_baseline_setup(self) -> None:
         display = MagicMock()
         positions: dict[str, int] = {}
         phases = (
             "Installing shared runtime dependencies",
             "Shared runtime dependencies ready",
-            "Installing workload dependencies 1/5",
-            "Installing workload dependencies 2/5",
-            "Installing workload dependencies 3/5",
-            "Installing workload dependencies 4/5",
-            "Installing workload dependencies 5/5",
             "Verifying runtime dependencies",
         )
 
@@ -67,8 +62,8 @@ class SetupCommandTests(unittest.TestCase):
                 "galaxy",
                 "Galaxy dependencies",
                 f"[hyops-progress] {phase}",
-                completed_phases=10,
-                total_phases=18,
+                completed_phases=0,
+                total_phases=3,
                 phase_positions=positions,
             )
 
@@ -76,7 +71,7 @@ class SetupCommandTests(unittest.TestCase):
             int(call.args[1].rsplit(" ", 1)[-1].removesuffix("%"))
             for call in display.update.call_args_list
         ]
-        self.assertEqual(percentages, [58, 63, 69, 75, 80, 86, 91, 97])
+        self.assertEqual(percentages, [16, 50, 83])
 
     def test_gcp_check_does_not_require_azure(self) -> None:
         with tempfile.TemporaryDirectory() as runtime, patch(
@@ -211,7 +206,7 @@ class SetupCommandTests(unittest.TestCase):
 
         self.assertEqual(rc, 7)
         failed_label = display.finish.call_args_list[-1].args[1]
-        self.assertIn("42%", failed_label)
+        self.assertIn("66%", failed_label)
         self.assertNotIn("100%", failed_label)
 
     def test_target_dry_run_lists_composed_steps(self) -> None:
@@ -333,6 +328,28 @@ class SetupCommandTests(unittest.TestCase):
         argv = run_streamed.call_args.args[0]
         self.assertIn("--force", argv)
         self.assertEqual(argv[-2:], ["--collection", "helper"])
+
+    def test_default_galaxy_manifest_contains_only_project_collections(self) -> None:
+        manifest = (
+            REPO_ROOT / "tools/setup/requirements/ansible.galaxy.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("ansible.posix", manifest)
+        self.assertNotIn("community.", manifest)
+        self.assertNotIn("geerlingguy.", manifest)
+        for name in (
+            "ansible.operations.galaxy.yml",
+            "ansible.postgresql-ha.galaxy.yml",
+            "ansible.rke2-cluster.galaxy.yml",
+        ):
+            self.assertFalse((REPO_ROOT / "tools/setup/requirements" / name).exists())
+
+        ci_requirements = REPO_ROOT / "tools/ci/requirements"
+        self.assertTrue((ci_requirements / "ansible-platform.galaxy.yml").is_file())
+        self.assertTrue(
+            (ci_requirements / "ansible-postgresql-ha.galaxy.yml").is_file()
+        )
+        self.assertTrue((ci_requirements / "ansible-rke2.galaxy.yml").is_file())
 
     def test_targeted_collection_install_has_no_yaml_runtime_dependency(self) -> None:
         installer = REPO_ROOT / "tools" / "setup" / "setup-ansible.sh"

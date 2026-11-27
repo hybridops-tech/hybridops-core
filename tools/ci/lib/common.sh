@@ -112,7 +112,14 @@ hyops_ci::prepare_ansible_dependencies() {
           -p "${runtime_root}/roles" \
           >/dev/null
     fi
-  done < <(find "${HYOPS_REPO_ROOT}/tools/setup/requirements" -maxdepth 1 -name 'ansible*.galaxy.yml' | sort)
+  done < <(
+    {
+      printf '%s\n' "${HYOPS_REPO_ROOT}/tools/setup/requirements/ansible.galaxy.yml"
+      find "${HYOPS_REPO_ROOT}/tools/ci/requirements" \
+        -maxdepth 1 \
+        -name 'ansible*.galaxy.yml'
+    } | sort
+  )
 }
 
 hyops_ci::export_ansible_runtime() {

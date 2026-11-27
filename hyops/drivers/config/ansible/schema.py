@@ -8,7 +8,13 @@ from __future__ import annotations
 from typing import Any
 
 
-_ALLOWED_EXEC_KEYS = {"driver", "profile", "pack_ref"}
+_ALLOWED_EXEC_KEYS = {
+    "driver",
+    "profile",
+    "pack_ref",
+    "required_collections",
+    "required_roles",
+}
 _ALLOWED_PACK_REF_KEYS = {"id"}
 
 
@@ -31,3 +37,9 @@ def validate_execution_schema(raw_exec: dict[str, Any]) -> None:
     if "pack_ref" in exec_map:
         pack_ref = _require_mapping(exec_map.get("pack_ref"), field="spec.execution.pack_ref")
         _reject_unknown_keys(pack_ref, field="spec.execution.pack_ref", allowed=_ALLOWED_PACK_REF_KEYS)
+    for key in ("required_collections", "required_roles"):
+        values = exec_map.get(key, [])
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) or not value.strip() for value in values
+        ):
+            raise ValueError(f"spec.execution.{key} must be a list of non-empty strings")

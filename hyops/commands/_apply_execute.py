@@ -108,6 +108,10 @@ def run_single(
         "profile": profile_ref,
         "pack_id": pack_id,
         "hooks": execution_hooks,
+        "required_collections": list(
+            resolved.execution.get("required_collections") or []
+        ),
+        "required_roles": list(resolved.execution.get("required_roles") or []),
     }
 
     try:

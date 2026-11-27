@@ -120,11 +120,21 @@ def _resolve_execution(spec: dict[str, Any]) -> dict[str, Any]:
     if not driver or not profile or not pack_id:
         raise ValueError("spec.execution requires driver, profile, and pack_ref.id")
 
+    prerequisites: dict[str, list[str]] = {}
+    for key in ("required_collections", "required_roles"):
+        raw_values = raw_exec.get(key, [])
+        if not isinstance(raw_values, list) or any(
+            not isinstance(value, str) or not value.strip() for value in raw_values
+        ):
+            raise ValueError(f"spec.execution.{key} must be a list of non-empty strings")
+        prerequisites[key] = list(dict.fromkeys(value.strip() for value in raw_values))
+
     return {
         "driver": driver,
         "profile": profile,
         "pack_id": pack_id,
         "hooks": _resolve_execution_hooks(raw_exec),
+        **prerequisites,
     }
 
 

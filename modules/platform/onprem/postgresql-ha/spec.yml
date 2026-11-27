@@ -152,6 +152,22 @@ inputs:
 execution:
   driver: "config/ansible"
   profile: "onprem-linux@v1.0"
+  required_collections:
+    - "amazon.aws"
+    - "ansible.posix"
+    - "ansible.utils"
+    - "ansible.windows"
+    - "azure.azcollection"
+    - "community.aws"
+    - "community.crypto"
+    - "community.digitalocean"
+    - "community.docker"
+    - "community.general"
+    - "community.postgresql"
+    - "community.windows"
+    - "google.cloud"
+    - "hetzner.hcloud"
+    - "vitabaks.autobase"
   pack_ref:
     id: "onprem/common/platform/35-postgresql-ha@v1.0"
 

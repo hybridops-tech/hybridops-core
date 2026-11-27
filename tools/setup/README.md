@@ -37,6 +37,11 @@ hyops setup all --sudo
 - The public install contract uses the pinned released `hybridops.common`,
   `hybridops.helper`, and `hybridops.app` collections from
   [tools/setup/requirements/ansible.galaxy.yml](./requirements/ansible.galaxy.yml).
+- Operations that require external collections or roles declare them in the
+  module specification. Operators supply them through the configured Ansible
+  collection and role paths.
+- Missing operation prerequisites fail before mutation and identify each
+  missing component.
 - Use `--collection common`, `--collection helper`, or `--collection app` to
   refresh only that HybridOps collection. Repeat the option to select more than one.
 - Git-based install path (for iteration or a pinned Git-based flow):

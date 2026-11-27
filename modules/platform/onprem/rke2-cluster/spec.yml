@@ -100,6 +100,9 @@ inputs:
 execution:
   driver: "config/ansible"
   profile: "onprem-linux@v1.0"
+  required_collections:
+    - "rancherfederal.rke2_ansible"
+    - "ansible.utils"
   pack_ref:
     id: "onprem/common/platform/50-rke2-cluster@v1.0"
 

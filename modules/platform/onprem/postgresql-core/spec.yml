@@ -52,6 +52,11 @@ inputs:
 execution:
   driver: "config/ansible"
   profile: "onprem-linux@v1.0"
+  required_collections:
+    - "community.general"
+    - "community.postgresql"
+  required_roles:
+    - "geerlingguy.postgresql"
   pack_ref:
     id: "onprem/common/platform/30-postgresql-core@v1.0"
 

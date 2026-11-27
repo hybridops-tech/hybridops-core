@@ -1,0 +1,13 @@
+collections:
+  - name: ansible.posix
+    version: "2.2.2"
+  - name: community.general
+    version: "13.3.0"
+  - name: community.mysql
+    version: "5.0.2"
+  - name: community.postgresql
+    version: "4.2.0"
+
+roles:
+  - name: geerlingguy.postgresql
+    version: "4.1.0"
