@@ -10,10 +10,48 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from hyops.drivers.config.ansible import runtime_env
-from hyops.drivers.config.ansible.runtime_env import prepare_ansible_controller_env
+from hyops.drivers.config.ansible.runtime_env import (
+    missing_operation_prerequisites,
+    prepare_ansible_controller_env,
+)
 
 
 class PrepareAnsibleControllerEnvTests(unittest.TestCase):
+    def test_operation_prerequisites_resolve_from_configured_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = Path(raw_tmp)
+            collections = root / "collections" / "ansible_collections"
+            roles = root / "roles"
+            (collections / "ansible" / "posix").mkdir(parents=True)
+            (roles / "geerlingguy.postgresql").mkdir(parents=True)
+            env = {
+                "ANSIBLE_COLLECTIONS_PATH": str(root / "collections"),
+                "ANSIBLE_ROLES_PATH": str(roles),
+            }
+
+            missing = missing_operation_prerequisites(
+                env,
+                required_collections=["ansible.posix"],
+                required_roles=["geerlingguy.postgresql"],
+            )
+
+        self.assertEqual(missing, [])
+
+    def test_operation_prerequisites_report_each_missing_item(self) -> None:
+        missing = missing_operation_prerequisites(
+            {},
+            required_collections=["ansible.posix"],
+            required_roles=["geerlingguy.postgresql"],
+        )
+
+        self.assertEqual(
+            missing,
+            [
+                "collection ansible.posix",
+                "role geerlingguy.postgresql",
+            ],
+        )
+
     def test_vendor_package_keeps_existing_copy_when_staging_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)

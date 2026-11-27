@@ -40,7 +40,7 @@ SETUP_PHASE_COUNTS = {
     "base": 6,
     "cloud-gcp": 3,
     "cloud-azure": 3,
-    "galaxy": 8,
+    "galaxy": 3,
 }
 
 TARGET_LABELS = {
@@ -656,11 +656,9 @@ def run(ns) -> int:
     label = SETUP_LABELS.get(canonical_action, canonical_action)
     stream_verbose = verbose_enabled()
     progress = ProgressDisplay(show_elapsed=False)
-    total_phases = (
-        3
-        if canonical_action == "galaxy" and collections
-        else _setup_phase_count(canonical_action)
-    )
+    total_phases = _setup_phase_count(canonical_action)
+    if canonical_action == "galaxy" and collections:
+        total_phases = 3
     phase_positions: dict[str, int] = {}
     progress.start(
         canonical_action,

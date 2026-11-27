@@ -70,6 +70,9 @@ inputs:
 execution:
   driver: "config/ansible"
   profile: "onprem-linux@v1.0"
+  required_collections:
+    - "ansible.posix"
+    - "community.mysql"
   pack_ref:
     id: "linux/common/platform/40-eve-ng@v1.0"
 

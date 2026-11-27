@@ -7,6 +7,8 @@ This changelog records significant operator-facing capabilities, lifecycle chang
 ### Changed
 
 - `hyops setup base` now installs HybridOps-managed prerequisites.
+- `hyops setup galaxy` now installs the HybridOps collection set by default.
+  External operation prerequisites are checked before mutation.
 
 ## [v0.1.7] - 2026-11-26
 

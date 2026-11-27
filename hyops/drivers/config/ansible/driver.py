@@ -50,6 +50,7 @@ from .runtime_env import (
     configure_ansible_search_paths,
     ensure_hybridops_collections_available,
     materialize_ssh_private_key_from_env,
+    missing_operation_prerequisites,
     prepare_ansible_controller_env,
 )
 
@@ -318,6 +319,23 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     collections_error = ensure_hybridops_collections_available(env)
     if collections_error:
         return _fail(ev, result, collections_error)
+
+    execution = request.get("execution")
+    if not isinstance(execution, dict):
+        execution = {}
+    missing_prerequisites = missing_operation_prerequisites(
+        env,
+        required_collections=list(execution.get("required_collections") or []),
+        required_roles=list(execution.get("required_roles") or []),
+    )
+    if missing_prerequisites:
+        return _fail(
+            ev,
+            result,
+            "missing operation prerequisites: "
+            + ", ".join(missing_prerequisites)
+            + "; install them in the configured Ansible collection and role paths",
+        )
 
     inputs = request.get("inputs")
     if not isinstance(inputs, dict):

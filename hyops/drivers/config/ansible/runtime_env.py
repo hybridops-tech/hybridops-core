@@ -105,6 +105,47 @@ def _has_hybridops_collection(raw_path: str) -> bool:
     return False
 
 
+def _has_collection(raw_path: str, fqcn: str) -> bool:
+    namespace, separator, name = str(fqcn or "").strip().partition(".")
+    if not separator or not namespace or not name:
+        return False
+    for root in _collection_search_roots(raw_path):
+        candidates = [
+            root if root.name == "ansible_collections" else root / "ansible_collections"
+        ]
+        if any((candidate / namespace / name).is_dir() for candidate in candidates):
+            return True
+    return False
+
+
+def missing_operation_prerequisites(
+    env: dict[str, str],
+    *,
+    required_collections: list[str],
+    required_roles: list[str],
+) -> list[str]:
+    collections_path = str(
+        env.get("ANSIBLE_COLLECTIONS_PATH")
+        or env.get("ANSIBLE_COLLECTIONS_PATHS")
+        or ""
+    ).strip()
+    roles_path = str(env.get("ANSIBLE_ROLES_PATH") or "").strip()
+
+    missing = [
+        f"collection {fqcn}"
+        for fqcn in required_collections
+        if not _has_collection(collections_path, fqcn)
+    ]
+    for role in required_roles:
+        if not any(
+            (Path(token).expanduser() / role).is_dir()
+            for token in roles_path.split(":")
+            if token.strip()
+        ):
+            missing.append(f"role {role}")
+    return missing
+
+
 def _iter_collection_role_dirs(collection_roots: list[str]) -> list[str]:
     """Derive collection role directories for use as a robust role-resolution fallback.
 
