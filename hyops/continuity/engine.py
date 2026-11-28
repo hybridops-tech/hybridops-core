@@ -18,7 +18,6 @@ from .adapter import AuthorityGate, ContinuityAdapter
 from .errors import ContractFailure, TerminalPersistenceError
 from .models import (
     CONTROLLER_CONTRACT_VERSION,
-    AdapterIdentity,
     AdapterRequest,
     AdmissionResult,
     AuthorityAdmission,
@@ -38,6 +37,7 @@ from .models import (
 )
 from .storage import OperationLease, OperationStore, PublicationState
 from .validation import (
+    AdapterCapabilities,
     is_sha256_digest,
     is_token,
     validate_contract_semantics,
@@ -95,6 +95,7 @@ class ContinuityEngine:
         evidence_by_stage: dict[str, tuple[EvidenceIdentity, ...]] = {}
         current_stage: StageSpec | None = None
         current_authority: AuthorityAdmission | None = None
+        adapter_contracts: Mapping[str, AdapterCapabilities] = {}
 
         try:
             order, adapter_contracts = validate_contract_semantics(
@@ -124,8 +125,7 @@ class ContinuityEngine:
                     records.append(
                         self._stage_record(
                             stage,
-                            adapter_identity=adapter_contracts[stage.adapter][0],
-                            adapter_operations=adapter_contracts[stage.adapter][1],
+                            capabilities=adapter_contracts[stage.adapter],
                             status="denied",
                             reason_code="adapter_admission_denied",
                             adapter_reason_code=admission.reason_code,
@@ -170,8 +170,7 @@ class ContinuityEngine:
                 records.append(
                     self._stage_record(
                         stage,
-                        adapter_identity=adapter_contracts[stage.adapter][0],
-                        adapter_operations=adapter_contracts[stage.adapter][1],
+                        capabilities=adapter_contracts[stage.adapter],
                         status="succeeded",
                         result="stage operation completed",
                         authority=authority,
@@ -188,15 +187,14 @@ class ContinuityEngine:
                 records.append(
                     self._stage_record(
                         current_stage,
-                        adapter_identity=adapter_contracts[current_stage.adapter][0],
-                        adapter_operations=adapter_contracts[current_stage.adapter][1],
+                        capabilities=adapter_contracts[current_stage.adapter],
                         status="failed",
                         reason_code=exc.reason_code,
                         result=exc.result,
                         authority=current_authority,
                     )
                 )
-            recovery_failed = self._recover(completed, records)
+            recovery_failed = self._recover(completed, records, adapter_contracts)
             if recovery_failed:
                 status = "failed"
                 closure = "recovery_failed"
@@ -250,7 +248,7 @@ class ContinuityEngine:
             raise TerminalPersistenceError(
                 "terminal evidence publication outcome is uncertain"
             ) from publish_error
-        recovery_failed = self._recover(completed, records)
+        recovery_failed = self._recover(completed, records, adapter_contracts)
         terminal = self._terminal(
             spec,
             contract_digest=contract_digest,
@@ -566,8 +564,8 @@ class ContinuityEngine:
         self,
         completed: list[tuple[StageSpec, RecoveryRequest | None]],
         records: list[StageRecord],
+        capabilities: Mapping[str, AdapterCapabilities],
     ) -> bool:
-        recovery_failed = False
         recovery_blocked = False
         record_indexes = {
             record.stage_id: index for index, record in enumerate(records)
@@ -587,7 +585,15 @@ class ContinuityEngine:
                     recovery_status="not_declared",
                     recovery_reason_code="recovery_not_declared",
                 )
-                recovery_failed = True
+                recovery_blocked = True
+                continue
+            pair = (recovery_request.operation, recovery_request.recovery_operation)
+            if pair not in capabilities[stage.adapter].owned_cleanup:
+                records[index] = replace(
+                    records[index],
+                    recovery_status="blocked",
+                    recovery_reason_code="recovery_effect_unverified",
+                )
                 recovery_blocked = True
                 continue
             try:
@@ -617,7 +623,6 @@ class ContinuityEngine:
                         reason_code="invalid_recovery_result",
                     )
             if not recovery.succeeded:
-                recovery_failed = True
                 recovery_blocked = True
             records[index] = replace(
                 records[index],
@@ -632,7 +637,7 @@ class ContinuityEngine:
                     else "stage recovery failed"
                 ),
             )
-        return recovery_failed
+        return recovery_blocked
 
     @staticmethod
     def _recovery_request(
@@ -656,8 +661,7 @@ class ContinuityEngine:
         self,
         stage: StageSpec,
         *,
-        adapter_identity: AdapterIdentity,
-        adapter_operations: tuple[str, ...],
+        capabilities: AdapterCapabilities,
         status: str,
         reason_code: str = "",
         adapter_reason_code: str = "",
@@ -679,8 +683,8 @@ class ContinuityEngine:
             ) from exc
         return StageRecord(
             stage_id=stage.id,
-            adapter=adapter_identity,
-            adapter_operations=adapter_operations,
+            adapter=capabilities.identity,
+            adapter_operations=capabilities.operations,
             operation=stage.operation,
             status=status,
             reason_code=reason_code,

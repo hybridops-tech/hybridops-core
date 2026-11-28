@@ -38,7 +38,6 @@ class ContinuityContractAcceptanceTests(unittest.TestCase):
                     ["admit", "prepare"],
                     ["execute", "prepare"],
                     ["admit", "release"],
-                    ["recover", "prepare"],
                 ],
             )
             self.assertTrue((output / "report.json").is_file())
@@ -50,8 +49,12 @@ class ContinuityContractAcceptanceTests(unittest.TestCase):
             self.assertEqual(terminal["status"], "succeeded")
             self.assertEqual(terminal["closure"], "completed")
             self.assertEqual(terminal["reason_code"], "")
-            self.assertEqual(denied_terminal["status"], "recovered")
-            self.assertEqual(denied_terminal["closure"], "recovered")
+            self.assertEqual(denied_terminal["status"], "failed")
+            self.assertEqual(denied_terminal["closure"], "recovery_failed")
+            self.assertEqual(
+                denied_terminal["stages"][0]["recovery_reason_code"],
+                "recovery_effect_unverified",
+            )
             self.assertEqual(
                 denied_terminal["reason_code"],
                 "adapter_admission_denied",
@@ -115,6 +118,24 @@ class ContinuityContractAcceptanceTests(unittest.TestCase):
             self.assertEqual(report["status"], "failed")
             self.assertFalse(scenario["checks"]["content_identity"])
             self.assertTrue(scenario["checks"]["terminal_status"])
+
+    def test_corrupt_retained_bytes_fail_the_refusal_proof(self) -> None:
+        publish = runner.FileOperationStore.publish
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "acceptance"
+
+            def corrupt(store, lease, record):
+                publish(store, lease, record)
+                if record["operation_id"] == "release-denied":
+                    artifact = output / "release-denied" / "recovery-set.json"
+                    artifact.write_bytes(b"changed")
+
+            with patch.object(runner.FileOperationStore, "publish", corrupt):
+                report = runner.run(output)
+            checks = report["scenarios"]["release-denied"]["checks"]
+            self.assertTrue(checks["cleanup_blocked"])
+            self.assertFalse(checks["content_identity"])
+            self.assertEqual(report["status"], "failed")
 
 
 if __name__ == "__main__":
