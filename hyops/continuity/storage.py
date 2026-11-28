@@ -21,8 +21,7 @@ def _payload(value: Any) -> bytes:
     )
 
 
-def _write_exclusive(path: Path, value: Any, directory: int) -> None:
-    payload = _payload(value)
+def _write_exclusive(path: Path, payload: bytes, directory: int) -> tuple[int, int]:
     temporary = f".{path.name}.{uuid4().hex}"
     descriptor = os.open(
         temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory
@@ -33,11 +32,13 @@ def _write_exclusive(path: Path, value: Any, directory: int) -> None:
             stream.flush()
             os.fchmod(stream.fileno(), 0o600)
             os.fsync(stream.fileno())
+            identity = os.fstat(stream.fileno())
         try:
             os.link(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
         except FileExistsError:
             raise FileExistsError(f"path already exists: {path}") from None
         _sync_directory(path.parent, directory)
+        return identity.st_dev, identity.st_ino
     finally:
         try:
             os.unlink(temporary, dir_fd=directory)
@@ -57,13 +58,18 @@ def _sync_directory(path: Path, directory: int | None = None) -> None:
 
 
 def _ensure_store_directory(path: Path) -> None:
-    if not path.is_dir():
-        _ensure_store_directory(path.parent)
-        path.mkdir(mode=0o700, exist_ok=True)
-    elif not os.access(path.parent, os.W_OK):
-        # A pre-provisioned directory below a read-only parent is the storage anchor.
+    if path.is_dir():
+        if os.access(path.parent, os.R_OK | os.W_OK):
+            _sync_directory(path.parent)
         return
-    _sync_directory(path.parent)
+    _ensure_store_directory(path.parent)
+    with _operation_directory(path.parent) as parent:
+        try:
+            os.mkdir(path.name, mode=0o700, dir_fd=parent)
+        except FileExistsError:
+            if not path.is_dir():
+                raise
+        _sync_directory(path.parent, parent)
 
 
 @dataclass(frozen=True)
@@ -74,6 +80,8 @@ class OperationLease:
 @dataclass(frozen=True)
 class _FileOperationLease(OperationLease):
     directory_identity: tuple[int, int]
+    claim_identity: tuple[int, int]
+    claim_payload: bytes
 
 
 @contextmanager
@@ -91,6 +99,61 @@ def _operation_directory(
             raise OSError("operation directory changed during publication")
     finally:
         os.close(directory)
+
+
+def _matches_record(
+    path: Path,
+    directory: int,
+    expected: bytes,
+    *,
+    identity: tuple[int, int] | None = None,
+    sync: bool = False,
+) -> bool | None:
+    """Return None only when the entry is absent at open."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        descriptor = os.open(path.name, flags, dir_fd=directory)
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError("operation record is not a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            matches = (
+                (identity is None or (info.st_dev, info.st_ino) == identity)
+                and info.st_size == len(expected)
+                and stream.read(len(expected) + 1) == expected
+            )
+        if sync and matches:
+            os.fsync(descriptor)
+            _sync_directory(path.parent, directory)
+        current = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        if not os.path.samestat(info, current):
+            raise OSError("operation record changed during verification")
+        return matches
+    finally:
+        os.close(descriptor)
+
+
+def _verify_claim(lease: _FileOperationLease, directory: int) -> None:
+    if not _matches_record(
+        lease.record_path.with_name("claim.json"),
+        directory,
+        lease.claim_payload,
+        identity=lease.claim_identity,
+    ):
+        raise OSError("operation claim no longer matches acquired lease")
+
+
+@contextmanager
+def _claimed_directory(lease: _FileOperationLease) -> Iterator[int]:
+    with _operation_directory(
+        lease.record_path.parent, lease.directory_identity
+    ) as directory:
+        _verify_claim(lease, directory)
+        yield directory
+        _verify_claim(lease, directory)
 
 
 class PublicationState(str, Enum):
@@ -141,12 +204,24 @@ class FileOperationStore:
         _sync_directory(self._root)
         operation_path = operation_root / "claim.json"
         record_path = operation_root / "terminal.json"
-        bound_claim = dict(claim)
-        bound_claim["terminal_record"] = str(record_path)
+        bound_claim = _payload(
+            {
+                **claim,
+                "terminal_record": str(record_path),
+                "acquisition_id": uuid4().hex,
+            }
+        )
         with _operation_directory(operation_root) as directory:
-            _write_exclusive(operation_path, bound_claim, directory)
+            claim_identity = _write_exclusive(operation_path, bound_claim, directory)
             identity = os.fstat(directory)
-            return _FileOperationLease(record_path, (identity.st_dev, identity.st_ino))
+            lease = _FileOperationLease(
+                record_path,
+                (identity.st_dev, identity.st_ino),
+                claim_identity,
+                bound_claim,
+            )
+            _verify_claim(lease, directory)
+            return lease
 
     def terminal_path(self, operation_id: str) -> Path:
         operation_key = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()
@@ -156,10 +231,8 @@ class FileOperationStore:
         if not isinstance(lease, _FileOperationLease):
             raise TypeError("operation lease does not identify an acquired directory")
         try:
-            with _operation_directory(
-                lease.record_path.parent, lease.directory_identity
-            ) as directory:
-                _write_exclusive(lease.record_path, record, directory)
+            with _claimed_directory(lease) as directory:
+                _write_exclusive(lease.record_path, _payload(record), directory)
         except FileExistsError:
             if self.probe(lease, record) is PublicationState.COMMITTED:
                 return
@@ -173,29 +246,15 @@ class FileOperationStore:
         if not isinstance(lease, _FileOperationLease):
             return PublicationState.UNKNOWN
         expected = _payload(record)
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
-            with _operation_directory(
-                lease.record_path.parent, lease.directory_identity
-            ) as directory:
-                try:
-                    descriptor = os.open(lease.record_path.name, flags, dir_fd=directory)
-                except FileNotFoundError:
-                    claim = os.stat("claim.json", dir_fd=directory, follow_symlinks=False)
-                    if stat.S_ISREG(claim.st_mode):
-                        return PublicationState.ABSENT
-                    return PublicationState.UNKNOWN
-                with os.fdopen(descriptor, "rb") as stream:
-                    if stream.read() != expected:
-                        return PublicationState.CONFLICT
-                    file_identity = os.fstat(stream.fileno())
-                    os.fsync(stream.fileno())
-                _sync_directory(lease.record_path.parent, directory)
-                path_identity = os.stat(
-                    lease.record_path.name, dir_fd=directory, follow_symlinks=False
+            with _claimed_directory(lease) as directory:
+                matches = _matches_record(
+                    lease.record_path, directory, expected, sync=True
                 )
-                if os.path.samestat(file_identity, path_identity):
-                    return PublicationState.COMMITTED
-                return PublicationState.UNKNOWN
+                if matches is None:
+                    return PublicationState.ABSENT
+                return (
+                    PublicationState.COMMITTED if matches else PublicationState.CONFLICT
+                )
         except OSError:
             return PublicationState.UNKNOWN

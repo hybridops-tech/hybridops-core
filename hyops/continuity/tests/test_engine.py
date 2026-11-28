@@ -1281,6 +1281,27 @@ class ContinuityEngineTests(unittest.TestCase):
         self.assertFalse(lease.record_path.exists())
         self.assertTrue(lease.record_path.with_name("claim.json").is_file())
 
+    def test_lost_claim_before_publication_does_not_trigger_compensation(self) -> None:
+        spec = self._spec()
+        spec = replace(spec, stages=(spec.stages[0],))
+        publish = self.store.publish
+
+        def lose_claim(lease: OperationLease, record) -> None:
+            lease.record_path.with_name("claim.json").unlink()
+            publish(lease, record)
+
+        with (
+            patch.object(self.store, "publish", side_effect=lose_claim) as attempt,
+            self.assertRaisesRegex(TerminalPersistenceError, "outcome is uncertain"),
+        ):
+            self.engine.run(spec)
+
+        attempt.assert_called_once()
+        self.assertFalse(self._terminal_path(spec.operation_id).exists())
+        self.assertEqual(
+            self.adapter.calls, [("admit", "prepare"), ("execute", "prepare")]
+        )
+
     def test_post_link_directory_sync_error_probes_committed_terminal(self) -> None:
         real_sync = continuity_storage._sync_directory
         terminal_path = self._terminal_path()
