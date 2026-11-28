@@ -1,4 +1,4 @@
-# Contract validation and reference binding
+# Contract validation, binding and dispatch
 
 For a pending `ContinuityContract`, reconciliation records a `ContractValid`
 condition for the observed generation. `True` means the specification passes
@@ -29,8 +29,26 @@ do not call `bind_operation` again. A missing or replaced binding, or a
 changed reference, stops verification. A contract status update alone
 does not invalidate its binding.
 
-These functions verify identities; they do not dispatch adapters. The
-controller installation must restrict writes to the record namespace.
+## Bound execution
+
+`run_bound_operation` executes a pending contract from its original receipt.
+It accepts an inline workload identity, named adapters and authority declarations.
+A workload or parameter reference that requires materialisation is refused
+before claiming the operation.
+
+Executors share one protected record namespace. Before dispatch, the executor
+creates an immutable claim for the contract UID and marks the original binding
+using its UID and resource version. An existing claim or dispatch marker
+blocks a second execution. Retain both ConfigMaps and restrict writes to the
+controller.
+Before each stage or owned cleanup, the executor checks the live contract,
+binding and claim again. A failed check leaves that action unexecuted.
+
+An existing claim is never replayed, even from a fresh local operation store.
+If an executor stops after claiming an operation, inspect the workload and
+operation store. A missing terminal record does not establish whether an
+action ran. Status reconciliation does not
+invoke execution or retry external actions.
 
 Run the API-server checks with `bash tools/ci/check-continuity-api.sh`.
 

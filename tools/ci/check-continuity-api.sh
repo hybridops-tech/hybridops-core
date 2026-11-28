@@ -624,3 +624,8 @@ sources='/api/v1/namespaces/default/(configmaps/(conformance-workload|prepare-pa
 records='/api/v1/namespaces/reference-records/configmaps(/binding-[a-f0-9]{32}\.[a-f0-9]{32})?'
 run_proxy_test check-continuity-references.py \
   "^(${contracts}/reference-operation|${sources}|${records})$" 'PUT,PATCH,DELETE,CONNECT,HEAD,OPTIONS,TRACE'
+
+kubectl create namespace dispatch-records
+records='/api/v1/namespaces/dispatch-records/configmaps(/(binding-[a-f0-9]{32}\.[a-f0-9]{32}|dispatch-[a-f0-9]{54}))?'
+run_proxy_test check-continuity-dispatch.py \
+  "^(${contracts}/dispatch-(complete|competing|corrupt|replaced|interrupted)|${records})$" 'PUT,DELETE,CONNECT,HEAD,OPTIONS,TRACE'

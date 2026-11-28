@@ -1,21 +1,15 @@
 """Status-only acceptance against the two persisted fixtures in check-continuity-api.sh."""
 
 import json
-import os
 import subprocess
 import unittest
-from http.client import HTTPConnection
 from unittest.mock import patch
 
-from hyops.controller.client import ContractClient
+from continuity_cluster import client as cluster_client
 from hyops.controller.reconcile import StatusConflict, reconcile
 
 
 class StatusReconciliation(unittest.TestCase):
-    def client(self):
-        port = int(os.environ["HYOPS_TEST_PROXY_PORT"])
-        return ContractClient(lambda: HTTPConnection("127.0.0.1", port, timeout=10))
-
     def test_status_projection(self):
         for name, valid, reason in (
             ("default-policy", "True", "Validated"),
@@ -25,7 +19,7 @@ class StatusReconciliation(unittest.TestCase):
                 self.check_projection(name, valid, reason)
 
     def check_projection(self, name, valid, reason):
-        client = self.client()
+        client = cluster_client()
         read = client.read
         snapshots = []
         observer = {
@@ -94,7 +88,7 @@ class StatusReconciliation(unittest.TestCase):
         self.assertEqual(condition["reason"], reason)
         self.assertEqual(condition["observedGeneration"], metadata["generation"])
 
-        for redelivery in (client, self.client()):
+        for redelivery in (client, cluster_client()):
             self.assertIs(reconcile(redelivery, "default", name), False)
             self.assertEqual(redelivery.read("default", name), published)
 
