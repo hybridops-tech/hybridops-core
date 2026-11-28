@@ -636,4 +636,4 @@ contracts='/apis/continuity\.hyopsproject\.github\.io/v1alpha1/namespaces/termin
 records='/api/v1/namespaces/terminal-records/configmaps(/(binding-[a-f0-9]{32}\.[a-f0-9]{32}|(terminal|dispatch)-[a-f0-9]{54}))?'
 evidence='/api/v1/namespaces/terminal-labs/configmaps(/terminal-[a-f0-9]{54})?'
 run_proxy_test check-continuity-terminal.py \
-  "^(${contracts}/terminal-(complete|uncertain|evidence|witness|claims|recovered|restart|unpinned)(/status)?|${records}|${evidence})$" 'DELETE,CONNECT,HEAD,OPTIONS,TRACE'
+  "^(${contracts}/terminal-(complete|uncertain|evidence|witness|claims|recovered|restart|unpinned|delete-(foreign|last|unpinned|conflict))(/status)?|${records}|${evidence})$" 'DELETE,CONNECT,HEAD,OPTIONS,TRACE'

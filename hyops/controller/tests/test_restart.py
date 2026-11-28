@@ -126,6 +126,7 @@ class RestartReconciliationTests(TerminalFixture, unittest.TestCase):
     def test_new_contract_with_reused_name_does_not_inherit_result(self):
         self.retain()
         self.obj["metadata"].update(uid="new-uid", generation=1, resourceVersion="1")
+        self.obj["metadata"].pop("finalizers")
         worker = self.worker()
         self.assertTrue(self.restart(worker))
         self.assertEqual(self.obj["status"]["phase"], "Pending")

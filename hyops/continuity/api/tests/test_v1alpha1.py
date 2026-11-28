@@ -181,6 +181,52 @@ class V1Alpha1CodecTests(unittest.TestCase):
         self.assertEqual(encoded, payload)
         self.assertEqual(encode(decode(encoded)), encoded)
 
+    def test_deletion_keeps_terminal_status_at_the_operation_generation(self) -> None:
+        for phase in ("Succeeded", "Recovered", "Failed"):
+            with self.subTest(phase=phase):
+                payload = _valid_payload()
+                payload["status"]["phase"] = phase
+                payload["metadata"].update(
+                    generation=4, deletionTimestamp="2026-11-28T10:20:00Z"
+                )
+                self.assertEqual(decode(payload).metadata.operation_generation, 3)
+                self.assertEqual(encode(decode(payload)), payload)
+                for observed in (2, 4):
+                    payload["status"]["observedGeneration"] = observed
+                    payload["status"]["conditions"] = []
+                    self.assert_failure(
+                        payload, "StaleTerminalStatus", "$.status.observedGeneration"
+                    )
+
+    def test_deletion_allows_pending_status_at_the_live_generation(self) -> None:
+        payload = _minimal_payload()
+        payload["metadata"].update(generation=2, deletionTimestamp="2026-11-28T10:20:00Z")
+        payload["status"] = {"phase": "Pending", "observedGeneration": 2}
+        self.assertEqual(decode(payload).metadata.operation_generation, 1)
+        self.assertEqual(decode(payload).status.observed_generation, 2)
+        payload["status"]["observedGeneration"] = 3
+        self.assert_failure(payload, "InvalidStatus", "$.status.observedGeneration")
+
+    def test_deletion_metadata_requires_a_valid_timestamp_and_prior_generation(self) -> None:
+        payload = _valid_payload()
+        payload["metadata"]["deletionTimestamp"] = None
+        self.assertEqual(decode(payload).metadata.operation_generation, 3)
+        self.assertEqual(encode(decode(payload)), payload)
+        for value, reason in (
+            ("", "InvalidMetadata"),
+            ("2026-02-30T09:00:00Z", "InvalidMetadata"),
+            ("2026-11-28T09:00:00", "InvalidMetadata"),
+            (False, "InvalidType"),
+        ):
+            with self.subTest(value=value):
+                payload["metadata"]["deletionTimestamp"] = value
+                self.assert_failure(payload, reason, "$.metadata.deletionTimestamp")
+        payload["metadata"]["deletionTimestamp"] = "2026-11-28T10:20:00Z"
+        for generation in (0, 1):
+            with self.subTest(generation=generation):
+                payload["metadata"]["generation"] = generation
+                self.assert_failure(payload, "InvalidMetadata", "$.metadata.generation")
+
     def test_extra_metadata_cannot_supply_typed_identity(self) -> None:
         resource = decode(_valid_payload())
         for key in ("name", "namespace", "uid", "generation"):

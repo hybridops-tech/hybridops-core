@@ -9,6 +9,8 @@ from typing import Any, Protocol
 from hyops.continuity.api import ApiResource, ApiSpec, v1alpha1
 from hyops.continuity.json_values import digest_json
 
+from .client import TERMINAL_FINALIZER
+
 
 class ReferenceClient(Protocol):
     def read(self, namespace: str, name: str) -> Mapping[str, Any] | None: ...
@@ -28,7 +30,20 @@ def _identifier(value: object) -> bool:
     return isinstance(value, str) and bool(value) and value == value.strip()
 
 
-def _identity(obj: Mapping[str, Any], namespace: str, name: str) -> dict[str, str]:
+def finalizers(metadata: Mapping) -> list[str]:
+    values = metadata.get("finalizers", ())
+    if (
+        not isinstance(values, (list, tuple))
+        or not all(_identifier(value) for value in values)
+        or len(values) != len(set(values))
+    ):
+        raise ReferenceBindingError("InvalidFinalizers")
+    return list(values)
+
+
+def _identity(
+    obj: Mapping[str, Any], namespace: str, name: str, *, allow_deleting: bool = False
+) -> dict[str, str]:
     meta = obj.get("metadata")
     if not isinstance(meta, Mapping) or (
         meta.get("namespace") != namespace
@@ -37,39 +52,46 @@ def _identity(obj: Mapping[str, Any], namespace: str, name: str) -> dict[str, st
         or not _identifier(meta.get("resourceVersion"))
     ):
         raise ReferenceBindingError("InvalidObjectIdentity")
-    if meta.get("deletionTimestamp") is not None:
+    if not allow_deleting and meta.get("deletionTimestamp") is not None:
         raise ReferenceBindingError("ObjectDeleting")
     return {key: meta[key] for key in ("namespace", "name", "uid", "resourceVersion")}
 
 
 def _read_contract(
-    client: ReferenceClient, namespace: str, name: str
+    client: ReferenceClient, namespace: str, name: str, *, allow_deleting: bool = False
 ) -> tuple[dict, ApiResource]:
     obj = client.read(namespace, name)
     if obj is None:
         raise ReferenceBindingError("ContractMissing")
     if not isinstance(obj, Mapping):
         raise ReferenceBindingError("InvalidContract")
-    identity = _identity(obj, namespace, name)
+    identity = _identity(obj, namespace, name, allow_deleting=allow_deleting)
     try:
         parsed = v1alpha1.decode(obj)
     except v1alpha1.ApiValidationError:
         raise ReferenceBindingError("InvalidContract") from None
     return dict(
         identity,
-        generation=parsed.metadata.generation,
+        generation=parsed.metadata.operation_generation,
         specDigest=digest_json(obj["spec"]),
     ), parsed
 
 
 def _contract(
-    client: ReferenceClient, namespace: str, name: str
+    client: ReferenceClient, namespace: str, name: str, *, protected: bool | None = None
 ) -> tuple[dict, ApiSpec]:
     identity, resource = _read_contract(client, namespace, name)
     if resource.metadata.generation < 1 or (
         resource.status and resource.status.phase != "Pending"
     ):
         raise ReferenceBindingError("ContractNotPending")
+    if (
+        protected is not None
+        and (TERMINAL_FINALIZER in finalizers(resource.metadata.extra)) != protected
+    ):
+        raise ReferenceBindingError(
+            "TerminalFinalizerMissing" if protected else "TerminalFinalizerPresent"
+        )
     return identity, resource.spec
 
 
@@ -141,22 +163,34 @@ def _same_contract(observed: dict, original: object) -> bool:
 
 
 def read_bound_subject(
-    client: ReferenceClient, namespace: str, name: str, subject: dict
+    client: ReferenceClient,
+    namespace: str,
+    name: str,
+    subject: dict,
+    *,
+    allow_deleting: bool = False,
 ) -> ApiResource:
-    identity, resource = _read_contract(client, namespace, name)
+    identity, resource = _read_contract(
+        client, namespace, name, allow_deleting=allow_deleting
+    )
     if not _same_contract(identity, subject):
         raise ReferenceBindingError("ContractChanged")
     return resource
 
 
 def _observe(
-    client: ReferenceClient, namespace: str, name: str, baseline: dict | None
+    client: ReferenceClient,
+    namespace: str,
+    name: str,
+    baseline: dict | None,
+    *,
+    protected: bool | None = None,
 ) -> tuple[dict[str, Any], ApiSpec]:
     first, spec = _contract(client, namespace, name)
     if baseline is not None and not _same_contract(first, baseline):
         raise ReferenceBindingError("ContractChanged")
     refs = [_referent(client, namespace, kind, key) for kind, key in _keys(spec)]
-    current, _ = _contract(client, namespace, name)
+    current, _ = _contract(client, namespace, name, protected=protected)
     if not _same_contract(current, first):
         raise ReferenceBindingError("ContractChanged")
     return {
@@ -175,7 +209,12 @@ def resolve_references(
 
 
 def verify_references(
-    client: ReferenceClient, namespace: str, name: str, record: Mapping[str, Any]
+    client: ReferenceClient,
+    namespace: str,
+    name: str,
+    record: Mapping[str, Any],
+    *,
+    protected: bool | None = None,
 ) -> ApiSpec:
     if not isinstance(record, Mapping) or (
         set(record) != {"apiVersion", "kind", "contract", "references"}
@@ -185,7 +224,9 @@ def verify_references(
         or not isinstance(record["references"], list)
     ):
         raise ReferenceBindingError("InvalidBindingRecord")
-    current, spec = _observe(client, namespace, name, record["contract"])
+    current, spec = _observe(
+        client, namespace, name, record["contract"], protected=protected
+    )
     if current["references"] != record["references"]:
         raise ReferenceBindingError("ReferenceChanged")
     return spec

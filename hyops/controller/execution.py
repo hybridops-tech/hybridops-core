@@ -11,9 +11,14 @@ from hyops.continuity.models import (
     WorkloadIdentity,
 )
 
-from .binding import BindingReceipt, claim_dispatch, verify_operation
-from .client import ContractClient
-from .references import ReferenceBindingError
+from .binding import (
+    BindingReceipt,
+    claim_dispatch,
+    read_dispatched_subject,
+    verify_operation,
+)
+from .client import TERMINAL_FINALIZER, ContractClient, StatusConflict
+from .references import ReferenceBindingError, finalizers
 
 
 def project_contract(spec: ApiSpec, operation_id: str) -> ContinuityContract:
@@ -83,12 +88,52 @@ def execute_with_claim(
     record_namespace: str,
     receipt: BindingReceipt,
     engine: ContinuityEngine,
+    *,
+    retain_terminal: bool = False,
 ) -> tuple[TerminalRecord, str]:
-    spec = verify_operation(client, record_namespace, receipt)
+    spec = verify_operation(client, record_namespace, receipt, protected=False)
     contract = project_contract(spec, receipt.operation_id)
     claim_uid = claim_dispatch(client, record_namespace, receipt)
+    if retain_terminal:
+        _protect_dispatch(client, record_namespace, receipt, claim_uid)
 
     def before_mutation() -> None:
-        verify_operation(client, record_namespace, receipt, claim_uid=claim_uid)
+        verify_operation(
+            client,
+            record_namespace,
+            receipt,
+            claim_uid=claim_uid,
+            protected=retain_terminal,
+        )
 
     return engine.run(contract, before_mutation=before_mutation), claim_uid
+
+
+def _protect_dispatch(
+    client: ContractClient,
+    record_namespace: str,
+    receipt: BindingReceipt,
+    claim_uid: str,
+) -> None:
+    for attempt in range(3):
+        _, resource = read_dispatched_subject(
+            client, record_namespace, receipt, claim_uid
+        )
+        if resource.status and resource.status.phase != "Pending":
+            raise ReferenceBindingError("ContractNotPending")
+        metadata = resource.metadata.extra
+        current = finalizers(metadata)
+        if TERMINAL_FINALIZER in current:
+            raise ReferenceBindingError("TerminalFinalizerPresent")
+        try:
+            client.replace_finalizers(
+                receipt.namespace,
+                receipt.name,
+                receipt.contract_uid,
+                metadata["resourceVersion"],
+                [*current, TERMINAL_FINALIZER],
+            )
+            return
+        except StatusConflict:
+            if attempt == 2:
+                raise

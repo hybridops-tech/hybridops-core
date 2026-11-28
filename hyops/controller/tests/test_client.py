@@ -11,6 +11,7 @@ from hyops.continuity.api.v1alpha1 import API_VERSION_VALUE
 from hyops.controller.client import (
     DISPATCH_ANNOTATION,
     TERMINAL_ANNOTATION,
+    TERMINAL_FINALIZER,
     ContractClient,
 )
 from hyops.controller.reconcile import StatusConflict
@@ -56,6 +57,100 @@ class ContractClientTests(unittest.TestCase):
 
     def write(self, client):
         return client.replace_status("default", "lab", "uid", "42", self.status)
+
+    def test_finalizer_patch_replaces_only_the_observed_metadata(self):
+        foreign = "other.example/retain"
+        stamp = "2026-11-28T12:00:00Z"
+        for desired, observed, deleting in (
+            (
+                [foreign, TERMINAL_FINALIZER],
+                {"finalizers": [TERMINAL_FINALIZER, foreign]},
+                False,
+            ),
+            ([foreign], {"finalizers": [foreign], "deletionTimestamp": stamp}, True),
+            ([], {"deletionTimestamp": stamp}, True),
+        ):
+            with self.subTest(desired=desired):
+                obj = deepcopy(self.written)
+                obj["metadata"].update(observed)
+                client, conn = self.response(200, obj)
+                client.replace_finalizers(
+                    "default", "lab", "uid", "42", desired, deleting=deleting
+                )
+                request = conn.request.call_args
+                self.assertEqual(
+                    request.args,
+                    (
+                        "PATCH",
+                        f"/apis/{API_VERSION_VALUE}/namespaces/default/continuitycontracts/lab",
+                    ),
+                )
+                self.assertEqual(
+                    request.kwargs["headers"]["Content-Type"],
+                    "application/merge-patch+json",
+                )
+                self.assertEqual(
+                    json.loads(request.kwargs["body"]),
+                    {
+                        "metadata": {
+                            "uid": "uid",
+                            "resourceVersion": "42",
+                            "finalizers": desired,
+                        }
+                    },
+                )
+
+    def test_unconfirmed_finalizer_patch_is_not_success(self):
+        desired = ["other.example/retain"]
+        for delta in (
+            {"name": "another"},
+            {"namespace": "another"},
+            {"uid": "replacement"},
+            {"resourceVersion": ""},
+            {"finalizers": []},
+            {"finalizers": desired * 2},
+            {"finalizers": [None]},
+            {"deletionTimestamp": "2026-11-28T12:00:00Z"},
+        ):
+            with self.subTest(delta=delta):
+                obj = deepcopy(self.written)
+                obj["metadata"].update({"finalizers": desired, **delta})
+                client, _ = self.response(200, obj)
+                with self.assertRaisesRegex(
+                    RuntimeError, "finalizer write was not confirmed"
+                ):
+                    client.replace_finalizers("default", "lab", "uid", "42", desired)
+        client, _ = self.response(200, self.written)
+        with self.assertRaisesRegex(RuntimeError, "finalizer write was not confirmed"):
+            client.replace_finalizers("default", "lab", "uid", "42", [], deleting=True)
+        for uid, version, names in (
+            ("", "42", []),
+            ("uid", "", []),
+            ("uid", "42", None),
+        ):
+            client, conn = self.response(200, self.written)
+            with self.assertRaises(ValueError):
+                client.replace_finalizers("default", "lab", uid, version, names)
+            conn.request.assert_not_called()
+
+    def test_finalizer_conflict_or_disappearance_requires_a_new_read(self):
+        details = {"group": API_GROUP, "kind": "continuitycontracts", "name": "lab"}
+        for code, reason in ((409, "Conflict"), (404, "NotFound")):
+            for target, expected in (
+                (details, StatusConflict),
+                ({**details, "name": "another"}, RuntimeError),
+                ({**details, "kind": "namespaces"}, RuntimeError),
+                ({}, RuntimeError),
+            ):
+                with self.subTest(code=code, target=target):
+                    client, conn = self.response(
+                        code, {"reason": reason, "details": target}
+                    )
+                    with self.assertRaises(expected):
+                        client.replace_finalizers(
+                            "default", "lab", "uid", "42", [], deleting=True
+                        )
+                    conn.request.assert_called_once()
 
     def test_read_distinguishes_missing_contract_from_missing_api(self):
         missing = {"reason": "NotFound", "details": {"group": API_GROUP, "name": "lab"}}
@@ -307,6 +402,7 @@ class ContractClientTests(unittest.TestCase):
             {"metadata": {**obj["metadata"], "resourceVersion": None}},
             {"metadata": {**obj["metadata"], "name": "other"}},
             {"metadata": {**obj["metadata"], "namespace": "other"}},
+            {"metadata": {**obj["metadata"], "ownerReferences": [{"uid": "parent"}]}},
             {
                 "metadata": {
                     **obj["metadata"],
@@ -426,6 +522,7 @@ class ContractClientTests(unittest.TestCase):
             )
         for delta in (
             {"immutable": False},
+            {"metadata": {**cm["metadata"], "ownerReferences": [{"uid": "parent"}]}},
             {"data": {"binding.json": content}},
             {"data": {**cm["data"], "extra": ""}},
             {"binaryData": {"more": "AA=="}},
@@ -562,3 +659,35 @@ class ContractClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.replace_terminal_status(*args[:-1], self.status)
         conn.request.assert_not_called()
+
+    def test_terminal_status_accepts_deletion_only_when_requested(self):
+        status = {
+            "observedGeneration": 1,
+            "phase": "Failed",
+            "terminalEvidenceRef": {
+                "kind": "ConfigMap",
+                "name": "record",
+                "digest": "sha256:" + "a" * 64,
+            },
+        }
+        args = ("default", "lab", "uid", "42", status)
+        for deleting, stamp in ((True, "2026-11-28T12:00:00Z"), (False, None)):
+            obj = {
+                **self.written,
+                "metadata": {
+                    **self.written["metadata"],
+                    "deletionTimestamp": stamp,
+                    "generation": 2 if deleting else 1,
+                },
+                "status": status,
+            }
+            client, _ = self.response(200, obj)
+            client.replace_terminal_status(*args, deleting=deleting)
+            client, _ = self.response(200, obj)
+            with self.assertRaisesRegex(RuntimeError, "write was not confirmed"):
+                client.replace_terminal_status(*args, deleting=not deleting)
+            for generation in (1, 3) if deleting else (2,):
+                obj["metadata"]["generation"] = generation
+                client, _ = self.response(200, obj)
+                with self.assertRaisesRegex(RuntimeError, "write was not confirmed"):
+                    client.replace_terminal_status(*args, deleting=deleting)

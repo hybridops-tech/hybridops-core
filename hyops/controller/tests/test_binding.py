@@ -44,7 +44,7 @@ class BindingStoreTests(unittest.TestCase):
         )
         fresh_client.create_binding.assert_not_called()
         self.verify.assert_called_once_with(
-            fresh_client, "work", "operation", self.record
+            fresh_client, "work", "operation", self.record, protected=None
         )
 
     def test_duplicate_uses_original_record_and_refuses_drift(self):
@@ -99,7 +99,7 @@ class BindingStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ReferenceBindingError, "^BindingReplaced$"):
             verify_operation(self.client, "records", receipt)
         self.verify.assert_called_once_with(
-            self.client, "work", "operation", self.record
+            self.client, "work", "operation", self.record, protected=None
         )
 
     def test_store_cannot_be_in_the_contract_namespace(self):

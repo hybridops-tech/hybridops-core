@@ -225,12 +225,18 @@ def read_dispatched_subject(
     record_namespace: str,
     receipt: BindingReceipt,
     claim_uid: str,
+    *,
+    allow_deleting: bool = False,
 ) -> tuple[dict, ApiResource]:
     require_separate_store(record_namespace, receipt.namespace)
     metadata, record = _pinned_record(client, record_namespace, receipt)
     _verify_claim(client, record_namespace, receipt, metadata, claim_uid)
     resource = read_bound_subject(
-        client, receipt.namespace, receipt.name, record["contract"]
+        client,
+        receipt.namespace,
+        receipt.name,
+        record["contract"],
+        allow_deleting=allow_deleting,
     )
     return metadata, resource
 
@@ -241,11 +247,14 @@ def verify_operation(
     receipt: BindingReceipt,
     *,
     claim_uid: str | None = None,
+    protected: bool | None = None,
 ) -> ApiSpec:
     """Verify from the original receipt. A missing baseline is never recreated."""
     require_separate_store(record_namespace, receipt.namespace)
     _, record = _pinned_record(client, record_namespace, receipt)
-    spec = verify_references(client, receipt.namespace, receipt.name, record)
+    spec = verify_references(
+        client, receipt.namespace, receipt.name, record, protected=protected
+    )
     metadata, _ = _pinned_record(client, record_namespace, receipt)
     if claim_uid is not None:
         _verify_claim(client, record_namespace, receipt, metadata, claim_uid)

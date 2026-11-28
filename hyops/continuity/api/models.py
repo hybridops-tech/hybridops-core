@@ -24,6 +24,13 @@ class ObjectMeta:
     def __post_init__(self) -> None:
         object.__setattr__(self, "extra", freeze_json(self.extra))
 
+    @property
+    def operation_generation(self) -> int:
+        """Exclude the generation increment Kubernetes makes when deletion starts."""
+        if self.extra.get("deletionTimestamp") is not None:
+            return self.generation - 1
+        return self.generation
+
 
 @dataclass(frozen=True)
 class LocalObjectReference:

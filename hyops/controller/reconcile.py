@@ -9,9 +9,9 @@ from typing import Any, Protocol, cast, overload
 from hyops.continuity.api import ApiCondition, ApiStatus, v1alpha1
 
 from .binding import dispatched_receipt
-from .client import ContractClient, StatusConflict
-from .references import ReferenceBindingError
-from .terminal import publish_terminal_status
+from .client import TERMINAL_FINALIZER, ContractClient, StatusConflict
+from .references import ReferenceBindingError, finalizers
+from .terminal import reconcile_terminal
 
 
 class StatusClient(Protocol):
@@ -142,29 +142,38 @@ def reconcile(
             raise ValueError(
                 "Persisted contract requires a UID, resource version and generation"
             )
-        if metadata.get("deletionTimestamp") is not None or (
-            initial_uid is not None and uid != initial_uid
-        ):
+        if initial_uid is not None and uid != initial_uid:
             return False
         initial_uid = uid
-        if record_namespace is not None:
-            records = cast(ContractClient, client)
-            receipt = dispatched_receipt(
-                records, record_namespace, namespace, name, uid
-            )
-            if receipt is not None:
-                return publish_terminal_status(records, record_namespace, receipt)
-            existing = payload.get("status")
-            if (
-                isinstance(existing, Mapping)
-                and existing.get("terminalEvidenceRef") is not None
-            ):
-                raise ReferenceBindingError("DispatchClaimMissing")
-        status = _pending_update(payload, generation, now)
-        if status is None:
+        deleting = metadata.get("deletionTimestamp") is not None
+        if deleting and (
+            record_namespace is None or TERMINAL_FINALIZER not in finalizers(metadata)
+        ):
             return False
         try:
+            if record_namespace is not None:
+                records = cast(ContractClient, client)
+                receipt = dispatched_receipt(
+                    records, record_namespace, namespace, name, uid
+                )
+                if receipt is not None:
+                    return reconcile_terminal(
+                        records, record_namespace, receipt, deleting=deleting
+                    )
+                existing = payload.get("status")
+                if TERMINAL_FINALIZER in finalizers(metadata) or (
+                    isinstance(existing, Mapping)
+                    and existing.get("terminalEvidenceRef") is not None
+                ):
+                    raise ReferenceBindingError("DispatchClaimMissing")
+            status = _pending_update(payload, generation, now)
+            if status is None:
+                return False
             client.replace_status(namespace, name, uid, version, status)
+        except ReferenceBindingError as error:
+            if deleting and error.reason == "ContractMissing":
+                return False
+            raise
         except StatusConflict:
             attempts_left -= 1
             if not attempts_left:

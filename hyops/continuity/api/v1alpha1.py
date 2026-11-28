@@ -220,6 +220,15 @@ def _decode_metadata(value: object) -> ObjectMeta:
         metadata.get("generation", 0),
         "$.metadata.generation",
     )
+    deletion = metadata.get("deletionTimestamp")
+    if deletion is not None:
+        path = "$.metadata.deletionTimestamp"
+        _rfc3339(_text(deletion, path), path, "InvalidMetadata")
+        if generation < 2:
+            _fail(
+                "InvalidMetadata", "$.metadata.generation",
+                "deletion requires a prior positive generation",
+            )
     extra = {
         key: item for key, item in metadata.items() if key not in _TYPED_METADATA_KEYS
     }
@@ -742,12 +751,19 @@ def _validate_semantics(resource: ApiResource) -> None:
     _topological_order(stages)
     if resource.status is not None:
         _validate_status(
-            resource.status, resource.metadata.generation, resource.spec.recovery_sets
+            resource.status,
+            resource.metadata.generation,
+            resource.spec.recovery_sets,
+            terminal_generation=resource.metadata.operation_generation,
         )
 
 
 def _validate_status(
-    status: ApiStatus, generation: int, recovery_sets: tuple[RecoverySetSpec, ...]
+    status: ApiStatus,
+    generation: int,
+    recovery_sets: tuple[RecoverySetSpec, ...],
+    *,
+    terminal_generation: int | None = None,
 ) -> None:
     generation = _nonnegative_integer(generation, "$.metadata.generation")
     if status.observed_generation > generation:
@@ -804,14 +820,12 @@ def _validate_status(
             "$.status.terminalEvidenceRef",
             "must be present exactly when phase is terminal",
         )
-    if is_terminal and (
-        not status.observed_generation
-        or status.observed_generation != generation
-    ):
+    expected = generation if terminal_generation is None else terminal_generation
+    if is_terminal and (not status.observed_generation or status.observed_generation != expected):
         _fail(
             "StaleTerminalStatus",
             "$.status.observedGeneration",
-            "must be positive and equal metadata.generation for a terminal phase",
+            "must match the positive operation generation for a terminal phase",
         )
     if status.phase == "Succeeded" and set(recovery_identities) != set(
         declared_recovery_sets
@@ -1111,15 +1125,15 @@ def _nonnegative_integer(value: object, path: str) -> int:
     return value
 
 
-def _rfc3339(value: str, path: str) -> None:
+def _rfc3339(value: str, path: str, reason_code: str = "InvalidCondition") -> None:
     if _RFC3339_RE.fullmatch(value) is None:
-        _fail("InvalidCondition", path, "must be an RFC 3339 timestamp")
+        _fail(reason_code, path, "must be an RFC 3339 timestamp")
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        _fail("InvalidCondition", path, "must be an RFC 3339 timestamp")
+        _fail(reason_code, path, "must be an RFC 3339 timestamp")
     if parsed.tzinfo is None:
-        _fail("InvalidCondition", path, "must include a timezone")
+        _fail(reason_code, path, "must include a timezone")
 
 
 def _unique_by(

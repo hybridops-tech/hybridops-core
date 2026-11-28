@@ -15,9 +15,14 @@ from .binding import (
     read_dispatched_subject,
     require_separate_store,
 )
-from .client import TERMINAL_ANNOTATION, ContractClient, StatusConflict
+from .client import (
+    TERMINAL_ANNOTATION,
+    TERMINAL_FINALIZER,
+    ContractClient,
+    StatusConflict,
+)
 from .execution import execute_with_claim, project_contract
-from .references import ReferenceBindingError
+from .references import ReferenceBindingError, finalizers
 from .terminal_projection import terminal_status
 
 
@@ -80,7 +85,7 @@ def _pin_witness(
     name = receipt.terminal_name
     for attempt in range(3):
         meta, _ = read_dispatched_subject(
-            client, record_namespace, receipt, witness["claimUid"]
+            client, record_namespace, receipt, witness["claimUid"], allow_deleting=True
         )
         witness_meta, stored = read_binding_record(
             client, record_namespace, name, missing_reason="TerminalWitnessMissing"
@@ -127,9 +132,11 @@ def run_and_retain_terminal(
         or client.read_binding(record_namespace, name) is not None
     ):
         raise ReferenceBindingError("TerminalRecordAlreadyExists")
-    result, claim_uid = execute_with_claim(client, record_namespace, receipt, engine)
+    result, claim_uid = execute_with_claim(
+        client, record_namespace, receipt, engine, retain_terminal=True
+    )
     meta, resource = read_dispatched_subject(
-        client, record_namespace, receipt, claim_uid
+        client, record_namespace, receipt, claim_uid, allow_deleting=True
     )
     if TERMINAL_ANNOTATION in meta.get("annotations", {}):
         raise ReferenceBindingError("TerminalAlreadyWitnessed")
@@ -144,7 +151,7 @@ def run_and_retain_terminal(
     )
     witness = _witness(
         receipt,
-        resource.metadata.generation,
+        resource.metadata.operation_generation,
         claim_uid,
         public["metadata"]["uid"],
         digest,
@@ -155,7 +162,11 @@ def run_and_retain_terminal(
 
 
 def _publication(
-    client: ContractClient, record_namespace: str, receipt: BindingReceipt
+    client: ContractClient,
+    record_namespace: str,
+    receipt: BindingReceipt,
+    *,
+    deleting: bool,
 ) -> tuple[ApiResource, dict, bool]:
     require_separate_store(record_namespace, receipt.namespace)
     name = receipt.terminal_name
@@ -170,9 +181,14 @@ def _publication(
     ) or not is_sha256_digest(digest):
         raise ReferenceBindingError("InvalidTerminalWitness")
     meta, resource = read_dispatched_subject(
-        client, record_namespace, receipt, claim_uid
+        client, record_namespace, receipt, claim_uid, allow_deleting=deleting
     )
-    generation = resource.metadata.generation
+    if deleting and (
+        resource.metadata.extra.get("deletionTimestamp") is None
+        or TERMINAL_FINALIZER not in finalizers(resource.metadata.extra)
+    ):
+        raise StatusConflict
+    generation = resource.metadata.operation_generation
     if (
         meta.get("annotations", {}).get(TERMINAL_ANNOTATION) != witness_meta["uid"]
         or type(witness.get("generation")) is not int
@@ -196,28 +212,55 @@ def _publication(
     return resource, proposed, terminal
 
 
+def reconcile_terminal(
+    client: ContractClient,
+    record_namespace: str,
+    receipt: BindingReceipt,
+    *,
+    deleting: bool = False,
+) -> bool:
+    """Confirm terminal status, then release its evidence finalizer during deletion."""
+    resource, status, terminal = _publication(
+        client, record_namespace, receipt, deleting=deleting
+    )
+    if not terminal:
+        client.replace_terminal_status(
+            receipt.namespace,
+            receipt.name,
+            receipt.contract_uid,
+            resource.metadata.extra["resourceVersion"],
+            status,
+            recovery_sets=resource.spec.recovery_sets,
+            deleting=deleting,
+        )
+        resource, _, confirmed = _publication(
+            client, record_namespace, receipt, deleting=deleting
+        )
+        if not confirmed:
+            raise ReferenceBindingError("TerminalStatusUnconfirmed")
+    if not deleting:
+        return not terminal
+    metadata = resource.metadata.extra
+    remaining = finalizers(metadata)
+    remaining.remove(TERMINAL_FINALIZER)
+    client.replace_finalizers(
+        receipt.namespace,
+        receipt.name,
+        receipt.contract_uid,
+        metadata["resourceVersion"],
+        remaining,
+        deleting=True,
+    )
+    return True
+
+
 def publish_terminal_status(
     client: ContractClient, record_namespace: str, receipt: BindingReceipt
 ) -> bool:
     """Verify the stored record on every attempt, including an already-terminal read."""
     for attempt in range(3):
-        resource, status, terminal = _publication(client, record_namespace, receipt)
-        if terminal:
-            return False
         try:
-            client.replace_terminal_status(
-                receipt.namespace,
-                receipt.name,
-                receipt.contract_uid,
-                resource.metadata.extra["resourceVersion"],
-                status,
-                recovery_sets=resource.spec.recovery_sets,
-            )
+            return reconcile_terminal(client, record_namespace, receipt)
         except StatusConflict:
             if attempt == 2:
                 raise
-            continue
-        _, _, terminal = _publication(client, record_namespace, receipt)
-        if not terminal:
-            raise ReferenceBindingError("TerminalStatusUnconfirmed")
-        return True
