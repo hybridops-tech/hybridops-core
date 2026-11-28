@@ -15,7 +15,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 
-def _payload(value: Any) -> bytes:
+def encode_store_record(value: Any) -> bytes:
     return (json.dumps(value, allow_nan=False, indent=2, sort_keys=True) + "\n").encode(
         "utf-8"
     )
@@ -204,7 +204,7 @@ class FileOperationStore:
         _sync_directory(self._root)
         operation_path = operation_root / "claim.json"
         record_path = operation_root / "terminal.json"
-        bound_claim = _payload(
+        bound_claim = encode_store_record(
             {
                 **claim,
                 "terminal_record": str(record_path),
@@ -232,7 +232,9 @@ class FileOperationStore:
             raise TypeError("operation lease does not identify an acquired directory")
         try:
             with _claimed_directory(lease) as directory:
-                _write_exclusive(lease.record_path, _payload(record), directory)
+                _write_exclusive(
+                    lease.record_path, encode_store_record(record), directory
+                )
         except FileExistsError:
             if self.probe(lease, record) is PublicationState.COMMITTED:
                 return
@@ -245,7 +247,7 @@ class FileOperationStore:
     ) -> PublicationState:
         if not isinstance(lease, _FileOperationLease):
             return PublicationState.UNKNOWN
-        expected = _payload(record)
+        expected = encode_store_record(record)
         try:
             with _claimed_directory(lease) as directory:
                 matches = _matches_record(

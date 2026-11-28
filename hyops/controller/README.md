@@ -47,8 +47,28 @@ binding and claim again. A failed check leaves that action unexecuted.
 An existing claim is never replayed, even from a fresh local operation store.
 If an executor stops after claiming an operation, inspect the workload and
 operation store. A missing terminal record does not establish whether an
-action ran. Status reconciliation does not
-invoke execution or retry external actions.
+action ran. Status reconciliation does not invoke execution or retry external
+actions.
+
+## Terminal status
+
+When publishing terminal status, use `run_and_retain_terminal` **instead of**
+`run_bound_operation`. It executes the contract once and retains the kernel's
+committed `terminal.json` in an immutable ConfigMap in the contract namespace.
+The controller records its UID and SHA-256 alongside the original dispatch
+claim and pins that witness to the binding. A record larger than 1 MiB stays
+in the operation store; Kubernetes status is not published.
+
+Call `publish_terminal_status` with the original binding receipt. It checks
+the current contract UID, generation and spec, verifies the stored bytes, and
+derives the phase and recovery sets from the kernel record. A status conflict
+repeats verification, not execution. After a lost response, use the same call;
+it verifies an existing terminal status without rewriting it.
+
+Retain both ConfigMaps for as long as the status is needed. Kubernetes does
+not update evidence and status atomically. If execution stops before the
+witness is pinned, inspect the operation store and workload; do not dispatch
+again to recover a missing status.
 
 Run the API-server checks with `bash tools/ci/check-continuity-api.sh`.
 

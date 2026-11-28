@@ -6,12 +6,17 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from hyops.continuity.api import ApiSpec, v1alpha1
+from hyops.continuity.api import ApiResource, ApiSpec, v1alpha1
 from hyops.continuity.json_values import digest_json
 
 from .client import DISPATCH_ANNOTATION, ContractClient
 from .reconcile import StatusConflict
-from .references import ReferenceBindingError, resolve_references, verify_references
+from .references import (
+    ReferenceBindingError,
+    read_bound_subject,
+    resolve_references,
+    verify_references,
+)
 
 
 def _record_name(contract_uid: str) -> str:
@@ -36,15 +41,21 @@ class BindingReceipt:
         return "dispatch-" + hashlib.sha256(self.contract_uid.encode()).hexdigest()[:54]
 
 
-def _separate_store(record_namespace: str, namespace: str) -> None:
+def require_separate_store(record_namespace: str, namespace: str) -> None:
     if not record_namespace or not namespace or record_namespace == namespace:
         raise ReferenceBindingError("InvalidBindingNamespace")
 
 
-def _load(client: ContractClient, namespace: str, key: str) -> tuple[dict, dict]:
+def read_binding_record(
+    client: ContractClient,
+    namespace: str,
+    key: str,
+    *,
+    missing_reason: str = "BindingMissing",
+) -> tuple[dict, dict]:
     obj = client.read_binding(namespace, key)
     if obj is None:
-        raise ReferenceBindingError("BindingMissing")
+        raise ReferenceBindingError(missing_reason)
     try:
         record = json.loads(obj["data"]["binding.json"])
     except (ValueError, RecursionError):
@@ -58,14 +69,14 @@ def bind_operation(
     client: ContractClient, record_namespace: str, namespace: str, name: str
 ) -> BindingReceipt:
     """Create the baseline once; on duplicate delivery verify the original."""
-    _separate_store(record_namespace, namespace)
+    require_separate_store(record_namespace, namespace)
     record = resolve_references(client, namespace, name)
     uid = record["contract"]["uid"]
     key = _record_name(uid)
     try:
         created = client.create_binding(record_namespace, key, record)
     except FileExistsError:
-        metadata, record = _load(client, record_namespace, key)
+        metadata, record = read_binding_record(client, record_namespace, key)
         record_uid = metadata["uid"]
         if (
             not isinstance(record.get("contract"), dict)
@@ -81,7 +92,9 @@ def bind_operation(
 def _pinned_record(
     client: ContractClient, record_namespace: str, receipt: BindingReceipt
 ) -> tuple[dict, dict]:
-    metadata, record = _load(client, record_namespace, receipt.record_name)
+    metadata, record = read_binding_record(
+        client, record_namespace, receipt.record_name
+    )
     if metadata["uid"] != receipt.record_uid:
         raise ReferenceBindingError("BindingReplaced")
     subject = record.get("contract")
@@ -115,7 +128,7 @@ def _dispatch_record(receipt: BindingReceipt) -> dict:
 def claim_dispatch(
     client: ContractClient, record_namespace: str, receipt: BindingReceipt
 ) -> str:
-    _separate_store(record_namespace, receipt.namespace)
+    require_separate_store(record_namespace, receipt.namespace)
     metadata, _ = _pinned_record(client, record_namespace, receipt)
     if DISPATCH_ANNOTATION in _annotations(metadata):
         raise ReferenceBindingError("DispatchAlreadyClaimed")
@@ -138,6 +151,39 @@ def claim_dispatch(
     return claim["metadata"]["uid"]
 
 
+def _verify_claim(
+    client: ContractClient,
+    record_namespace: str,
+    receipt: BindingReceipt,
+    metadata: dict,
+    claim_uid: str,
+) -> None:
+    claim_meta, claim = read_binding_record(
+        client, record_namespace, receipt.operation_id
+    )
+    if (
+        _annotations(metadata).get(DISPATCH_ANNOTATION) != receipt.operation_id
+        or claim_meta["uid"] != claim_uid
+        or claim != _dispatch_record(receipt)
+    ):
+        raise ReferenceBindingError("DispatchClaimChanged")
+
+
+def read_dispatched_subject(
+    client: ContractClient,
+    record_namespace: str,
+    receipt: BindingReceipt,
+    claim_uid: str,
+) -> tuple[dict, ApiResource]:
+    require_separate_store(record_namespace, receipt.namespace)
+    metadata, record = _pinned_record(client, record_namespace, receipt)
+    _verify_claim(client, record_namespace, receipt, metadata, claim_uid)
+    resource = read_bound_subject(
+        client, receipt.namespace, receipt.name, record["contract"]
+    )
+    return metadata, resource
+
+
 def verify_operation(
     client: ContractClient,
     record_namespace: str,
@@ -146,16 +192,10 @@ def verify_operation(
     claim_uid: str | None = None,
 ) -> ApiSpec:
     """Verify from the original receipt. A missing baseline is never recreated."""
-    _separate_store(record_namespace, receipt.namespace)
+    require_separate_store(record_namespace, receipt.namespace)
     _, record = _pinned_record(client, record_namespace, receipt)
     spec = verify_references(client, receipt.namespace, receipt.name, record)
     metadata, _ = _pinned_record(client, record_namespace, receipt)
     if claim_uid is not None:
-        claim_meta, claim = _load(client, record_namespace, receipt.operation_id)
-        if (
-            _annotations(metadata).get(DISPATCH_ANNOTATION) != receipt.operation_id
-            or claim_meta["uid"] != claim_uid
-            or claim != _dispatch_record(receipt)
-        ):
-            raise ReferenceBindingError("DispatchClaimChanged")
+        _verify_claim(client, record_namespace, receipt, metadata, claim_uid)
     return spec
