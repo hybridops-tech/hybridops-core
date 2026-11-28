@@ -22,10 +22,31 @@ _IDENTITY_FIELDS = ("namespace", "name", "uid", "resourceVersion")
 _RESPONSE_LIMIT = 16 * 1024 * 1024
 DISPATCH_ANNOTATION = f"{API_GROUP}/dispatch"
 TERMINAL_ANNOTATION = f"{API_GROUP}/terminal-witness"
+TERMINAL_FINALIZER = f"{API_GROUP}/terminal-evidence"
 
 
 class StatusConflict(Exception):
     """The resource changed before a conditional write."""
+
+
+def _confirmed_metadata(
+    obj: dict | None, namespace: str, name: str, uid: str, deleting: bool
+) -> dict | None:
+    meta = obj.get("metadata") if obj else None
+    if not (
+        obj
+        and (obj.get("apiVersion"), obj.get("kind")) == (API_VERSION_VALUE, API_KIND)
+        and isinstance(meta, dict)
+        and (meta.get("namespace"), meta.get("name"), meta.get("uid"))
+        == (namespace, name, uid)
+        and isinstance(meta.get("resourceVersion"), str)
+        and meta["resourceVersion"].strip()
+    ):
+        return None
+    stamp = meta.get("deletionTimestamp")
+    if deleting:
+        return meta if isinstance(stamp, str) and stamp.strip() else None
+    return meta if stamp is None else None
 
 
 def _response_object(response: HTTPResponse) -> dict[str, Any] | None:
@@ -72,6 +93,7 @@ def _record(obj: dict, namespace: str, name: str, key: str) -> dict:
             for k in ("uid", "resourceVersion")
         )
         and meta.get("deletionTimestamp") is None
+        and meta.get("ownerReferences", []) == []
         and obj.get("immutable") is True
         and obj.get("binaryData", {}) == {}
         and isinstance(data, dict)
@@ -88,6 +110,45 @@ class ContractClient:
 
     def read(self, namespace: str, name: str) -> dict[str, Any] | None:
         return self._request("GET", namespace, name)
+
+    def replace_finalizers(
+        self,
+        namespace: str,
+        name: str,
+        uid: str,
+        resource_version: str,
+        finalizers: list[str],
+        *,
+        deleting: bool = False,
+    ) -> None:
+        if not all(
+            isinstance(v, str) and v.strip() == v and v for v in (uid, resource_version)
+        ):
+            raise ValueError("a finalizer write requires UID and resourceVersion")
+        if not isinstance(finalizers, list) or not all(
+            isinstance(v, str) and v.strip() == v and v for v in finalizers
+        ):
+            raise ValueError("finalizers must be a list of names")
+        obj = self._request(
+            "PATCH",
+            namespace,
+            name,
+            {
+                "metadata": {
+                    "uid": uid,
+                    "resourceVersion": resource_version,
+                    "finalizers": finalizers,
+                }
+            },
+        )
+        meta = _confirmed_metadata(obj, namespace, name, uid, deleting)
+        observed = meta.get("finalizers", []) if meta is not None else None
+        if not (
+            isinstance(observed, list)
+            and all(isinstance(v, str) for v in observed)
+            and sorted(observed) == sorted(finalizers)
+        ):
+            raise RuntimeError("ContinuityContract finalizer write was not confirmed")
 
     def read_reference(
         self, namespace: str, kind: str, name: str
@@ -273,12 +334,15 @@ class ContractClient:
         status: dict[str, Any],
         *,
         recovery_sets: tuple[RecoverySetSpec, ...] = (),
+        deleting: bool = False,
     ) -> None:
         generation = status.get("observedGeneration")
         expected = decode_status(status, generation, recovery_sets)
         if expected.terminal_evidence is None:
             raise ValueError("expected terminal status with an evidence reference")
-        observed = self._write_status(namespace, name, uid, resource_version, status)
+        observed = self._write_status(
+            namespace, name, uid, resource_version, status, deleting=deleting
+        )
         try:
             confirmed = decode_status(observed, generation, recovery_sets) == expected
         except ApiValidationError:
@@ -295,6 +359,8 @@ class ContractClient:
         uid: str,
         resource_version: str,
         status: dict[str, Any],
+        *,
+        deleting: bool = False,
     ) -> dict[str, Any]:
         if not uid or not resource_version:
             raise ValueError("a status write requires UID and resourceVersion")
@@ -314,20 +380,13 @@ class ContractClient:
                 "status": status,
             },
         )
-        metadata = result.get("metadata") if result else None
+        metadata = _confirmed_metadata(result, namespace, name, uid, deleting)
         observed = result.get("status") if result else None
         if not (
-            result
-            and result.get("apiVersion") == API_VERSION_VALUE
-            and result.get("kind") == API_KIND
-            and isinstance(metadata, dict)
-            and (metadata.get("namespace"), metadata.get("name"), metadata.get("uid"))
-            == (namespace, name, uid)
-            and metadata.get("deletionTimestamp") is None
+            metadata is not None
             and type(metadata.get("generation")) is int
-            and metadata["generation"] == status["observedGeneration"]
-            and isinstance(metadata.get("resourceVersion"), str)
-            and metadata["resourceVersion"].strip()
+            and metadata["generation"]
+            == status["observedGeneration"] + (1 if deleting else 0)
             and isinstance(observed, dict)
             and observed.get("phase", "Pending") == status.get("phase", "Pending")
         ):
@@ -383,10 +442,15 @@ class ContractClient:
                     if obj is None:
                         raise ValueError(f"{label} {method} returned an invalid object")
                     return obj
-                if response.status == 409 and method in ("PUT", "PATCH"):
+                contract_patch = contract and method == "PATCH"
+                if (
+                    response.status == 409
+                    and method in ("PUT", "PATCH")
+                    and not contract_patch
+                ):
                     raise StatusConflict
                 if response.status == 404 or (
-                    response.status == 409 and method == "POST"
+                    response.status == 409 and (method == "POST" or contract_patch)
                 ):
                     failure = _response_object(response) or {}
                     details = failure.get("details")
@@ -394,7 +458,10 @@ class ContractClient:
                         isinstance(details, dict)
                         and details.get("group", "") == (API_GROUP if contract else "")
                         and details.get("name") == name
-                        and (contract or details.get("kind") == resource)
+                        and (
+                            (contract and not contract_patch)
+                            or details.get("kind") == resource
+                        )
                     ):
                         if (
                             response.status == 404
@@ -402,10 +469,17 @@ class ContractClient:
                         ):
                             if method == "GET":
                                 return None
-                            if method == "PUT":
+                            if method == "PUT" or contract_patch:
                                 raise StatusConflict
                         if (
+                            contract_patch
+                            and response.status == 409
+                            and failure.get("reason") == "Conflict"
+                        ):
+                            raise StatusConflict
+                        if (
                             response.status == 409
+                            and method == "POST"
                             and failure.get("reason") == "AlreadyExists"
                         ):
                             raise FileExistsError("binding ConfigMap already exists")

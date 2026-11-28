@@ -106,7 +106,7 @@ def terminal_status(
         raise ReferenceBindingError("RecoverySetConflict")
     proposed = replace(
         previous,
-        observed_generation=resource.metadata.generation,
+        observed_generation=resource.metadata.operation_generation,
         phase=phase,
         recovery_sets=identities,
         terminal_evidence=TerminalEvidenceReference(

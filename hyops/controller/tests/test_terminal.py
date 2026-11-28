@@ -2,6 +2,7 @@ import json
 import unittest
 from copy import deepcopy
 from dataclasses import replace
+from itertools import count
 from unittest.mock import Mock, patch
 
 from hyops.continuity.api import v1alpha1
@@ -43,8 +44,10 @@ class TerminalFixture:
             },
         }
         self.objects = {}
+        self.uids = count()
         self.client = Mock(spec_set=ContractClient)
         self.client.read.side_effect = lambda *_: deepcopy(self.obj)
+        self.client.replace_finalizers.side_effect = self.store_finalizers
         self.client.read_binding.side_effect = self.read_record
         self.client.read_terminal_evidence.side_effect = self.read_record
         self.client.create_binding.side_effect = lambda ns, key, val: self.create(
@@ -80,6 +83,15 @@ class TerminalFixture:
         self.engine = Mock(spec_set=ContinuityEngine)
         self.engine.run.return_value = self.result
 
+    def store_finalizers(self, ns, name, uid, version, finalizers, *, deleting=False):
+        meta = self.obj["metadata"]
+        self.assertEqual(
+            (ns, name, uid, version),
+            tuple(meta[k] for k in ("namespace", "name", "uid", "resourceVersion")),
+        )
+        self.assertEqual(deleting, meta.get("deletionTimestamp") is not None)
+        meta.update(finalizers=list(finalizers), resourceVersion=str(int(version) + 1))
+
     def read_record(self, ns, key):
         return deepcopy(self.objects.get((ns, key)))
 
@@ -87,7 +99,7 @@ class TerminalFixture:
         if (ns, key) in self.objects:
             raise FileExistsError
         obj = {
-            "metadata": {"uid": f"uid-{len(self.objects)}", "resourceVersion": "1"},
+            "metadata": {"uid": f"uid-{next(self.uids)}", "resourceVersion": "1"},
             "data": data,
         }
         self.objects[ns, key] = obj
@@ -133,6 +145,7 @@ class TerminalPublicationTests(TerminalFixture, unittest.TestCase):
         ):
             with (
                 self.subTest(change=change),
+                patch.dict(self.obj["metadata"]),
                 patch.dict(self.objects, deepcopy(initial), clear=True),
             ):
                 self.client.pin_terminal_witness.reset_mock()
@@ -187,6 +200,7 @@ class TerminalPublicationTests(TerminalFixture, unittest.TestCase):
         ):
             with (
                 self.subTest(method=method),
+                patch.dict(self.obj["metadata"]),
                 patch.dict(self.objects, deepcopy(initial), clear=True),
             ):
                 target = getattr(self.client, method)

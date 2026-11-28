@@ -72,10 +72,25 @@ publishing status. It does not need the first worker's receipt or operation stor
 An undispatched contract follows normal validation; an incomplete dispatch stays
 unresolved. Neither path runs the workload.
 
-Retain both ConfigMaps for as long as the status is needed. Kubernetes does
-not update evidence and status atomically. If execution stops before the
-witness is pinned, inspect the operation store and workload; do not dispatch
-again to recover a missing status.
+Retain the binding, dispatch claim, witness and evidence ConfigMaps without
+owner references. Kubernetes does not update evidence and status atomically.
+If execution stops before the witness is pinned, inspect the operation store
+and workload; do not dispatch again to recover a missing status.
+
+## Contract deletion
+
+Retained execution claims the operation and attaches
+`continuity.hyopsproject.github.io/terminal-evidence` before dispatch. Before
+each stage or cleanup call, the executor checks that the contract is live and
+the finalizer is still present. Deletion does not cancel a call already in
+progress or retire the workload.
+
+On deletion, reconciliation verifies the retained records and confirms terminal
+status before removing its own finalizer. Status identifies the generation that
+ran, not the generation Kubernetes assigns on deletion. A missing claim, unpinned
+result or changed evidence keeps the finalizer in place. Inspect the workload
+and operation store in that case; do not redispatch. Other finalizers and the
+retained records are left intact.
 
 Run the API-server checks with `bash tools/ci/check-continuity-api.sh`.
 

@@ -12,7 +12,8 @@ from unittest.mock import patch
 from continuity_cluster import client, kubectl
 from hyops.continuity.engine import ContinuityEngine
 from hyops.continuity.storage import FileOperationStore
-from hyops.controller.binding import bind_operation
+from hyops.controller.binding import bind_operation, dispatched_receipt
+from hyops.controller.client import TERMINAL_FINALIZER
 from hyops.controller.reconcile import reconcile
 from hyops.controller.references import ReferenceBindingError
 from hyops.controller.terminal import publish_terminal_status, run_and_retain_terminal
@@ -31,9 +32,9 @@ def digest(content):
     return "sha256:" + hashlib.sha256(content).hexdigest()
 
 
-def fresh_worker(function, *args):
+def fresh_worker(function, *args, **kwargs):
     with multiprocessing.get_context("spawn").Pool(1) as worker:
-        return worker.apply_async(function, args).get(timeout=45)
+        return worker.apply_async(function, args, kwargs).get(timeout=45)
 
 
 def dispatch_before_restart(name, stop_before_pin):
@@ -52,7 +53,15 @@ def dispatch_before_restart(name, stop_before_pin):
             )
         else:
             publication = nullcontext()
-        with publication:
+        execute = adapter.execute
+
+        def guarded_execute(request):
+            meta = worker.read(LABS, name)["metadata"]
+            if TERMINAL_FINALIZER not in meta.get("finalizers", ()):
+                raise AssertionError("workload dispatched without a finalizer")
+            return execute(request)
+
+        with publication, patch.object(adapter, "execute", guarded_execute):
             try:
                 run_and_retain_terminal(worker, RECORDS, receipt, engine)
             except InterruptedError:
@@ -61,23 +70,49 @@ def dispatch_before_restart(name, stop_before_pin):
         return [stage for action, stage in adapter.calls if action == "execute"]
 
 
-def reconcile_after_restart(namespace, name, records):
+def reconcile_after_restart(
+    namespace, name, records, *, writes=("PUT",), interrupt_release=False
+):
     worker = client()
     send = worker._request
 
-    def status_writes_only(method, ns, key, *args, **kwargs):
+    def contract_writes_only(method, ns, key, *args, **kwargs):
         if method != "GET" and (
-            (method, ns, key) != ("PUT", namespace, name)
+            (ns, key) != (namespace, name)
+            or method not in writes
             or kwargs.get("resource", "continuitycontracts") != "continuitycontracts"
         ):
             raise AssertionError(f"unexpected restart write: {method} {ns}/{key}")
+        if method == "PATCH" and interrupt_release:
+            raise InterruptedError("stopped before finalizer release")
         return send(method, ns, key, *args, **kwargs)
 
     with (
-        patch.object(worker, "_request", status_writes_only),
+        patch.object(worker, "_request", contract_writes_only),
         patch.object(ContinuityEngine, "run", side_effect=AssertionError("redispatch")),
     ):
         return reconcile(worker, namespace, name, record_namespace=records)
+
+
+def finalize_after_restart(name, *, writes=("PUT", "PATCH"), interrupt_release=False):
+    return fresh_worker(
+        reconcile_after_restart,
+        LABS,
+        name,
+        RECORDS,
+        writes=writes,
+        interrupt_release=interrupt_release,
+    )
+
+
+def retained_records(receipt):
+    worker = client()
+    return (
+        worker.read_binding(RECORDS, receipt.record_name),
+        worker.read_binding(RECORDS, receipt.operation_id),
+        worker.read_binding(RECORDS, receipt.terminal_name),
+        worker.read_terminal_evidence(LABS, receipt.terminal_name),
+    )
 
 
 class TerminalPublication(unittest.TestCase):
@@ -168,6 +203,133 @@ class TerminalPublication(unittest.TestCase):
         with self.assertRaisesRegex(ReferenceBindingError, "^TerminalWitnessChanged$"):
             fresh_worker(reconcile_after_restart, LABS, name, RECORDS)
         self.assertEqual(client().read(LABS, name), before)
+
+    def delete_after_dispatch(self, name, *, other=(), unpinned=False, publish=False):
+        resource = retirement_resource(name)
+        resource["metadata"]["finalizers"] = list(other)
+        kubectl(LABS, "create", "-f", "-", obj=resource)
+        self.assertEqual(
+            fresh_worker(dispatch_before_restart, name, unpinned),
+            ["capture", "retire", "restore"],
+        )
+        if publish:
+            self.assertTrue(fresh_worker(reconcile_after_restart, LABS, name, RECORDS))
+        original = client().read(LABS, name)
+        kubectl(LABS, "delete", f"continuitycontract/{name}", "--wait=false")
+        deleting = client().read(LABS, name)
+        self.assertIsNotNone(deleting)
+        meta = deleting["metadata"]
+        self.assertTrue(meta["deletionTimestamp"])
+        self.assertEqual(meta["generation"], original["metadata"]["generation"] + 1)
+        self.assertCountEqual(meta["finalizers"], [*other, TERMINAL_FINALIZER])
+        self.assertEqual(deleting.get("status"), original.get("status"))
+        self.assertEqual(
+            deleting.get("status", {}).get("phase", "Pending"),
+            "Succeeded" if publish else "Pending",
+        )
+        receipt = dispatched_receipt(client(), RECORDS, LABS, name, meta["uid"])
+        self.assertIsNotNone(receipt)
+        return receipt, deleting
+
+    def test_deletion_publishes_before_releasing_the_owned_finalizer(self):
+        for name, other in (
+            ("terminal-delete-foreign", ("example.com/archive",)),
+            ("terminal-delete-last", ()),
+        ):
+            with self.subTest(name=name):
+                receipt, deleting = self.delete_after_dispatch(
+                    name, other=other, publish=not other
+                )
+                retained = retained_records(receipt)
+                self.assertTrue(all(retained))
+                if other:
+                    with self.assertRaisesRegex(
+                        InterruptedError, "before finalizer release"
+                    ):
+                        finalize_after_restart(name, interrupt_release=True)
+                    interrupted = client().read(LABS, name)
+                    self.assertEqual(interrupted["status"]["phase"], "Succeeded")
+                    self.assertEqual(
+                        interrupted["status"]["observedGeneration"],
+                        deleting["metadata"]["generation"] - 1,
+                    )
+                    self.assertIn(
+                        TERMINAL_FINALIZER, interrupted["metadata"]["finalizers"]
+                    )
+                self.assertTrue(finalize_after_restart(name, writes=("PATCH",)))
+                after = client().read(LABS, name)
+                if other:
+                    self.assertEqual(after["metadata"]["finalizers"], list(other))
+                    self.assertEqual(after["status"]["phase"], "Succeeded")
+                    self.assertEqual(
+                        after["status"]["terminalEvidenceRef"]["digest"],
+                        digest(retained[-1]["data"]["terminal.json"].encode()),
+                    )
+                else:
+                    self.assertIsNone(after)
+                self.assertFalse(finalize_after_restart(name, writes=()))
+                self.assertEqual(client().read(LABS, name), after)
+                self.assertEqual(retained_records(receipt), retained)
+
+    def test_deletion_holds_for_an_unpinned_result(self):
+        name = "terminal-delete-unpinned"
+        receipt, deleting = self.delete_after_dispatch(name, unpinned=True)
+        retained = retained_records(receipt)
+        self.assertTrue(all(retained))
+        for _ in range(2):
+            with self.assertRaises(ReferenceBindingError):
+                finalize_after_restart(name, writes=())
+            self.assertEqual(client().read(LABS, name), deleting)
+        self.assertEqual(retained_records(receipt), retained)
+
+    def test_finalizer_conflict_rereads_foreign_finalizers(self):
+        name = "terminal-delete-conflict"
+        released, remaining = "example.com/index", "example.com/archive"
+        receipt, deleting = self.delete_after_dispatch(
+            name, other=(released, remaining), publish=True
+        )
+        retained = retained_records(receipt)
+        worker = client()
+        replace = worker.replace_finalizers
+        attempts = []
+
+        def competing_release(ns, key, uid, version, finalizers, **kwargs):
+            attempts.append(version)
+            if len(attempts) == 1:
+                self.assertCountEqual(finalizers, [released, remaining])
+                kubectl(
+                    ns,
+                    "patch",
+                    f"continuitycontract/{key}",
+                    "--type=merge",
+                    "--patch",
+                    json.dumps(
+                        {
+                            "metadata": {
+                                "uid": uid,
+                                "resourceVersion": version,
+                                "finalizers": [remaining, TERMINAL_FINALIZER],
+                            }
+                        }
+                    ),
+                )
+            else:
+                self.assertEqual(finalizers, [remaining])
+            return replace(ns, key, uid, version, finalizers, **kwargs)
+
+        with (
+            patch.object(worker, "replace_finalizers", competing_release),
+            patch.object(
+                ContinuityEngine, "run", side_effect=AssertionError("redispatch")
+            ),
+        ):
+            self.assertTrue(reconcile(worker, LABS, name, record_namespace=RECORDS))
+        self.assertEqual(len(attempts), 2)
+        self.assertNotEqual(*attempts)
+        after = worker.read(LABS, name)
+        self.assertEqual(after["metadata"]["finalizers"], [remaining])
+        self.assertEqual(after["status"], deleting["status"])
+        self.assertEqual(retained_records(receipt), retained)
 
     def test_status_conflict_rechecks_evidence_without_dispatch(self):
         self.execute("terminal-complete")
