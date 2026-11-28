@@ -14,6 +14,7 @@ from hyops.continuity.api.models import (
     ApiWorkload,
 )
 from hyops.continuity.api.v1alpha1 import ApiValidationError, decode, encode
+from hyops.continuity.models import EvidenceBinding
 
 _DIGEST_A = f"sha256:{'a' * 64}"
 _DIGEST_B = f"sha256:{'b' * 64}"
@@ -311,6 +312,14 @@ class V1Alpha1CodecTests(unittest.TestCase):
         encoded = encode(resource)
 
         self.assertEqual(reordered_resource, resource)
+        bindings = resource.spec.recovery_bindings_by_stage()
+        self.assertEqual(bindings["prepare"], ())
+        self.assertEqual(bindings["release"], (
+            EvidenceBinding("prepare", "archive-evidence", "recovery"),
+            EvidenceBinding("prepare", "prepared-state", "recovery"),
+        ))
+        self.assertEqual(bindings["verify"], bindings["release"])
+        self.assertEqual(reordered_resource.spec.recovery_bindings_by_stage(), bindings)
         self.assertEqual(encode(reordered_resource), encoded)
         self.assertEqual(
             [item["name"] for item in encoded["spec"]["authorities"]],

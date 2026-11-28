@@ -10,15 +10,17 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from io import BytesIO, StringIO
 from itertools import count
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, Mock, call, patch
 
 import hyops.continuity.storage as continuity_storage
 from hyops.authority.models import (
     AuthorityContext,
     AuthorityDeclaration,
     AuthorityEvaluation,
+    AuthorityObservation,
     AuthorityProviderIdentity,
     AuthorityReceipt,
     AuthorityRequirement,
@@ -326,6 +328,7 @@ class ContinuityEngineTests(unittest.TestCase):
         adapter: _Adapter | None = None,
         operation_store=None,
         authority_gate=None,
+        evidence_reader=None,
     ) -> ContinuityEngine:
         return ContinuityEngine(
             adapters={"local": adapter if adapter is not None else self.adapter},
@@ -336,6 +339,7 @@ class ContinuityEngineTests(unittest.TestCase):
                 operation_store if operation_store is not None else self.store
             ),
             clock=self.clock,
+            evidence_reader=evidence_reader,
         )
 
     def _terminal_path(self, operation_id: str = "test-run") -> Path:
@@ -1767,6 +1771,296 @@ class ContinuityEngineTests(unittest.TestCase):
             self.adapter.calls,
             [("admit", "prepare"), ("execute", "prepare"), ("recover", "prepare")],
         )
+
+    def _retirement(self) -> ContinuityContract:
+        spec = self._spec()
+        producer, release = spec.stages
+        producer = replace(producer, produced_evidence={"recovery-set": "recovery_set"})
+        release = replace(release, destructive=True, recovery_operation="remove")
+        return replace(spec, stages=(producer, release))
+
+    def test_retirement_requires_every_retained_object(self) -> None:
+        spec = self._retirement()
+        producer, release = spec.stages
+        config = EvidenceBinding("prepare", "config", "configuration")
+        producer = replace(
+            producer,
+            produced_evidence={**producer.produced_evidence, config.name: config.role},
+        )
+        release = replace(
+            release, evidence_bindings=(*release.evidence_bindings, config)
+        )
+        artifacts = {"recovery-set": b"snapshot" * 262144, "config": b"config"}
+        self.adapter.prepare_evidence_override = tuple(
+            EvidenceIdentity(
+                b.name,
+                b.role,
+                "sha256:" + hashlib.sha256(artifacts[b.name]).hexdigest(),
+            )
+            for b in release.evidence_bindings
+        )
+        reader = Mock(spec=["open_evidence"])
+
+        def open_evidence(
+            operation_id, workload, producer_stage, name, role, *, deadline
+        ):
+            return BytesIO(artifacts[name])
+
+        reader.open_evidence.side_effect = open_evidence
+        for case, expected in (("intact", ""), ("drift", "retained_evidence_mismatch")):
+            with self.subTest(case=case):
+                if case == "drift":
+                    artifacts["config"] = b"changed"
+                self.adapter.calls.clear()
+                reader.reset_mock()
+                result = self._engine(evidence_reader=reader).run(
+                    replace(spec, operation_id=case, stages=(producer, release))
+                )
+                self.assertEqual(result.reason_code, expected)
+                if case == "intact":
+                    self.assertEqual(result.status, "succeeded")
+                    reader.open_evidence.assert_has_calls(
+                        [
+                            call(
+                                case,
+                                spec.workload,
+                                b.stage,
+                                b.name,
+                                b.role,
+                                deadline=ANY,
+                            )
+                            for b in release.evidence_bindings
+                        ],
+                        any_order=True,
+                    )
+                    deadlines = {
+                        c.kwargs["deadline"]
+                        for c in reader.open_evidence.call_args_list
+                    }
+                    self.assertEqual(len(deadlines), 1)
+                    self.assertIn(("execute", "release"), self.adapter.calls)
+                else:
+                    self.assertNotIn(("execute", "release"), self.adapter.calls)
+                    self.assertNotIn(("recover", "release"), self.adapter.calls)
+
+    def test_unreadable_retained_evidence_never_dispatches_retirement(self) -> None:
+        class Unreadable(BytesIO):
+            def read(self, size=-1):
+                raise OSError("private storage detail")
+
+        class SuppressReadFailure(Unreadable):
+            def __exit__(self, *args):
+                self.close()
+                return True
+
+        spec = self._retirement()
+        for case, artifact in (
+            ("no-reader", None),
+            ("missing", FileNotFoundError("private storage detail")),
+            ("unreadable", Unreadable()),
+            ("text", StringIO("")),
+            ("suppressed", SuppressReadFailure()),
+        ):
+            with self.subTest(case=case):
+                self.adapter.calls.clear()
+                reader = Mock(spec=["open_evidence"])
+                if isinstance(artifact, Exception):
+                    reader.open_evidence.side_effect = artifact
+                else:
+                    reader.open_evidence.return_value = artifact
+                result = self._engine(
+                    evidence_reader=reader if artifact is not None else None
+                ).run(replace(spec, operation_id=case))
+                self.assertEqual(result.reason_code, "retained_evidence_unavailable")
+                self.assertNotIn(("execute", "release"), self.adapter.calls)
+                self.assertNotIn(("recover", "release"), self.adapter.calls)
+                if case == "no-reader":
+                    self.assertEqual(self.adapter.calls, [])
+                    self.assertEqual(result.stages, ())
+                record = self._terminal_path(case).read_text()
+                self.assertEqual(json.loads(record), result.to_evidence())
+                self.assertNotIn("private storage detail", record)
+                if isinstance(artifact, (BytesIO, StringIO)):
+                    self.assertTrue(artifact.closed)
+
+    def test_retirement_deadline_includes_closing_the_retained_stream(self) -> None:
+        reader = Mock(spec=["open_evidence"])
+        with patch("hyops.continuity.evidence.monotonic", return_value=100.0) as clock:
+
+            class LateClose(BytesIO):
+                def __exit__(self, *args):
+                    super().__exit__(*args)
+                    clock.return_value = (
+                        reader.open_evidence.call_args.kwargs["deadline"] + 1
+                    )
+
+            reader.open_evidence.return_value = LateClose(b"artifact:lab-a")
+            result = self._engine(evidence_reader=reader).run(self._retirement())
+        self.assertEqual(result.reason_code, "retained_evidence_unavailable")
+        self.assertNotIn(("execute", "release"), self.adapter.calls)
+        self.assertNotIn(("recover", "release"), self.adapter.calls)
+
+    def test_each_retirement_rechecks_bytes_after_its_own_admission(self) -> None:
+        spec = self._retirement()
+        producer, release = spec.stages
+        second = replace(release, id="release-two")
+        path = self.root / "recovery-set"
+        path.write_bytes(b"artifact:lab-a")
+        reader = Mock(spec=["open_evidence"])
+        reader.open_evidence.side_effect = lambda *args, deadline: path.open("rb")
+        admit = self.adapter.admit
+
+        def admit_and_change(request):
+            result = admit(request)
+            if request.stage_id == second.id:
+                path.write_bytes(b"changed")
+            return result
+
+        with patch.object(self.adapter, "admit", side_effect=admit_and_change):
+            result = self._engine(evidence_reader=reader).run(
+                replace(spec, stages=(producer, release, second))
+            )
+        self.assertEqual(result.reason_code, "retained_evidence_mismatch")
+        self.assertIn(("execute", release.id), self.adapter.calls)
+        self.assertNotIn(("execute", second.id), self.adapter.calls)
+        self.assertNotIn(("recover", second.id), self.adapter.calls)
+        self.assertEqual(reader.open_evidence.call_count, 2)
+
+    def test_retirement_denied_at_admission_does_not_open_retained_bytes(self) -> None:
+        self.adapter.denied_operations.add("release")
+        reader = Mock(spec=["open_evidence"])
+        result = self._engine(evidence_reader=reader).run(self._retirement())
+        self.assertEqual(result.reason_code, "adapter_admission_denied")
+        reader.open_evidence.assert_not_called()
+        self.assertNotIn(("execute", "release"), self.adapter.calls)
+        self.assertNotIn(("recover", "release"), self.adapter.calls)
+
+    def test_retirement_rechecks_authority_after_reading_recovery_bytes(self) -> None:
+        spec = self._retirement()
+        receipt = self.authority_gate.enforce(
+            spec.stages[1].authority, spec.authorities, self.authority_context
+        )
+        observation = AuthorityObservation(
+            "obs-1", "2026-11-27T12:00:00Z", "lab", "exact"
+        )
+        initial = replace(receipt, observation=observation)
+        renewed = replace(initial, result="fresh decision")
+        cases = (
+            ("renewed", renewed, ""),
+            ("revoked", ValueError("private authority detail"), "authority_denied"),
+            ("instance", replace(renewed, instance="other"), "authority_changed"),
+            ("revision", replace(renewed, revision="2"), "authority_changed"),
+            (
+                "provider",
+                replace(
+                    renewed,
+                    provider_identity=replace(initial.provider_identity, version="2"),
+                ),
+                "authority_changed",
+            ),
+            (
+                "scope",
+                replace(renewed, observation=replace(observation, scope="other")),
+                "authority_changed",
+            ),
+            (
+                "token",
+                replace(renewed, observation=replace(observation, token="obs-2")),
+                "authority_changed",
+            ),
+        )
+        for case, latest, reason in cases:
+            with self.subTest(case=case):
+                self.adapter.calls.clear()
+                stream = BytesIO(b"artifact:lab-a")
+                reader = Mock(spec=["open_evidence"])
+                reader.open_evidence.return_value = stream
+                gate = Mock(spec=["enforce"])
+
+                def enforce(*args):
+                    if not stream.closed:
+                        return initial
+                    if isinstance(latest, Exception):
+                        raise latest
+                    return latest
+
+                gate.enforce.side_effect = enforce
+                with patch.object(
+                    self.adapter, "execute", wraps=self.adapter.execute
+                ) as execute:
+                    result = self._engine(
+                        authority_gate=gate, evidence_reader=reader
+                    ).run(replace(spec, operation_id=case))
+                self.assertEqual(gate.enforce.call_count, 2)
+                self.assertEqual(result.reason_code, reason)
+                if reason:
+                    self.assertNotIn(("execute", "release"), self.adapter.calls)
+                    self.assertNotIn(("recover", "release"), self.adapter.calls)
+                    self.assertNotIn(
+                        "private authority detail",
+                        self._terminal_path(case).read_text(),
+                    )
+                else:
+                    self.assertEqual(result.status, "succeeded")
+                    self.assertEqual(
+                        execute.call_args.args[0].authority_receipt, renewed
+                    )
+
+    def test_destructive_flag_requires_authority_and_declared_predecessor_evidence(
+        self,
+    ) -> None:
+        spec = self._retirement()
+        producer, release = spec.stages
+        for case, stages, reason in (
+            (
+                "no-authority",
+                (producer, replace(release, authority=None)),
+                "missing_retirement_guard",
+            ),
+            (
+                "no-bindings",
+                (producer, replace(release, evidence_bindings=())),
+                "missing_retirement_guard",
+            ),
+            (
+                "no-declaration",
+                (replace(producer, produced_evidence={}), release),
+                "undeclared_recovery_evidence",
+            ),
+        ):
+            with self.subTest(case=case):
+                reader = Mock(spec=["open_evidence"])
+                result = self._engine(evidence_reader=reader).run(
+                    replace(spec, operation_id=case, stages=stages)
+                )
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.reason_code, reason)
+                reader.open_evidence.assert_not_called()
+                self.assertEqual(self.adapter.calls, [])
+        self.assertNotEqual(
+            spec.digest(),
+            replace(
+                spec, stages=(producer, replace(release, destructive=False))
+            ).digest(),
+        )
+
+    def test_adapter_destructive_effect_cannot_be_downgraded_by_the_contract(
+        self,
+    ) -> None:
+        self.adapter.destructive_operations = frozenset({"release"})
+        spec = self._spec()
+        result = self.engine.run(spec)
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason_code, "destructive_intent_required")
+        self.assertEqual(result.stages, ())
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_destructive_operation_cannot_be_automatic_cleanup(self) -> None:
+        self.adapter.destructive_operations = frozenset({"remove"})
+        result = self.engine.run(self._spec())
+        self.assertEqual(result.reason_code, "invalid_adapter_contract")
+        self.assertEqual(result.stages, ())
+        self.assertEqual(self.adapter.calls, [])
 
     def test_release_requires_content_identified_recovery_evidence(self) -> None:
         self.adapter.omit_prepare_evidence = True

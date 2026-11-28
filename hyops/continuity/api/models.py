@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..json_values import freeze_json
+from ..models import EvidenceBinding
 
 API_GROUP = "continuity.hyopsproject.github.io"
 API_KIND = "ContinuityContract"
@@ -138,6 +139,17 @@ class ApiSpec:
         for recovery_set in self.recovery_sets:
             outputs[recovery_set.stage][recovery_set.evidence] = recovery_set.role
         return outputs
+
+    def recovery_bindings_by_stage(self) -> dict[str, tuple[EvidenceBinding, ...]]:
+        """Resolve recovery set names to their declared producers in a validated spec."""
+        sets = {
+            item.name: EvidenceBinding(item.stage, item.evidence, item.role)
+            for item in self.recovery_sets
+        }
+        return {
+            stage.id: tuple(sets[name] for name in sorted(stage.recovery_sets))
+            for stage in self.stages
+        }
 
 
 @dataclass(frozen=True)

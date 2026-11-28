@@ -8,6 +8,7 @@ import hashlib
 import inspect
 import json
 import os
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from hyops.continuity import (
     WorkloadIdentity,
 )
 from hyops.continuity.api import API_KIND, v1alpha1
+from hyops.continuity.evidence import RetainedEvidenceReader
 from hyops.continuity.storage import FileOperationStore
 
 
@@ -234,7 +236,11 @@ def _contract(operation_id: str) -> ContinuityContract:
 
 
 def _engine(
-    root: Path, adapter: _LocalAdapter, store: FileOperationStore
+    root: Path,
+    adapter: _LocalAdapter,
+    store: FileOperationStore,
+    *,
+    evidence_reader: RetainedEvidenceReader | None = None,
 ) -> ContinuityEngine:
     return ContinuityEngine(
         adapters={"local": adapter},
@@ -250,6 +256,7 @@ def _engine(
             revision=_controller_revision(),
         ),
         operation_store=store,
+        evidence_reader=evidence_reader,
     )
 
 
@@ -408,6 +415,188 @@ def _producer_scenario(root: Path, *, omit_evidence: bool) -> dict[str, Any]:
     return _result(path, adapter, checks)
 
 
+class _RetainedFile:
+    def __init__(self, path: Path, contract: ContinuityContract) -> None:
+        self.path = path
+        self.key = (
+            contract.operation_id,
+            contract.workload,
+            "capture",
+            "state",
+            "recovery",
+        )
+
+    def open_evidence(
+        self, operation_id, workload, producer_stage, name, role, *, deadline
+    ):
+        if (operation_id, workload, producer_stage, name, role) != self.key:
+            raise FileNotFoundError
+        return self.path.open("rb")
+
+
+class _ComputeAdapter(_LocalAdapter):
+    operations = frozenset({"capture", "retire", "restore"})
+    destructive_operations = frozenset({"retire"})
+    owned_cleanup = frozenset()
+
+    def __init__(self, root: Path, retained: Path, fault: str) -> None:
+        super().__init__(root)
+        self.source = root / "source" / "state.bin"
+        self.retained = retained
+        self.replacement = root / "replacement" / "state.bin"
+        self.fault = fault
+
+    def admit(self, request: AdapterRequest) -> AdmissionResult:
+        decision = super().admit(request)
+        if request.operation == "retire":
+            if self.fault == "missing":
+                self.retained.unlink()
+            elif self.fault == "changed":
+                self.retained.write_bytes(b"changed since capture")
+        return decision
+
+    def execute(self, request: AdapterRequest) -> ExecutionResult:
+        self.calls.append(("execute", request.stage_id))
+        if request.operation == "capture":
+            self.retained.parent.mkdir()
+            shutil.copyfile(self.source, self.retained)
+            digest = "sha256:" + hashlib.sha256(self.source.read_bytes()).hexdigest()
+            return ExecutionResult(
+                evidence=(EvidenceIdentity("state", "recovery", digest),)
+            )
+        if request.operation == "retire":
+            self.source.unlink()
+            self.source.parent.rmdir()
+        elif request.operation == "restore":
+            self.replacement.parent.mkdir()
+            shutil.copyfile(self.retained, self.replacement)
+        else:
+            raise ValueError("unsupported compute operation")
+        return ExecutionResult()
+
+
+def _retirement_contract(operation_id: str) -> ContinuityContract:
+    base = _contract(operation_id)
+    authority = base.authorities["release-authority"]
+    api = v1alpha1.decode(
+        {
+            "apiVersion": v1alpha1.API_VERSION_VALUE,
+            "kind": API_KIND,
+            "metadata": {"name": operation_id},
+            "spec": {
+                "workload": base.workload.to_evidence(),
+                "authorities": [
+                    {
+                        "name": authority.logical_ref,
+                        "capability": authority.capability,
+                        "provider": authority.provider,
+                    }
+                ],
+                "recoverySets": [
+                    {
+                        "name": "saved",
+                        "producer": {
+                            "stage": "capture",
+                            "evidence": "state",
+                            "role": "recovery",
+                        },
+                    }
+                ],
+                "stages": [
+                    {
+                        "id": key,
+                        "operation": key,
+                        "adapterRef": {"name": "local"},
+                        **fields,
+                    }
+                    for key, fields in (
+                        ("capture", {}),
+                        (
+                            "retire",
+                            {
+                                "requires": ["capture"],
+                                "destructive": True,
+                                "authorityRef": authority.logical_ref,
+                                "recoverySets": ["saved"],
+                            },
+                        ),
+                        ("restore", {"requires": ["retire"]}),
+                    )
+                ],
+            },
+        }
+    ).spec
+    bindings = api.recovery_bindings_by_stage()
+    produced = api.producer_evidence_by_stage()
+    stages = tuple(
+        StageSpec(
+            id=s.id,
+            adapter=s.adapter,
+            operation=s.operation,
+            requires=s.requires,
+            produced_evidence=produced[s.id],
+            destructive=s.destructive,
+            evidence_bindings=bindings[s.id],
+            authority=AuthorityRequirement(s.authority_ref, authority.capability)
+            if s.authority_ref
+            else None,
+        )
+        for s in api.stages
+    )
+    return replace(base, stages=stages)
+
+
+def _retirement_scenario(root: Path, fault: str) -> dict[str, Any]:
+    retained = root / "retained" / "state.bin"
+    adapter = _ComputeAdapter(root, retained, fault)
+    adapter.source.parent.mkdir(parents=True)
+    original = os.urandom(64)
+    adapter.source.write_bytes(original)
+    baseline = "sha256:" + hashlib.sha256(original).hexdigest()
+    contract = _retirement_contract(root.name)
+    store = FileOperationStore(root / "operations")
+    reader = _RetainedFile(retained, contract)
+    _engine(root, adapter, store, evidence_reader=reader).run(contract)
+    path = store.terminal_path(contract.operation_id)
+    record = json.loads(path.read_text())
+    stages = {s["stage_id"]: s for s in record["stages"]}
+    capture = stages.get("capture", {})
+    retire = stages.get("retire", {})
+    reason = {
+        "": "",
+        "missing": "retained_evidence_unavailable",
+        "changed": "retained_evidence_mismatch",
+    }[fault]
+    calls = [("admit", "capture"), ("execute", "capture"), ("admit", "retire")]
+    if not fault:
+        calls.extend(
+            [("execute", "retire"), ("admit", "restore"), ("execute", "restore")]
+        )
+    checks = {
+        "terminal_status": record.get("status") == ("failed" if fault else "succeeded"),
+        "terminal_reason": record.get("reason_code") == reason,
+        "captured_identity": capture.get("evidence")
+        == [{"name": "state", "role": "recovery", "digest": baseline}],
+        "authority_admitted": retire.get("authority_receipt", {}).get("decision")
+        == "admitted",
+        "exact_order": calls == adapter.calls,
+    }
+    if fault:
+        checks.update(
+            retirement_refused=retire.get("reason_code") == reason
+            and retire.get("recovery_status") == "not_required",
+            source_intact=_retained_digest(adapter.source) == baseline,
+            no_replacement=not adapter.replacement.parent.exists(),
+        )
+    else:
+        checks.update(
+            source_removed=not adapter.source.parent.exists(),
+            retained_intact=_retained_digest(adapter.retained) == baseline,
+            restored_state=_retained_digest(adapter.replacement) == baseline,
+        )
+    return _result(path, adapter, checks)
+
+
 def run(output_root: Path) -> dict[str, Any]:
     output_root.mkdir(parents=True, exist_ok=False)
     scenarios = {
@@ -421,6 +610,13 @@ def run(output_root: Path) -> dict[str, Any]:
         ),
         "producer-omitted": _producer_scenario(
             output_root / "producer-omitted", omit_evidence=True
+        ),
+        "retire-restore": _retirement_scenario(output_root / "retire-restore", ""),
+        "retire-missing": _retirement_scenario(
+            output_root / "retire-missing", "missing"
+        ),
+        "retire-changed": _retirement_scenario(
+            output_root / "retire-changed", "changed"
         ),
     }
     report = {

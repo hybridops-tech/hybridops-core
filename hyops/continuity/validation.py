@@ -34,6 +34,7 @@ class AdapterCapabilities:
     identity: AdapterIdentity
     operations: tuple[str, ...]
     owned_cleanup: frozenset[tuple[str, str]]
+    destructive_operations: frozenset[str]
 
 
 def is_token(value: object) -> bool:
@@ -77,6 +78,11 @@ def validate_contract_semantics(
                 adapters,
             )
         _validate_stage_adapter(stage, adapter_contracts[stage.adapter])
+        if stage.destructive and (stage.authority is None or not stage.evidence_bindings):
+            raise ContractFailure(
+                "missing_retirement_guard",
+                f"destructive stage '{stage.id}' requires authority and retained recovery evidence",
+            )
         if set(stage.inputs) & set(stage.input_bindings):
             raise ContractFailure(
                 "duplicate_input",
@@ -159,6 +165,8 @@ def _validate_stage_shape(stage: StageSpec) -> None:
     _require_token(stage.id, "stage id")
     _require_token(stage.adapter, f"stage '{stage.id}' adapter")
     _require_token(stage.operation, f"stage '{stage.id}' operation")
+    if type(stage.destructive) is not bool:
+        raise ContractFailure("invalid_contract", f"stage '{stage.id}' has invalid destructive intent")
     if not isinstance(stage.requires, tuple):
         raise ContractFailure(
             "invalid_contract",
@@ -437,22 +445,31 @@ def _validate_adapter_contract(
             )
     try:
         cleanup = getattr(adapter, "owned_cleanup", frozenset())
+        destructive = getattr(adapter, "destructive_operations", frozenset())
     except Exception as exc:
         raise ContractFailure(
             "invalid_adapter_contract",
-            f"adapter '{adapter_name}' has invalid owned cleanup",
+            f"adapter '{adapter_name}' has invalid operation effects",
         ) from exc
+    if type(destructive) is not frozenset or any(
+        type(op) is not str or op not in operations for op in destructive
+    ):
+        raise ContractFailure(
+            "invalid_adapter_contract",
+            f"adapter '{adapter_name}' has invalid destructive operations",
+        )
     if type(cleanup) is not frozenset or any(
         type(pair) is not tuple
         or len(pair) != 2
         or any(type(op) is not str or op not in operations for op in pair)
+        or pair[1] in destructive
         for pair in cleanup
     ):
         raise ContractFailure(
             "invalid_adapter_contract",
             f"adapter '{adapter_name}' has invalid owned cleanup",
         )
-    return AdapterCapabilities(identity_snapshot, operations, cleanup)
+    return AdapterCapabilities(identity_snapshot, operations, cleanup, destructive)
 
 
 def _validate_stage_adapter(
@@ -460,6 +477,14 @@ def _validate_stage_adapter(
     adapter_contract: AdapterCapabilities,
 ) -> None:
     operations = adapter_contract.operations
+    if (
+        stage.operation in adapter_contract.destructive_operations
+        and not stage.destructive
+    ):
+        raise ContractFailure(
+            "destructive_intent_required",
+            f"stage '{stage.id}' must declare destructive intent",
+        )
     if stage.operation not in operations:
         raise ContractFailure(
             "unsupported_operation",
@@ -518,6 +543,11 @@ def _validate_evidence_binding(
             f"stage '{stage.id}' evidence is not bound to a dependency",
         )
     declared_role = by_id[binding.stage].produced_evidence.get(binding.name)
+    if stage.destructive and declared_role is None:
+        raise ContractFailure(
+            "undeclared_recovery_evidence",
+            f"stage '{stage.id}' requires a declared recovery set from '{binding.stage}'",
+        )
     if declared_role is not None and declared_role != binding.role:
         raise ContractFailure(
             "conflicting_evidence_role",

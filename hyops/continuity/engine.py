@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -11,11 +12,13 @@ from hyops.authority.models import (
     AUTHORITY_PROVIDER_CONTRACT_VERSION,
     AuthorityContext,
     AuthorityDeclaration,
+    AuthorityObservation,
     AuthorityReceipt,
 )
 
 from .adapter import AuthorityGate, ContinuityAdapter
 from .errors import ContractFailure, TerminalPersistenceError
+from .evidence import RetainedEvidenceReader, verify_retained
 from .models import (
     CONTROLLER_CONTRACT_VERSION,
     AdapterRequest,
@@ -57,6 +60,8 @@ class ContinuityEngine:
         controller_identity: ControllerIdentity,
         operation_store: OperationStore,
         clock: Callable[[], datetime] | None = None,
+        evidence_reader: RetainedEvidenceReader | None = None,
+        evidence_timeout_seconds: float = 3600,
     ) -> None:
         self._validate_controller_identity(controller_identity)
         self._adapters = dict(adapters)
@@ -64,6 +69,14 @@ class ContinuityEngine:
         self._authority_context = authority_context
         self._controller_identity = controller_identity
         self._operation_store = operation_store
+        if (
+            type(evidence_timeout_seconds) not in (float, int)
+            or not math.isfinite(evidence_timeout_seconds)
+            or evidence_timeout_seconds <= 0
+        ):
+            raise ValueError("retained evidence timeout must be finite and positive")
+        self._evidence_reader = evidence_reader
+        self._evidence_timeout = evidence_timeout_seconds
         self._clock = clock or (lambda: datetime.now(UTC))
 
     @staticmethod
@@ -103,15 +116,27 @@ class ContinuityEngine:
                 self._adapters,
             )
             by_id = {stage.id: stage for stage in spec.stages}
+            if self._evidence_reader is None and any(
+                stage.destructive for stage in spec.stages
+            ):
+                raise ContractFailure(
+                    "retained_evidence_unavailable",
+                    "destructive stages require a retained evidence reader",
+                )
             for stage_id in order:
                 stage = by_id[stage_id]
                 current_stage = stage
                 current_authority = None
                 adapter = self._adapters[stage.adapter]
                 inputs = self._resolve_inputs(stage, outputs)
-                self._require_evidence(stage, evidence_by_stage)
+                required = self._require_evidence(stage, evidence_by_stage)
                 authority_receipt, authority = self._enforce_authority(spec, stage)
                 current_authority = authority
+                subject = (
+                    self._authority_subject(authority_receipt)
+                    if stage.destructive
+                    else None
+                )
                 request = AdapterRequest(
                     operation_id=spec.operation_id,
                     stage_id=stage.id,
@@ -138,6 +163,30 @@ class ContinuityEngine:
                         denial_result,
                     )
 
+                if stage.destructive:
+                    verify_retained(
+                        self._evidence_reader,
+                        spec.operation_id,
+                        spec.workload,
+                        required,
+                        self._evidence_timeout,
+                    )
+                    current_authority = None
+                    refreshed, refreshed_admission = self._enforce_authority(
+                        spec, stage
+                    )
+                    if (
+                        refreshed_admission != authority
+                        or self._authority_subject(refreshed) != subject
+                    ):
+                        raise ContractFailure(
+                            "authority_changed",
+                            f"authority changed before stage '{stage.id}' dispatch",
+                        )
+                    current_authority = refreshed_admission
+                    request = AdapterRequest(
+                        spec.operation_id, stage.id, stage.operation, inputs, refreshed
+                    )
                 try:
                     execution = self._execute(adapter, request)
                 except ContractFailure:
@@ -275,6 +324,21 @@ class ContinuityEngine:
         for name, binding in stage.input_bindings.items():
             resolved[name] = outputs[binding.stage][binding.output]
         return resolved
+
+    @staticmethod
+    def _authority_subject(receipt: AuthorityReceipt | None) -> tuple[str, ...]:
+        if receipt is not None:
+            fields = (receipt.instance, receipt.endpoint, receipt.revision)
+            observation = receipt.observation
+            if isinstance(observation, AuthorityObservation):
+                fields += (observation.scope, observation.token, observation.strength)
+            if (
+                observation is None or isinstance(observation, AuthorityObservation)
+            ) and all(type(value) is str for value in fields):
+                return fields
+        raise ContractFailure(
+            "invalid_authority_receipt", "invalid retirement authority identity"
+        )
 
     def _enforce_authority(
         self,
@@ -535,30 +599,28 @@ class ContinuityEngine:
     def _require_evidence(
         stage: StageSpec,
         evidence_by_stage: Mapping[str, tuple[EvidenceIdentity, ...]],
-    ) -> None:
-        missing = [
-            binding
-            for binding in stage.evidence_bindings
-            if not ContinuityEngine._has_evidence(binding, evidence_by_stage)
-        ]
-        if missing:
-            labels = ", ".join(
-                f"{binding.stage}/{binding.name}:{binding.role}" for binding in missing
+    ) -> tuple[tuple[EvidenceBinding, str], ...]:
+        required = []
+        missing = []
+        for binding in stage.evidence_bindings:
+            item = next(
+                (
+                    item
+                    for item in evidence_by_stage.get(binding.stage, ())
+                    if item.name == binding.name and item.role == binding.role
+                ),
+                None,
             )
+            if item is None:
+                missing.append(f"{binding.stage}/{binding.name}:{binding.role}")
+            else:
+                required.append((binding, item.digest))
+        if missing:
             raise ContractFailure(
                 "missing_required_evidence",
-                f"stage '{stage.id}' requires evidence: {labels}",
+                f"stage '{stage.id}' requires evidence: {', '.join(missing)}",
             )
-
-    @staticmethod
-    def _has_evidence(
-        binding: EvidenceBinding,
-        evidence_by_stage: Mapping[str, tuple[EvidenceIdentity, ...]],
-    ) -> bool:
-        return any(
-            item.name == binding.name and item.role == binding.role
-            for item in evidence_by_stage.get(binding.stage, ())
-        )
+        return tuple(required)
 
     def _recover(
         self,

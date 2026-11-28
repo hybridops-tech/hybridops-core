@@ -137,6 +137,40 @@ class ContinuityContractAcceptanceTests(unittest.TestCase):
             self.assertFalse(checks["content_identity"])
             self.assertEqual(report["status"], "failed")
 
+    def test_replacement_matches_source_only_after_verified_retirement(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "proof"
+            report = runner.run(root)
+            self.assertEqual(report["status"], "passed")
+            for case in ("retire-missing", "retire-changed", "retire-restore"):
+                with self.subTest(case=case):
+                    result = report["scenarios"][case]
+                    self.assertEqual(result["status"], "passed")
+                    successful = case == "retire-restore"
+                    self.assertEqual(
+                        ["execute", "retire"] in result["calls"], successful
+                    )
+                    self.assertEqual((root / case / "source").exists(), not successful)
+                    self.assertEqual((root / case / "replacement").exists(), successful)
+
+    def test_corrupt_replacement_fails_after_successful_dispatch(self) -> None:
+        execute = runner._ComputeAdapter.execute
+
+        def corrupt(adapter, request):
+            result = execute(adapter, request)
+            if request.operation == "restore":
+                adapter.replacement.write_bytes(b"wrong after-state")
+            return result
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(runner._ComputeAdapter, "execute", corrupt):
+                report = runner.run(Path(temporary) / "proof")
+            checks = report["scenarios"]["retire-restore"]["checks"]
+            self.assertTrue(checks["terminal_status"])
+            self.assertTrue(checks["source_removed"])
+            self.assertFalse(checks["restored_state"])
+            self.assertEqual(report["status"], "failed")
+
 
 if __name__ == "__main__":
     unittest.main()

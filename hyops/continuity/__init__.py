@@ -3,6 +3,7 @@
 from .adapter import ContinuityAdapter
 from .engine import ContinuityEngine
 from .errors import ContractFailure, TerminalPersistenceError
+from .evidence import RetainedEvidenceReader
 from .models import (
     AdapterIdentity,
     AdapterRequest,
@@ -41,6 +42,7 @@ __all__ = [
     "OutputIdentity",
     "RecoveryRequest",
     "RecoveryResult",
+    "RetainedEvidenceReader",
     "StageSpec",
     "TerminalPersistenceError",
     "TerminalRecord",
