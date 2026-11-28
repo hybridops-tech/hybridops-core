@@ -17,13 +17,15 @@ from hyops.continuity.api.v1alpha1 import (
     decode_status,
 )
 
-from .reconcile import StatusConflict
-
 _METADATA_ACCEPT = "application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1"
 _IDENTITY_FIELDS = ("namespace", "name", "uid", "resourceVersion")
 _RESPONSE_LIMIT = 16 * 1024 * 1024
 DISPATCH_ANNOTATION = f"{API_GROUP}/dispatch"
 TERMINAL_ANNOTATION = f"{API_GROUP}/terminal-witness"
+
+
+class StatusConflict(Exception):
+    """The resource changed before a conditional write."""
 
 
 def _response_object(response: HTTPResponse) -> dict[str, Any] | None:

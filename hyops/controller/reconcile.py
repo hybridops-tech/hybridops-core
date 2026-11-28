@@ -1,16 +1,17 @@
-"""Observe a persisted contract and publish its validation condition."""
+"""Reconcile contract validation and verified terminal status."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast, overload
 
 from hyops.continuity.api import ApiCondition, ApiStatus, v1alpha1
 
-
-class StatusConflict(Exception):
-    """The resource changed before its status could be written."""
+from .binding import dispatched_receipt
+from .client import ContractClient, StatusConflict
+from .references import ReferenceBindingError
+from .terminal import publish_terminal_status
 
 
 class StatusClient(Protocol):
@@ -81,14 +82,37 @@ def _pending_update(
     return proposed
 
 
+@overload
 def reconcile(
     client: StatusClient,
     namespace: str,
     name: str,
     *,
+    record_namespace: None = None,
+    now: Callable[[], str] = _utc_now,
+) -> bool: ...
+
+
+@overload
+def reconcile(
+    client: ContractClient,
+    namespace: str,
+    name: str,
+    *,
+    record_namespace: str,
+    now: Callable[[], str] = _utc_now,
+) -> bool: ...
+
+
+def reconcile(
+    client: StatusClient,
+    namespace: str,
+    name: str,
+    *,
+    record_namespace: str | None = None,
     now: Callable[[], str] = _utc_now,
 ) -> bool:
-    """Write a changed Pending validation status, retrying from a fresh read on conflict."""
+    """Validate pending contracts or publish verified results for claimed operations."""
 
     initial_uid = None
     attempts_left = 3
@@ -123,6 +147,19 @@ def reconcile(
         ):
             return False
         initial_uid = uid
+        if record_namespace is not None:
+            records = cast(ContractClient, client)
+            receipt = dispatched_receipt(
+                records, record_namespace, namespace, name, uid
+            )
+            if receipt is not None:
+                return publish_terminal_status(records, record_namespace, receipt)
+            existing = payload.get("status")
+            if (
+                isinstance(existing, Mapping)
+                and existing.get("terminalEvidenceRef") is not None
+            ):
+                raise ReferenceBindingError("DispatchClaimMissing")
         status = _pending_update(payload, generation, now)
         if status is None:
             return False

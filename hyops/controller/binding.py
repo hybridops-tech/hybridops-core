@@ -8,9 +8,14 @@ from dataclasses import dataclass
 
 from hyops.continuity.api import ApiResource, ApiSpec, v1alpha1
 from hyops.continuity.json_values import digest_json
+from hyops.continuity.validation import is_sha256_digest
 
-from .client import DISPATCH_ANNOTATION, ContractClient
-from .reconcile import StatusConflict
+from .client import (
+    DISPATCH_ANNOTATION,
+    TERMINAL_ANNOTATION,
+    ContractClient,
+    StatusConflict,
+)
 from .references import (
     ReferenceBindingError,
     read_bound_subject,
@@ -22,6 +27,10 @@ from .references import (
 def _record_name(contract_uid: str) -> str:
     digest = hashlib.sha256(contract_uid.encode()).hexdigest()
     return f"binding-{digest[:32]}.{digest[32:]}"
+
+
+def _operation_key(prefix: str, contract_uid: str) -> str:
+    return prefix + "-" + hashlib.sha256(contract_uid.encode()).hexdigest()[:54]
 
 
 @dataclass(frozen=True)
@@ -38,7 +47,11 @@ class BindingReceipt:
 
     @property
     def operation_id(self) -> str:
-        return "dispatch-" + hashlib.sha256(self.contract_uid.encode()).hexdigest()[:54]
+        return _operation_key("dispatch", self.contract_uid)
+
+    @property
+    def terminal_name(self) -> str:
+        return _operation_key("terminal", self.contract_uid)
 
 
 def require_separate_store(record_namespace: str, namespace: str) -> None:
@@ -56,13 +69,17 @@ def read_binding_record(
     obj = client.read_binding(namespace, key)
     if obj is None:
         raise ReferenceBindingError(missing_reason)
+    return obj["metadata"], _record_body(obj)
+
+
+def _record_body(obj: dict) -> dict:
     try:
         record = json.loads(obj["data"]["binding.json"])
     except (ValueError, RecursionError):
         raise ReferenceBindingError("InvalidBindingRecord") from None
     if not isinstance(record, dict):
         raise ReferenceBindingError("InvalidBindingRecord")
-    return obj["metadata"], record
+    return record
 
 
 def bind_operation(
@@ -123,6 +140,40 @@ def _dispatch_record(receipt: BindingReceipt) -> dict:
         "bindingUid": receipt.record_uid,
         "bindingDigest": receipt.digest,
     }
+
+
+def dispatched_receipt(
+    client: ContractClient, record_namespace: str, namespace: str, name: str, uid: str
+) -> BindingReceipt | None:
+    """Recover the binding identity from the protected dispatch claim without rebinding."""
+    require_separate_store(record_namespace, namespace)
+    obj = client.read_binding(record_namespace, _operation_key("dispatch", uid))
+    if obj is None:
+        binding = client.read_binding(record_namespace, _record_name(uid))
+        if binding is not None and {
+            DISPATCH_ANNOTATION,
+            TERMINAL_ANNOTATION,
+        }.intersection(_annotations(binding["metadata"])):
+            raise ReferenceBindingError("DispatchClaimMissing")
+        if (
+            client.read_binding(record_namespace, _operation_key("terminal", uid))
+            is not None
+        ):
+            raise ReferenceBindingError("DispatchClaimMissing")
+        return None
+    claim = _record_body(obj)
+    binding_uid, digest = claim.get("bindingUid"), claim.get("bindingDigest")
+    if not (
+        isinstance(binding_uid, str)
+        and binding_uid.strip()
+        and binding_uid == binding_uid.strip()
+        and is_sha256_digest(digest)
+    ):
+        raise ReferenceBindingError("DispatchClaimChanged")
+    receipt = BindingReceipt(namespace, name, uid, binding_uid, digest)
+    if claim != _dispatch_record(receipt):
+        raise ReferenceBindingError("DispatchClaimChanged")
+    return receipt
 
 
 def claim_dispatch(

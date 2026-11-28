@@ -15,15 +15,10 @@ from .binding import (
     read_dispatched_subject,
     require_separate_store,
 )
-from .client import TERMINAL_ANNOTATION, ContractClient
+from .client import TERMINAL_ANNOTATION, ContractClient, StatusConflict
 from .execution import execute_with_claim, project_contract
-from .reconcile import StatusConflict
 from .references import ReferenceBindingError
 from .terminal_projection import terminal_status
-
-
-def _name(receipt: BindingReceipt) -> str:
-    return "terminal-" + receipt.operation_id.removeprefix("dispatch-")
 
 
 def _digest(content: bytes) -> str:
@@ -82,7 +77,7 @@ def _pin_witness(
     witness: dict,
     witness_uid: str,
 ) -> None:
-    name = _name(receipt)
+    name = receipt.terminal_name
     for attempt in range(3):
         meta, _ = read_dispatched_subject(
             client, record_namespace, receipt, witness["claimUid"]
@@ -126,7 +121,7 @@ def run_and_retain_terminal(
     engine: ContinuityEngine,
 ) -> TerminalRecord:
     require_separate_store(record_namespace, receipt.namespace)
-    name = _name(receipt)
+    name = receipt.terminal_name
     if (
         client.read_terminal_evidence(receipt.namespace, name) is not None
         or client.read_binding(record_namespace, name) is not None
@@ -163,7 +158,7 @@ def _publication(
     client: ContractClient, record_namespace: str, receipt: BindingReceipt
 ) -> tuple[ApiResource, dict, bool]:
     require_separate_store(record_namespace, receipt.namespace)
-    name = _name(receipt)
+    name = receipt.terminal_name
     witness_meta, witness = read_binding_record(
         client, record_namespace, name, missing_reason="TerminalWitnessMissing"
     )

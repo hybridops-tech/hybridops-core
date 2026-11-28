@@ -10,8 +10,8 @@ reconciler leaves status unchanged.
 Status updates use the UID and resource version from a fresh read. If another
 writer wins, the reconciler reads again. It checks the returned contract
 identity, generation and condition before reporting a successful write.
-An unchanged condition needs no write, including after a restart. A deleting
-contract or a contract past `Pending` is left untouched.
+An unchanged condition needs no write, including after a restart. Validation
+skips deleting contracts and contracts past `Pending`.
 
 ## Reference binding
 
@@ -64,6 +64,13 @@ the current contract UID, generation and spec, verifies the stored bytes, and
 derives the phase and recovery sets from the kernel record. A status conflict
 repeats verification, not execution. After a lost response, use the same call;
 it verifies an existing terminal status without rewriting it.
+
+A restarted worker calls `reconcile(client, namespace, name, record_namespace=...)`
+with the same protected record namespace used for dispatch. It reads the original
+binding identity from the dispatch claim and verifies the pinned result before
+publishing status. It does not need the first worker's receipt or operation store.
+An undispatched contract follows normal validation; an incomplete dispatch stays
+unresolved. Neither path runs the workload.
 
 Retain both ConfigMaps for as long as the status is needed. Kubernetes does
 not update evidence and status atomically. If execution stops before the
