@@ -10,8 +10,12 @@ from contextlib import closing
 from http.client import HTTPConnection, HTTPResponse
 from typing import Any
 
-from hyops.continuity.api import API_GROUP, API_KIND
-from hyops.continuity.api.v1alpha1 import API_VERSION_VALUE
+from hyops.continuity.api import API_GROUP, API_KIND, RecoverySetSpec
+from hyops.continuity.api.v1alpha1 import (
+    API_VERSION_VALUE,
+    ApiValidationError,
+    decode_status,
+)
 
 from .reconcile import StatusConflict
 
@@ -19,6 +23,7 @@ _METADATA_ACCEPT = "application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1
 _IDENTITY_FIELDS = ("namespace", "name", "uid", "resourceVersion")
 _RESPONSE_LIMIT = 16 * 1024 * 1024
 DISPATCH_ANNOTATION = f"{API_GROUP}/dispatch"
+TERMINAL_ANNOTATION = f"{API_GROUP}/terminal-witness"
 
 
 def _response_object(response: HTTPResponse) -> dict[str, Any] | None:
@@ -54,7 +59,7 @@ def _validation_condition(status: dict[str, Any]) -> dict[str, Any] | None:
     return owned[0]
 
 
-def _binding(obj: dict, namespace: str, name: str) -> dict:
+def _record(obj: dict, namespace: str, name: str, key: str) -> dict:
     meta, data = obj.get("metadata"), obj.get("data")
     if not (
         (obj.get("apiVersion"), obj.get("kind")) == ("v1", "ConfigMap")
@@ -68,10 +73,10 @@ def _binding(obj: dict, namespace: str, name: str) -> dict:
         and obj.get("immutable") is True
         and obj.get("binaryData", {}) == {}
         and isinstance(data, dict)
-        and data.keys() == {"binding.json"}
-        and isinstance(data["binding.json"], str)
+        and data.keys() == {key}
+        and isinstance(data[key], str)
     ):
-        raise ValueError("invalid binding ConfigMap")
+        raise ValueError(f"invalid {key.removesuffix('.json')} ConfigMap")
     return obj
 
 
@@ -123,21 +128,42 @@ class ContractClient:
         }
 
     def read_binding(self, namespace: str, name: str) -> dict[str, Any] | None:
+        return self._read_record(namespace, name, "binding.json")
+
+    def read_terminal_evidence(
+        self, namespace: str, name: str
+    ) -> dict[str, Any] | None:
+        return self._read_record(namespace, name, "terminal.json")
+
+    def _read_record(
+        self, namespace: str, name: str, key: str
+    ) -> dict[str, Any] | None:
         obj = self.read_reference(namespace, "ConfigMap", name)
-        return None if obj is None else _binding(obj, namespace, name)
+        return None if obj is None else _record(obj, namespace, name, key)
 
     def create_binding(
         self, namespace: str, name: str, record: dict[str, Any]
     ) -> dict[str, Any]:
-        data = {
-            "binding.json": json.dumps(
-                record,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            )
-        }
+        content = json.dumps(
+            record,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        return self._create_record(namespace, name, "binding.json", content)
+
+    def create_terminal_evidence(
+        self, namespace: str, name: str, content: str
+    ) -> dict[str, Any]:
+        return self._create_record(namespace, name, "terminal.json", content)
+
+    def _create_record(
+        self, namespace: str, name: str, key: str, content: str
+    ) -> dict[str, Any]:
+        if not isinstance(content, str):
+            raise ValueError(f"{key} must be text")
+        data = {key: content}
         payload = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
@@ -146,8 +172,10 @@ class ContractClient:
             "data": data,
         }
         obj = self._request("POST", namespace, name, payload, resource="configmaps")
-        if obj is None or _binding(obj, namespace, name)["data"] != data:
-            raise RuntimeError("binding ConfigMap creation was not confirmed")
+        if obj is None or _record(obj, namespace, name, key)["data"] != data:
+            raise RuntimeError(
+                f"{key.removesuffix('.json')} ConfigMap creation was not confirmed"
+            )
         return obj
 
     def mark_dispatch(
@@ -162,6 +190,35 @@ class ContractClient:
             raise ValueError(
                 "a dispatch claim requires an object identity and operation ID"
             )
+        self._mark_binding(
+            namespace, name, uid, resource_version, DISPATCH_ANNOTATION, operation_id
+        )
+
+    def pin_terminal_witness(
+        self,
+        namespace: str,
+        name: str,
+        uid: str,
+        resource_version: str,
+        witness_uid: str,
+    ) -> None:
+        if not uid or not resource_version or not witness_uid:
+            raise ValueError(
+                "pinning a terminal witness requires both identities and a resource version"
+            )
+        self._mark_binding(
+            namespace, name, uid, resource_version, TERMINAL_ANNOTATION, witness_uid
+        )
+
+    def _mark_binding(
+        self,
+        namespace: str,
+        name: str,
+        uid: str,
+        resource_version: str,
+        key: str,
+        value: str,
+    ) -> None:
         obj = self._request(
             "PATCH",
             namespace,
@@ -170,20 +227,23 @@ class ContractClient:
                 "metadata": {
                     "uid": uid,
                     "resourceVersion": resource_version,
-                    "annotations": {DISPATCH_ANNOTATION: operation_id},
+                    "annotations": {key: value},
                 }
             },
             resource="configmaps",
         )
         if obj is not None:
-            meta = _binding(obj, namespace, name)["metadata"]
+            meta = _record(obj, namespace, name, "binding.json")["metadata"]
             if (
                 meta["uid"] == uid
                 and isinstance(meta.get("annotations"), dict)
-                and meta["annotations"].get(DISPATCH_ANNOTATION) == operation_id
+                and meta["annotations"].get(key) == value
             ):
                 return
-        raise RuntimeError("dispatch claim was not confirmed")
+        label = (
+            "dispatch claim" if key == DISPATCH_ANNOTATION else "terminal witness pin"
+        )
+        raise RuntimeError(f"{label} was not confirmed")
 
     def replace_status(
         self,
@@ -193,13 +253,49 @@ class ContractClient:
         resource_version: str,
         status: dict[str, Any],
     ) -> None:
-        if not uid or not resource_version:
-            raise ValueError("a status write requires UID and resourceVersion")
         expected = _validation_condition(status)
         if expected is None:
             raise ValueError(
                 "expected one ContractValid condition for the observed generation"
             )
+        observed = self._write_status(namespace, name, uid, resource_version, status)
+        if _validation_condition(observed) != expected:
+            raise RuntimeError("ContinuityContract status write was not confirmed")
+
+    def replace_terminal_status(
+        self,
+        namespace: str,
+        name: str,
+        uid: str,
+        resource_version: str,
+        status: dict[str, Any],
+        *,
+        recovery_sets: tuple[RecoverySetSpec, ...] = (),
+    ) -> None:
+        generation = status.get("observedGeneration")
+        expected = decode_status(status, generation, recovery_sets)
+        if expected.terminal_evidence is None:
+            raise ValueError("expected terminal status with an evidence reference")
+        observed = self._write_status(namespace, name, uid, resource_version, status)
+        try:
+            confirmed = decode_status(observed, generation, recovery_sets) == expected
+        except ApiValidationError:
+            confirmed = False
+        if not confirmed:
+            raise RuntimeError(
+                "ContinuityContract terminal status write was not confirmed"
+            )
+
+    def _write_status(
+        self,
+        namespace: str,
+        name: str,
+        uid: str,
+        resource_version: str,
+        status: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not uid or not resource_version:
+            raise ValueError("a status write requires UID and resourceVersion")
         result = self._request(
             "PUT",
             namespace,
@@ -225,15 +321,16 @@ class ContractClient:
             and isinstance(metadata, dict)
             and (metadata.get("namespace"), metadata.get("name"), metadata.get("uid"))
             == (namespace, name, uid)
+            and metadata.get("deletionTimestamp") is None
             and type(metadata.get("generation")) is int
             and metadata["generation"] == status["observedGeneration"]
             and isinstance(metadata.get("resourceVersion"), str)
             and metadata["resourceVersion"].strip()
             and isinstance(observed, dict)
             and observed.get("phase", "Pending") == status.get("phase", "Pending")
-            and _validation_condition(observed) == expected
         ):
             raise RuntimeError("ContinuityContract status write was not confirmed")
+        return observed
 
     def _request(
         self,

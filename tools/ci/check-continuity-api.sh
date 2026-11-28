@@ -629,3 +629,11 @@ kubectl create namespace dispatch-records
 records='/api/v1/namespaces/dispatch-records/configmaps(/(binding-[a-f0-9]{32}\.[a-f0-9]{32}|dispatch-[a-f0-9]{54}))?'
 run_proxy_test check-continuity-dispatch.py \
   "^(${contracts}/dispatch-(complete|competing|corrupt|replaced|interrupted)|${records})$" 'PUT,DELETE,CONNECT,HEAD,OPTIONS,TRACE'
+
+kubectl create namespace terminal-labs
+kubectl create namespace terminal-records
+contracts='/apis/continuity\.hyopsproject\.github\.io/v1alpha1/namespaces/terminal-labs/continuitycontracts'
+records='/api/v1/namespaces/terminal-records/configmaps(/(binding-[a-f0-9]{32}\.[a-f0-9]{32}|(terminal|dispatch)-[a-f0-9]{54}))?'
+evidence='/api/v1/namespaces/terminal-labs/configmaps(/terminal-[a-f0-9]{54})?'
+run_proxy_test check-continuity-terminal.py \
+  "^(${contracts}/terminal-(complete|uncertain|evidence|witness|claims|recovered)(/status)?|${records}|${evidence})$" 'DELETE,CONNECT,HEAD,OPTIONS,TRACE'

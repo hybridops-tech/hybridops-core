@@ -74,6 +74,16 @@ def run_bound_operation(
     receipt: BindingReceipt,
     engine: ContinuityEngine,
 ) -> TerminalRecord:
+    record, _ = execute_with_claim(client, record_namespace, receipt, engine)
+    return record
+
+
+def execute_with_claim(
+    client: ContractClient,
+    record_namespace: str,
+    receipt: BindingReceipt,
+    engine: ContinuityEngine,
+) -> tuple[TerminalRecord, str]:
     spec = verify_operation(client, record_namespace, receipt)
     contract = project_contract(spec, receipt.operation_id)
     claim_uid = claim_dispatch(client, record_namespace, receipt)
@@ -81,4 +91,4 @@ def run_bound_operation(
     def before_mutation() -> None:
         verify_operation(client, record_namespace, receipt, claim_uid=claim_uid)
 
-    return engine.run(contract, before_mutation=before_mutation)
+    return engine.run(contract, before_mutation=before_mutation), claim_uid

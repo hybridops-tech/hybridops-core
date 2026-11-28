@@ -6,9 +6,13 @@ from http.client import HTTPConnection
 from io import BytesIO
 from unittest.mock import Mock, patch
 
-from hyops.continuity.api import API_GROUP, API_KIND
+from hyops.continuity.api import API_GROUP, API_KIND, RecoverySetSpec
 from hyops.continuity.api.v1alpha1 import API_VERSION_VALUE
-from hyops.controller.client import DISPATCH_ANNOTATION, ContractClient
+from hyops.controller.client import (
+    DISPATCH_ANNOTATION,
+    TERMINAL_ANNOTATION,
+    ContractClient,
+)
 from hyops.controller.reconcile import StatusConflict
 
 
@@ -393,3 +397,168 @@ class ContractClientTests(unittest.TestCase):
         with self.assertRaises(StatusConflict):
             client.mark_dispatch("records", "record", "binding-uid", "7", "run-1")
         conn.request.assert_called_once()
+
+    def test_terminal_configmap_confirms_only_the_exact_text(self):
+        content = '{"result":"é"}\n'
+        cm = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "immutable": True,
+            "metadata": {
+                "name": "record",
+                "namespace": "lab",
+                "uid": "a",
+                "resourceVersion": "4",
+            },
+            "data": {"terminal.json": content},
+        }
+        client, conn = self.response(201, cm)
+        self.assertEqual(client.create_terminal_evidence("lab", "record", content), cm)
+        self.assertEqual(
+            json.loads(conn.request.call_args.kwargs["body"])["data"], cm["data"]
+        )
+        self.assertEqual(
+            self.response(200, cm)[0].read_terminal_evidence("lab", "record"), cm
+        )
+        with self.assertRaises(RuntimeError):
+            self.response(201, cm)[0].create_terminal_evidence(
+                "lab", "record", content.rstrip()
+            )
+        for delta in (
+            {"immutable": False},
+            {"data": {"binding.json": content}},
+            {"data": {**cm["data"], "extra": ""}},
+            {"binaryData": {"more": "AA=="}},
+            {
+                "metadata": {
+                    **cm["metadata"],
+                    "deletionTimestamp": "2026-11-28T12:00:00Z",
+                }
+            },
+        ):
+            with self.subTest(delta=delta), self.assertRaises(ValueError):
+                self.response(200, {**cm, **delta})[0].read_terminal_evidence(
+                    "lab", "record"
+                )
+
+    def test_terminal_witness_pin_is_an_identity_guarded_binding_patch(self):
+        cm = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "immutable": True,
+            "metadata": {
+                "name": "binding",
+                "namespace": "records",
+                "uid": "old",
+                "resourceVersion": "10",
+                "annotations": {TERMINAL_ANNOTATION: "witness-uid"},
+            },
+            "data": {"binding.json": "{}"},
+        }
+        args = ("records", "binding", "old", "9", "witness-uid")
+        client, conn = self.response(200, cm)
+        client.pin_terminal_witness(*args)
+        self.assertEqual(
+            conn.request.call_args.args,
+            ("PATCH", "/api/v1/namespaces/records/configmaps/binding"),
+        )
+        self.assertEqual(
+            json.loads(conn.request.call_args.kwargs["body"]),
+            {
+                "metadata": {
+                    "uid": "old",
+                    "resourceVersion": "9",
+                    "annotations": {TERMINAL_ANNOTATION: "witness-uid"},
+                }
+            },
+        )
+        for meta in (
+            {"uid": "new"},
+            {"annotations": {}},
+            {"annotations": {TERMINAL_ANNOTATION: "other"}},
+        ):
+            with self.subTest(meta=meta), self.assertRaises(RuntimeError):
+                self.response(200, {**cm, "metadata": {**cm["metadata"], **meta}})[
+                    0
+                ].pin_terminal_witness(*args)
+        with self.assertRaises(StatusConflict):
+            self.response(409, {"reason": "Conflict"})[0].pin_terminal_witness(*args)
+
+    def test_terminal_status_confirmation_uses_all_normalized_fields(self):
+        digest = "sha256:" + "a" * 64
+        sets = tuple(
+            RecoverySetSpec(name, "capture", name, "recovery")
+            for name in ("first", "next")
+        )
+        status = {
+            "observedGeneration": 1,
+            "phase": "Succeeded",
+            "terminalEvidenceRef": {
+                "kind": "ConfigMap",
+                "name": "record",
+                "digest": digest,
+            },
+            "recoverySets": [
+                {
+                    "name": s.name,
+                    "evidence": s.evidence,
+                    "role": s.role,
+                    "digest": digest,
+                }
+                for s in sets
+            ],
+        }
+        observed = {
+            **status,
+            "conditions": [],
+            "terminalEvidenceRef": {
+                **status["terminalEvidenceRef"],
+                "apiGroup": "",
+            },
+            "recoverySets": status["recoverySets"][::-1],
+        }
+        args = ("default", "lab", "uid", "42", status)
+        client, conn = self.response(200, {**self.written, "status": observed})
+        client.replace_terminal_status(*args, recovery_sets=sets)
+        self.assertEqual(
+            conn.request.call_args.args,
+            (
+                "PUT",
+                f"/apis/{API_VERSION_VALUE}/namespaces/default/continuitycontracts/lab/status",
+            ),
+        )
+        self.assertEqual(
+            json.loads(conn.request.call_args.kwargs["body"])["metadata"],
+            {
+                "name": "lab",
+                "namespace": "default",
+                "uid": "uid",
+                "resourceVersion": "42",
+            },
+        )
+        for delta in (
+            {"observedGeneration": True},
+            {"phase": "Failed"},
+            {"terminalEvidenceRef": None},
+            {"terminalEvidenceRef": {**status["terminalEvidenceRef"], "name": "other"}},
+            {"conditions": self.status["conditions"]},
+            {"recoverySets": []},
+            {
+                "recoverySets": [
+                    {**s, "digest": "sha256:" + "b" * 64}
+                    for s in status["recoverySets"]
+                ]
+            },
+        ):
+            with (
+                self.subTest(delta=delta),
+                self.assertRaisesRegex(RuntimeError, "was not confirmed"),
+            ):
+                client, _ = self.response(
+                    200, {**self.written, "status": {**observed, **delta}}
+                )
+                client.replace_terminal_status(*args, recovery_sets=sets)
+        client, conn = self.response(200, self.written)
+        with self.assertRaises(ValueError):
+            client.replace_terminal_status(*args[:-1], self.status)
+        conn.request.assert_not_called()

@@ -6,7 +6,7 @@ import base64
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from hyops.continuity.api import ApiSpec, v1alpha1
+from hyops.continuity.api import ApiResource, ApiSpec, v1alpha1
 from hyops.continuity.json_values import digest_json
 
 
@@ -42,9 +42,9 @@ def _identity(obj: Mapping[str, Any], namespace: str, name: str) -> dict[str, st
     return {key: meta[key] for key in ("namespace", "name", "uid", "resourceVersion")}
 
 
-def _contract(
+def _read_contract(
     client: ReferenceClient, namespace: str, name: str
-) -> tuple[dict, ApiSpec]:
+) -> tuple[dict, ApiResource]:
     obj = client.read(namespace, name)
     if obj is None:
         raise ReferenceBindingError("ContractMissing")
@@ -55,15 +55,22 @@ def _contract(
         parsed = v1alpha1.decode(obj)
     except v1alpha1.ApiValidationError:
         raise ReferenceBindingError("InvalidContract") from None
-    if parsed.metadata.generation < 1 or (
-        parsed.status and parsed.status.phase != "Pending"
-    ):
-        raise ReferenceBindingError("ContractNotPending")
     return dict(
         identity,
         generation=parsed.metadata.generation,
         specDigest=digest_json(obj["spec"]),
-    ), parsed.spec
+    ), parsed
+
+
+def _contract(
+    client: ReferenceClient, namespace: str, name: str
+) -> tuple[dict, ApiSpec]:
+    identity, resource = _read_contract(client, namespace, name)
+    if resource.metadata.generation < 1 or (
+        resource.status and resource.status.phase != "Pending"
+    ):
+        raise ReferenceBindingError("ContractNotPending")
+    return identity, resource.spec
 
 
 def _keys(spec: ApiSpec) -> list[tuple[str, str]]:
@@ -131,6 +138,15 @@ def _same_contract(observed: dict, original: object) -> bool:
         and type(original.get("generation")) is int
         and observed == dict(original, resourceVersion=observed["resourceVersion"])
     )
+
+
+def read_bound_subject(
+    client: ReferenceClient, namespace: str, name: str, subject: dict
+) -> ApiResource:
+    identity, resource = _read_contract(client, namespace, name)
+    if not _same_contract(identity, subject):
+        raise ReferenceBindingError("ContractChanged")
+    return resource
 
 
 def _observe(
