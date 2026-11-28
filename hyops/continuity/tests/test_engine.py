@@ -668,6 +668,27 @@ class ContinuityEngineTests(unittest.TestCase):
                 replace(
                     base,
                     stages=(
+                        replace(
+                            base.stages[0],
+                            produced_evidence={"bad/name": "recovery_set"},
+                        ),
+                    ),
+                ),
+                "invalid_contract",
+            ),
+            (
+                replace(
+                    base,
+                    stages=(
+                        replace(base.stages[0], produced_evidence={"snapshot": None}),
+                    ),
+                ),
+                "invalid_contract",
+            ),
+            (
+                replace(
+                    base,
+                    stages=(
                         base.stages[0],
                         replace(
                             base.stages[1],
@@ -1589,6 +1610,73 @@ class ContinuityEngineTests(unittest.TestCase):
             {"private": "not-published"},
         )
 
+    def test_single_stage_requires_its_declared_evidence(self) -> None:
+        base = self._spec()
+        snapshot = EvidenceIdentity("snapshot", "recovery_set", "sha256:" + "a" * 64)
+        config = EvidenceIdentity("config", "configuration", "sha256:" + "b" * 64)
+        required = {item.name: item.role for item in (snapshot, config)}
+        missing = "missing_producer_evidence"
+        cases = (
+            ("absent", required, (), missing),
+            ("partial", required, (config,), missing),
+            (
+                "wrong-name",
+                required,
+                (config, replace(snapshot, name="other")),
+                missing,
+            ),
+            (
+                "wrong-role",
+                required,
+                (config, replace(snapshot, role="report")),
+                missing,
+            ),
+            (
+                "bad-digest",
+                required,
+                (config, replace(snapshot, digest="bad")),
+                "invalid_evidence_identity",
+            ),
+            ("complete", required, (config, snapshot), ""),
+            ("optional", {}, (), ""),
+        )
+        for case, declared, returned, reason in cases:
+            with self.subTest(case=case):
+                producer = replace(base.stages[0], produced_evidence=declared)
+                self.adapter.omit_prepare_evidence = not returned
+                self.adapter.prepare_evidence_override = returned
+                result = self.engine.run(
+                    replace(base, operation_id=case, stages=(producer,))
+                )
+                self.assertEqual(result.reason_code, reason)
+                self.assertEqual(result.status, "recovered" if reason else "succeeded")
+                (stage,) = result.stages
+                self.assertEqual(stage.status, "failed" if reason else "succeeded")
+                self.assertEqual(stage.evidence, () if reason else returned)
+                self.assertEqual(stage.reason_code, reason)
+                self.assertEqual(
+                    json.loads(self._terminal_path(case).read_text())["stages"],
+                    [stage.to_evidence()],
+                )
+
+    def test_missing_producer_evidence_stops_successor_without_consumer_binding(
+        self,
+    ) -> None:
+        spec = self._spec()
+        producer = replace(
+            spec.stages[0], produced_evidence={"recovery-set": "recovery_set"}
+        )
+        successor = replace(spec.stages[1], evidence_bindings=())
+        self.adapter.omit_prepare_evidence = True
+
+        result = self.engine.run(replace(spec, stages=(producer, successor)))
+
+        self.assertEqual(result.reason_code, "missing_producer_evidence")
+        self.assertEqual(
+            self.adapter.calls,
+            [("admit", "prepare"), ("execute", "prepare"), ("recover", "prepare")],
+        )
+
     def test_release_requires_content_identified_recovery_evidence(self) -> None:
         self.adapter.omit_prepare_evidence = True
 
@@ -1957,8 +2045,42 @@ class ContinuityEngineTests(unittest.TestCase):
                 evidence_bindings=[],
             )
 
+        with self.assertRaises(TypeError):
+            replace(stage, produced_evidence=[])
+
+    def test_producer_declaration_is_immutable_and_part_of_the_digest(self) -> None:
+        spec = self._spec()
+        declarations = {"snapshot": "recovery_set", "config": "configuration"}
+
+        def with_declarations(items):
+            return replace(
+                spec,
+                stages=(
+                    replace(spec.stages[0], produced_evidence=items),
+                    spec.stages[1],
+                ),
+            )
+
+        contract = with_declarations(declarations)
+        digest = contract.digest()
+        self.assertEqual(
+            digest, with_declarations(dict(reversed(declarations.items()))).digest()
+        )
+        self.assertNotEqual(digest, spec.digest())
+        self.assertNotEqual(
+            digest, with_declarations({**declarations, "config": "report"}).digest()
+        )
+        declarations.clear()
+        self.assertEqual(contract.digest(), digest)
+        with self.assertRaises(TypeError):
+            contract.stages[0].produced_evidence["config"] = "report"
+
     def test_contract_digest_is_canonical_and_materially_sensitive(self) -> None:
         first = self._spec()
+        self.assertEqual(
+            first.digest(),
+            "sha256:2e3192c6c64fb87153e2f44f88c59c445dde3608a5f8d79c138ebc3ef135ba40",
+        )
         declaration = first.authorities["release-authority"]
         reordered = replace(
             first,

@@ -179,6 +179,7 @@ class StageSpec:
     evidence_bindings: tuple[EvidenceBinding, ...] = ()
     authority: AuthorityRequirement | None = None
     recovery_operation: str | None = None
+    produced_evidence: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.requires, tuple):
@@ -191,6 +192,11 @@ class StageSpec:
             raise TypeError("stage published outputs must be a frozenset")
         if not isinstance(self.evidence_bindings, tuple):
             raise TypeError("stage evidence bindings must be a tuple")
+        if not isinstance(self.produced_evidence, Mapping):
+            raise TypeError("stage produced evidence must be a mapping")
+        object.__setattr__(
+            self, "produced_evidence", MappingProxyType(dict(self.produced_evidence))
+        )
         object.__setattr__(self, "inputs", _freeze_json(self.inputs))
         object.__setattr__(
             self,
@@ -206,7 +212,7 @@ class StageSpec:
                 "capability": self.authority.capability,
                 "compatibility": self.authority.compatibility,
             }
-        return {
+        payload = {
             "id": self.id,
             "adapter": self.adapter,
             "operation": self.operation,
@@ -228,6 +234,10 @@ class StageSpec:
             "authority": authority,
             "recovery_operation": self.recovery_operation,
         }
+        # Keep existing operation digests when no producer evidence was declared.
+        if self.produced_evidence:
+            payload["produced_evidence"] = dict(self.produced_evidence)
+        return payload
 
 
 @dataclass(frozen=True)

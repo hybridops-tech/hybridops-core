@@ -9,7 +9,7 @@ from tools.acceptance.continuity_contract.runner import run
 
 
 class ContinuityContractAcceptanceTests(unittest.TestCase):
-    def test_completed_and_denied_release_paths(self) -> None:
+    def test_release_and_producer_evidence_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "acceptance"
 
@@ -69,6 +69,14 @@ class ContinuityContractAcceptanceTests(unittest.TestCase):
                 len(list((output / "completed" / "operations").glob("*/claim.json"))),
                 1,
             )
+
+            produced = report["scenarios"]["producer-only"]
+            omitted = report["scenarios"]["producer-omitted"]
+            prepare_calls = [["admit", "prepare"], ["execute", "prepare"]]
+            self.assertEqual(produced["calls"], prepare_calls)
+            self.assertEqual(omitted["calls"], [*prepare_calls, ["recover", "prepare"]])
+            failed = json.loads(Path(omitted["terminal"]).read_text(encoding="utf-8"))
+            self.assertEqual(failed["reason_code"], "missing_producer_evidence")
 
 
 if __name__ == "__main__":

@@ -132,6 +132,13 @@ class ApiSpec:
             tuple(sorted(self.recovery_sets, key=lambda item: item.name)),
         )
 
+    def producer_evidence_by_stage(self) -> dict[str, dict[str, str]]:
+        """Index a validated spec's output evidence names and roles by producer."""
+        outputs: dict[str, dict[str, str]] = {stage.id: {} for stage in self.stages}
+        for recovery_set in self.recovery_sets:
+            outputs[recovery_set.stage][recovery_set.evidence] = recovery_set.role
+        return outputs
+
 
 @dataclass(frozen=True)
 class ApiCondition:

@@ -8,6 +8,7 @@ import hashlib
 import inspect
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from hyops.continuity import (
     StageSpec,
     WorkloadIdentity,
 )
+from hyops.continuity.api import API_KIND, v1alpha1
 from hyops.continuity.storage import FileOperationStore
 
 
@@ -77,9 +79,12 @@ class _LocalAdapter:
     )
     operations = frozenset({"prepare", "release", "remove"})
 
-    def __init__(self, root: Path, *, deny_release: bool) -> None:
+    def __init__(
+        self, root: Path, *, deny_release: bool = False, omit_evidence: bool = False
+    ) -> None:
         self._root = root
         self._deny_release = deny_release
+        self._omit_evidence = omit_evidence
         self.calls: list[tuple[str, str]] = []
         self.prepared_artifact = ""
         self.prepared_digest = ""
@@ -108,7 +113,9 @@ class _LocalAdapter:
             )
             return ExecutionResult(
                 outputs={"artifact": str(artifact)},
-                evidence=(
+                evidence=()
+                if self._omit_evidence
+                else (
                     EvidenceIdentity(
                         name="recovery-set",
                         role="recovery_set",
@@ -212,11 +219,10 @@ def _contract(operation_id: str) -> ContinuityContract:
     )
 
 
-def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
-    root.mkdir(parents=True)
-    adapter = _LocalAdapter(root, deny_release=deny_release)
-    store = FileOperationStore(root / "operations")
-    engine = ContinuityEngine(
+def _engine(
+    root: Path, adapter: _LocalAdapter, store: FileOperationStore
+) -> ContinuityEngine:
+    return ContinuityEngine(
         adapters={"local": adapter},
         authority_gate=_resolver(),
         authority_context=AuthorityContext(
@@ -231,6 +237,13 @@ def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
         ),
         operation_store=store,
     )
+
+
+def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
+    root.mkdir(parents=True)
+    adapter = _LocalAdapter(root, deny_release=deny_release)
+    store = FileOperationStore(root / "operations")
+    engine = _engine(root, adapter, store)
     expected_status = "recovered" if deny_release else "succeeded"
     expected_closure = "recovered" if deny_release else "completed"
     expected_reason = "adapter_admission_denied" if deny_release else ""
@@ -290,12 +303,84 @@ def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
         ),
         "single_terminal_shape": terminal_payload == json.loads(terminal_text),
     }
+    return _result(terminal_path, adapter, checks)
+
+
+def _result(
+    terminal_path: Path, adapter: _LocalAdapter, checks: dict[str, bool]
+) -> dict[str, Any]:
     return {
         "status": "passed" if all(checks.values()) else "failed",
         "terminal": str(terminal_path),
         "calls": [list(call) for call in adapter.calls],
         "checks": checks,
     }
+
+
+def _producer_scenario(root: Path, *, omit_evidence: bool) -> dict[str, Any]:
+    root.mkdir(parents=True)
+    contract = _contract(root.name)
+    producer = contract.stages[0]
+    api_spec = v1alpha1.decode(
+        {
+            "apiVersion": v1alpha1.API_VERSION_VALUE,
+            "kind": API_KIND,
+            "metadata": {"name": root.name},
+            "spec": {
+                "workload": contract.workload.to_evidence(),
+                "recoverySets": [
+                    {
+                        "name": "workload-state",
+                        "producer": {
+                            "stage": producer.id,
+                            "evidence": "recovery-set",
+                            "role": "recovery_set",
+                        },
+                    }
+                ],
+                "stages": [
+                    {
+                        "id": producer.id,
+                        "operation": producer.operation,
+                        "adapterRef": {"name": producer.adapter},
+                        "publish": sorted(producer.publish),
+                        "recoveryOperation": producer.recovery_operation,
+                    }
+                ],
+            },
+        }
+    ).spec
+    producer = replace(
+        producer, produced_evidence=api_spec.producer_evidence_by_stage()[producer.id]
+    )
+    adapter = _LocalAdapter(root, omit_evidence=omit_evidence)
+    store = FileOperationStore(root / "operations")
+    _engine(root, adapter, store).run(
+        replace(contract, stages=(producer,), authorities={})
+    )
+    path = store.terminal_path(root.name)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    (stage,) = record["stages"]
+    checks = {"producer": stage["stage_id"] == producer.id}
+    if omit_evidence:
+        checks.update(
+            terminal=record["status"] == "recovered",
+            producer_failure=stage["status"] == "failed"
+            and stage.get("reason_code") == "missing_producer_evidence",
+            cleanup=stage["recovery_status"] == "succeeded"
+            and not (root / "recovery-set.json").exists(),
+        )
+    else:
+        digest = (
+            "sha256:"
+            + hashlib.sha256((root / "recovery-set.json").read_bytes()).hexdigest()
+        )
+        checks.update(
+            terminal=record["status"] == "succeeded" and stage["status"] == "succeeded",
+            content_identity=stage.get("evidence")
+            == [{"name": "recovery-set", "role": "recovery_set", "digest": digest}],
+        )
+    return _result(path, adapter, checks)
 
 
 def run(output_root: Path) -> dict[str, Any]:
@@ -305,6 +390,12 @@ def run(output_root: Path) -> dict[str, Any]:
         "release-denied": _scenario(
             output_root / "release-denied",
             deny_release=True,
+        ),
+        "producer-only": _producer_scenario(
+            output_root / "producer-only", omit_evidence=False
+        ),
+        "producer-omitted": _producer_scenario(
+            output_root / "producer-omitted", omit_evidence=True
         ),
     }
     report = {

@@ -202,6 +202,13 @@ def _validate_stage_shape(stage: StageSpec) -> None:
             )
         for value in (binding.stage, binding.name, binding.role):
             _require_token(value, f"stage '{stage.id}' evidence binding")
+    if not isinstance(stage.produced_evidence, Mapping):
+        raise ContractFailure(
+            "invalid_contract", f"stage '{stage.id}' produced evidence is not a mapping"
+        )
+    for name, role in stage.produced_evidence.items():
+        _require_token(name, f"stage '{stage.id}' produced evidence name")
+        _require_token(role, f"stage '{stage.id}' produced evidence role")
     if stage.authority is not None:
         if not isinstance(stage.authority, AuthorityRequirement):
             raise ContractFailure(
