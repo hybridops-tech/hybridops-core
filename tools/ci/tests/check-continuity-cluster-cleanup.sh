@@ -5,11 +5,13 @@ harness="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/check-continuity
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 export trace="${tmp}/trace" scenario
-export test_cluster=hyops-continuity-api-0123456789abcdef0123456789abcdef
+export suffix_file="${tmp}/cluster-suffix"
 
-python3() { printf '%s\n' "${test_cluster##*-}"; }
+python3() { command python3 "$@" | tee "${suffix_file}"; }
 docker() { return 99; }
 kind() {
+  local test_cluster=""
+  if [[ -s "${suffix_file}" ]]; then test_cluster="hyops-api-$(<"${suffix_file}")"; fi
   case "$1 ${2:-}" in
     "version ") printf 'kind v%s test\n' "${KIND_VERSION}" ;;
     "get clusters")
@@ -21,7 +23,7 @@ kind() {
         inventory-lost) if grep -Fxq create "${trace}"; then return 2; fi ;;
       esac ;;
     "create cluster")
-      [[ "$4" == "${test_cluster}" ]] || return 90
+      [[ "$4" == "${test_cluster}" && ${#4} -le 49 ]] || return 90
       echo create >>"${trace}"
       case "${scenario}" in partial|rolled-back|inventory-lost) return 2 ;; esac ;;
     "get kubeconfig")

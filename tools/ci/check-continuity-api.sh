@@ -23,7 +23,7 @@ kind version | grep -Fq "kind v${KIND_VERSION} " || {
   exit 2
 }
 
-cluster_name="hyops-continuity-api-$(python3 -c 'from uuid import uuid4; print(uuid4().hex)')"
+cluster_name="hyops-api-$(python3 -c 'from uuid import uuid4; print(uuid4().hex[:24])')"
 runtime_root="$(mktemp -d)"
 export KUBECONFIG="${runtime_root}/kubeconfig"
 cluster_state=unstarted
