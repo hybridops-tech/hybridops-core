@@ -1,5 +1,7 @@
 """Provider-neutral operation authority contracts."""
 
+from typing import Any
+
 from .models import (
     AUTHORITY_PROVIDER_CONTRACT_VERSION,
     AuthorityContext,
@@ -14,7 +16,6 @@ from .models import (
     AuthorityRequirement,
     AuthoritySession,
 )
-from .resolver import AuthorityResolver, default_authority_registry
 
 __all__ = [
     "AUTHORITY_PROVIDER_CONTRACT_VERSION",
@@ -32,3 +33,15 @@ __all__ = [
     "AuthoritySession",
     "default_authority_registry",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "AuthorityResolver":
+        from .resolver import AuthorityResolver
+
+        return AuthorityResolver
+    if name == "default_authority_registry":
+        from .resolver import default_authority_registry
+
+        return default_authority_registry
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

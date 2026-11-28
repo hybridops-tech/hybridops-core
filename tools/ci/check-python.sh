@@ -13,6 +13,8 @@ hyops_ci::require_cmd python3
 
 python3 "${HYOPS_REPO_ROOT}/tools/ci/check-module-catalog.py"
 python3 "${HYOPS_REPO_ROOT}/tools/ci/check-blueprint-catalog.py"
+python3 "${HYOPS_REPO_ROOT}/tools/ci/check-continuity-boundary.py" \
+  "${HYOPS_REPO_ROOT}"
 
 python3 -m compileall "${HYOPS_REPO_ROOT}/hyops"
 
@@ -22,6 +24,10 @@ python3 -m unittest discover \
 
 PYTHONPATH="${HYOPS_REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" python3 -m unittest discover \
   -s "${HYOPS_REPO_ROOT}/tools/acceptance/authority_continuity/tests" \
+  -p 'test_*.py'
+
+PYTHONPATH="${HYOPS_REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" python3 -m unittest discover \
+  -s "${HYOPS_REPO_ROOT}/tools/acceptance/continuity_contract/tests" \
   -p 'test_*.py'
 
 python3 - "${HYOPS_REPO_ROOT}" <<'PY'
