@@ -658,11 +658,17 @@ class ContinuityEngine:
         outputs: Mapping[str, Any] | None = None,
         evidence: tuple[EvidenceIdentity, ...] = (),
     ) -> StageRecord:
-        output_identities = tuple(
-            OutputIdentity(name=name, digest=json_digest(outputs[name]))
-            for name in sorted(stage.publish)
-            if outputs is not None and name in outputs
-        )
+        try:
+            output_identities = tuple(
+                OutputIdentity(name=name, digest=json_digest(outputs[name]))
+                for name in sorted(stage.publish)
+                if outputs is not None and name in outputs
+            )
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise ContractFailure(
+                "invalid_stage_outputs",
+                f"stage '{stage.id}' returned invalid outputs",
+            ) from exc
         return StageRecord(
             stage_id=stage.id,
             adapter=adapter_identity,
