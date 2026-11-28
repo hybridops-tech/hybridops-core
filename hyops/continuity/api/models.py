@@ -82,6 +82,7 @@ class ApiStage:
     recovery_sets: frozenset[str] = frozenset()
     authority_ref: str | None = None
     recovery_operation: str | None = None
+    destructive: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.requires, tuple):

@@ -42,6 +42,7 @@ spec:
       adapterRef:
         name: conformance
       operation: release
+      destructive: true
       requires:
         - prepare
       inputBindings:

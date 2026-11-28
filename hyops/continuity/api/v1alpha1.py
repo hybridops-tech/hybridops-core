@@ -313,6 +313,7 @@ def _decode_stage(value: object, path: str) -> ApiStage:
             "id",
             "adapterRef",
             "operation",
+            "destructive",
             "requires",
             "parametersRef",
             "inputBindings",
@@ -325,12 +326,16 @@ def _decode_stage(value: object, path: str) -> ApiStage:
     )
     adapter_ref = _mapping(stage.get("adapterRef"), f"{path}.adapterRef")
     _known_keys(adapter_ref, {"name"}, f"{path}.adapterRef")
+    destructive = stage.get("destructive", False)
+    if type(destructive) is not bool:
+        _fail("InvalidType", f"{path}.destructive", "must be a boolean")
     authority_ref = stage.get("authorityRef")
     recovery_operation = stage.get("recoveryOperation")
     return ApiStage(
         id=_token(stage.get("id"), f"{path}.id"),
         adapter=_token(adapter_ref.get("name"), f"{path}.adapterRef.name"),
         operation=_token(stage.get("operation"), f"{path}.operation"),
+        destructive=destructive,
         requires=tuple(
             _token(item, f"{path}.requires[{index}]")
             for index, item in enumerate(
@@ -600,6 +605,18 @@ def _validate_semantics(resource: ApiResource) -> None:
                 )
 
     for stage in resource.spec.stages:
+        if stage.destructive and stage.authority_ref is None:
+            _fail(
+                "MissingDestructiveAuthority",
+                f"$.spec.stages[{stage.id}].authorityRef",
+                "a destructive stage requires an authority",
+            )
+        if stage.destructive and not stage.recovery_sets:
+            _fail(
+                "MissingRecoveryBarrier",
+                f"$.spec.stages[{stage.id}].recoverySets",
+                "a destructive stage requires a recovery set from a predecessor",
+            )
         reachable = _dependencies(stage.id, stages)
         binding_names: set[str] = set()
         for binding in stage.input_bindings:
@@ -832,6 +849,8 @@ def _encode_stage(stage: ApiStage) -> dict[str, Any]:
         "publish": sorted(stage.publish),
         "recoverySets": sorted(stage.recovery_sets),
     }
+    if stage.destructive is not False:
+        payload["destructive"] = stage.destructive
     if stage.parameters_ref is not None:
         payload["parametersRef"] = _encode_reference(stage.parameters_ref)
     if stage.authority_ref is not None:

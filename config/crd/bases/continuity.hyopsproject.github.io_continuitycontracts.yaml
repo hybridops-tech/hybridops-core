@@ -74,6 +74,17 @@ spec:
                 - rule: >-
                     self.stages.all(s, !(s.id in s.requires))
                   message: a stage cannot depend on itself
+                - rule: >-
+                    self.stages.all(s, !has(s.destructive) || !s.destructive ||
+                      (has(s.authorityRef) && self.authorities.exists(a, a.name == s.authorityRef)))
+                  message: a destructive stage requires a declared authority
+                - rule: >-
+                    [self.recoverySets.transformMapEntry(i, r,
+                      self.stages.exists(p, p.id == r.producer.stage),
+                      {r.name: r.producer.stage})].all(producers,
+                      self.stages.all(s, !has(s.destructive) || !s.destructive ||
+                        s.recoverySets.all(n, n in producers && producers[n] != s.id)))
+                  message: destructive recovery sets must be declared and produced by another stage
               properties:
                 workload:
                   type: object
@@ -249,6 +260,17 @@ spec:
                       - id
                       - adapterRef
                       - operation
+                    x-kubernetes-validations:
+                      - rule: has(self.destructive)
+                        message: destructive must be a boolean
+                      - rule: >-
+                          !has(self.destructive) || !self.destructive ||
+                            self.recoverySets.size() > 0
+                        message: a destructive stage requires a recovery set
+                      - rule: >-
+                          !has(self.destructive) || !self.destructive ||
+                            self.requires.size() > 0
+                        message: a destructive stage requires a predecessor
                     properties:
                       id:
                         type: string
@@ -268,6 +290,13 @@ spec:
                         type: string
                         maxLength: 64
                         pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      destructive:
+                        type: boolean
+                        description: >-
+                          Declares destructive intent. Requires authority and recovery state
+                          from a predecessor; does not grant permission to execute.
+                        nullable: true
+                        default: false
                       requires:
                         type: array
                         default: []

@@ -259,10 +259,14 @@ import json, sys
 p = json.load(sys.stdin)
 p["metadata"] = {"name": "bounded-producers"}
 producer = "p" * 64
-p["spec"]["stages"] = [{"id": producer, "adapterRef": {"name": "test"}, "operation": "test"}]
 p["spec"]["recoverySets"] = [
     {"name": f"{i:r>64}", "producer": {"stage": producer, "evidence": f"{i:e>64}", "role": "r"*64}}
     for i in range(256)]
+stage = {"adapterRef": {"name": "test"}, "operation": "test"}
+p["spec"]["stages"] = [
+    {**stage, "id": producer}, {**stage, "id": "observe", "requires": [producer]},
+    {**stage, "id": "release", "destructive": True, "requires": ["observe"],
+     "authorityRef": "first", "recoverySets": [r["name"] for r in p["spec"]["recoverySets"]]}]
 json.dump(p, sys.stdout)' | kubectl create --validate=strict --filename - >/dev/null
   resource_snapshot continuitycontract/bounded-producers | python3 -c '
 import json, sys
@@ -328,7 +332,28 @@ kubectl wait \
   --for=condition=Established \
   --timeout=90s \
   customresourcedefinition/continuitycontracts.continuity.hyopsproject.github.io
+
+reject_sample_patch() {
+  local change="$1" diagnostic="$2"
+  kubectl patch --local --filename "${sample}" --type=json --patch="${change}" --output=json |
+    expect_create_rejection "${change}" "${diagnostic}" \
+      kubectl create --request-timeout=30s --dry-run=server --validate=false --filename -
+}
+
+reject_sample_patch '[{"op":"remove","path":"/spec/stages/1/authorityRef"}]' \
+  "a destructive stage requires a declared authority"
+reject_sample_patch '[{"op":"remove","path":"/spec/stages/1/recoverySets"}]' \
+  "a destructive stage requires a recovery set"
+reject_sample_patch '[{"op":"replace","path":"/spec/stages/1/authorityRef","value":"unknown"}]' \
+  "a destructive stage requires a declared authority"
+reject_sample_patch '[{"op":"replace","path":"/spec/recoverySets/0/producer/stage","value":"release"}]' \
+  "destructive recovery sets must be declared and produced by another stage"
+reject_sample_patch '[{"op":"replace","path":"/spec/stages/1/destructive","value":null}]' \
+  "destructive must be a boolean"
+
 kubectl apply --server-side --validate=strict --filename "${sample}"
+assert_equal "release declares destructive intent" "true" \
+  "$(kubectl get "${resource}" --output=jsonpath='{.spec.stages[?(@.id=="release")].destructive}')"
 
 kubectl apply --server-side --validate=strict --filename - <<'EOF'
 apiVersion: continuity.hyopsproject.github.io/v1alpha1
@@ -353,11 +378,11 @@ EOF
 
 defaults="$(
   kubectl get continuitycontract/default-policy \
-    --output=jsonpath='{.spec.policy.failureAction}/{.spec.policy.unverifiableAction}/{.spec.policy.terminalEvidence}/{.spec.authorities[0].compatibility}'
+    --output=jsonpath='{.spec.policy.failureAction}/{.spec.policy.unverifiableAction}/{.spec.policy.terminalEvidence}/{.spec.authorities[0].compatibility}/{.spec.stages[0].destructive}'
 )"
 assert_equal \
   "ContinuityContract fail-closed defaults" \
-  "Recover/Block/Required/false" \
+  "Recover/Block/Required/false/false" \
   "${defaults}"
 
 kubectl create --validate=strict --filename - <<'EOF'

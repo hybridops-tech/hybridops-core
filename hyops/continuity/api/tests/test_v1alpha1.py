@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import math
 import unittest
-from dataclasses import fields
+from dataclasses import fields, replace
 
 from hyops.continuity.api.models import (
     ApiPolicy,
@@ -92,6 +92,7 @@ def _valid_payload() -> dict:
                     "id": "release",
                     "adapterRef": {"name": "conformance"},
                     "operation": "release",
+                    "destructive": True,
                     "requires": ["prepare"],
                     "inputBindings": [
                         {
@@ -600,10 +601,52 @@ class V1Alpha1CodecTests(unittest.TestCase):
         resource = decode(payload)
         release = next(stage for stage in resource.spec.stages if stage.id == "release")
 
+        self.assertTrue(release.destructive)
         self.assertEqual(release.input_bindings[0].stage, "prepare")
         self.assertEqual(
             release.recovery_sets,
             frozenset({"workload-state"}),
+        )
+
+    def test_destructive_intent_is_explicit(self) -> None:
+        payload = _minimal_payload()
+        stage = payload["spec"]["stages"][0]
+        stage["operation"] = "release"
+        ordinary = decode(payload)
+        self.assertIs(ordinary.spec.stages[0].destructive, False)
+        stage["destructive"] = False
+        self.assertEqual(decode(payload), ordinary)
+        self.assertNotIn("destructive", encode(ordinary)["spec"]["stages"][0])
+
+        for value in (None, 0, 1, "false", "true"):
+            with self.subTest(value=value):
+                stage["destructive"] = value
+                self.assert_failure(
+                    payload, "InvalidType", "$.spec.stages[0].destructive"
+                )
+
+    def test_destructive_stage_requires_authority_and_predecessor_recovery(
+        self,
+    ) -> None:
+        for field, reason in (
+            ("authorityRef", "MissingDestructiveAuthority"),
+            ("recoverySets", "MissingRecoveryBarrier"),
+        ):
+            with self.subTest(field=field):
+                payload = _valid_payload()
+                del payload["spec"]["stages"][1][field]
+                self.assert_failure(payload, reason, f"$.spec.stages[release].{field}")
+
+        payload = _valid_payload()
+        payload["spec"]["stages"][1]["recoverySets"] = []
+        self.assert_failure(
+            payload, "MissingRecoveryBarrier", "$.spec.stages[release].recoverySets"
+        )
+
+        payload = _valid_payload()
+        payload["spec"]["recoverySets"][0]["producer"]["stage"] = "release"
+        self.assert_failure(
+            payload, "UnorderedRecoverySet", "$.spec.stages[release].recoverySets"
         )
 
     def test_rejects_unbound_recovery_and_authority_references(self) -> None:
@@ -830,6 +873,22 @@ class V1Alpha1CodecTests(unittest.TestCase):
         resource = ApiResource(metadata=None, spec=None)
 
         self.assert_failure_from_encode(resource, "InvalidResource", "$")
+
+        resource = decode(_minimal_payload())
+        for value, reason, path in (
+            (0, "InvalidType", "$.spec.stages[0].destructive"),
+            (
+                True,
+                "MissingDestructiveAuthority",
+                "$.spec.stages[prepare].authorityRef",
+            ),
+        ):
+            with self.subTest(destructive=value):
+                stage = replace(resource.spec.stages[0], destructive=value)
+                spec = replace(resource.spec, stages=(stage,))
+                self.assert_failure_from_encode(
+                    replace(resource, spec=spec), reason, path
+                )
 
     def assert_failure_from_encode(
         self,

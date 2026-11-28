@@ -10,6 +10,7 @@ from hyops.continuity import validation as contract_validation
 from hyops.continuity.api import (
     API_GROUP,
     API_KIND,
+    ApiStage,
     AuthoritySpec,
     LocalObjectReference,
     v1alpha1 as codec,
@@ -162,7 +163,16 @@ class ContinuityContractCrdTests(unittest.TestCase):
         self.assertEqual(schema["x-kubernetes-list-type"], "set")
         self.assertGreater(schema["maxItems"], 0)
 
-    def test_spec_is_immutable_and_rejects_self_dependency(self) -> None:
+    def test_destructive_is_optional_and_matches_the_codec_default(self) -> None:
+        stage = self.spec_schema["properties"]["stages"]["items"]
+        destructive = stage["properties"]["destructive"]
+        self.assertNotIn("destructive", stage["required"])
+        self.assertEqual(destructive["type"], "boolean")
+        self.assertIs(
+            destructive["default"], ApiStage("prepare", "test", "prepare").destructive
+        )
+
+    def test_spec_validation_rules(self) -> None:
         rules = [item["rule"] for item in self.spec_schema["x-kubernetes-validations"]]
         self.assertIn("self == oldSelf", rules)
         messages = {
@@ -173,6 +183,8 @@ class ContinuityContractCrdTests(unittest.TestCase):
             {
                 "spec is immutable",
                 "a stage cannot depend on itself",
+                "a destructive stage requires a declared authority",
+                "destructive recovery sets must be declared and produced by another stage",
             },
         )
 
@@ -376,6 +388,8 @@ class ContinuityContractCrdTests(unittest.TestCase):
         encoded = encode(resource)
 
         self.assertEqual(resource.spec.recovery_sets[0].stage, "prepare")
+        self.assertFalse(resource.spec.stages[0].destructive)
+        self.assertTrue(resource.spec.stages[1].destructive)
         self.assertEqual(resource.spec.stages[1].requires, ("prepare",))
         self.assertEqual(
             resource.spec.stages[1].input_bindings[0].output,
