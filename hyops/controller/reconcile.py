@@ -40,13 +40,13 @@ def _pending_update(
             raise ValueError(
                 f"Invalid persisted contract: {error.reason_code}"
             ) from None
-        # Without a valid spec, previously reported recovery sets cannot be verified.
-        declarations = ()
         try:
-            status = v1alpha1.decode_status(payload.get("status", {}), generation)
+            status, declarations = v1alpha1.decode_status_for_invalid_spec(
+                payload.get("status", {}), generation, payload.get("spec")
+            )
         except v1alpha1.ApiValidationError as invalid_status:
             raise ValueError(
-                f"Invalid persisted status: {invalid_status.reason_code}"
+                f"Cannot verify persisted status: {invalid_status.reason_code}"
             ) from None
         state, reason = "False", error.reason_code
         message = "Contract specification is invalid."

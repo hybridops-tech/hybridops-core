@@ -428,13 +428,25 @@ spec:
     digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   policy:
     failureActon: Ignore
+  recoverySets:
+    - name: retained
+      producer: {stage: archive, evidence: snapshot, role: recovery}
+    - name: unclaimed
+      producer: {stage: prepare, evidence: report, role: inspection}
   stages:
     - id: prepare
       adapterRef:
         name: conformance
       operation: prepare
       authorityReff: release-authority
+    - id: archive
+      adapterRef: {name: conformance}
+      operation: archive
 EOF
+kubectl patch --request-timeout=30s continuitycontract/unknown-field \
+  --subresource=status --type=merge \
+  --patch='{"status":{"observedGeneration":1,"recoverySets":[{"name":"retained","evidence":"snapshot","role":"recovery","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}}' \
+  >/dev/null
 unknown_payload="${runtime_root}/unknown-field.json"
 kubectl get continuitycontract/unknown-field --output=json >"${unknown_payload}"
 PYTHONPATH="${HYOPS_REPO_ROOT}" python3 - "${unknown_payload}" <<'PY'

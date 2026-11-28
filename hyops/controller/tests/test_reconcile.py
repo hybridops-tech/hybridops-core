@@ -195,6 +195,149 @@ class StatusReconciliationTests(unittest.TestCase):
             _run(client)
         client.replace_status.assert_not_called()
 
+    def test_invalid_spec_reports_its_error_with_matching_recovery_evidence(self):
+        for key in ("workload", "nonproducer"):
+            with self.subTest(typo_in=key):
+                obj = _contract()
+                section = (
+                    obj["spec"]["workload"]
+                    if key == "workload"
+                    else obj["spec"]["stages"][1]
+                )
+                section["unrecognized"] = "not-for-status"
+                obj["status"] = {"recoverySets": [_RECOVERY.copy()]}
+                client = _client(obj)
+                self.assertTrue(_run(client))
+                published = client.replace_status.call_args.args[-1]
+                self.assertEqual(
+                    published["recoverySets"], obj["status"]["recoverySets"]
+                )
+                condition = _condition(published)
+                self.assertEqual(
+                    (condition["status"], condition["reason"]),
+                    ("False", "UnknownField"),
+                )
+                self.assertNotIn("not-for-status", str(published))
+                obj["status"] = published
+                restarted = _client(obj)
+                self.assertFalse(_run(restarted, _LATER))
+                restarted.replace_status.assert_not_called()
+
+    def test_unverifiable_claims_block_the_validation_write(self):
+        for problem, reason in (
+            ("ambiguous-stage", "DuplicateStage"),
+            ("ambiguous-evidence", "DuplicateRecoveryProducer"),
+            ("ambiguous-name", "DuplicateRecoverySet"),
+            ("unidentifiable-set", "InvalidType"),
+            ("malformed-producer", "InvalidType"),
+            ("invalid-declaration", "UnknownField"),
+            ("wrong-role", "RecoverySetMismatch"),
+            ("invalid-digest", "InvalidDigest"),
+        ):
+            with self.subTest(problem=problem):
+                obj = _contract()
+                spec = obj["spec"]
+                spec["workload"]["unrecognized"] = True
+                claim = _RECOVERY.copy()
+                obj["status"] = {"recoverySets": [claim]}
+                if problem == "ambiguous-stage":
+                    spec["stages"].append(deepcopy(spec["stages"][0]))
+                elif problem == "ambiguous-evidence":
+                    alias = deepcopy(spec["recoverySets"][0])
+                    alias["name"] = "alias"
+                    alias["producer"]["role"] = "another"
+                    spec["recoverySets"].append(alias)
+                elif problem == "ambiguous-name":
+                    alias = deepcopy(spec["recoverySets"][0])
+                    alias["producer"]["evidence"] = "another"
+                    spec["recoverySets"].append(alias)
+                elif problem == "unidentifiable-set":
+                    spec["recoverySets"].append({"name": "other", "producer": {}})
+                elif problem == "malformed-producer":
+                    del spec["stages"][0]["operation"]
+                elif problem == "invalid-declaration":
+                    spec["recoverySets"][0]["producer"]["unexpected"] = True
+                elif problem == "wrong-role":
+                    claim["role"] = "other"
+                else:
+                    claim["digest"] = "invalid"
+                client = _client(obj)
+                with self.assertRaisesRegex(
+                    ValueError, f"Cannot verify persisted status: {reason}$"
+                ):
+                    _run(client)
+                client.replace_status.assert_not_called()
+
+    def test_unclaimed_set_has_no_bearing_on_a_distinct_recorded_claim(self):
+        for location in ("declaration", "stage"):
+            with self.subTest(typo_in=location):
+                obj = _contract()
+                declaration = {
+                    "name": "another",
+                    "producer": {
+                        "stage": "another",
+                        "evidence": _RECOVERY["evidence"],
+                        "role": "snapshot",
+                    },
+                }
+                stage = {
+                    "id": "another",
+                    "adapterRef": {"name": "test"},
+                    "operation": "save",
+                }
+                (stage if location == "stage" else declaration)["unknown"] = (
+                    "private-value"
+                )
+                obj["spec"]["recoverySets"].append(declaration)
+                obj["spec"]["stages"].append(stage)
+                obj["status"] = {"recoverySets": [_RECOVERY.copy()]}
+                client = _client(obj)
+                self.assertTrue(_run(client))
+                status = client.replace_status.call_args.args[-1]
+                self.assertEqual(status["recoverySets"], [_RECOVERY])
+                self.assertEqual(_condition(status)["reason"], "UnknownField")
+                self.assertEqual(_condition(status)["status"], "False")
+
+    def test_invalid_spec_does_not_validate_a_terminal_record_against_partial_declarations(
+        self,
+    ):
+        obj = _contract()
+        obj["spec"]["workload"]["unknown"] = True
+        obj["status"] = {
+            "phase": "Succeeded",
+            "observedGeneration": 1,
+            "recoverySets": [_RECOVERY.copy()],
+            "terminalEvidenceRef": {
+                "kind": "ConfigMap",
+                "name": "terminal",
+                "digest": _RECOVERY["digest"],
+            },
+        }
+        client = _client(obj)
+        with self.assertRaisesRegex(
+            ValueError, "Cannot verify persisted status: UnknownRecoverySet$"
+        ):
+            _run(client)
+        client.replace_status.assert_not_called()
+
+    def test_unrelated_spec_error_leaves_later_phases_without_recovery_claims_alone(
+        self,
+    ):
+        for phase in ("Running", "Failed"):
+            with self.subTest(phase=phase):
+                obj = _contract()
+                obj["spec"]["workload"]["unknown"] = True
+                obj["status"] = {"observedGeneration": 1, "phase": phase}
+                if phase == "Failed":
+                    obj["status"]["terminalEvidenceRef"] = {
+                        "kind": "ConfigMap",
+                        "name": "terminal",
+                        "digest": _RECOVERY["digest"],
+                    }
+                client = _client(obj)
+                self.assertFalse(_run(client))
+                client.replace_status.assert_not_called()
+
     def test_full_condition_list_is_not_evicted_to_make_room(self):
         obj = _contract()
         obj["status"] = {
@@ -217,19 +360,18 @@ class StatusReconciliationTests(unittest.TestCase):
             _run(client)
         client.replace_status.assert_not_called()
 
-    def test_conflict_revalidates_the_latest_spec(self):
+    def test_conflict_does_not_repeat_another_writers_validation(self):
         original = _contract()
         updated = deepcopy(original)
-        updated["metadata"].update(resourceVersion="75", generation=2)
-        updated["spec"]["stages"].clear()
+        other = _client(original)
+        _run(other)
+        updated["status"] = other.replace_status.call_args.args[-1]
+        updated["metadata"]["resourceVersion"] = "75"
         client = _client(original, updated)
-        client.replace_status.side_effect = [StatusConflict(), None]
-        self.assertTrue(_run(client))
+        client.replace_status.side_effect = StatusConflict
+        self.assertFalse(_run(client, _LATER))
         self.assertEqual(client.read.call_args_list, [call(*_KEY), call(*_KEY)])
-        first, second = (attempt.args for attempt in client.replace_status.call_args_list)
-        self.assertEqual((first[3], _condition(first[4])["status"]), ("71", "True"))
-        self.assertEqual((second[3], _condition(second[4])["status"]), ("75", "False"))
-        self.assertEqual(second[4]["observedGeneration"], 2)
+        client.replace_status.assert_called_once()
 
     def test_conflict_does_not_overwrite_terminal_status_or_recreated_resource(self):
         original = _contract()
