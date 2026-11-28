@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from io import BytesIO, StringIO
 from itertools import count
 from pathlib import Path
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import ANY, Mock, PropertyMock, call, patch
 
 import hyops.continuity.storage as continuity_storage
 from hyops.authority.models import (
@@ -2054,6 +2054,25 @@ class ContinuityEngineTests(unittest.TestCase):
         self.assertEqual(result.reason_code, "destructive_intent_required")
         self.assertEqual(result.stages, ())
         self.assertEqual(self.adapter.calls, [])
+
+    def test_unreadable_declared_operation_effects_fail_before_dispatch(self) -> None:
+        class LegacyAdapter(_Adapter):
+            def __getattr__(self, name):
+                if name in ("owned_cleanup", "destructive_operations"):
+                    return frozenset()
+                raise AttributeError(name)
+
+        adapter = LegacyAdapter()
+        engine = self._engine(adapter=adapter)
+        for name in ("destructive_operations", "owned_cleanup"):
+            with self.subTest(name=name), patch.object(
+                LegacyAdapter, name, PropertyMock(side_effect=AttributeError(name)), create=True
+            ):
+                spec = replace(self._spec(), operation_id=f"unreadable-{name}")
+                result = engine.run(spec)
+                self.assertEqual(result.reason_code, "invalid_adapter_contract")
+                self.assertEqual(result.stages, ())
+                self.assertEqual(adapter.calls, [])
 
     def test_destructive_operation_cannot_be_automatic_cleanup(self) -> None:
         self.adapter.destructive_operations = frozenset({"remove"})

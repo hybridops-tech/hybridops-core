@@ -7,6 +7,7 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from inspect import getattr_static
 from types import MappingProxyType
 
 from hyops.authority.models import AuthorityDeclaration, AuthorityRequirement
@@ -354,6 +355,14 @@ def _validate_workload(contract: ContinuityContract) -> None:
         )
 
 
+def _operation_effects(adapter: ContinuityAdapter, name: str) -> object:
+    try:
+        getattr_static(adapter, name)
+    except AttributeError:
+        return getattr(adapter, name, frozenset())
+    return type(adapter).__getattribute__(adapter, name)
+
+
 def _validate_adapter_contract(
     adapter_name: str,
     adapters: Mapping[str, ContinuityAdapter],
@@ -444,8 +453,8 @@ def _validate_adapter_contract(
                 f"adapter '{adapter_name}' does not implement '{method_name}'",
             )
     try:
-        cleanup = getattr(adapter, "owned_cleanup", frozenset())
-        destructive = getattr(adapter, "destructive_operations", frozenset())
+        cleanup = _operation_effects(adapter, "owned_cleanup")
+        destructive = _operation_effects(adapter, "destructive_operations")
     except Exception as exc:
         raise ContractFailure(
             "invalid_adapter_contract",
