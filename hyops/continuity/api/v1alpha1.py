@@ -131,6 +131,20 @@ def encode(resource: ApiResource) -> dict[str, Any]:
     return payload
 
 
+def decode_status(
+    value: object,
+    generation: int,
+    recovery_sets: tuple[RecoverySetSpec, ...] = (),
+) -> ApiStatus:
+    """Validate a status against the observed generation and its declarations."""
+
+    status = _decode_status(value)
+    _validate_status(
+        status, _nonnegative_integer(generation, "$.metadata.generation"), recovery_sets
+    )
+    return status
+
+
 def _encode_resource(resource: ApiResource) -> dict[str, Any]:
     metadata = thaw_json(resource.metadata.extra)
     if not _TYPED_METADATA_KEYS.isdisjoint(metadata):
@@ -669,14 +683,15 @@ def _validate_semantics(resource: ApiResource) -> None:
 
     _topological_order(stages)
     if resource.status is not None:
-        _validate_status(resource)
+        _validate_status(
+            resource.status, resource.metadata.generation, resource.spec.recovery_sets
+        )
 
 
-def _validate_status(resource: ApiResource) -> None:
-    status = resource.status
-    if status is None:
-        return
-    if status.observed_generation > resource.metadata.generation:
+def _validate_status(
+    status: ApiStatus, generation: int, recovery_sets: tuple[RecoverySetSpec, ...]
+) -> None:
+    if status.observed_generation > generation:
         _fail(
             "InvalidStatus",
             "$.status.observedGeneration",
@@ -704,7 +719,7 @@ def _validate_status(resource: ApiResource) -> None:
         "DuplicateRecoverySet",
     )
     declared_recovery_sets = {
-        recovery_set.name: recovery_set for recovery_set in resource.spec.recovery_sets
+        recovery_set.name: recovery_set for recovery_set in recovery_sets
     }
     for name, identity in recovery_identities.items():
         declaration = declared_recovery_sets.get(name)
@@ -732,7 +747,7 @@ def _validate_status(resource: ApiResource) -> None:
         )
     if is_terminal and (
         not status.observed_generation
-        or status.observed_generation != resource.metadata.generation
+        or status.observed_generation != generation
     ):
         _fail(
             "StaleTerminalStatus",
@@ -875,19 +890,23 @@ def _encode_reference(reference: LocalObjectReference) -> dict[str, str]:
     }
 
 
+def encode_condition(condition: ApiCondition) -> dict[str, Any]:
+    return {
+        "type": condition.type,
+        "status": condition.status,
+        "observedGeneration": condition.observed_generation,
+        "lastTransitionTime": condition.last_transition_time,
+        "reason": condition.reason,
+        "message": condition.message,
+    }
+
+
 def _encode_status(status: ApiStatus) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "observedGeneration": status.observed_generation,
         "phase": status.phase,
         "conditions": [
-            {
-                "type": item.type,
-                "status": item.status,
-                "observedGeneration": item.observed_generation,
-                "lastTransitionTime": item.last_transition_time,
-                "reason": item.reason,
-                "message": item.message,
-            }
+            encode_condition(item)
             for item in sorted(status.conditions, key=lambda item: item.type)
         ],
         "recoverySets": [
