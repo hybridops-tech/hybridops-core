@@ -28,6 +28,7 @@ runtime_root="$(mktemp -d)"
 export KUBECONFIG="${runtime_root}/kubeconfig"
 cluster_state=unstarted
 original_ca=""
+proxy_pid=""
 
 cluster_ca() {
   kubectl config view --kubeconfig="$1" --raw --minify \
@@ -37,6 +38,10 @@ cluster_ca() {
 cleanup() {
   local rc=$? clusters current
   trap - EXIT
+  if [[ -n "${proxy_pid}" ]]; then
+    kill "${proxy_pid}" 2>/dev/null || :
+    wait "${proxy_pid}" 2>/dev/null || :
+  fi
   if [[ "${cluster_state}" == created ]]; then
     if [[ -z "${original_ca}" ]] ||
       ! current="$(kind get kubeconfig --name "${cluster_name}" | cluster_ca /dev/stdin)" ||
@@ -423,13 +428,25 @@ spec:
     digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   policy:
     failureActon: Ignore
+  recoverySets:
+    - name: retained
+      producer: {stage: archive, evidence: snapshot, role: recovery}
+    - name: unclaimed
+      producer: {stage: prepare, evidence: report, role: inspection}
   stages:
     - id: prepare
       adapterRef:
         name: conformance
       operation: prepare
       authorityReff: release-authority
+    - id: archive
+      adapterRef: {name: conformance}
+      operation: archive
 EOF
+kubectl patch --request-timeout=30s continuitycontract/unknown-field \
+  --subresource=status --type=merge \
+  --patch='{"status":{"observedGeneration":1,"recoverySets":[{"name":"retained","evidence":"snapshot","role":"recovery","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}}' \
+  >/dev/null
 unknown_payload="${runtime_root}/unknown-field.json"
 kubectl get continuitycontract/unknown-field --output=json >"${unknown_payload}"
 PYTHONPATH="${HYOPS_REPO_ROOT}" python3 - "${unknown_payload}" <<'PY'
@@ -576,3 +593,16 @@ done
 exercise_spec_order_and_aliases
 
 kubectl get --request-timeout=30s --raw=/readyz >/dev/null
+
+proxy_path='^/apis/continuity\.hyopsproject\.github\.io/v1alpha1/namespaces/default/continuitycontracts/(default-policy|unknown-field)(/status)?$'
+coproc STATUS_PROXY {
+  exec kubectl proxy --address=127.0.0.1 --port=0 --accept-paths="${proxy_path}" --reject-methods='POST,PATCH,DELETE'
+}
+proxy_pid=${STATUS_PROXY_PID}
+if ! IFS= read -r -t 10 proxy_address <&"${STATUS_PROXY[0]}" ||
+  [[ ! "${proxy_address}" =~ ^Starting\ to\ serve\ on\ 127\.0\.0\.1:([0-9]+)$ ]]; then
+  echo "ERR: status test proxy did not announce a loopback port" >&2
+  exit 1
+fi
+HYOPS_TEST_PROXY_PORT="${BASH_REMATCH[1]}" PYTHONPATH="${HYOPS_REPO_ROOT}" \
+  python3 "${SCRIPT_DIR}/tests/check-continuity-reconciliation.py"

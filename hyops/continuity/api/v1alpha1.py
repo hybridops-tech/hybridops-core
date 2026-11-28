@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -131,6 +131,59 @@ def encode(resource: ApiResource) -> dict[str, Any]:
     return payload
 
 
+def decode_status(
+    value: object,
+    generation: int,
+    recovery_sets: tuple[RecoverySetSpec, ...] = (),
+) -> ApiStatus:
+    """Validate a status against the observed generation and its declarations."""
+
+    status = _decode_status(value)
+    _validate_status(status, generation, recovery_sets)
+    return status
+
+
+def decode_status_for_invalid_spec(
+    value: object, generation: int, spec: object
+) -> tuple[ApiStatus, tuple[RecoverySetSpec, ...]]:
+    """Allow a pending validation diagnostic without weakening later-phase checks."""
+    status = _decode_status(value)
+    declarations = ()
+    if status.phase == "Pending" and status.recovery_sets:
+        declarations = _claimed_declarations(
+            spec, {claim.name for claim in status.recovery_sets}
+        )
+    _validate_status(status, generation, declarations)
+    return status, declarations
+
+
+def _claimed_declarations(
+    value: object, names: set[str]
+) -> tuple[RecoverySetSpec, ...]:
+    spec = _mapping(value, "$.spec")
+    declarations = []
+    unclaimed_producers = set()
+    for item, path in _recovery_entries(spec):
+        raw = _mapping(item, path)
+        if _token(raw.get("name"), f"{path}.name") in names:
+            declarations.append(_decode_recovery_set(raw, path))
+        else:
+            producer = _mapping(raw.get("producer"), f"{path}.producer")
+            unclaimed_producers.add(_producer_key(producer, f"{path}.producer"))
+    producer_ids = {item.stage for item in declarations}
+    producers = []
+    raw_stages = _list(spec.get("stages"), "$.spec.stages", _MAX_STAGES)
+    for index, item in enumerate(raw_stages):
+        path = f"$.spec.stages[{index}]"
+        stage = _mapping(item, path)
+        if _token(stage.get("id"), f"{path}.id") in producer_ids:
+            producers.append(_decode_stage(stage, path))
+    stages = _unique_by(producers, "id", "$.spec.stages", "DuplicateStage")
+    retained = tuple(declarations)
+    _index_recovery_sets(retained, stages, unclaimed_producers)
+    return retained
+
+
 def _encode_resource(resource: ApiResource) -> dict[str, Any]:
     metadata = thaw_json(resource.metadata.extra)
     if not _TYPED_METADATA_KEYS.isdisjoint(metadata):
@@ -211,14 +264,7 @@ def _decode_spec(value: object) -> ApiSpec:
             )
         ),
         recovery_sets=tuple(
-            _decode_recovery_set(item, f"$.spec.recoverySets[{index}]")
-            for index, item in enumerate(
-                _list(
-                    spec.get("recoverySets", []),
-                    "$.spec.recoverySets",
-                    _MAX_RECOVERY_SETS,
-                )
-            )
+            _decode_recovery_set(item, path) for item, path in _recovery_entries(spec)
         ),
         stages=stages,
     )
@@ -299,15 +345,32 @@ def _decode_authority(value: object, path: str) -> AuthoritySpec:
     )
 
 
+def _recovery_entries(spec: Mapping[str, Any]) -> Iterator[tuple[object, str]]:
+    entries = _list(
+        spec.get("recoverySets", []), "$.spec.recoverySets", _MAX_RECOVERY_SETS
+    )
+    for index, item in enumerate(entries):
+        yield item, f"$.spec.recoverySets[{index}]"
+
+
+def _producer_key(producer: Mapping[str, Any], path: str) -> tuple[str, str]:
+    return (
+        _token(producer.get("stage"), f"{path}.stage"),
+        _token(producer.get("evidence"), f"{path}.evidence"),
+    )
+
+
 def _decode_recovery_set(value: object, path: str) -> RecoverySetSpec:
     recovery_set = _mapping(value, path)
     _known_keys(recovery_set, {"name", "producer"}, path)
     producer = _mapping(recovery_set.get("producer"), f"{path}.producer")
     _known_keys(producer, {"stage", "evidence", "role"}, f"{path}.producer")
+    name = _token(recovery_set.get("name"), f"{path}.name")
+    stage, evidence = _producer_key(producer, f"{path}.producer")
     return RecoverySetSpec(
-        name=_token(recovery_set.get("name"), f"{path}.name"),
-        stage=_token(producer.get("stage"), f"{path}.producer.stage"),
-        evidence=_token(producer.get("evidence"), f"{path}.producer.evidence"),
+        name=name,
+        stage=stage,
+        evidence=evidence,
         role=_token(producer.get("role"), f"{path}.producer.role"),
     )
 
@@ -558,24 +621,21 @@ def _decode_terminal_reference(
     )
 
 
-def _validate_semantics(resource: ApiResource) -> None:
-    stages = _unique_by(resource.spec.stages, "id", "$.spec.stages", "DuplicateStage")
-    authorities = _unique_by(
-        resource.spec.authorities,
-        "name",
-        "$.spec.authorities",
-        "DuplicateAuthority",
-    )
+def _index_recovery_sets(
+    declarations: tuple[RecoverySetSpec, ...],
+    stage_ids: Collection[str],
+    other_producers: Collection[tuple[str, str]] = (),
+) -> dict[str, RecoverySetSpec]:
     recovery_sets = _unique_by(
-        resource.spec.recovery_sets,
+        declarations,
         "name",
         "$.spec.recoverySets",
         "DuplicateRecoverySet",
     )
 
-    producers: set[tuple[str, str]] = set()
-    for recovery_set in resource.spec.recovery_sets:
-        if recovery_set.stage not in stages:
+    producers = set(other_producers)
+    for recovery_set in declarations:
+        if recovery_set.stage not in stage_ids:
             _fail(
                 "UnknownRecoveryProducer",
                 f"$.spec.recoverySets[{recovery_set.name}]",
@@ -589,6 +649,18 @@ def _validate_semantics(resource: ApiResource) -> None:
                 "a producer stage and evidence name must identify one recovery set",
             )
         producers.add(producer)
+    return recovery_sets
+
+
+def _validate_semantics(resource: ApiResource) -> None:
+    stages = _unique_by(resource.spec.stages, "id", "$.spec.stages", "DuplicateStage")
+    authorities = _unique_by(
+        resource.spec.authorities,
+        "name",
+        "$.spec.authorities",
+        "DuplicateAuthority",
+    )
+    recovery_sets = _index_recovery_sets(resource.spec.recovery_sets, stages)
 
     for stage in resource.spec.stages:
         if len(stage.requires) != len(set(stage.requires)):
@@ -669,14 +741,16 @@ def _validate_semantics(resource: ApiResource) -> None:
 
     _topological_order(stages)
     if resource.status is not None:
-        _validate_status(resource)
+        _validate_status(
+            resource.status, resource.metadata.generation, resource.spec.recovery_sets
+        )
 
 
-def _validate_status(resource: ApiResource) -> None:
-    status = resource.status
-    if status is None:
-        return
-    if status.observed_generation > resource.metadata.generation:
+def _validate_status(
+    status: ApiStatus, generation: int, recovery_sets: tuple[RecoverySetSpec, ...]
+) -> None:
+    generation = _nonnegative_integer(generation, "$.metadata.generation")
+    if status.observed_generation > generation:
         _fail(
             "InvalidStatus",
             "$.status.observedGeneration",
@@ -704,7 +778,7 @@ def _validate_status(resource: ApiResource) -> None:
         "DuplicateRecoverySet",
     )
     declared_recovery_sets = {
-        recovery_set.name: recovery_set for recovery_set in resource.spec.recovery_sets
+        recovery_set.name: recovery_set for recovery_set in recovery_sets
     }
     for name, identity in recovery_identities.items():
         declaration = declared_recovery_sets.get(name)
@@ -732,7 +806,7 @@ def _validate_status(resource: ApiResource) -> None:
         )
     if is_terminal and (
         not status.observed_generation
-        or status.observed_generation != resource.metadata.generation
+        or status.observed_generation != generation
     ):
         _fail(
             "StaleTerminalStatus",
@@ -875,19 +949,23 @@ def _encode_reference(reference: LocalObjectReference) -> dict[str, str]:
     }
 
 
+def encode_condition(condition: ApiCondition) -> dict[str, Any]:
+    return {
+        "type": condition.type,
+        "status": condition.status,
+        "observedGeneration": condition.observed_generation,
+        "lastTransitionTime": condition.last_transition_time,
+        "reason": condition.reason,
+        "message": condition.message,
+    }
+
+
 def _encode_status(status: ApiStatus) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "observedGeneration": status.observed_generation,
         "phase": status.phase,
         "conditions": [
-            {
-                "type": item.type,
-                "status": item.status,
-                "observedGeneration": item.observed_generation,
-                "lastTransitionTime": item.last_transition_time,
-                "reason": item.reason,
-                "message": item.message,
-            }
+            encode_condition(item)
             for item in sorted(status.conditions, key=lambda item: item.type)
         ],
         "recoverySets": [
