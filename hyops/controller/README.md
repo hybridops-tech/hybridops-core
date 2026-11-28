@@ -45,6 +45,22 @@ not the contents of the recovery artifact.
 If a consumer requests a different role for the same declared evidence,
 the kernel rejects the contract before admitting any stage.
 
+## Retirement check
+
+A destructive stage requires authority, a declared predecessor recovery set and
+a retained-evidence reader. After admission and before dispatch,
+the kernel streams every required artifact from that reader and compares its
+SHA-256 with the producer's recorded digest. It repeats the check for each
+destructive stage, then rechecks authority. A refused or changed authority,
+or missing, unreadable or changed bytes, blocks dispatch.
+
+The installed adapter declares its destructive operations in
+`destructive_operations`. A contract cannot downgrade a listed operation by
+omitting `destructive: true`. The reader resolves artifacts in independently
+configured storage, not through a path supplied by a stage. Its open, read and
+close operations must respect the supplied deadline. Each digest is checked
+when read; storage must retain those versions through restore.
+
 ## Automatic cleanup
 
 A stage's `recoveryOperation` requests cleanup; it does not authorise it.
@@ -63,3 +79,7 @@ Run the credential-free check with a new output directory:
 ```sh
 python3 -m tools.acceptance.continuity_contract.runner --output ./continuity-proof
 ```
+
+The `retire-restore` case uses separate local directories for source, retained
+state and replacement. The missing- and changed-artifact cases leave the source
+intact. Results are in `continuity-proof/report.json`.

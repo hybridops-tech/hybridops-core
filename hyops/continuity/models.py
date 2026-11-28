@@ -180,6 +180,7 @@ class StageSpec:
     authority: AuthorityRequirement | None = None
     recovery_operation: str | None = None
     produced_evidence: Mapping[str, str] = field(default_factory=dict)
+    destructive: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.requires, tuple):
@@ -237,6 +238,8 @@ class StageSpec:
         # Keep existing operation digests when no producer evidence was declared.
         if self.produced_evidence:
             payload["produced_evidence"] = dict(self.produced_evidence)
+        if self.destructive:
+            payload["destructive"] = True
         return payload
 
 
