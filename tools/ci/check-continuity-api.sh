@@ -594,15 +594,33 @@ exercise_spec_order_and_aliases
 
 kubectl get --request-timeout=30s --raw=/readyz >/dev/null
 
-proxy_path='^/apis/continuity\.hyopsproject\.github\.io/v1alpha1/namespaces/default/continuitycontracts/(default-policy|unknown-field)(/status)?$'
-coproc STATUS_PROXY {
-  exec kubectl proxy --address=127.0.0.1 --port=0 --accept-paths="${proxy_path}" --reject-methods='POST,PATCH,DELETE'
+run_proxy_test() {
+  local script="$1" paths="$2" reject_methods="$3" proxy_address
+  coproc TEST_PROXY {
+    exec kubectl proxy --address=127.0.0.1 --port=0 --accept-paths="${paths}" --reject-methods="${reject_methods}"
+  }
+  proxy_pid=${TEST_PROXY_PID}
+  if ! IFS= read -r -t 10 proxy_address <&"${TEST_PROXY[0]}" ||
+    [[ ! "${proxy_address}" =~ ^Starting\ to\ serve\ on\ 127\.0\.0\.1:([0-9]+)$ ]]; then
+    echo "ERR: ${script} proxy did not announce a loopback port" >&2
+    exit 1
+  fi
+  HYOPS_TEST_PROXY_PORT="${BASH_REMATCH[1]}" PYTHONPATH="${HYOPS_REPO_ROOT}" \
+    python3 "${SCRIPT_DIR}/tests/${script}"
+  kill "${proxy_pid}"
+  wait "${proxy_pid}" || :
+  proxy_pid=""
 }
-proxy_pid=${STATUS_PROXY_PID}
-if ! IFS= read -r -t 10 proxy_address <&"${STATUS_PROXY[0]}" ||
-  [[ ! "${proxy_address}" =~ ^Starting\ to\ serve\ on\ 127\.0\.0\.1:([0-9]+)$ ]]; then
-  echo "ERR: status test proxy did not announce a loopback port" >&2
-  exit 1
-fi
-HYOPS_TEST_PROXY_PORT="${BASH_REMATCH[1]}" PYTHONPATH="${HYOPS_REPO_ROOT}" \
-  python3 "${SCRIPT_DIR}/tests/check-continuity-reconciliation.py"
+
+contracts='/apis/continuity\.hyopsproject\.github\.io/v1alpha1/namespaces/default/continuitycontracts'
+run_proxy_test check-continuity-reconciliation.py \
+  "^${contracts}/(default-policy|unknown-field)(/status)?$" 'POST,PATCH,DELETE'
+
+kubectl create namespace reference-records
+kubectl patch --local --filename "${sample}" --type=merge \
+  --patch='{"metadata":{"name":"reference-operation"}}' --output=json |
+  kubectl create --namespace=default --validate=strict --filename -
+sources='/api/v1/namespaces/default/(configmaps/(conformance-workload|prepare-parameters)|secrets/release-authority)'
+records='/api/v1/namespaces/reference-records/configmaps(/binding-[a-f0-9]{32}\.[a-f0-9]{32})?'
+run_proxy_test check-continuity-references.py \
+  "^(${contracts}/reference-operation|${sources}|${records})$" 'PUT,PATCH,DELETE,CONNECT,HEAD,OPTIONS,TRACE'

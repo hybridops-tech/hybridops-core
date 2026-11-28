@@ -1,4 +1,4 @@
-# Contract validation
+# Contract validation and reference binding
 
 For a pending `ContinuityContract`, reconciliation records a `ContractValid`
 condition for the observed generation. `True` means the specification passes
@@ -12,5 +12,24 @@ writer wins, the reconciler reads again. It checks the returned contract
 identity, generation and condition before reporting a successful write.
 An unchanged condition needs no write, including after a restart. A deleting
 contract or a contract past `Pending` is left untouched.
+
+## Reference binding
+
+`bind_operation` reads the pending contract and resolves its workload and
+parameter references in the contract namespace. It records each ConfigMap's
+UID, resource version and content digest. For Secrets it requests only
+metadata and records the UID and resource version. The declared workload
+digest identifies the artifact, not the ConfigMap that describes it.
+
+The binding is an immutable ConfigMap in a separate controller-owned
+namespace. An initial bind that finds an existing record verifies it
+without overwriting it. Retain the returned receipt before admitting any
+workload action. To resume, pass that receipt to `verify_operation`;
+do not call `bind_operation` again. A missing or replaced binding, or a
+changed reference, stops verification. A contract status update alone
+does not invalidate its binding.
+
+These functions verify identities; they do not dispatch adapters. The
+controller installation must restrict writes to the record namespace.
 
 Run the API-server checks with `bash tools/ci/check-continuity-api.sh`.
