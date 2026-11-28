@@ -180,6 +180,40 @@ class V1Alpha1CodecTests(unittest.TestCase):
         self.assertEqual(encoded, payload)
         self.assertEqual(encode(decode(encoded)), encoded)
 
+    def test_extra_metadata_cannot_supply_typed_identity(self) -> None:
+        resource = decode(_valid_payload())
+        for key in ("name", "namespace", "uid", "generation"):
+            with self.subTest(key=key):
+                metadata = replace(
+                    resource.metadata,
+                    uid="",
+                    generation=0,
+                    extra={key: getattr(resource.metadata, key)},
+                )
+                self.assert_failure_from_encode(
+                    replace(resource, metadata=metadata),
+                    "InvalidMetadata",
+                    "$.metadata",
+                )
+
+    def test_encode_validates_metadata_before_omitting_defaults(self) -> None:
+        resource = decode(_minimal_payload())
+        self.assertEqual(
+            encode(resource)["metadata"], {"name": "minimal", "namespace": "default"}
+        )
+        for field, value, reason in (
+            ("uid", None, "InvalidMetadata"),
+            ("uid", False, "InvalidMetadata"),
+            ("generation", None, "InvalidType"),
+            ("generation", False, "InvalidType"),
+            ("generation", 0.0, "InvalidType"),
+        ):
+            with self.subTest(field=field, value=value):
+                metadata = replace(resource.metadata, **{field: value})
+                self.assert_failure_from_encode(
+                    replace(resource, metadata=metadata), reason, f"$.metadata.{field}"
+                )
+
     def test_hub_resource_is_version_neutral(self) -> None:
         self.assertEqual(
             [item.name for item in fields(ApiResource)],
@@ -728,6 +762,43 @@ class V1Alpha1CodecTests(unittest.TestCase):
             copy.deepcopy(payload["status"]["conditions"][0])
         )
         self.assert_failure(payload, "DuplicateCondition", "$.status.conditions")
+
+    def test_generation_fields_fit_signed_int64(self) -> None:
+        payload = _valid_payload()
+        maximum = (1 << 63) - 1
+        fields = (
+            (payload["metadata"], "generation", "$.metadata.generation"),
+            (payload["status"], "observedGeneration", "$.status.observedGeneration"),
+            (
+                payload["status"]["conditions"][0],
+                "observedGeneration",
+                "$.status.conditions[0].observedGeneration",
+            ),
+        )
+        for owner, key, _ in fields:
+            owner[key] = maximum
+        self.assertEqual(encode(decode(payload)), payload)
+        for owner, key, path in fields:
+            with self.subTest(path=path):
+                owner[key] = maximum + 1
+                self.assert_failure(payload, "InvalidValue", path)
+                owner[key] = maximum
+
+    def test_condition_zone_offsets(self) -> None:
+        payload = _valid_payload()
+        condition = payload["status"]["conditions"][0]
+        for offset in ("+23:59", "-00:00"):
+            with self.subTest(offset=offset):
+                condition["lastTransitionTime"] = "2026-11-28T10:15:30" + offset
+                self.assertEqual(encode(decode(payload)), payload)
+        for offset in ("+00:60", "-20:75", "+24:00"):
+            with self.subTest(offset=offset):
+                condition["lastTransitionTime"] = "2026-11-28T10:15:30" + offset
+                self.assert_failure(
+                    payload,
+                    "InvalidCondition",
+                    "$.status.conditions[0].lastTransitionTime",
+                )
 
     def test_terminal_status_must_be_current_and_evidenced(self) -> None:
         for phase in ("Succeeded", "Recovered", "Failed"):

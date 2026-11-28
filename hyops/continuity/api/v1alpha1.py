@@ -45,9 +45,11 @@ _CONDITION_TYPE_RE = re.compile(
 _CONDITION_REASON_RE = re.compile(r"^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$")
 _RFC3339_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
-    r"(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$"
+    r"(?:\.\d{1,9})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"
 )
 
+_TYPED_METADATA_KEYS = frozenset({"name", "namespace", "uid", "generation"})
+_MAX_GENERATION = (1 << 63) - 1
 _MAX_AUTHORITIES = 64
 _MAX_CONDITIONS = 32
 _MAX_CONDITION_MESSAGE_LENGTH = 32768
@@ -118,20 +120,27 @@ def encode(resource: ApiResource) -> dict[str, Any]:
         _fail("InvalidResource", "$", "resource has an invalid type")
     try:
         payload = _encode_resource(resource)
+    except ApiValidationError:
+        raise
     except (AttributeError, TypeError, ValueError):
         _fail("InvalidResource", "$", "resource contains invalid values")
     decode(payload)
+    for key in ("uid", "generation"):
+        if not payload["metadata"][key]:
+            del payload["metadata"][key]
     return payload
 
 
 def _encode_resource(resource: ApiResource) -> dict[str, Any]:
     metadata = thaw_json(resource.metadata.extra)
-    metadata["name"] = resource.metadata.name
-    metadata["namespace"] = resource.metadata.namespace
-    if resource.metadata.uid:
-        metadata["uid"] = resource.metadata.uid
-    if resource.metadata.generation:
-        metadata["generation"] = resource.metadata.generation
+    if not _TYPED_METADATA_KEYS.isdisjoint(metadata):
+        _fail("InvalidMetadata", "$.metadata", "extra metadata contains a typed field")
+    metadata.update(
+        name=resource.metadata.name,
+        namespace=resource.metadata.namespace,
+        uid=resource.metadata.uid,
+        generation=resource.metadata.generation,
+    )
 
     payload: dict[str, Any] = {
         "apiVersion": API_VERSION_VALUE,
@@ -159,9 +168,7 @@ def _decode_metadata(value: object) -> ObjectMeta:
         "$.metadata.generation",
     )
     extra = {
-        key: item
-        for key, item in metadata.items()
-        if key not in {"name", "namespace", "uid", "generation"}
+        key: item for key, item in metadata.items() if key not in _TYPED_METADATA_KEYS
     }
     try:
         return ObjectMeta(
@@ -1021,6 +1028,8 @@ def _enum(value: object, allowed: frozenset[str], path: str) -> str:
 def _nonnegative_integer(value: object, path: str) -> int:
     if type(value) is not int or value < 0:
         _fail("InvalidType", path, "must be a non-negative integer")
+    if value > _MAX_GENERATION:
+        _fail("InvalidValue", path, "must fit a signed 64-bit integer")
     return value
 
 
