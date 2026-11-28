@@ -2,14 +2,18 @@
 
 import hashlib
 import json
+import multiprocessing
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
 from continuity_cluster import client, kubectl
+from hyops.continuity.engine import ContinuityEngine
 from hyops.continuity.storage import FileOperationStore
 from hyops.controller.binding import bind_operation
+from hyops.controller.reconcile import reconcile
 from hyops.controller.references import ReferenceBindingError
 from hyops.controller.terminal import publish_terminal_status, run_and_retain_terminal
 from tools.acceptance.continuity_contract.runner import (
@@ -25,6 +29,55 @@ LABS, RECORDS = "terminal-labs", "terminal-records"
 
 def digest(content):
     return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def fresh_worker(function, *args):
+    with multiprocessing.get_context("spawn").Pool(1) as worker:
+        return worker.apply_async(function, args).get(timeout=45)
+
+
+def dispatch_before_restart(name, stop_before_pin):
+    worker = client()
+    receipt = bind_operation(worker, RECORDS, LABS, name)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        adapter, engine = retirement_engine(
+            root, receipt.operation_id, FileOperationStore(root / "operations")
+        )
+        adapter.source.parent.mkdir()
+        adapter.source.write_bytes(b"restart test")
+        if stop_before_pin:
+            publication = patch.object(
+                worker, "pin_terminal_witness", side_effect=InterruptedError
+            )
+        else:
+            publication = nullcontext()
+        with publication:
+            try:
+                run_and_retain_terminal(worker, RECORDS, receipt, engine)
+            except InterruptedError:
+                if not stop_before_pin:
+                    raise
+        return [stage for action, stage in adapter.calls if action == "execute"]
+
+
+def reconcile_after_restart(namespace, name, records):
+    worker = client()
+    send = worker._request
+
+    def status_writes_only(method, ns, key, *args, **kwargs):
+        if method != "GET" and (
+            (method, ns, key) != ("PUT", namespace, name)
+            or kwargs.get("resource", "continuitycontracts") != "continuitycontracts"
+        ):
+            raise AssertionError(f"unexpected restart write: {method} {ns}/{key}")
+        return send(method, ns, key, *args, **kwargs)
+
+    with (
+        patch.object(worker, "_request", status_writes_only),
+        patch.object(ContinuityEngine, "run", side_effect=AssertionError("redispatch")),
+    ):
+        return reconcile(worker, namespace, name, record_namespace=records)
 
 
 class TerminalPublication(unittest.TestCase):
@@ -84,6 +137,37 @@ class TerminalPublication(unittest.TestCase):
             self.publish(worker)
         self.assertEqual(self.status(), before)
         self.assertEqual(self.adapter.calls, self.calls)
+
+    def test_worker_restart_publishes_from_cluster_records_only(self):
+        name = "terminal-restart"
+        kubectl(LABS, "create", "-f", "-", obj=retirement_resource(name))
+        self.assertEqual(
+            fresh_worker(dispatch_before_restart, name, False),
+            ["capture", "retire", "restore"],
+        )
+        before = client().read(LABS, name)
+        self.assertEqual(before.get("status", {}).get("phase", "Pending"), "Pending")
+        self.assertTrue(fresh_worker(reconcile_after_restart, LABS, name, RECORDS))
+        published = client().read(LABS, name)
+        self.assertEqual(published["status"]["phase"], "Succeeded")
+        self.assertEqual(
+            published["status"]["recoverySets"][0]["digest"], digest(b"restart test")
+        )
+        self.assertFalse(fresh_worker(reconcile_after_restart, LABS, name, RECORDS))
+        self.assertEqual(client().read(LABS, name), published)
+
+    def test_worker_restart_refuses_unpinned_witness(self):
+        name = "terminal-unpinned"
+        kubectl(LABS, "create", "-f", "-", obj=retirement_resource(name))
+        self.assertEqual(
+            fresh_worker(dispatch_before_restart, name, True),
+            ["capture", "retire", "restore"],
+        )
+        before = client().read(LABS, name)
+        self.assertEqual(before.get("status", {}).get("phase", "Pending"), "Pending")
+        with self.assertRaisesRegex(ReferenceBindingError, "^TerminalWitnessChanged$"):
+            fresh_worker(reconcile_after_restart, LABS, name, RECORDS)
+        self.assertEqual(client().read(LABS, name), before)
 
     def test_status_conflict_rechecks_evidence_without_dispatch(self):
         self.execute("terminal-complete")

@@ -19,7 +19,7 @@ from hyops.controller.references import ReferenceBindingError
 from hyops.controller.terminal import publish_terminal_status, run_and_retain_terminal
 
 
-class TerminalPublicationTests(unittest.TestCase):
+class TerminalFixture:
     def setUp(self):
         self.obj = {
             "apiVersion": v1alpha1.API_VERSION_VALUE,
@@ -106,6 +106,8 @@ class TerminalPublicationTests(unittest.TestCase):
     def publish(self):
         return publish_terminal_status(self.client, "records", self.receipt)
 
+
+class TerminalPublicationTests(TerminalFixture, unittest.TestCase):
     def test_existing_evidence_or_witness_stops_before_dispatch(self):
         key = "terminal-" + self.receipt.operation_id.removeprefix("dispatch-")
         for namespace in ("lab", "records"):
