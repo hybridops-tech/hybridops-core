@@ -756,13 +756,20 @@ class V1Alpha1CodecTests(unittest.TestCase):
             "$.status.recoverySets[workload-state]",
         )
 
-        payload = _valid_payload()
-        payload["status"]["recoverySets"] = []
-        self.assert_failure(
-            payload,
-            "IncompleteRecoverySetStatus",
-            "$.status.recoverySets",
-        )
+    def test_success_requires_recovery_evidence_with_or_without_consumers(self) -> None:
+        for consumer in (True, False):
+            with self.subTest(consumer=consumer):
+                payload = _valid_payload()
+                if not consumer:
+                    payload["spec"]["stages"].pop()
+                self.assertEqual(decode(payload).status.phase, "Succeeded")
+
+                payload["status"]["recoverySets"] = []
+                self.assert_failure(
+                    payload,
+                    "IncompleteRecoverySetStatus",
+                    "$.status.recoverySets",
+                )
 
     def test_recovery_producers_cannot_have_multiple_identities(self) -> None:
         payload = _valid_payload()
