@@ -64,6 +64,45 @@ jobs:
         shell: bash
         run: bash tools/ci/check-ruff.sh
 
+  continuity-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Load toolchain pins
+        shell: bash
+        run: |
+          source tools/setup/requirements/toolchain.lock
+          echo "KIND_VERSION=${KIND_VERSION}" >> "${GITHUB_ENV}"
+          echo "KIND_LINUX_AMD64_SHA256=${KIND_LINUX_AMD64_SHA256}" >> "${GITHUB_ENV}"
+          echo "CONTINUITY_KUBECTL_VERSION=${CONTINUITY_KUBECTL_VERSION}" >> "${GITHUB_ENV}"
+          echo "CONTINUITY_KUBECTL_LINUX_AMD64_SHA256=${CONTINUITY_KUBECTL_LINUX_AMD64_SHA256}" >> "${GITHUB_ENV}"
+
+      - name: Install Kubernetes test tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="${RUNNER_TEMP}/continuity-api-tools"
+          mkdir -p "${install_root}"
+
+          curl -fsSLo "${install_root}/kind" \
+            "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_LINUX_AMD64_SHA256}  ${install_root}/kind" | sha256sum --check
+
+          curl -fsSLo "${install_root}/kubectl" \
+            "https://dl.k8s.io/release/v${CONTINUITY_KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${CONTINUITY_KUBECTL_LINUX_AMD64_SHA256}  ${install_root}/kubectl" | sha256sum --check
+
+          chmod +x "${install_root}/kind" "${install_root}/kubectl"
+          echo "${install_root}" >> "${GITHUB_PATH}"
+
+      - name: Validate ContinuityContract API
+        shell: bash
+        run: bash tools/ci/check-continuity-api.sh
+
   install-quality:
     strategy:
       fail-fast: false

@@ -1,0 +1,53 @@
+apiVersion: continuity.hybridops.tech/v1alpha1
+kind: ContinuityContract
+metadata:
+  name: conformance-workload
+spec:
+  workload:
+    name: conformance-workload
+    revision: v1.0.0
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    ref:
+      kind: ConfigMap
+      name: conformance-workload
+  policy:
+    failureAction: Recover
+    unverifiableAction: Block
+    terminalEvidence: Required
+  authorities:
+    - name: release-authority
+      capability: release
+      provider: conformance
+      parametersRef:
+        kind: Secret
+        name: release-authority
+  recoverySets:
+    - name: workload-state
+      producer:
+        stage: prepare
+        evidence: prepared-state
+        role: recovery
+  stages:
+    - id: prepare
+      adapterRef:
+        name: conformance
+      operation: prepare
+      parametersRef:
+        kind: ConfigMap
+        name: prepare-parameters
+      publish:
+        - prepared-output
+      recoveryOperation: remove
+    - id: release
+      adapterRef:
+        name: conformance
+      operation: release
+      requires:
+        - prepare
+      inputBindings:
+        - name: prepared-input
+          stage: prepare
+          output: prepared-output
+      recoverySets:
+        - workload-state
+      authorityRef: release-authority

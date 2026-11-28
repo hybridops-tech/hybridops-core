@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -16,49 +13,15 @@ from hyops.authority.models import (
     AuthorityRequirement,
 )
 
+from .json_values import digest_json as _digest_json
+from .json_values import freeze_json as _freeze_json
+from .json_values import thaw_json as _thaw_json
+
 ADAPTER_CONTRACT_VERSION = "1"
 CONTINUITY_CONTRACT_SCHEMA_VERSION = "1"
 CONTINUITY_KIND = "ContinuityContract"
 CONTROLLER_CONTRACT_VERSION = "1"
 TERMINAL_RECORD_SCHEMA_VERSION = "1"
-
-
-def _freeze_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        frozen: dict[str, Any] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise TypeError("JSON object keys must be strings")
-            frozen[key] = _freeze_json(item)
-        return MappingProxyType(frozen)
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json(item) for item in value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError("JSON numbers must be finite")
-        return value
-    raise TypeError(f"unsupported JSON value: {type(value).__name__}")
-
-
-def _thaw_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {key: _thaw_json(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw_json(item) for item in value]
-    return value
-
-
-def _digest_json(value: Any) -> str:
-    payload = json.dumps(
-        _thaw_json(value),
-        allow_nan=False,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
 @dataclass(frozen=True)
@@ -483,4 +446,4 @@ class TerminalRecord:
 def json_digest(value: Any) -> str:
     """Return the canonical digest of a JSON value."""
 
-    return _digest_json(_freeze_json(value))
+    return _digest_json(value)
