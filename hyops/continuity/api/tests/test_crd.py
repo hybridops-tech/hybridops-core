@@ -7,7 +7,13 @@ from pathlib import Path
 import yaml
 
 from hyops.continuity import validation as contract_validation
-from hyops.continuity.api import API_GROUP, API_KIND, v1alpha1 as codec
+from hyops.continuity.api import (
+    API_GROUP,
+    API_KIND,
+    AuthoritySpec,
+    LocalObjectReference,
+    v1alpha1 as codec,
+)
 from hyops.continuity.api.v1alpha1 import API_VERSION, decode, encode
 
 _ROOT = Path(__file__).resolve().parents[4]
@@ -52,6 +58,22 @@ class ContinuityContractCrdTests(unittest.TestCase):
     def test_schema_is_structural(self) -> None:
         self._assert_structural(self.schema, "schema")
 
+    def test_unknown_fields_remain_visible_to_the_codec(self) -> None:
+        for path, schema in self._object_schemas(self.schema, "schema"):
+            with self.subTest(path=path):
+                self.assertTrue(
+                    schema.get("x-kubernetes-preserve-unknown-fields"),
+                    path,
+                )
+
+    def _object_schemas(self, schema: dict, path: str):
+        if schema.get("type") == "object":
+            yield path, schema
+        for name, child in schema.get("properties", {}).items():
+            yield from self._object_schemas(child, f"{path}.{name}")
+        if "items" in schema:
+            yield from self._object_schemas(schema["items"], f"{path}[]")
+
     def _assert_structural(self, schema: dict, path: str) -> None:
         self.assertIn("type", schema, path)
         if "properties" in schema:
@@ -95,6 +117,25 @@ class ContinuityContractCrdTests(unittest.TestCase):
                 field_schema = policy["properties"][field]
                 self.assertEqual(field_schema["default"], value)
                 self.assertEqual(set(field_schema["enum"]), set(allowed))
+
+        authority = self.spec_schema["properties"]["authorities"]["items"]
+        self.assertEqual(
+            authority["properties"]["compatibility"]["default"],
+            AuthoritySpec("authority", "release", "provider").compatibility,
+        )
+        references = [
+            self.spec_schema["properties"]["workload"]["properties"]["ref"],
+            authority["properties"]["parametersRef"],
+            self.spec_schema["properties"]["stages"]["items"]["properties"][
+                "parametersRef"
+            ],
+            self.status_schema["properties"]["terminalEvidenceRef"],
+        ]
+        for reference in references:
+            self.assertEqual(
+                reference["properties"]["apiGroup"]["default"],
+                LocalObjectReference("ConfigMap", "parameters").api_group,
+            )
 
     def test_stage_and_status_collections_have_kubernetes_semantics(self) -> None:
         spec_properties = self.spec_schema["properties"]
@@ -142,6 +183,7 @@ class ContinuityContractCrdTests(unittest.TestCase):
             {
                 "status recovery sets must match their declarations",
                 "successful status requires every declared recovery set",
+                "terminal status is immutable",
             },
         )
 
@@ -152,8 +194,8 @@ class ContinuityContractCrdTests(unittest.TestCase):
         self.assertEqual(
             status_messages,
             {
-                "terminal status is immutable",
                 "terminal evidence must match the terminal phase",
+                "terminal status requires a positive observed generation",
                 "condition generations cannot exceed status generation",
             },
         )

@@ -92,6 +92,12 @@ class ApiStage:
             raise TypeError("stage published outputs must be a frozenset")
         if not isinstance(self.recovery_sets, frozenset):
             raise TypeError("stage recovery sets must be a frozenset")
+        object.__setattr__(self, "requires", tuple(sorted(self.requires)))
+        object.__setattr__(
+            self,
+            "input_bindings",
+            tuple(sorted(self.input_bindings, key=lambda item: item.name)),
+        )
 
 
 @dataclass(frozen=True)
@@ -109,6 +115,21 @@ class ApiSpec:
             raise TypeError("contract authorities must be a tuple")
         if not isinstance(self.recovery_sets, tuple):
             raise TypeError("contract recovery sets must be a tuple")
+        object.__setattr__(
+            self,
+            "stages",
+            tuple(sorted(self.stages, key=lambda item: item.id)),
+        )
+        object.__setattr__(
+            self,
+            "authorities",
+            tuple(sorted(self.authorities, key=lambda item: item.name)),
+        )
+        object.__setattr__(
+            self,
+            "recovery_sets",
+            tuple(sorted(self.recovery_sets, key=lambda item: item.name)),
+        )
 
 
 @dataclass(frozen=True)
@@ -150,6 +171,16 @@ class ApiStatus:
             raise TypeError("status conditions must be a tuple")
         if not isinstance(self.recovery_sets, tuple):
             raise TypeError("status recovery sets must be a tuple")
+        object.__setattr__(
+            self,
+            "conditions",
+            tuple(sorted(self.conditions, key=lambda item: item.type)),
+        )
+        object.__setattr__(
+            self,
+            "recovery_sets",
+            tuple(sorted(self.recovery_sets, key=lambda item: item.name)),
+        )
 
 
 @dataclass(frozen=True)

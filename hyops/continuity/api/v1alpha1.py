@@ -756,9 +756,18 @@ def _encode_spec(spec: ApiSpec) -> dict[str, Any]:
             "unverifiableAction": spec.policy.unverifiable_action,
             "terminalEvidence": spec.policy.terminal_evidence,
         },
-        "authorities": [_encode_authority(item) for item in spec.authorities],
-        "recoverySets": [_encode_recovery_set(item) for item in spec.recovery_sets],
-        "stages": [_encode_stage(item) for item in spec.stages],
+        "authorities": [
+            _encode_authority(item)
+            for item in sorted(spec.authorities, key=lambda item: item.name)
+        ],
+        "recoverySets": [
+            _encode_recovery_set(item)
+            for item in sorted(spec.recovery_sets, key=lambda item: item.name)
+        ],
+        "stages": [
+            _encode_stage(item)
+            for item in sorted(spec.stages, key=lambda item: item.id)
+        ],
     }
 
 
@@ -801,10 +810,10 @@ def _encode_stage(stage: ApiStage) -> dict[str, Any]:
         "id": stage.id,
         "adapterRef": {"name": stage.adapter},
         "operation": stage.operation,
-        "requires": list(stage.requires),
+        "requires": sorted(stage.requires),
         "inputBindings": [
             {"name": item.name, "stage": item.stage, "output": item.output}
-            for item in stage.input_bindings
+            for item in sorted(stage.input_bindings, key=lambda item: item.name)
         ],
         "publish": sorted(stage.publish),
         "recoverySets": sorted(stage.recovery_sets),
@@ -839,7 +848,7 @@ def _encode_status(status: ApiStatus) -> dict[str, Any]:
                 "reason": item.reason,
                 "message": item.message,
             }
-            for item in status.conditions
+            for item in sorted(status.conditions, key=lambda item: item.type)
         ],
         "recoverySets": [
             {
@@ -848,7 +857,7 @@ def _encode_status(status: ApiStatus) -> dict[str, Any]:
                 "role": item.role,
                 "digest": item.digest,
             }
-            for item in status.recovery_sets
+            for item in sorted(status.recovery_sets, key=lambda item: item.name)
         ],
     }
     if status.terminal_evidence is not None:

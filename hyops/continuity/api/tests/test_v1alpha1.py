@@ -198,6 +198,120 @@ class V1Alpha1CodecTests(unittest.TestCase):
         self.assertEqual(resource.spec.stages[0].requires, ())
         self.assertEqual(resource.spec.stages[0].publish, frozenset())
 
+    def test_kubernetes_collections_are_canonical(self) -> None:
+        payload = _valid_payload()
+        payload["spec"]["authorities"].append(
+            {
+                "name": "archive-authority",
+                "capability": "archive",
+                "provider": "conformance",
+            }
+        )
+        payload["spec"]["recoverySets"].append(
+            {
+                "name": "archive-state",
+                "producer": {
+                    "stage": "prepare",
+                    "evidence": "archive-evidence",
+                    "role": "recovery",
+                },
+            }
+        )
+        payload["spec"]["stages"][1]["publish"] = ["released-output"]
+        payload["spec"]["stages"][1]["recoverySets"].append("archive-state")
+        payload["spec"]["stages"].append(
+            {
+                "id": "verify",
+                "adapterRef": {"name": "conformance"},
+                "operation": "verify",
+                "requires": ["release", "prepare"],
+                "inputBindings": [
+                    {
+                        "name": "released-input",
+                        "stage": "release",
+                        "output": "released-output",
+                    },
+                    {
+                        "name": "prepared-input",
+                        "stage": "prepare",
+                        "output": "prepared-output",
+                    },
+                ],
+                "publish": ["z-output", "a-output"],
+                "recoverySets": ["workload-state", "archive-state"],
+                "authorityRef": "archive-authority",
+            }
+        )
+        payload["status"]["conditions"].append(
+            {
+                "type": "continuity.hybridops.tech/Admitted",
+                "status": "True",
+                "observedGeneration": 3,
+                "lastTransitionTime": "2026-11-28T10:14:30Z",
+                "reason": "ContractAdmitted",
+                "message": "contract admitted",
+            }
+        )
+        payload["status"]["recoverySets"].append(
+            {
+                "name": "archive-state",
+                "evidence": "archive-evidence",
+                "role": "recovery",
+                "digest": _DIGEST_B,
+            }
+        )
+
+        reordered = copy.deepcopy(payload)
+        for field in ("authorities", "recoverySets", "stages"):
+            reordered["spec"][field].reverse()
+        for stage in reordered["spec"]["stages"]:
+            for field in ("requires", "inputBindings", "publish", "recoverySets"):
+                if field in stage:
+                    stage[field].reverse()
+        reordered["status"]["conditions"].reverse()
+        reordered["status"]["recoverySets"].reverse()
+
+        resource = decode(payload)
+        reordered_resource = decode(reordered)
+        encoded = encode(resource)
+
+        self.assertEqual(reordered_resource, resource)
+        self.assertEqual(encode(reordered_resource), encoded)
+        self.assertEqual(
+            [item["name"] for item in encoded["spec"]["authorities"]],
+            ["archive-authority", "release-authority"],
+        )
+        self.assertEqual(
+            [item["name"] for item in encoded["spec"]["recoverySets"]],
+            ["archive-state", "workload-state"],
+        )
+        self.assertEqual(
+            [item["id"] for item in encoded["spec"]["stages"]],
+            ["prepare", "release", "verify"],
+        )
+        verify = encoded["spec"]["stages"][2]
+        self.assertEqual(verify["requires"], ["prepare", "release"])
+        self.assertEqual(
+            [item["name"] for item in verify["inputBindings"]],
+            ["prepared-input", "released-input"],
+        )
+        self.assertEqual(verify["publish"], ["a-output", "z-output"])
+        self.assertEqual(
+            verify["recoverySets"],
+            ["archive-state", "workload-state"],
+        )
+        self.assertEqual(
+            [item["type"] for item in encoded["status"]["conditions"]],
+            [
+                "continuity.hybridops.tech/Admitted",
+                "continuity.hybridops.tech/Ready",
+            ],
+        )
+        self.assertEqual(
+            [item["name"] for item in encoded["status"]["recoverySets"]],
+            ["archive-state", "workload-state"],
+        )
+
     def test_metadata_is_deeply_immutable_and_unaliased(self) -> None:
         payload = _valid_payload()
         resource = decode(payload)
@@ -231,12 +345,55 @@ class V1Alpha1CodecTests(unittest.TestCase):
                 self.assert_failure(payload, reason, path)
 
         payload = _minimal_payload()
-        payload["unknown"] = True
-        self.assert_failure(payload, "UnknownField", "$")
-
-        payload = _minimal_payload()
         payload["spec"]["stages"] = {}
         self.assert_failure(payload, "InvalidType", "$.spec.stages")
+
+    def test_rejects_unknown_fields_at_every_strict_object_boundary(self) -> None:
+        cases = [
+            ("$", lambda item: item),
+            ("$.spec", lambda item: item["spec"]),
+            ("$.spec.workload", lambda item: item["spec"]["workload"]),
+            ("$.spec.workload.ref", lambda item: item["spec"]["workload"]["ref"]),
+            ("$.spec.policy", lambda item: item["spec"]["policy"]),
+            ("$.spec.authorities[0]", lambda item: item["spec"]["authorities"][0]),
+            (
+                "$.spec.authorities[0].parametersRef",
+                lambda item: item["spec"]["authorities"][0]["parametersRef"],
+            ),
+            ("$.spec.recoverySets[0]", lambda item: item["spec"]["recoverySets"][0]),
+            (
+                "$.spec.recoverySets[0].producer",
+                lambda item: item["spec"]["recoverySets"][0]["producer"],
+            ),
+            ("$.spec.stages[0]", lambda item: item["spec"]["stages"][0]),
+            (
+                "$.spec.stages[0].adapterRef",
+                lambda item: item["spec"]["stages"][0]["adapterRef"],
+            ),
+            (
+                "$.spec.stages[0].parametersRef",
+                lambda item: item["spec"]["stages"][0]["parametersRef"],
+            ),
+            (
+                "$.spec.stages[1].inputBindings[0]",
+                lambda item: item["spec"]["stages"][1]["inputBindings"][0],
+            ),
+            ("$.status", lambda item: item["status"]),
+            ("$.status.conditions[0]", lambda item: item["status"]["conditions"][0]),
+            (
+                "$.status.recoverySets[0]",
+                lambda item: item["status"]["recoverySets"][0],
+            ),
+            (
+                "$.status.terminalEvidenceRef",
+                lambda item: item["status"]["terminalEvidenceRef"],
+            ),
+        ]
+        for path, select in cases:
+            with self.subTest(path=path):
+                payload = _valid_payload()
+                select(payload)["unexpectedField"] = True
+                self.assert_failure(payload, "UnknownField", path)
 
     def test_rejects_invalid_workload_identity(self) -> None:
         cases = [
@@ -418,10 +575,11 @@ class V1Alpha1CodecTests(unittest.TestCase):
         payload["spec"]["stages"][2]["requires"] = ["transform"]
 
         resource = decode(payload)
+        release = next(stage for stage in resource.spec.stages if stage.id == "release")
 
-        self.assertEqual(resource.spec.stages[2].input_bindings[0].stage, "prepare")
+        self.assertEqual(release.input_bindings[0].stage, "prepare")
         self.assertEqual(
-            resource.spec.stages[2].recovery_sets,
+            release.recovery_sets,
             frozenset({"workload-state"}),
         )
 
@@ -506,22 +664,32 @@ class V1Alpha1CodecTests(unittest.TestCase):
         self.assert_failure(payload, "DuplicateCondition", "$.status.conditions")
 
     def test_terminal_status_must_be_current_and_evidenced(self) -> None:
-        payload = _valid_payload()
-        payload["status"]["observedGeneration"] = 2
-        payload["status"]["conditions"][0]["observedGeneration"] = 2
-        self.assert_failure(
-            payload,
-            "StaleTerminalStatus",
-            "$.status.observedGeneration",
-        )
+        for phase in ("Succeeded", "Recovered", "Failed"):
+            with self.subTest(phase=phase, state="valid"):
+                payload = _valid_payload()
+                payload["status"]["phase"] = phase
+                self.assertEqual(decode(payload).status.phase, phase)
 
-        payload = _valid_payload()
-        payload["status"].pop("terminalEvidenceRef")
-        self.assert_failure(
-            payload,
-            "InvalidTerminalStatus",
-            "$.status.terminalEvidenceRef",
-        )
+            with self.subTest(phase=phase, state="stale"):
+                payload = _valid_payload()
+                payload["status"]["phase"] = phase
+                payload["status"]["observedGeneration"] = 2
+                payload["status"]["conditions"][0]["observedGeneration"] = 2
+                self.assert_failure(
+                    payload,
+                    "StaleTerminalStatus",
+                    "$.status.observedGeneration",
+                )
+
+            with self.subTest(phase=phase, state="unevidenced"):
+                payload = _valid_payload()
+                payload["status"]["phase"] = phase
+                payload["status"].pop("terminalEvidenceRef")
+                self.assert_failure(
+                    payload,
+                    "InvalidTerminalStatus",
+                    "$.status.terminalEvidenceRef",
+                )
 
         payload = _valid_payload()
         payload["status"]["phase"] = "Running"

@@ -28,6 +28,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
+          x-kubernetes-preserve-unknown-fields: true
           required:
             - spec
           x-kubernetes-validations:
@@ -51,9 +52,16 @@ spec:
                     (has(self.spec.recoverySets) ?
                       self.spec.recoverySets.size() : 0))
               message: successful status requires every declared recovery set
+            - rule: >-
+                !has(oldSelf.status) ||
+                  !has(oldSelf.status.phase) ||
+                  !(oldSelf.status.phase in ['Succeeded', 'Recovered', 'Failed']) ||
+                  (has(self.status) && self.status == oldSelf.status)
+              message: terminal status is immutable
           properties:
             spec:
               type: object
+              x-kubernetes-preserve-unknown-fields: true
               required:
                 - workload
                 - stages
@@ -66,6 +74,7 @@ spec:
               properties:
                 workload:
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
                   required:
                     - name
                     - revision
@@ -86,6 +95,7 @@ spec:
                       pattern: '^sha256:[0-9a-f]{64}$'
                     ref:
                       type: object
+                      x-kubernetes-preserve-unknown-fields: true
                       required:
                         - kind
                         - name
@@ -104,6 +114,7 @@ spec:
                           pattern: '^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
                 policy:
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
                   default: {}
                   properties:
                     failureAction:
@@ -130,6 +141,7 @@ spec:
                     - name
                   items:
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
                     required:
                       - name
                       - capability
@@ -152,6 +164,7 @@ spec:
                         default: false
                       parametersRef:
                         type: object
+                        x-kubernetes-preserve-unknown-fields: true
                         required:
                           - kind
                           - name
@@ -177,6 +190,7 @@ spec:
                     - name
                   items:
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
                     required:
                       - name
                       - producer
@@ -187,6 +201,7 @@ spec:
                         pattern: '^[a-z][a-z0-9_-]{0,63}$'
                       producer:
                         type: object
+                        x-kubernetes-preserve-unknown-fields: true
                         required:
                           - stage
                           - evidence
@@ -213,6 +228,7 @@ spec:
                     - id
                   items:
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
                     required:
                       - id
                       - adapterRef
@@ -224,6 +240,7 @@ spec:
                         pattern: '^[a-z][a-z0-9_-]{0,63}$'
                       adapterRef:
                         type: object
+                        x-kubernetes-preserve-unknown-fields: true
                         required:
                           - name
                         properties:
@@ -246,6 +263,7 @@ spec:
                           pattern: '^[a-z][a-z0-9_-]{0,63}$'
                       parametersRef:
                         type: object
+                        x-kubernetes-preserve-unknown-fields: true
                         required:
                           - kind
                           - name
@@ -271,6 +289,7 @@ spec:
                           - name
                         items:
                           type: object
+                          x-kubernetes-preserve-unknown-fields: true
                           required:
                             - name
                             - stage
@@ -316,12 +335,8 @@ spec:
                         pattern: '^[a-z][a-z0-9_-]{0,63}$'
             status:
               type: object
+              x-kubernetes-preserve-unknown-fields: true
               x-kubernetes-validations:
-                - rule: >-
-                    !has(oldSelf.phase) ||
-                      !(oldSelf.phase in ['Succeeded', 'Recovered', 'Failed']) ||
-                      self == oldSelf
-                  message: terminal status is immutable
                 - rule: >-
                     ((!has(self.phase) ||
                       (self.phase != 'Succeeded' &&
@@ -329,6 +344,11 @@ spec:
                         self.phase != 'Failed')) ==
                       !has(self.terminalEvidenceRef))
                   message: terminal evidence must match the terminal phase
+                - rule: >-
+                    !has(self.phase) ||
+                      !(self.phase in ['Succeeded', 'Recovered', 'Failed']) ||
+                      (has(self.observedGeneration) && self.observedGeneration > 0)
+                  message: terminal status requires a positive observed generation
                 - rule: >-
                     !has(self.conditions) ||
                       !has(self.observedGeneration) ||
@@ -361,6 +381,7 @@ spec:
                     - type
                   items:
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
                     required:
                       - type
                       - status
@@ -402,6 +423,7 @@ spec:
                     - name
                   items:
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
                     required:
                       - name
                       - evidence
@@ -425,6 +447,7 @@ spec:
                         pattern: '^sha256:[0-9a-f]{64}$'
                 terminalEvidenceRef:
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
                   required:
                     - kind
                     - name
