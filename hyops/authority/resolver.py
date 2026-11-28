@@ -101,8 +101,11 @@ class AuthorityResolver:
                 f"contract failed: authority '{requirement.logical_ref}' "
                 f"provider '{registration.name}': {exc}"
             ) from exc
-        if not isinstance(evaluation, AuthorityEvaluation):
-            raise ValueError(  # noqa: TRY004 - provider violations are contract failures
+        if (
+            not isinstance(evaluation, AuthorityEvaluation)
+            or type(evaluation.healthy) is not bool
+        ):
+            raise ValueError(
                 f"contract failed: authority '{requirement.logical_ref}' "
                 f"provider '{registration.name}' returned an invalid evaluation"
             )
@@ -167,7 +170,10 @@ class AuthorityResolver:
                 result="completion authority observation failed",
             )
 
-        if not isinstance(after_evaluation, AuthorityEvaluation):
+        if (
+            not isinstance(after_evaluation, AuthorityEvaluation)
+            or type(after_evaluation.healthy) is not bool
+        ):
             return self._unavailable_receipt(
                 session,
                 policy,

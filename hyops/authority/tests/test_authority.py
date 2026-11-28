@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 from urllib.error import URLError
 
@@ -292,6 +293,36 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertEqual(receipt.before.token, "revision-10")
         self.assertEqual(receipt.after.token, "revision-11")
         self.assertEqual(provider.received_policy, policy)
+
+    def test_non_boolean_health_cannot_admit_or_complete(self) -> None:
+        stable = AuthorityIntervalEvaluation(
+            interval_status="stable",
+            completion_status="fresh",
+            result="stable",
+            detection_strength="revision",
+            freshness_basis="resource revision",
+        )
+        policy = AuthorityObservationPolicy("none", "record")
+        for healthy in ("false", "true", 1, 0, None):
+            with self.subTest(healthy=healthy):
+                resolver, requirement, declarations, context, provider = self._interval_resolver(
+                    stable
+                )
+                session = resolver.begin(requirement, declarations, context, policy=policy)
+                malformed = replace(provider.evaluations[0], healthy=healthy)
+                with patch.object(provider, "evaluate", return_value=malformed):
+                    with self.assertRaisesRegex(ValueError, "returned an invalid evaluation"):
+                        resolver.enforce(requirement, declarations, context)
+                    receipt = resolver.complete(
+                        session,
+                        policy,
+                        completion_floor="2026-09-28T12:00:01Z",
+                    )
+
+                self.assertEqual(receipt.decision, "deny")
+                self.assertEqual(receipt.completion_status, "unverifiable")
+                self.assertIn("invalid completion authority evaluation", receipt.result)
+                self.assertIsNone(provider.received_policy)
 
     def test_strict_interval_policy_is_rejected_before_dispatch_when_unavailable(self) -> None:
         class SnapshotProvider:

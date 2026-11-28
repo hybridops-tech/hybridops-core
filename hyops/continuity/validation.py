@@ -371,13 +371,12 @@ def _validate_adapter_contract(
     if identity_snapshot.name != adapter_name:
         raise ContractFailure(
             "adapter_identity_mismatch",
-            f"adapter '{adapter_name}' reported identity '{identity_snapshot.name}'",
+            f"adapter '{adapter_name}' reported a mismatched identity",
         )
     if identity_snapshot.contract_version != ADAPTER_CONTRACT_VERSION:
         raise ContractFailure(
             "unsupported_adapter_contract",
-            f"adapter '{adapter_name}' uses unsupported contract version "
-            f"'{identity_snapshot.contract_version}'",
+            f"adapter '{adapter_name}' uses an unsupported contract version",
         )
     for field_name in ("distribution", "version", "revision"):
         value = getattr(identity_snapshot, field_name)

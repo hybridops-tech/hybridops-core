@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 import tempfile
 import threading
@@ -540,6 +541,44 @@ class ContinuityEngineTests(unittest.TestCase):
         self.assertEqual(self.adapter.recovery_outputs["prepare"], {})
         self.assertTrue(self._terminal_path().is_file())
 
+    def test_unencodable_published_output_recovers_and_writes_terminal(self) -> None:
+        filename = os.fsdecode(b"private-filename-\xff")
+        spec = self._spec()
+        prepare, release = spec.stages
+        spec = replace(
+            spec, stages=(prepare, replace(release, recovery_operation="remove"))
+        )
+        execute = self.adapter.execute
+
+        def execute_with_filename(request: AdapterRequest) -> ExecutionResult:
+            result = execute(request)
+            if request.stage_id == "release":
+                return replace(result, outputs={"receipt": {"files": [filename]}})
+            return result
+
+        with patch.object(self.adapter, "execute", side_effect=execute_with_filename):
+            result = self.engine.run(spec)
+
+        self.assertEqual(result.reason_code, "invalid_stage_outputs")
+        self.assertEqual(result.closure, "recovered")
+        self.assertEqual(
+            self.adapter.calls,
+            [
+                ("admit", "prepare"),
+                ("execute", "prepare"),
+                ("admit", "release"),
+                ("execute", "release"),
+                ("recover", "release"),
+                ("recover", "prepare"),
+            ],
+        )
+        terminal = self._terminal_path().read_text(encoding="utf-8")
+        self.assertNotIn("private-filename", terminal)
+        self.assertEqual(json.loads(terminal), result.to_evidence())
+        self.assertEqual(result.stages[1].status, "failed")
+        self.assertEqual(result.stages[1].outputs, ())
+        self.assertEqual(result.stages[1].recovery_status, "succeeded")
+
     def test_denied_release_recovers_prepared_stage_without_second_mutation(
         self,
     ) -> None:
@@ -879,12 +918,12 @@ class ContinuityEngineTests(unittest.TestCase):
         mismatched_identity = _Adapter()
         mismatched_identity.identity = replace(
             mismatched_identity.identity,
-            name="different",
+            name="token=private-adapter-identity",
         )
         unsupported_contract = _Adapter()
         unsupported_contract.identity = replace(
             unsupported_contract.identity,
-            contract_version="2",
+            contract_version="token=private-adapter-version",
         )
         incomplete_identity = _Adapter()
         incomplete_identity.identity = replace(
@@ -925,6 +964,9 @@ class ContinuityEngineTests(unittest.TestCase):
                 self.assertEqual(result.reason_code, reason_code)
                 self.assertEqual(result.closure, "none")
                 self.assertEqual(adapter.calls, [])
+                terminal = self._terminal_path(operation_id).read_text(encoding="utf-8")
+                self.assertEqual(json.loads(terminal), result.to_evidence())
+                self.assertNotIn("token=private-adapter", terminal)
 
     def test_cycle_is_rejected_before_adapter_calls(self) -> None:
         spec = ContinuityContract(
@@ -1028,6 +1070,15 @@ class ContinuityEngineTests(unittest.TestCase):
         )
 
         self.assertIs(store.probe(lease, record), PublicationState.CONFLICT)
+
+    def test_absent_terminal_requires_a_visible_operation_claim(self) -> None:
+        lease = self.store.acquire("run", {"operation_id": "run"})
+        record = {"operation_id": "run", "status": "succeeded"}
+        self.assertIs(self.store.probe(lease, record), PublicationState.ABSENT)
+
+        claim = lease.record_path.with_name("claim.json")
+        claim.rename(claim.with_name("archived-claim.json"))
+        self.assertIs(self.store.probe(lease, record), PublicationState.UNKNOWN)
 
     def test_published_output_values_are_not_persisted(self) -> None:
         spec = self._spec()
@@ -1199,16 +1250,70 @@ class ContinuityEngineTests(unittest.TestCase):
         self.assertNotIn(("recover", "prepare"), self.adapter.calls)
         self.assertTrue(store.delegate.terminal_path("test-run").is_file())
 
+    def test_lost_store_after_publication_does_not_trigger_compensation(self) -> None:
+        spec = self._spec()
+        spec = replace(spec, stages=(spec.stages[0],))
+        store_root = self.root / "operations"
+        moved_root = self.root / "moved-operations"
+        publish = self.store.publish
+
+        def publish_then_move(lease: OperationLease, record) -> None:
+            publish(lease, record)
+            store_root.rename(moved_root)
+            self.store.acquire(spec.operation_id, {"operation_id": spec.operation_id})
+            raise OSError("terminal acknowledgement unavailable")
+
+        with (
+            patch.object(self.store, "publish", side_effect=publish_then_move) as attempt,
+            self.assertRaisesRegex(TerminalPersistenceError, "outcome is uncertain"),
+        ):
+            self.engine.run(spec)
+
+        attempt.assert_called_once()
+        lease, record = attempt.call_args.args
+        self.assertIs(self.store.probe(lease, record), PublicationState.UNKNOWN)
+        self.assertEqual(
+            self.adapter.calls, [("admit", "prepare"), ("execute", "prepare")]
+        )
+        original = moved_root / lease.record_path.relative_to(store_root)
+        self.assertEqual(json.loads(original.read_text(encoding="utf-8")), record)
+        self.assertEqual(record["status"], "succeeded")
+        self.assertFalse(lease.record_path.exists())
+        self.assertTrue(lease.record_path.with_name("claim.json").is_file())
+
+    def test_lost_claim_before_publication_does_not_trigger_compensation(self) -> None:
+        spec = self._spec()
+        spec = replace(spec, stages=(spec.stages[0],))
+        publish = self.store.publish
+
+        def lose_claim(lease: OperationLease, record) -> None:
+            lease.record_path.with_name("claim.json").unlink()
+            publish(lease, record)
+
+        with (
+            patch.object(self.store, "publish", side_effect=lose_claim) as attempt,
+            self.assertRaisesRegex(TerminalPersistenceError, "outcome is uncertain"),
+        ):
+            self.engine.run(spec)
+
+        attempt.assert_called_once()
+        self.assertFalse(self._terminal_path(spec.operation_id).exists())
+        self.assertEqual(
+            self.adapter.calls, [("admit", "prepare"), ("execute", "prepare")]
+        )
+
     def test_post_link_directory_sync_error_probes_committed_terminal(self) -> None:
         real_sync = continuity_storage._sync_directory
-        sync_calls = 0
+        terminal_path = self._terminal_path()
+        terminal_syncs = 0
 
-        def fail_terminal_sync_once(path: Path) -> None:
-            nonlocal sync_calls
-            sync_calls += 1
-            if sync_calls == 3:
-                raise OSError("terminal directory sync failed")
-            real_sync(path)
+        def fail_terminal_sync_once(path: Path, directory: int | None = None) -> None:
+            nonlocal terminal_syncs
+            if path == terminal_path.parent and terminal_path.is_file():
+                terminal_syncs += 1
+                if terminal_syncs == 1:
+                    raise OSError("terminal directory sync failed")
+            real_sync(path, directory)
 
         with patch.object(
             continuity_storage,
@@ -1218,7 +1323,7 @@ class ContinuityEngineTests(unittest.TestCase):
             result = self.engine.run(self._spec())
 
         self.assertEqual(result.status, "succeeded")
-        self.assertGreaterEqual(sync_calls, 4)
+        self.assertEqual(terminal_syncs, 2)
         self.assertNotIn(("recover", "prepare"), self.adapter.calls)
         self.assertTrue(self._terminal_path().is_file())
 
@@ -1361,6 +1466,25 @@ class ContinuityEngineTests(unittest.TestCase):
                 ("recover", "prepare"),
             ],
         )
+
+    def test_malformed_authority_health_denies_before_adapter_dispatch(self) -> None:
+        spec = self._spec()
+        prepare, release = spec.stages
+        spec = replace(spec, stages=(replace(prepare, authority=release.authority),))
+        malformed = AuthorityEvaluation(
+            healthy="false",
+            state="ready",
+            result="private-provider-detail",
+        )
+        with patch.object(_AuthorityProvider, "evaluate", return_value=malformed):
+            result = self.engine.run(spec)
+
+        self.assertEqual(result.reason_code, "authority_denied")
+        self.assertEqual(result.closure, "none")
+        self.assertEqual(self.adapter.calls, [])
+        terminal = self._terminal_path().read_text(encoding="utf-8")
+        self.assertEqual(json.loads(terminal), result.to_evidence())
+        self.assertNotIn("private-provider-detail", terminal)
 
     def test_authority_provider_error_is_stable_and_terminal(self) -> None:
         spec = self._spec()

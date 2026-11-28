@@ -1,0 +1,527 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: continuitycontracts.continuity.hyopsproject.github.io
+spec:
+  group: continuity.hyopsproject.github.io
+  scope: Namespaced
+  names:
+    plural: continuitycontracts
+    singular: continuitycontract
+    kind: ContinuityContract
+    listKind: ContinuityContractList
+    shortNames:
+      - cc
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          # Unknown root fields must not persist: writes outside metadata/status
+          # advance generation. Nested unknown fields remain visible to the codec.
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: >-
+                !has(self.status) ||
+                  !has(self.status.recoverySets) ||
+                  (!has(self.spec.recoverySets) ?
+                    self.status.recoverySets.size() == 0 :
+                    self.status.recoverySets.all(r,
+                      self.spec.recoverySets.exists(d,
+                        d.name == r.name &&
+                        d.producer.evidence == r.evidence &&
+                        d.producer.role == r.role)))
+              message: status recovery sets must match their declarations
+            - rule: >-
+                !has(self.status) ||
+                  !has(self.status.phase) ||
+                  self.status.phase != 'Succeeded' ||
+                  ((has(self.status.recoverySets) ?
+                    self.status.recoverySets.size() : 0) ==
+                    (has(self.spec.recoverySets) ?
+                      self.spec.recoverySets.size() : 0))
+              message: successful status requires every declared recovery set
+            - rule: >-
+                !has(oldSelf.status) ||
+                  !has(oldSelf.status.phase) ||
+                  !(oldSelf.status.phase in ['Succeeded', 'Recovered', 'Failed']) ||
+                  (has(self.status) && self.status == oldSelf.status)
+              message: terminal status is immutable
+          properties:
+            spec:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              required:
+                - workload
+                - stages
+              x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: spec is immutable
+                # Map/set equality ignores order. The list-level rules below
+                # compare ordered projections to match generation accounting.
+                - rule: >-
+                    self.stages.all(s, !(s.id in s.requires))
+                  message: a stage cannot depend on itself
+                - rule: >-
+                    self.stages.all(s, !has(s.destructive) || !s.destructive ||
+                      (has(s.authorityRef) && self.authorities.exists(a, a.name == s.authorityRef)))
+                  message: a destructive stage requires a declared authority
+                - rule: >-
+                    [self.recoverySets.transformMapEntry(i, r,
+                      self.stages.exists(p, p.id == r.producer.stage),
+                      {r.name: r.producer.stage})].all(producers,
+                      self.stages.all(s, !has(s.destructive) || !s.destructive ||
+                        s.recoverySets.all(n, n in producers && producers[n] != s.id)))
+                  message: destructive recovery sets must be declared and produced by another stage
+              properties:
+                workload:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  required:
+                    - name
+                    - revision
+                    - digest
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 253
+                      pattern: '^\S([^\r\n]*\S)?$'
+                    revision:
+                      type: string
+                      minLength: 1
+                      maxLength: 256
+                      pattern: '^\S([^\r\n]*\S)?$'
+                    digest:
+                      type: string
+                      pattern: '^sha256:[0-9a-f]{64}$'
+                    ref:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                      required:
+                        - kind
+                        - name
+                      properties:
+                        apiGroup:
+                          type: string
+                          default: ''
+                          maxLength: 253
+                          pattern: '^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                        kind:
+                          type: string
+                          pattern: '^[A-Z][A-Za-z0-9]{0,62}$'
+                        name:
+                          type: string
+                          maxLength: 253
+                          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+                policy:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  default: {}
+                  properties:
+                    failureAction:
+                      type: string
+                      default: Recover
+                      enum:
+                        - Recover
+                    unverifiableAction:
+                      type: string
+                      default: Block
+                      enum:
+                        - Block
+                    terminalEvidence:
+                      type: string
+                      default: Required
+                      enum:
+                        - Required
+                authorities:
+                  type: array
+                  default: []
+                  maxItems: 64
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - name
+                  x-kubernetes-validations:
+                    - rule: self.map(a, a.name) == oldSelf.map(a, a.name)
+                      message: spec list order is immutable
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                    required:
+                      - name
+                      - capability
+                      - provider
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      capability:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      provider:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      compatibility:
+                        type: boolean
+                        default: false
+                      parametersRef:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                        required:
+                          - kind
+                          - name
+                        properties:
+                          apiGroup:
+                            type: string
+                            default: ''
+                            maxLength: 253
+                            pattern: '^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                          kind:
+                            type: string
+                            pattern: '^[A-Z][A-Za-z0-9]{0,62}$'
+                          name:
+                            type: string
+                            maxLength: 253
+                            pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+                recoverySets:
+                  type: array
+                  default: []
+                  maxItems: 256
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - name
+                  x-kubernetes-validations:
+                    - rule: self.map(r, r.name) == oldSelf.map(r, r.name)
+                      message: spec list order is immutable
+                    - rule: >-
+                        self.map(r, r.producer.stage + '/' + r.producer.evidence)
+                          .distinct().size() == self.size()
+                      message: a producer stage and evidence name must identify one recovery set
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                    required:
+                      - name
+                      - producer
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      producer:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                        required:
+                          - stage
+                          - evidence
+                          - role
+                        properties:
+                          stage:
+                            type: string
+                            maxLength: 64
+                            pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                          evidence:
+                            type: string
+                            maxLength: 64
+                            pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                          role:
+                            type: string
+                            maxLength: 64
+                            pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                stages:
+                  type: array
+                  minItems: 1
+                  maxItems: 128
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - id
+                  x-kubernetes-validations:
+                    - rule: self.map(s, s.id) == oldSelf.map(s, s.id)
+                      message: spec list order is immutable
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                    required:
+                      - id
+                      - adapterRef
+                      - operation
+                    x-kubernetes-validations:
+                      - rule: has(self.destructive)
+                        message: destructive must be a boolean
+                      - rule: >-
+                          !has(self.destructive) || !self.destructive ||
+                            self.recoverySets.size() > 0
+                        message: a destructive stage requires a recovery set
+                      - rule: >-
+                          !has(self.destructive) || !self.destructive ||
+                            self.requires.size() > 0
+                        message: a destructive stage requires a predecessor
+                    properties:
+                      id:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      adapterRef:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                            maxLength: 64
+                            pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      operation:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      destructive:
+                        type: boolean
+                        description: >-
+                          Declares destructive intent. Requires authority and recovery state
+                          from a predecessor; does not grant permission to execute.
+                        nullable: true
+                        default: false
+                      requires:
+                        type: array
+                        default: []
+                        maxItems: 128
+                        x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                          - rule: self.map(v, v) == oldSelf.map(v, v)
+                            message: spec list order is immutable
+                        items:
+                          type: string
+                          maxLength: 64
+                          pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      parametersRef:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                        required:
+                          - kind
+                          - name
+                        properties:
+                          apiGroup:
+                            type: string
+                            default: ''
+                            maxLength: 253
+                            pattern: '^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                          kind:
+                            type: string
+                            pattern: '^[A-Z][A-Za-z0-9]{0,62}$'
+                          name:
+                            type: string
+                            maxLength: 253
+                            pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+                      inputBindings:
+                        type: array
+                        default: []
+                        maxItems: 256
+                        x-kubernetes-list-type: map
+                        x-kubernetes-list-map-keys:
+                          - name
+                        x-kubernetes-validations:
+                          - rule: self.map(b, b.name) == oldSelf.map(b, b.name)
+                            message: spec list order is immutable
+                        items:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                          required:
+                            - name
+                            - stage
+                            - output
+                          properties:
+                            name:
+                              type: string
+                              maxLength: 64
+                              pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                            stage:
+                              type: string
+                              maxLength: 64
+                              pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                            output:
+                              type: string
+                              maxLength: 64
+                              pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      publish:
+                        type: array
+                        default: []
+                        maxItems: 256
+                        x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                          - rule: self.map(v, v) == oldSelf.map(v, v)
+                            message: spec list order is immutable
+                        items:
+                          type: string
+                          maxLength: 64
+                          pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      recoverySets:
+                        type: array
+                        default: []
+                        maxItems: 256
+                        x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                          - rule: self.map(v, v) == oldSelf.map(v, v)
+                            message: spec list order is immutable
+                        items:
+                          type: string
+                          maxLength: 64
+                          pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      authorityRef:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      recoveryOperation:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              x-kubernetes-validations:
+                - rule: >-
+                    ((!has(self.phase) ||
+                      (self.phase != 'Succeeded' &&
+                        self.phase != 'Recovered' &&
+                        self.phase != 'Failed')) ==
+                      !has(self.terminalEvidenceRef))
+                  message: terminal evidence must match the terminal phase
+                - rule: >-
+                    !has(self.phase) ||
+                      !(self.phase in ['Succeeded', 'Recovered', 'Failed']) ||
+                      (has(self.observedGeneration) && self.observedGeneration > 0)
+                  message: terminal status requires a positive observed generation
+                - rule: >-
+                    !has(self.conditions) ||
+                      !has(self.observedGeneration) ||
+                      self.conditions.all(c,
+                      c.observedGeneration <= self.observedGeneration)
+                  message: condition generations cannot exceed status generation
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  default: 0
+                phase:
+                  type: string
+                  default: Pending
+                  enum:
+                    - Pending
+                    - Admitted
+                    - Running
+                    - Recovering
+                    - Succeeded
+                    - Recovered
+                    - Failed
+                conditions:
+                  type: array
+                  default: []
+                  maxItems: 32
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                    required:
+                      - type
+                      - status
+                      - reason
+                      - message
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                        maxLength: 316
+                        pattern: '^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Z]([a-z0-9A-Z]*[a-z0-9])?)|([a-z0-9]([a-z0-9A-Z]*[a-z0-9])?))$'
+                      status:
+                        type: string
+                        enum:
+                          - 'True'
+                          - 'False'
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                        default: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                        maxLength: 1024
+                        pattern: '^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$'
+                      message:
+                        type: string
+                        maxLength: 32768
+                recoverySets:
+                  type: array
+                  default: []
+                  maxItems: 256
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - name
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                    required:
+                      - name
+                      - evidence
+                      - role
+                      - digest
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      evidence:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      role:
+                        type: string
+                        maxLength: 64
+                        pattern: '^[a-z][a-z0-9_-]{0,63}$'
+                      digest:
+                        type: string
+                        pattern: '^sha256:[0-9a-f]{64}$'
+                terminalEvidenceRef:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  required:
+                    - kind
+                    - name
+                    - digest
+                  properties:
+                    apiGroup:
+                      type: string
+                      default: ''
+                      maxLength: 253
+                      pattern: '^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                    kind:
+                      type: string
+                      pattern: '^[A-Z][A-Za-z0-9]{0,62}$'
+                    name:
+                      type: string
+                      maxLength: 253
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+                    digest:
+                      type: string
+                      pattern: '^sha256:[0-9a-f]{64}$'

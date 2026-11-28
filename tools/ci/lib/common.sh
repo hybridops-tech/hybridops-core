@@ -184,6 +184,7 @@ hyops_ci::all_yamllint_targets() {
   cat <<EOF
 ${HYOPS_REPO_ROOT}/.github/workflows
 ${HYOPS_REPO_ROOT}/blueprints
+${HYOPS_REPO_ROOT}/config
 ${HYOPS_REPO_ROOT}/modules
 ${HYOPS_REPO_ROOT}/tools/ci
 ${HYOPS_REPO_ROOT}/tools/acceptance/authority_continuity/fixtures/modules
