@@ -1173,6 +1173,40 @@ class ContinuityEngineTests(unittest.TestCase):
         self.assertEqual(result.reason_code, "unordered_evidence_binding")
         self.assertEqual(self.adapter.calls, [])
 
+    def test_conflicting_declared_evidence_role_blocks_all_stages(self) -> None:
+        spec = self._spec()
+        prepare, release = spec.stages
+        prepare = replace(
+            prepare,
+            produced_evidence={"recovery-set": "recovery_set"},
+            recovery_operation=None,
+        )
+        release = replace(
+            release,
+            evidence_bindings=(EvidenceBinding("prepare", "recovery-set", "report"),),
+        )
+
+        result = self.engine.run(replace(spec, stages=(prepare, release)))
+
+        self.assertEqual(result.reason_code, "conflicting_evidence_role")
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(self.adapter.calls, [])
+        self.assertEqual(result.stages, ())
+
+    def test_consumer_can_bind_additional_evidence_returned_by_producer(self) -> None:
+        spec = self._spec()
+        prepare, release = spec.stages
+        prepare = replace(prepare, produced_evidence={"config": "configuration"})
+        self.adapter.prepare_evidence_override = (
+            EvidenceIdentity("config", "configuration", "sha256:" + "a" * 64),
+            EvidenceIdentity("recovery-set", "recovery_set", "sha256:" + "b" * 64),
+        )
+
+        result = self.engine.run(replace(spec, stages=(prepare, release)))
+
+        self.assertEqual(result.status, "succeeded")
+        self.assertIn(("execute", "release"), self.adapter.calls)
+
     def test_input_binding_requires_ordered_published_output(self) -> None:
         prepare = StageSpec(
             id="prepare",

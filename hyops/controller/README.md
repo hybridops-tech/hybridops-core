@@ -42,6 +42,9 @@ adapter must return every declared identity with a valid SHA-256 digest,
 even if no later stage uses the set. This checks the returned identity,
 not the contents of the recovery artifact.
 
+If a consumer requests a different role for the same declared evidence,
+the kernel rejects the contract before admitting any stage.
+
 Run the credential-free check with a new output directory:
 
 ```sh

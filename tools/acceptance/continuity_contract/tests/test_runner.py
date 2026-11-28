@@ -4,8 +4,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from tools.acceptance.continuity_contract.runner import run
+from tools.acceptance.continuity_contract import runner
 
 
 class ContinuityContractAcceptanceTests(unittest.TestCase):
@@ -13,7 +14,7 @@ class ContinuityContractAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "acceptance"
 
-            report = run(output)
+            report = runner.run(output)
 
             self.assertEqual(report["status"], "passed")
             completed = report["scenarios"]["completed"]
@@ -77,6 +78,43 @@ class ContinuityContractAcceptanceTests(unittest.TestCase):
             self.assertEqual(omitted["calls"], [*prepare_calls, ["recover", "prepare"]])
             failed = json.loads(Path(omitted["terminal"]).read_text(encoding="utf-8"))
             self.assertEqual(failed["reason_code"], "missing_producer_evidence")
+
+    def test_wrong_producer_terminal_reason_fails_standalone_report(self) -> None:
+        publish = runner.FileOperationStore.publish
+
+        def wrong_reason(store, lease, record):
+            if record["reason_code"] == "missing_producer_evidence":
+                record = {**record, "reason_code": "unrelated_failure"}
+            return publish(store, lease, record)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "acceptance"
+            with patch.object(runner.FileOperationStore, "publish", wrong_reason):
+                runner.run(output)
+            report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+            scenario = report["scenarios"]["producer-omitted"]
+            self.assertEqual(report["status"], "failed")
+            self.assertFalse(scenario["checks"]["terminal_reason"])
+            self.assertTrue(scenario["checks"]["producer_failure"])
+
+    def test_missing_producer_artifact_is_reported(self) -> None:
+        execute = runner._LocalAdapter.execute
+
+        def remove_artifact(adapter, request):
+            result = execute(adapter, request)
+            if request.operation_id == "producer-only":
+                Path(result.outputs["artifact"]).unlink()
+            return result
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "acceptance"
+            with patch.object(runner._LocalAdapter, "execute", remove_artifact):
+                runner.run(output)
+            report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+            scenario = report["scenarios"]["producer-only"]
+            self.assertEqual(report["status"], "failed")
+            self.assertFalse(scenario["checks"]["content_identity"])
+            self.assertTrue(scenario["checks"]["terminal_status"])
 
 
 if __name__ == "__main__":

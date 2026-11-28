@@ -494,6 +494,13 @@ def _validate_evidence_binding(
             "unordered_evidence_binding",
             f"stage '{stage.id}' evidence is not bound to a dependency",
         )
+    declared_role = by_id[binding.stage].produced_evidence.get(binding.name)
+    if declared_role is not None and declared_role != binding.role:
+        raise ContractFailure(
+            "conflicting_evidence_role",
+            f"stage '{stage.id}' requires '{binding.stage}/{binding.name}' as "
+            f"'{binding.role}', but the producer declares '{declared_role}'",
+        )
 
 
 def _dependencies(

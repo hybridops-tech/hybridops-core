@@ -361,25 +361,36 @@ def _producer_scenario(root: Path, *, omit_evidence: bool) -> dict[str, Any]:
     path = store.terminal_path(root.name)
     record = json.loads(path.read_text(encoding="utf-8"))
     (stage,) = record["stages"]
-    checks = {"producer": stage["stage_id"] == producer.id}
+    artifact = root / "recovery-set.json"
+    expected_calls = [("admit", producer.id), ("execute", producer.id)]
+    if omit_evidence:
+        expected_calls.append(("recover", producer.id))
+    reason = "missing_producer_evidence" if omit_evidence else ""
+    checks = {
+        "producer": stage["stage_id"] == producer.id,
+        "terminal_status": record.get("status")
+        == ("recovered" if omit_evidence else "succeeded"),
+        "terminal_closure": record.get("closure")
+        == ("recovered" if omit_evidence else "completed"),
+        "terminal_reason": record.get("reason_code") == reason,
+        "exact_order": adapter.calls == expected_calls,
+    }
     if omit_evidence:
         checks.update(
-            terminal=record["status"] == "recovered",
             producer_failure=stage["status"] == "failed"
-            and stage.get("reason_code") == "missing_producer_evidence",
-            cleanup=stage["recovery_status"] == "succeeded"
-            and not (root / "recovery-set.json").exists(),
+            and stage.get("reason_code") == reason,
+            cleanup=stage["recovery_status"] == "succeeded" and not artifact.exists(),
         )
     else:
-        digest = (
-            "sha256:"
-            + hashlib.sha256((root / "recovery-set.json").read_bytes()).hexdigest()
-        )
-        checks.update(
-            terminal=record["status"] == "succeeded" and stage["status"] == "succeeded",
-            content_identity=stage.get("evidence")
-            == [{"name": "recovery-set", "role": "recovery_set", "digest": digest}],
-        )
+        checks["producer_success"] = stage["status"] == "succeeded"
+        try:
+            digest = "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+        except OSError:
+            checks["content_identity"] = False
+        else:
+            checks["content_identity"] = stage.get("evidence") == [
+                {"name": "recovery-set", "role": "recovery_set", "digest": digest}
+            ]
     return _result(path, adapter, checks)
 
 
