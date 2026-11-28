@@ -421,7 +421,8 @@ class V1Alpha1CodecTests(unittest.TestCase):
             ("apiGroup", "a" * 64, "$.spec.workload.ref.apiGroup"),
             ("kind", "config-map", "$.spec.workload.ref.kind"),
             ("name", "Invalid_Name", "$.spec.workload.ref.name"),
-            ("name", "a" * 64, "$.spec.workload.ref.name"),
+            ("name", "a" * 254, "$.spec.workload.ref.name"),
+            ("name", "a.-b", "$.spec.workload.ref.name"),
         ):
             with self.subTest(field=field):
                 payload = _minimal_payload()
@@ -432,6 +433,22 @@ class V1Alpha1CodecTests(unittest.TestCase):
                 }
                 payload["spec"]["workload"]["ref"][field] = value
                 self.assert_failure(payload, "InvalidReference", path)
+
+    def test_kubernetes_subdomain_names_use_a_total_length_limit(self) -> None:
+        for name in ("a" * 64, "a" * 253):
+            with self.subTest(length=len(name)):
+                payload = _valid_payload()
+                payload["metadata"]["name"] = name
+                payload["spec"]["workload"]["ref"]["name"] = name
+                payload["status"]["terminalEvidenceRef"]["name"] = name
+                self.assertEqual(encode(decode(payload)), payload)
+        for name in ("a" * 254, "a..b", "a-.b", "a.-b", ".a", "a."):
+            payload = _minimal_payload()
+            payload["metadata"]["name"] = name
+            self.assert_failure(payload, "InvalidMetadata", "$.metadata.name")
+        payload = _minimal_payload()
+        payload["metadata"]["namespace"] = "n" * 64
+        self.assert_failure(payload, "InvalidMetadata", "$.metadata.namespace")
 
     def test_rejects_duplicate_set_values(self) -> None:
         for field, value in (
@@ -681,6 +698,23 @@ class V1Alpha1CodecTests(unittest.TestCase):
                     "$.status.observedGeneration",
                 )
 
+            for generation in (0, None):
+                with self.subTest(phase=phase, generation=generation):
+                    payload = _valid_payload()
+                    payload["status"]["phase"] = phase
+                    payload["status"]["conditions"] = []
+                    for owner, field in (
+                        (payload["metadata"], "generation"),
+                        (payload["status"], "observedGeneration"),
+                    ):
+                        if generation is None:
+                            owner.pop(field)
+                        else:
+                            owner[field] = generation
+                    self.assert_failure(
+                        payload, "StaleTerminalStatus", "$.status.observedGeneration"
+                    )
+
             with self.subTest(phase=phase, state="unevidenced"):
                 payload = _valid_payload()
                 payload["status"]["phase"] = phase
@@ -722,6 +756,46 @@ class V1Alpha1CodecTests(unittest.TestCase):
             payload,
             "IncompleteRecoverySetStatus",
             "$.status.recoverySets",
+        )
+
+    def test_recovery_producers_cannot_have_multiple_identities(self) -> None:
+        payload = _valid_payload()
+        alias = copy.deepcopy(payload["spec"]["recoverySets"][0])
+        alias["name"] = "workload-state-alias"
+        payload["spec"]["recoverySets"].append(alias)
+        identity = dict(payload["status"]["recoverySets"][0], name=alias["name"])
+        payload["status"]["recoverySets"].append(identity)
+        for role, digest in (
+            ("recovery", _DIGEST_B),
+            ("another-role", _DIGEST_B),
+            ("recovery", _DIGEST_C),
+        ):
+            with self.subTest(role=role, digest=digest):
+                alias["producer"]["role"] = identity["role"] = role
+                identity["digest"] = digest
+                self.assert_failure(
+                    payload,
+                    "DuplicateRecoveryProducer",
+                    "$.spec.recoverySets[workload-state-alias].producer",
+                )
+
+        # Evidence names are scoped to their producer, not global.
+        alias["producer"]["stage"] = "release"
+        alias["producer"]["role"] = identity["role"] = "another-role"
+        self.assertEqual(encode(decode(payload)), payload)
+
+        # Multiple consumers can use the same declared recovery set.
+        payload["spec"]["stages"].append(
+            {
+                "id": "verify",
+                "adapterRef": {"name": "conformance"},
+                "operation": "verify",
+                "requires": ["prepare"],
+                "recoverySets": ["workload-state"],
+            }
+        )
+        self.assertEqual(
+            decode(payload).spec.stages[2].recovery_sets, {"workload-state"}
         )
 
     def test_direct_construction_rejects_mutable_collections(self) -> None:

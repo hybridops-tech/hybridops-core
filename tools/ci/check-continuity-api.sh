@@ -200,6 +200,119 @@ exercise_terminal_phase() {
       --subresource=status --type=merge --patch='{"status":null}'
 }
 
+exercise_spec_order_and_aliases() {
+  local name target path patch good
+  # A single 64-character component is a valid Kubernetes resource name.
+  name="$(printf 'a%.0s' {1..64})"
+  target="continuitycontract/${name}"
+  kubectl create --validate=strict --filename - <<EOF
+apiVersion: continuity.hybridops.tech/v1alpha1
+kind: ContinuityContract
+metadata:
+  name: ${name}
+spec:
+  workload:
+    name: test
+    revision: v1
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    ref: {kind: ConfigMap, name: ${name}}
+  authorities:
+    - {name: first, capability: release, provider: test}
+    - {name: second, capability: release, provider: test}
+  recoverySets:
+    - {name: first, producer: {stage: prepare, evidence: state, role: recovery}}
+    - {name: archive, producer: {stage: prepare, evidence: archived, role: recovery}}
+    - {name: independent, producer: {stage: copy, evidence: state, role: archive}}
+  stages:
+    - id: prepare
+      adapterRef: {name: test}
+      operation: prepare
+      publish: [one, two]
+    - id: copy
+      adapterRef: {name: test}
+      operation: copy
+      requires: [prepare]
+      recoverySets: [first]
+    - id: finish
+      adapterRef: {name: test}
+      operation: finish
+      requires: [prepare, copy]
+      inputBindings:
+        - {name: a, stage: prepare, output: one}
+        - {name: b, stage: prepare, output: two}
+      recoverySets: [first, archive]
+EOF
+
+  resource_snapshot "${target}" | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+p["metadata"] = {"name": "alias-conflict"}
+p["spec"]["recoverySets"][1]["producer"]["evidence"] = "state"
+p["spec"]["recoverySets"][1]["producer"]["role"] = "another"
+json.dump(p, sys.stdout)' | expect_create_rejection \
+    "aliases with conflicting roles" "a producer stage and evidence name must identify one recovery set" \
+    kubectl create --request-timeout=30s --validate=false --filename -
+
+  # Exercise the advertised collection and token bounds against the CEL runtime budget.
+  resource_snapshot "${target}" | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+p["metadata"] = {"name": "bounded-producers"}
+producer = "p" * 64
+p["spec"]["stages"] = [{"id": producer, "adapterRef": {"name": "test"}, "operation": "test"}]
+p["spec"]["recoverySets"] = [
+    {"name": f"{i:r>64}", "producer": {"stage": producer, "evidence": f"{i:e>64}", "role": "r"*64}}
+    for i in range(256)]
+json.dump(p, sys.stdout)' | kubectl create --validate=strict --filename - >/dev/null
+  resource_snapshot continuitycontract/bounded-producers | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+digest = "sha256:" + "a" * 64
+status = {"observedGeneration": p["metadata"]["generation"], "phase": "Succeeded",
+          "terminalEvidenceRef": {"kind": "ConfigMap", "name": "bounded-evidence", "digest": digest},
+          "recoverySets": [
+              {"name": r["name"], "evidence": r["producer"]["evidence"],
+               "role": r["producer"]["role"], "digest": digest}
+              for r in reversed(p["spec"]["recoverySets"])]}
+json.dump({"status": status}, sys.stdout)' | kubectl patch continuitycontract/bounded-producers \
+    --subresource=status --type=merge --patch-file=/dev/stdin >/dev/null
+  resource_snapshot continuitycontract/bounded-producers | PYTHONPATH="${HYOPS_REPO_ROOT}" python3 -c '
+import json, sys
+from hyops.continuity.api.v1alpha1 import decode
+status = decode(json.load(sys.stdin)).status
+if status.phase != "Succeeded" or len(status.recovery_sets) != 256:
+    raise SystemExit("complete maximum-size terminal status did not persist")'
+
+  good='[{"name":"first","evidence":"state","role":"recovery","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"name":"archive","evidence":"archived","role":"recovery","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"name":"independent","evidence":"state","role":"archive","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]'
+  exercise_terminal_phase "${target}" "Succeeded" "${good}"
+  resource_snapshot "${target}" | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+p["spec"]["stages"].reverse()
+json.dump(p, sys.stdout)' | expect_admission_rejection \
+    "replace terminal object with reordered stages" "${target}" "spec list order is immutable" \
+    kubectl replace --request-timeout=30s --filename -
+  for path in /spec/authorities /spec/recoverySets \
+    /spec/stages/0/publish /spec/stages/2/requires \
+    /spec/stages/2/inputBindings /spec/stages/2/recoverySets; do
+    patch="$(printf '[{"op":"move","from":"%s/0","path":"%s/1"}]' "${path}" "${path}")"
+    expect_admission_rejection \
+      "reorder ${path}" "${target}" "spec list order is immutable" \
+      kubectl patch --request-timeout=30s "${target}" --type=json --patch="${patch}"
+  done
+  kubectl patch "${target}" --type=merge --patch='{"unknownRoot":"ignored"}' >/dev/null
+  kubectl annotate "${target}" verified=yes >/dev/null
+  resource_snapshot "${target}" | PYTHONPATH="${HYOPS_REPO_ROOT}" python3 -c '
+import json, sys
+from hyops.continuity.api.v1alpha1 import decode
+p = json.load(sys.stdin)
+r = decode(p)
+if ("unknownRoot" in p or p["metadata"]["annotations"].get("verified") != "yes" or
+    r.status.phase != "Succeeded" or r.status.observed_generation != r.metadata.generation or
+    r.metadata.generation != 1):
+    raise SystemExit("persisted terminal contract became stale or invalid")'
+}
+
 kind create cluster \
   --name "${cluster_name}" \
   --image "${KIND_NODE_IMAGE}" \
@@ -408,5 +521,7 @@ for phase in Recovered Failed; do
   create_terminal_contract "${name}" >/dev/null
   exercise_terminal_phase "continuitycontract/${name}" "${phase}" '[]'
 done
+
+exercise_spec_order_and_aliases
 
 kubectl get --request-timeout=30s --raw=/readyz >/dev/null

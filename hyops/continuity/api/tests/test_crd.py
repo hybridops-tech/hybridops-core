@@ -58,12 +58,12 @@ class ContinuityContractCrdTests(unittest.TestCase):
     def test_schema_is_structural(self) -> None:
         self._assert_structural(self.schema, "schema")
 
-    def test_unknown_fields_remain_visible_to_the_codec(self) -> None:
+    def test_only_unknown_root_fields_are_pruned(self) -> None:
         for path, schema in self._object_schemas(self.schema, "schema"):
             with self.subTest(path=path):
-                self.assertTrue(
-                    schema.get("x-kubernetes-preserve-unknown-fields"),
-                    path,
+                self.assertEqual(
+                    schema.get("x-kubernetes-preserve-unknown-fields", False),
+                    path != "schema",
                 )
 
     def _object_schemas(self, schema: dict, path: str):
@@ -309,7 +309,9 @@ class ContinuityContractCrdTests(unittest.TestCase):
                 properties["name"]["maxLength"],
                 codec._MAX_DNS_SUBDOMAIN_LENGTH,
             )
-            self.assertEqual(properties["name"]["pattern"], dns_pattern)
+            self.assertEqual(
+                properties["name"]["pattern"], codec._DNS_SUBDOMAIN_RE.pattern
+            )
             self.assertEqual(
                 properties["apiGroup"]["maxLength"],
                 codec._MAX_DNS_SUBDOMAIN_LENGTH,
@@ -321,6 +323,7 @@ class ContinuityContractCrdTests(unittest.TestCase):
             )
         self.assertIsNotNone(re.fullmatch(dns_pattern, "a" * 63))
         self.assertIsNone(re.fullmatch(dns_pattern, "a" * 64))
+        self.assertIsNotNone(codec._DNS_SUBDOMAIN_RE.fullmatch("a" * 64))
 
         digest_schemas = [
             spec["workload"]["properties"]["digest"],

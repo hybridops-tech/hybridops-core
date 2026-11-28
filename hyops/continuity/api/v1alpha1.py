@@ -32,7 +32,9 @@ API_VERSION = "v1alpha1"
 API_VERSION_VALUE = f"{API_GROUP}/{API_VERSION}"
 
 _DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
-_DNS_SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$")
+_DNS_SUBDOMAIN_RE = re.compile(
+    r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+)
 _KIND_RE = re.compile(r"^[A-Z][A-Za-z0-9]{0,62}$")
 _CONDITION_TYPE_RE = re.compile(
     r"^([a-z0-9]([-a-z0-9]*[a-z0-9])?"
@@ -392,7 +394,7 @@ def _decode_reference(value: object, path: str) -> LocalObjectReference:
     _known_keys(reference, {"apiGroup", "kind", "name"}, path)
     api_group = reference.get("apiGroup", "")
     if not isinstance(api_group, str) or (
-        api_group and not _valid_dns_subdomain(api_group)
+        api_group and not _valid_api_group(api_group)
     ):
         _fail("InvalidReference", f"{path}.apiGroup", "must be a DNS subdomain")
     kind = _text(reference.get("kind"), f"{path}.kind")
@@ -528,7 +530,7 @@ def _decode_terminal_reference(
     reference = _mapping(value, path)
     _known_keys(reference, {"apiGroup", "kind", "name", "digest"}, path)
     api_group = _text(reference.get("apiGroup", ""), f"{path}.apiGroup")
-    if api_group and not _valid_dns_subdomain(api_group):
+    if api_group and not _valid_api_group(api_group):
         _fail("InvalidReference", f"{path}.apiGroup", "must be a DNS subdomain")
     kind = _text(reference.get("kind"), f"{path}.kind")
     if _KIND_RE.fullmatch(kind) is None:
@@ -559,6 +561,7 @@ def _validate_semantics(resource: ApiResource) -> None:
         "DuplicateRecoverySet",
     )
 
+    producers: set[tuple[str, str]] = set()
     for recovery_set in resource.spec.recovery_sets:
         if recovery_set.stage not in stages:
             _fail(
@@ -566,6 +569,14 @@ def _validate_semantics(resource: ApiResource) -> None:
                 f"$.spec.recoverySets[{recovery_set.name}]",
                 f"references unknown stage '{recovery_set.stage}'",
             )
+        producer = (recovery_set.stage, recovery_set.evidence)
+        if producer in producers:
+            _fail(
+                "DuplicateRecoveryProducer",
+                f"$.spec.recoverySets[{recovery_set.name}].producer",
+                "a producer stage and evidence name must identify one recovery set",
+            )
+        producers.add(producer)
 
     for stage in resource.spec.stages:
         if len(stage.requires) != len(set(stage.requires)):
@@ -695,11 +706,14 @@ def _validate_status(resource: ApiResource) -> None:
             "$.status.terminalEvidenceRef",
             "must be present exactly when phase is terminal",
         )
-    if is_terminal and status.observed_generation != resource.metadata.generation:
+    if is_terminal and (
+        not status.observed_generation
+        or status.observed_generation != resource.metadata.generation
+    ):
         _fail(
             "StaleTerminalStatus",
             "$.status.observedGeneration",
-            "must equal metadata.generation for a terminal phase",
+            "must be positive and equal metadata.generation for a terminal phase",
         )
     if status.phase == "Succeeded" and set(recovery_identities) != set(
         declared_recovery_sets
@@ -953,14 +967,14 @@ def _dns_label(value: object, path: str) -> str:
 
 def _dns_subdomain(value: object, path: str) -> str:
     text = _text(value, path)
-    if len(text) > _MAX_DNS_SUBDOMAIN_LENGTH or not _valid_dns_subdomain(text):
+    if not _valid_dns_subdomain(text):
         _fail("InvalidMetadata", path, "must be a DNS subdomain")
     return text
 
 
 def _reference_name(value: object, path: str) -> str:
     text = _text(value, path)
-    if len(text) > _MAX_DNS_SUBDOMAIN_LENGTH or not _valid_dns_subdomain(text):
+    if not _valid_dns_subdomain(text):
         _fail("InvalidReference", path, "must be a DNS subdomain")
     return text
 
@@ -969,12 +983,12 @@ def _valid_dns_subdomain(value: str) -> bool:
     return (
         len(value) <= _MAX_DNS_SUBDOMAIN_LENGTH
         and _DNS_SUBDOMAIN_RE.fullmatch(value) is not None
-        and all(
-            bool(label)
-            and len(label) <= 63
-            and _DNS_LABEL_RE.fullmatch(label) is not None
-            for label in value.split(".")
-        )
+    )
+
+
+def _valid_api_group(value: str) -> bool:
+    return _valid_dns_subdomain(value) and all(
+        len(label) <= 63 for label in value.split(".")
     )
 
 

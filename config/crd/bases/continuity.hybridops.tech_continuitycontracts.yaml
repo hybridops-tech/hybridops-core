@@ -28,7 +28,8 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          x-kubernetes-preserve-unknown-fields: true
+          # Unknown root fields must not persist: writes outside metadata/status
+          # advance generation. Nested unknown fields remain visible to the codec.
           required:
             - spec
           x-kubernetes-validations:
@@ -68,6 +69,8 @@ spec:
               x-kubernetes-validations:
                 - rule: self == oldSelf
                   message: spec is immutable
+                # Map/set equality ignores order. The list-level rules below
+                # compare ordered projections to match generation accounting.
                 - rule: >-
                     self.stages.all(s, !(s.id in s.requires))
                   message: a stage cannot depend on itself
@@ -111,7 +114,7 @@ spec:
                         name:
                           type: string
                           maxLength: 253
-                          pattern: '^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
                 policy:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
@@ -139,6 +142,9 @@ spec:
                   x-kubernetes-list-type: map
                   x-kubernetes-list-map-keys:
                     - name
+                  x-kubernetes-validations:
+                    - rule: self.map(a, a.name) == oldSelf.map(a, a.name)
+                      message: spec list order is immutable
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
@@ -180,7 +186,7 @@ spec:
                           name:
                             type: string
                             maxLength: 253
-                            pattern: '^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                            pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
                 recoverySets:
                   type: array
                   default: []
@@ -188,6 +194,13 @@ spec:
                   x-kubernetes-list-type: map
                   x-kubernetes-list-map-keys:
                     - name
+                  x-kubernetes-validations:
+                    - rule: self.map(r, r.name) == oldSelf.map(r, r.name)
+                      message: spec list order is immutable
+                    - rule: >-
+                        self.map(r, r.producer.stage + '/' + r.producer.evidence)
+                          .distinct().size() == self.size()
+                      message: a producer stage and evidence name must identify one recovery set
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
@@ -226,6 +239,9 @@ spec:
                   x-kubernetes-list-type: map
                   x-kubernetes-list-map-keys:
                     - id
+                  x-kubernetes-validations:
+                    - rule: self.map(s, s.id) == oldSelf.map(s, s.id)
+                      message: spec list order is immutable
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
@@ -257,6 +273,9 @@ spec:
                         default: []
                         maxItems: 128
                         x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                          - rule: self.map(v, v) == oldSelf.map(v, v)
+                            message: spec list order is immutable
                         items:
                           type: string
                           maxLength: 64
@@ -279,7 +298,7 @@ spec:
                           name:
                             type: string
                             maxLength: 253
-                            pattern: '^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                            pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
                       inputBindings:
                         type: array
                         default: []
@@ -287,6 +306,9 @@ spec:
                         x-kubernetes-list-type: map
                         x-kubernetes-list-map-keys:
                           - name
+                        x-kubernetes-validations:
+                          - rule: self.map(b, b.name) == oldSelf.map(b, b.name)
+                            message: spec list order is immutable
                         items:
                           type: object
                           x-kubernetes-preserve-unknown-fields: true
@@ -312,6 +334,9 @@ spec:
                         default: []
                         maxItems: 256
                         x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                          - rule: self.map(v, v) == oldSelf.map(v, v)
+                            message: spec list order is immutable
                         items:
                           type: string
                           maxLength: 64
@@ -321,6 +346,9 @@ spec:
                         default: []
                         maxItems: 256
                         x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                          - rule: self.map(v, v) == oldSelf.map(v, v)
+                            message: spec list order is immutable
                         items:
                           type: string
                           maxLength: 64
@@ -464,7 +492,7 @@ spec:
                     name:
                       type: string
                       maxLength: 253
-                      pattern: '^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$'
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
                     digest:
                       type: string
                       pattern: '^sha256:[0-9a-f]{64}$'
