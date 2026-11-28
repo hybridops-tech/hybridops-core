@@ -52,6 +52,13 @@ def _write_json_new(path: Path, value: Any) -> None:
         os.fsync(stream.fileno())
 
 
+def _retained_digest(path: Path) -> str | None:
+    try:
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
 class _LocalAuthority:
     name = "local"
     capabilities = frozenset({"continuity"})
@@ -77,7 +84,8 @@ class _LocalAdapter:
         version="acceptance",
         revision="continuity-contract-acceptance",
     )
-    operations = frozenset({"prepare", "release", "remove"})
+    operations = frozenset({"prepare", "release", "remove", "clear-scratch"})
+    owned_cleanup = frozenset({("prepare", "clear-scratch")})
 
     def __init__(
         self, root: Path, *, deny_release: bool = False, omit_evidence: bool = False
@@ -103,6 +111,7 @@ class _LocalAdapter:
         self.calls.append(("execute", request.stage_id))
         if request.operation == "prepare":
             artifact = self._root / "recovery-set.json"
+            _write_json_new(self._root / "prepare.tmp", {"stage": request.stage_id})
             _write_json_new(
                 artifact,
                 {"source": request.inputs["source"], "verified": True},
@@ -135,7 +144,12 @@ class _LocalAdapter:
 
     def recover(self, request: RecoveryRequest) -> RecoveryResult:
         self.calls.append(("recover", request.stage_id))
-        Path(request.outputs["artifact"]).unlink(missing_ok=True)
+        if request.recovery_operation == "clear-scratch":
+            (self._root / "prepare.tmp").unlink()
+        elif request.recovery_operation == "remove":
+            Path(request.outputs["artifact"]).unlink()
+        else:
+            raise ValueError("unsupported recovery operation")
         return RecoveryResult(
             succeeded=True,
         )
@@ -244,8 +258,8 @@ def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
     adapter = _LocalAdapter(root, deny_release=deny_release)
     store = FileOperationStore(root / "operations")
     engine = _engine(root, adapter, store)
-    expected_status = "recovered" if deny_release else "succeeded"
-    expected_closure = "recovered" if deny_release else "completed"
+    expected_status = "failed" if deny_release else "succeeded"
+    expected_closure = "recovery_failed" if deny_release else "completed"
     expected_reason = "adapter_admission_denied" if deny_release else ""
     terminal_path = store.terminal_path(root.name)
     terminal = engine.run(_contract(root.name))
@@ -256,9 +270,7 @@ def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
         ("execute", "prepare"),
         ("admit", "release"),
     ]
-    if deny_release:
-        expected_calls.append(("recover", "prepare"))
-    else:
+    if not deny_release:
         expected_calls.append(("execute", "release"))
     release_payload = (
         json.loads(release_marker.read_text(encoding="utf-8"))
@@ -284,7 +296,7 @@ def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
             len(prepared_evidence) == 1
             and prepared_evidence[0].name == "recovery-set"
             and prepared_evidence[0].role == "recovery_set"
-            and prepared_evidence[0].digest == adapter.prepared_digest
+            and prepared_evidence[0].digest == _retained_digest(recovery_set)
         ),
         "dependent_output": (
             adapter.release_artifact == adapter.prepared_artifact
@@ -293,7 +305,6 @@ def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
             else not adapter.release_artifact
         ),
         "release_mutation": release_marker.is_file() == (not deny_release),
-        "recovery_cleanup": recovery_set.is_file() == (not deny_release),
         "raw_values_absent": all(
             marker not in terminal_text
             for marker in (
@@ -303,6 +314,11 @@ def _scenario(root: Path, *, deny_release: bool) -> dict[str, Any]:
         ),
         "single_terminal_shape": terminal_payload == json.loads(terminal_text),
     }
+    if deny_release:
+        checks["cleanup_blocked"] = (
+            terminal.stages[0].recovery_status == "blocked"
+            and terminal.stages[0].recovery_reason_code == "recovery_effect_unverified"
+        )
     return _result(terminal_path, adapter, checks)
 
 
@@ -320,7 +336,7 @@ def _result(
 def _producer_scenario(root: Path, *, omit_evidence: bool) -> dict[str, Any]:
     root.mkdir(parents=True)
     contract = _contract(root.name)
-    producer = contract.stages[0]
+    producer = replace(contract.stages[0], recovery_operation="clear-scratch")
     api_spec = v1alpha1.decode(
         {
             "apiVersion": v1alpha1.API_VERSION_VALUE,
@@ -379,18 +395,16 @@ def _producer_scenario(root: Path, *, omit_evidence: bool) -> dict[str, Any]:
         checks.update(
             producer_failure=stage["status"] == "failed"
             and stage.get("reason_code") == reason,
-            cleanup=stage["recovery_status"] == "succeeded" and not artifact.exists(),
+            cleanup=stage["recovery_status"] == "succeeded"
+            and not (root / "prepare.tmp").exists(),
+            material_retained=_retained_digest(artifact) == adapter.prepared_digest,
         )
     else:
         checks["producer_success"] = stage["status"] == "succeeded"
-        try:
-            digest = "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
-        except OSError:
-            checks["content_identity"] = False
-        else:
-            checks["content_identity"] = stage.get("evidence") == [
-                {"name": "recovery-set", "role": "recovery_set", "digest": digest}
-            ]
+        digest = _retained_digest(artifact)
+        checks["content_identity"] = digest is not None and stage.get("evidence") == [
+            {"name": "recovery-set", "role": "recovery_set", "digest": digest}
+        ]
     return _result(path, adapter, checks)
 
 

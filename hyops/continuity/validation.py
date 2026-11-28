@@ -6,6 +6,7 @@ import heapq
 import math
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from types import MappingProxyType
 
 from hyops.authority.models import AuthorityDeclaration, AuthorityRequirement
@@ -27,7 +28,12 @@ from .models import (
 _TOKEN_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
-_AdapterContract = tuple[AdapterIdentity, tuple[str, ...]]
+
+@dataclass(frozen=True)
+class AdapterCapabilities:
+    identity: AdapterIdentity
+    operations: tuple[str, ...]
+    owned_cleanup: frozenset[tuple[str, str]]
 
 
 def is_token(value: object) -> bool:
@@ -41,7 +47,7 @@ def is_sha256_digest(value: object) -> bool:
 def validate_contract_semantics(
     contract: ContinuityContract,
     adapters: Mapping[str, ContinuityAdapter],
-) -> tuple[tuple[str, ...], Mapping[str, _AdapterContract]]:
+) -> tuple[tuple[str, ...], Mapping[str, AdapterCapabilities]]:
     if contract.schema_version != CONTINUITY_CONTRACT_SCHEMA_VERSION:
         raise ContractFailure(
             "unsupported_contract_version",
@@ -57,7 +63,7 @@ def validate_contract_semantics(
         raise ContractFailure("empty_contract", "continuity contract has no stages")
 
     by_id: dict[str, StageSpec] = {}
-    adapter_contracts: dict[str, _AdapterContract] = {}
+    adapter_contracts: dict[str, AdapterCapabilities] = {}
     for stage in contract.stages:
         if stage.id in by_id:
             raise ContractFailure(
@@ -343,7 +349,7 @@ def _validate_workload(contract: ContinuityContract) -> None:
 def _validate_adapter_contract(
     adapter_name: str,
     adapters: Mapping[str, ContinuityAdapter],
-) -> _AdapterContract:
+) -> AdapterCapabilities:
     adapter = adapters.get(adapter_name)
     if adapter is None:
         raise ContractFailure(
@@ -429,14 +435,31 @@ def _validate_adapter_contract(
                 "invalid_adapter_contract",
                 f"adapter '{adapter_name}' does not implement '{method_name}'",
             )
-    return identity_snapshot, operations
+    try:
+        cleanup = getattr(adapter, "owned_cleanup", frozenset())
+    except Exception as exc:
+        raise ContractFailure(
+            "invalid_adapter_contract",
+            f"adapter '{adapter_name}' has invalid owned cleanup",
+        ) from exc
+    if type(cleanup) is not frozenset or any(
+        type(pair) is not tuple
+        or len(pair) != 2
+        or any(type(op) is not str or op not in operations for op in pair)
+        for pair in cleanup
+    ):
+        raise ContractFailure(
+            "invalid_adapter_contract",
+            f"adapter '{adapter_name}' has invalid owned cleanup",
+        )
+    return AdapterCapabilities(identity_snapshot, operations, cleanup)
 
 
 def _validate_stage_adapter(
     stage: StageSpec,
-    adapter_contract: _AdapterContract,
+    adapter_contract: AdapterCapabilities,
 ) -> None:
-    _, operations = adapter_contract
+    operations = adapter_contract.operations
     if stage.operation not in operations:
         raise ContractFailure(
             "unsupported_operation",

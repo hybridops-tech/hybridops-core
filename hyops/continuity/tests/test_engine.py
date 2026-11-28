@@ -81,6 +81,7 @@ class _Adapter:
             revision="test-adapter",
         )
         self.operations = frozenset({"prepare", "release", "remove"})
+        self.owned_cleanup = frozenset({("prepare", "remove"), ("release", "remove")})
         self.calls: list[tuple[str, str]] = []
         self.denied_operations: set[str] = set()
         self.recovery_succeeds = True
@@ -600,6 +601,62 @@ class ContinuityEngineTests(unittest.TestCase):
         self.assertEqual(result.stages[0].recovery_status, "succeeded")
         self.assertEqual(result.stages[1].status, "denied")
         self.assertEqual(result.stages[1].adapter_reason_code, "release_denied")
+
+    def test_absent_cleanup_capability_preserves_forward_execution(self) -> None:
+        del self.adapter.owned_cleanup
+        self.assertEqual(self.engine.run(self._spec()).status, "succeeded")
+        self.adapter.denied_operations.add("release")
+        result = self.engine.run(replace(self._spec(), operation_id="denied"))
+        self.assertEqual(result.reason_code, "adapter_admission_denied")
+        self.assertEqual(
+            result.stages[0].recovery_reason_code, "recovery_effect_unverified"
+        )
+        self.assertNotIn(("recover", "prepare"), self.adapter.calls)
+
+    def test_publication_failure_uses_original_cleanup_capabilities(self) -> None:
+        store = _FailOncePublishStore(self.root / "operations")
+        self.adapter.owned_cleanup = frozenset({("prepare", "remove")})
+        spec = self._spec()
+        release = replace(spec.stages[1], recovery_operation="remove")
+        execute = self.adapter.execute
+
+        def widen(request):
+            self.adapter.owned_cleanup |= {("release", "remove")}
+            return execute(request)
+
+        with patch.object(self.adapter, "execute", side_effect=widen):
+            result = self._engine(operation_store=store).run(
+                replace(spec, stages=(spec.stages[0], release))
+            )
+        self.assertEqual(result.reason_code, "terminal_record_write_failed")
+        self.assertEqual(result.closure, "recovery_failed")
+        self.assertEqual(
+            [(s.recovery_status, s.recovery_reason_code) for s in result.stages],
+            [
+                ("blocked", "blocked_by_later_recovery"),
+                ("blocked", "recovery_effect_unverified"),
+            ],
+        )
+        self.assertFalse(self.adapter.recovery_requests)
+        self.assertEqual(
+            json.loads(self._terminal_path().read_text()), result.to_evidence()
+        )
+
+    def test_invalid_cleanup_capabilities_fail_before_dispatch(self) -> None:
+        invalid_capabilities = (
+            None,
+            {("prepare", "remove")},
+            frozenset({"remove"}),
+            frozenset({("missing", "remove")}),
+            frozenset({("prepare", "missing")}),
+        )
+        for n, invalid in enumerate(invalid_capabilities):
+            with self.subTest(invalid=invalid):
+                self.adapter.owned_cleanup = invalid
+                result = self.engine.run(replace(self._spec(), operation_id=f"bad-{n}"))
+                self.assertEqual(result.reason_code, "invalid_adapter_contract")
+                self.assertEqual(result.stages, ())
+                self.assertEqual(self.adapter.calls, [])
 
     def test_recovery_failure_is_terminal(self) -> None:
         self.adapter.denied_operations.add("release")

@@ -45,6 +45,19 @@ not the contents of the recovery artifact.
 If a consumer requests a different role for the same declared evidence,
 the kernel rejects the contract before admitting any stage.
 
+## Automatic cleanup
+
+A stage's `recoveryOperation` requests cleanup; it does not authorise it.
+An installed adapter may declare `owned_cleanup` as a frozenset of
+`(forward_operation, recovery_operation)` pairs. A pair must only clean
+up temporary state owned by that operation, preserving the workload and
+retained recovery material for every supported input.
+
+The kernel snapshots these capabilities before executing any stage. Without
+a matching pair it records `recovery_effect_unverified`, skips that cleanup
+and stops rollback of earlier stages. The terminal record keeps the
+original failure reason.
+
 Run the credential-free check with a new output directory:
 
 ```sh
