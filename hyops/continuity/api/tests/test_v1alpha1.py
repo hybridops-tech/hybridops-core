@@ -22,7 +22,7 @@ _DIGEST_C = f"sha256:{'c' * 64}"
 
 def _valid_payload() -> dict:
     return {
-        "apiVersion": "continuity.hybridops.tech/v1alpha1",
+        "apiVersion": "continuity.hyopsproject.github.io/v1alpha1",
         "kind": "ContinuityContract",
         "metadata": {
             "name": "contract-one",
@@ -30,7 +30,7 @@ def _valid_payload() -> dict:
             "uid": "2e2ae2a0-1456-43dd-bc71-427c6a37cb7d",
             "generation": 3,
             "resourceVersion": "19",
-            "labels": {"continuity.hybridops.tech/workload": "conformance"},
+            "labels": {"continuity.hyopsproject.github.io/workload": "conformance"},
             "annotations": {"example": "retained"},
         },
         "spec": {
@@ -111,7 +111,7 @@ def _valid_payload() -> dict:
             "phase": "Succeeded",
             "conditions": [
                 {
-                    "type": "continuity.hybridops.tech/Ready",
+                    "type": "continuity.hyopsproject.github.io/Ready",
                     "status": "True",
                     "observedGeneration": 3,
                     "lastTransitionTime": "2026-11-28T10:15:30Z",
@@ -139,7 +139,7 @@ def _valid_payload() -> dict:
 
 def _minimal_payload() -> dict:
     return {
-        "apiVersion": "continuity.hybridops.tech/v1alpha1",
+        "apiVersion": "continuity.hyopsproject.github.io/v1alpha1",
         "kind": "ContinuityContract",
         "metadata": {"name": "minimal"},
         "spec": {
@@ -244,7 +244,7 @@ class V1Alpha1CodecTests(unittest.TestCase):
         )
         payload["status"]["conditions"].append(
             {
-                "type": "continuity.hybridops.tech/Admitted",
+                "type": "continuity.hyopsproject.github.io/Admitted",
                 "status": "True",
                 "observedGeneration": 3,
                 "lastTransitionTime": "2026-11-28T10:14:30Z",
@@ -303,8 +303,8 @@ class V1Alpha1CodecTests(unittest.TestCase):
         self.assertEqual(
             [item["type"] for item in encoded["status"]["conditions"]],
             [
-                "continuity.hybridops.tech/Admitted",
-                "continuity.hybridops.tech/Ready",
+                "continuity.hyopsproject.github.io/Admitted",
+                "continuity.hyopsproject.github.io/Ready",
             ],
         )
         self.assertEqual(
@@ -332,14 +332,20 @@ class V1Alpha1CodecTests(unittest.TestCase):
         cases: list[tuple[str, object, str, str]] = [
             (
                 "apiVersion",
-                "continuity.hybridops.tech/v2",
+                "continuity.hyopsproject.github.io/v2",
+                "UnsupportedAPIVersion",
+                "$.apiVersion",
+            ),
+            (
+                "apiVersion",
+                "continuity.hybridops.tech/v1alpha1",
                 "UnsupportedAPIVersion",
                 "$.apiVersion",
             ),
             ("kind", "Contract", "InvalidKind", "$.kind"),
         ]
         for field, value, reason, path in cases:
-            with self.subTest(field=field):
+            with self.subTest(field=field, value=value):
                 payload = _minimal_payload()
                 payload[field] = value
                 self.assert_failure(payload, reason, path)
@@ -671,7 +677,7 @@ class V1Alpha1CodecTests(unittest.TestCase):
         self.assert_failure(
             payload,
             "InvalidCondition",
-            "$.status.conditions[continuity.hybridops.tech/Ready].observedGeneration",
+            "$.status.conditions[continuity.hyopsproject.github.io/Ready].observedGeneration",
         )
 
         payload = _valid_payload()

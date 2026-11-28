@@ -118,7 +118,7 @@ expect_create_rejection() {
 create_terminal_contract() {
   local name="$1"
   kubectl apply --server-side --validate=strict --filename - <<EOF
-apiVersion: continuity.hybridops.tech/v1alpha1
+apiVersion: continuity.hyopsproject.github.io/v1alpha1
 kind: ContinuityContract
 metadata:
   name: ${name}
@@ -206,7 +206,7 @@ exercise_spec_order_and_aliases() {
   name="$(printf 'a%.0s' {1..64})"
   target="continuitycontract/${name}"
   kubectl create --validate=strict --filename - <<EOF
-apiVersion: continuity.hybridops.tech/v1alpha1
+apiVersion: continuity.hyopsproject.github.io/v1alpha1
 kind: ContinuityContract
 metadata:
   name: ${name}
@@ -319,7 +319,7 @@ kind create cluster \
   --kubeconfig "${KUBECONFIG}" \
   --wait 180s
 
-crd="${HYOPS_REPO_ROOT}/config/crd/bases/continuity.hybridops.tech_continuitycontracts.yaml"
+crd="${HYOPS_REPO_ROOT}/config/crd/bases/continuity.hyopsproject.github.io_continuitycontracts.yaml"
 sample="${HYOPS_REPO_ROOT}/config/samples/continuity_v1alpha1_contract.yaml"
 resource="continuitycontract/conformance-workload"
 
@@ -327,11 +327,11 @@ kubectl apply --server-side --validate=strict --filename "${crd}"
 kubectl wait \
   --for=condition=Established \
   --timeout=90s \
-  customresourcedefinition/continuitycontracts.continuity.hybridops.tech
+  customresourcedefinition/continuitycontracts.continuity.hyopsproject.github.io
 kubectl apply --server-side --validate=strict --filename "${sample}"
 
 kubectl apply --server-side --validate=strict --filename - <<'EOF'
-apiVersion: continuity.hybridops.tech/v1alpha1
+apiVersion: continuity.hyopsproject.github.io/v1alpha1
 kind: ContinuityContract
 metadata:
   name: default-policy
@@ -361,7 +361,7 @@ assert_equal \
   "${defaults}"
 
 kubectl create --validate=strict --filename - <<'EOF'
-apiVersion: continuity.hybridops.tech/v1alpha1
+apiVersion: continuity.hyopsproject.github.io/v1alpha1
 kind: ContinuityContract
 metadata:
   name: unknown-field
@@ -432,7 +432,7 @@ PY
 expect_create_rejection \
   "self dependency" "a stage cannot depend on itself" \
   kubectl create --request-timeout=30s --validate=false --filename - <<'EOF'
-apiVersion: continuity.hybridops.tech/v1alpha1
+apiVersion: continuity.hyopsproject.github.io/v1alpha1
 kind: ContinuityContract
 metadata:
   name: self-dependency

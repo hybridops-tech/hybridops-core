@@ -1,4 +1,4 @@
-apiVersion: continuity.hybridops.tech/v1alpha1
+apiVersion: continuity.hyopsproject.github.io/v1alpha1
 kind: ContinuityContract
 metadata:
   name: conformance-workload

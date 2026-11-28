@@ -22,7 +22,7 @@ _CRD_PATH = (
     / "config"
     / "crd"
     / "bases"
-    / "continuity.hybridops.tech_continuitycontracts.yaml"
+    / "continuity.hyopsproject.github.io_continuitycontracts.yaml"
 )
 _SAMPLE_PATH = _ROOT / "config" / "samples" / "continuity_v1alpha1_contract.yaml"
 

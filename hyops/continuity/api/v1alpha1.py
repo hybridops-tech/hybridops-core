@@ -1,4 +1,4 @@
-"""Codec and semantic validation for continuity.hybridops.tech/v1alpha1."""
+"""Codec and semantic validation for continuity.hyopsproject.github.io/v1alpha1."""
 
 from __future__ import annotations
 

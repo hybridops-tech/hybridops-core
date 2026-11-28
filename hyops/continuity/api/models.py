@@ -8,7 +8,7 @@ from typing import Any
 
 from ..json_values import freeze_json
 
-API_GROUP = "continuity.hybridops.tech"
+API_GROUP = "continuity.hyopsproject.github.io"
 API_KIND = "ContinuityContract"
 
 
