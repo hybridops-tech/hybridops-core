@@ -42,6 +42,14 @@ from hyops.continuity import (
 from hyops.continuity.api import API_KIND, v1alpha1
 from hyops.continuity.evidence import RetainedEvidenceReader
 from hyops.continuity.storage import FileOperationStore
+from hyops.controller.execution import project_contract
+
+
+_WORKLOAD = WorkloadIdentity(
+    name="acceptance-workload",
+    revision="1",
+    digest="sha256:" + hashlib.sha256(b"acceptance-workload:1").hexdigest(),
+)
 
 
 def _write_json_new(path: Path, value: Any) -> None:
@@ -65,8 +73,11 @@ class _LocalAuthority:
     name = "local"
     capabilities = frozenset({"continuity"})
 
+    def __init__(self, *, scoped: bool) -> None:
+        self.expected_config = {"scope": "acceptance"} if scoped else {}
+
     def validate_configuration(self, declaration, context) -> None:
-        if declaration.config != {"scope": "acceptance"}:
+        if declaration.config != self.expected_config:
             raise ValueError("invalid authority scope")
 
     def evaluate(self, declaration, context) -> AuthorityEvaluation:
@@ -157,10 +168,10 @@ class _LocalAdapter:
         )
 
 
-def _resolver() -> AuthorityResolver:
+def _resolver(*, scoped: bool = True) -> AuthorityResolver:
     registry = AuthorityProviderRegistry()
     registry.register(
-        _LocalAuthority(),
+        _LocalAuthority(scoped=scoped),
         identity=AuthorityProviderIdentity(
             source="direct",
             distribution="hybridops-core",
@@ -188,11 +199,7 @@ def _controller_revision() -> str:
 def _contract(operation_id: str) -> ContinuityContract:
     return ContinuityContract(
         operation_id=operation_id,
-        workload=WorkloadIdentity(
-            name="acceptance-workload",
-            revision="1",
-            digest=("sha256:" + hashlib.sha256(b"acceptance-workload:1").hexdigest()),
-        ),
+        workload=_WORKLOAD,
         authorities={
             "release-authority": AuthorityDeclaration(
                 logical_ref="release-authority",
@@ -241,10 +248,11 @@ def _engine(
     store: FileOperationStore,
     *,
     evidence_reader: RetainedEvidenceReader | None = None,
+    scoped_authority: bool = True,
 ) -> ContinuityEngine:
     return ContinuityEngine(
         adapters={"local": adapter},
-        authority_gate=_resolver(),
+        authority_gate=_resolver(scoped=scoped_authority),
         authority_context=AuthorityContext(
             runtime_root=root,
             state_root=root,
@@ -416,15 +424,9 @@ def _producer_scenario(root: Path, *, omit_evidence: bool) -> dict[str, Any]:
 
 
 class _RetainedFile:
-    def __init__(self, path: Path, contract: ContinuityContract) -> None:
+    def __init__(self, path: Path, operation_id: str) -> None:
         self.path = path
-        self.key = (
-            contract.operation_id,
-            contract.workload,
-            "capture",
-            "state",
-            "recovery",
-        )
+        self.key = (operation_id, _WORKLOAD, "capture", "state", "recovery")
 
     def open_evidence(
         self, operation_id, workload, producer_stage, name, role, *, deadline
@@ -475,88 +477,74 @@ class _ComputeAdapter(_LocalAdapter):
         return ExecutionResult()
 
 
-def _retirement_contract(operation_id: str) -> ContinuityContract:
-    base = _contract(operation_id)
-    authority = base.authorities["release-authority"]
-    api = v1alpha1.decode(
-        {
-            "apiVersion": v1alpha1.API_VERSION_VALUE,
-            "kind": API_KIND,
-            "metadata": {"name": operation_id},
-            "spec": {
-                "workload": base.workload.to_evidence(),
-                "authorities": [
-                    {
-                        "name": authority.logical_ref,
-                        "capability": authority.capability,
-                        "provider": authority.provider,
-                    }
-                ],
-                "recoverySets": [
-                    {
-                        "name": "saved",
-                        "producer": {
-                            "stage": "capture",
-                            "evidence": "state",
-                            "role": "recovery",
+def retirement_resource(name: str) -> dict:
+    return {
+        "apiVersion": v1alpha1.API_VERSION_VALUE,
+        "kind": API_KIND,
+        "metadata": {"name": name},
+        "spec": {
+            "workload": _WORKLOAD.to_evidence(),
+            "authorities": [
+                {
+                    "name": "release-authority",
+                    "capability": "continuity",
+                    "provider": "local",
+                }
+            ],
+            "recoverySets": [
+                {
+                    "name": "saved",
+                    "producer": {
+                        "stage": "capture",
+                        "evidence": "state",
+                        "role": "recovery",
+                    },
+                }
+            ],
+            "stages": [
+                {"id": key, "operation": key, "adapterRef": {"name": "local"}, **fields}
+                for key, fields in (
+                    ("capture", {}),
+                    (
+                        "retire",
+                        {
+                            "requires": ["capture"],
+                            "destructive": True,
+                            "authorityRef": "release-authority",
+                            "recoverySets": ["saved"],
                         },
-                    }
-                ],
-                "stages": [
-                    {
-                        "id": key,
-                        "operation": key,
-                        "adapterRef": {"name": "local"},
-                        **fields,
-                    }
-                    for key, fields in (
-                        ("capture", {}),
-                        (
-                            "retire",
-                            {
-                                "requires": ["capture"],
-                                "destructive": True,
-                                "authorityRef": authority.logical_ref,
-                                "recoverySets": ["saved"],
-                            },
-                        ),
-                        ("restore", {"requires": ["retire"]}),
-                    )
-                ],
-            },
-        }
-    ).spec
-    bindings = api.recovery_bindings_by_stage()
-    produced = api.producer_evidence_by_stage()
-    stages = tuple(
-        StageSpec(
-            id=s.id,
-            adapter=s.adapter,
-            operation=s.operation,
-            requires=s.requires,
-            produced_evidence=produced[s.id],
-            destructive=s.destructive,
-            evidence_bindings=bindings[s.id],
-            authority=AuthorityRequirement(s.authority_ref, authority.capability)
-            if s.authority_ref
-            else None,
-        )
-        for s in api.stages
+                    ),
+                    ("restore", {"requires": ["retire"]}),
+                )
+            ],
+        },
+    }
+
+
+def retirement_engine(
+    root: Path, operation_id: str, store: FileOperationStore, *, fault: str = ""
+) -> tuple[_ComputeAdapter, ContinuityEngine]:
+    retained = root / "retained" / "state.bin"
+    adapter = _ComputeAdapter(root, retained, fault)
+    return adapter, _engine(
+        root,
+        adapter,
+        store,
+        evidence_reader=_RetainedFile(retained, operation_id),
+        scoped_authority=False,
     )
-    return replace(base, stages=stages)
 
 
 def _retirement_scenario(root: Path, fault: str) -> dict[str, Any]:
-    retained = root / "retained" / "state.bin"
-    adapter = _ComputeAdapter(root, retained, fault)
+    store = FileOperationStore(root / "operations")
+    adapter, engine = retirement_engine(root, root.name, store, fault=fault)
     adapter.source.parent.mkdir(parents=True)
     original = os.urandom(64)
     adapter.source.write_bytes(original)
     baseline = "sha256:" + hashlib.sha256(original).hexdigest()
-    contract = _retirement_contract(root.name)
-    store = FileOperationStore(root / "operations")
-    reader = _RetainedFile(retained, contract)
-    _engine(root, adapter, store, evidence_reader=reader).run(contract)
+    spec = v1alpha1.decode(retirement_resource(root.name)).spec
+    contract = project_contract(spec, root.name)
+    engine.run(contract)
     path = store.terminal_path(contract.operation_id)
     record = json.loads(path.read_text())
     stages = {s["stage_id"]: s for s in record["stages"]}

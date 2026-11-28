@@ -135,7 +135,7 @@ def _same_contract(observed: dict, original: object) -> bool:
 
 def _observe(
     client: ReferenceClient, namespace: str, name: str, baseline: dict | None
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], ApiSpec]:
     first, spec = _contract(client, namespace, name)
     if baseline is not None and not _same_contract(first, baseline):
         raise ReferenceBindingError("ContractChanged")
@@ -148,18 +148,19 @@ def _observe(
         "kind": "ResolvedOperation",
         "contract": current,
         "references": refs,
-    }
+    }, spec
 
 
 def resolve_references(
     client: ReferenceClient, namespace: str, name: str
 ) -> dict[str, Any]:
-    return _observe(client, namespace, name, None)
+    record, _ = _observe(client, namespace, name, None)
+    return record
 
 
 def verify_references(
     client: ReferenceClient, namespace: str, name: str, record: Mapping[str, Any]
-) -> None:
+) -> ApiSpec:
     if not isinstance(record, Mapping) or (
         set(record) != {"apiVersion", "kind", "contract", "references"}
         or record["apiVersion"] != v1alpha1.API_VERSION_VALUE
@@ -168,6 +169,7 @@ def verify_references(
         or not isinstance(record["references"], list)
     ):
         raise ReferenceBindingError("InvalidBindingRecord")
-    current = _observe(client, namespace, name, record["contract"])
+    current, spec = _observe(client, namespace, name, record["contract"])
     if current["references"] != record["references"]:
         raise ReferenceBindingError("ReferenceChanged")
+    return spec

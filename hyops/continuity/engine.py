@@ -94,7 +94,12 @@ class ContinuityEngine:
         if identity.contract_version != CONTROLLER_CONTRACT_VERSION:
             raise ValueError("controller identity has unsupported contract version")
 
-    def run(self, spec: ContinuityContract) -> TerminalRecord:
+    def run(
+        self,
+        spec: ContinuityContract,
+        *,
+        before_mutation: Callable[[], None] | None = None,
+    ) -> TerminalRecord:
         validate_contract_shape(spec)
         started_at = self._timestamp()
         contract_digest = spec.digest()
@@ -187,6 +192,7 @@ class ContinuityEngine:
                     request = AdapterRequest(
                         spec.operation_id, stage.id, stage.operation, inputs, refreshed
                     )
+                self._check_operation_binding(before_mutation)
                 try:
                     execution = self._execute(adapter, request)
                 except ContractFailure:
@@ -243,7 +249,9 @@ class ContinuityEngine:
                         authority=current_authority,
                     )
                 )
-            recovery_failed = self._recover(completed, records, adapter_contracts)
+            recovery_failed = self._recover(
+                completed, records, adapter_contracts, before_mutation
+            )
             if recovery_failed:
                 status = "failed"
                 closure = "recovery_failed"
@@ -297,7 +305,9 @@ class ContinuityEngine:
             raise TerminalPersistenceError(
                 "terminal evidence publication outcome is uncertain"
             ) from publish_error
-        recovery_failed = self._recover(completed, records, adapter_contracts)
+        recovery_failed = self._recover(
+            completed, records, adapter_contracts, before_mutation
+        )
         terminal = self._terminal(
             spec,
             contract_digest=contract_digest,
@@ -622,11 +632,23 @@ class ContinuityEngine:
             )
         return tuple(required)
 
+    @staticmethod
+    def _check_operation_binding(before_mutation: Callable[[], None] | None) -> None:
+        if before_mutation is not None:
+            try:
+                before_mutation()
+            except Exception as exc:
+                raise ContractFailure(
+                    "operation_binding_unverified",
+                    "operation binding could not be verified",
+                ) from exc
+
     def _recover(
         self,
         completed: list[tuple[StageSpec, RecoveryRequest | None]],
         records: list[StageRecord],
         capabilities: Mapping[str, AdapterCapabilities],
+        before_mutation: Callable[[], None] | None,
     ) -> bool:
         recovery_blocked = False
         record_indexes = {
@@ -655,6 +677,16 @@ class ContinuityEngine:
                     records[index],
                     recovery_status="blocked",
                     recovery_reason_code="recovery_effect_unverified",
+                )
+                recovery_blocked = True
+                continue
+            try:
+                self._check_operation_binding(before_mutation)
+            except ContractFailure as exc:
+                records[index] = replace(
+                    records[index],
+                    recovery_status="blocked",
+                    recovery_reason_code=exc.reason_code,
                 )
                 recovery_blocked = True
                 continue

@@ -18,6 +18,7 @@ from .reconcile import StatusConflict
 _METADATA_ACCEPT = "application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1"
 _IDENTITY_FIELDS = ("namespace", "name", "uid", "resourceVersion")
 _RESPONSE_LIMIT = 16 * 1024 * 1024
+DISPATCH_ANNOTATION = f"{API_GROUP}/dispatch"
 
 
 def _response_object(response: HTTPResponse) -> dict[str, Any] | None:
@@ -149,6 +150,41 @@ class ContractClient:
             raise RuntimeError("binding ConfigMap creation was not confirmed")
         return obj
 
+    def mark_dispatch(
+        self,
+        namespace: str,
+        name: str,
+        uid: str,
+        resource_version: str,
+        operation_id: str,
+    ) -> None:
+        if not uid or not resource_version or not operation_id:
+            raise ValueError(
+                "a dispatch claim requires an object identity and operation ID"
+            )
+        obj = self._request(
+            "PATCH",
+            namespace,
+            name,
+            {
+                "metadata": {
+                    "uid": uid,
+                    "resourceVersion": resource_version,
+                    "annotations": {DISPATCH_ANNOTATION: operation_id},
+                }
+            },
+            resource="configmaps",
+        )
+        if obj is not None:
+            meta = _binding(obj, namespace, name)["metadata"]
+            if (
+                meta["uid"] == uid
+                and isinstance(meta.get("annotations"), dict)
+                and meta["annotations"].get(DISPATCH_ANNOTATION) == operation_id
+            ):
+                return
+        raise RuntimeError("dispatch claim was not confirmed")
+
     def replace_status(
         self,
         namespace: str,
@@ -224,7 +260,11 @@ class ContractClient:
         body = None
         if payload is not None:
             body = json.dumps(payload, allow_nan=False).encode()
-            headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = (
+                "application/merge-patch+json"
+                if method == "PATCH"
+                else "application/json"
+            )
         with closing(self.connect()) as connection:
             timeout = connection.timeout
             if (
@@ -244,7 +284,7 @@ class ContractClient:
                     if obj is None:
                         raise ValueError(f"{label} {method} returned an invalid object")
                     return obj
-                if response.status == 409 and method == "PUT":
+                if response.status == 409 and method in ("PUT", "PATCH"):
                     raise StatusConflict
                 if response.status == 404 or (
                     response.status == 409 and method == "POST"

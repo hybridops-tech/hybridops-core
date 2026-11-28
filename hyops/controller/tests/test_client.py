@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from hyops.continuity.api import API_GROUP, API_KIND
 from hyops.continuity.api.v1alpha1 import API_VERSION_VALUE
-from hyops.controller.client import ContractClient
+from hyops.controller.client import DISPATCH_ANNOTATION, ContractClient
 from hyops.controller.reconcile import StatusConflict
 
 
@@ -337,3 +337,59 @@ class ContractClientTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, f"HTTP {status}$"):
                     client.create_binding("controller", "record", {})
                 conn.request.assert_called_once()
+
+    def test_dispatch_patch_is_scoped_to_the_observed_object(self):
+        obj = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "immutable": True,
+            "data": {"binding.json": "{}"},
+            "metadata": {
+                "namespace": "records",
+                "name": "record",
+                "uid": "binding-uid",
+                "resourceVersion": "8",
+                "annotations": {DISPATCH_ANNOTATION: "run-1"},
+            },
+        }
+        args = ("records", "record", "binding-uid", "7", "run-1")
+        client, conn = self.response(200, obj)
+        client.mark_dispatch(*args)
+        conn.request.assert_called_once()
+        request = conn.request.call_args
+        self.assertEqual(
+            request.args, ("PATCH", "/api/v1/namespaces/records/configmaps/record")
+        )
+        self.assertEqual(
+            request.kwargs["headers"]["Content-Type"], "application/merge-patch+json"
+        )
+        self.assertEqual(
+            json.loads(request.kwargs["body"]),
+            {
+                "metadata": {
+                    "uid": "binding-uid",
+                    "resourceVersion": "7",
+                    "annotations": {DISPATCH_ANNOTATION: "run-1"},
+                },
+            },
+        )
+        for metadata in (
+            {"annotations": {}},
+            {"annotations": {DISPATCH_ANNOTATION: "different"}},
+            {"uid": "replacement"},
+            {"name": "another"},
+            {"deletionTimestamp": "2026-11-28T13:00:00Z"},
+        ):
+            with self.subTest(metadata=metadata):
+                client, conn = self.response(
+                    200, {**obj, "metadata": {**obj["metadata"], **metadata}}
+                )
+                with self.assertRaises((ValueError, RuntimeError)):
+                    client.mark_dispatch(*args)
+                conn.request.assert_called_once()
+
+    def test_dispatch_conflict_is_not_retried(self):
+        client, conn = self.response(409, {"reason": "Conflict"})
+        with self.assertRaises(StatusConflict):
+            client.mark_dispatch("records", "record", "binding-uid", "7", "run-1")
+        conn.request.assert_called_once()

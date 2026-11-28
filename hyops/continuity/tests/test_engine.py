@@ -1935,6 +1935,86 @@ class ContinuityEngineTests(unittest.TestCase):
         self.assertNotIn(("execute", "release"), self.adapter.calls)
         self.assertNotIn(("recover", "release"), self.adapter.calls)
 
+    def test_binding_refusal_after_retirement_checks_skips_unattempted_cleanup(
+        self,
+    ) -> None:
+        stream = BytesIO(b"artifact:lab-a")
+        reader = Mock(spec=["open_evidence"])
+        reader.open_evidence.return_value = stream
+        gate = Mock(wraps=self.authority_gate)
+        checkpoints = []
+
+        def verify():
+            checkpoints.append(
+                (self.adapter.calls[-1], stream.closed, gate.enforce.call_count)
+            )
+            if len(checkpoints) == 2:
+                raise ValueError("private binding detail")
+
+        record = self._engine(authority_gate=gate, evidence_reader=reader).run(
+            self._retirement(), before_mutation=verify
+        )
+        self.assertEqual(
+            checkpoints,
+            [
+                (("admit", "prepare"), False, 0),
+                (("admit", "release"), True, 2),
+                (("admit", "release"), True, 2),
+            ],
+        )
+        self.assertEqual(
+            self.adapter.calls,
+            [
+                ("admit", "prepare"),
+                ("execute", "prepare"),
+                ("admit", "release"),
+                ("recover", "prepare"),
+            ],
+        )
+        self.assertEqual(record.reason_code, "operation_binding_unverified")
+        self.assertEqual(record.closure, "recovered")
+        self.assertNotIn("private binding detail", self._terminal_path().read_text())
+
+    def test_lost_binding_blocks_rollback_without_replacing_original_failure(
+        self,
+    ) -> None:
+        spec = self._spec()
+        release = replace(spec.stages[1], recovery_operation="remove")
+        for reason in ("adapter_execution_error", "terminal_record_write_failed"):
+            with self.subTest(reason=reason):
+                adapter = _Adapter()
+                store = self.store
+                if reason == "adapter_execution_error":
+                    adapter.execute_errors.add("release")
+                else:
+                    store = _FailOncePublishStore(self.root / "operations")
+                verify = Mock(
+                    side_effect=(None, None, RuntimeError("private binding detail"))
+                )
+                record = self._engine(adapter=adapter, operation_store=store).run(
+                    replace(
+                        spec, operation_id=reason, stages=(spec.stages[0], release)
+                    ),
+                    before_mutation=verify,
+                )
+                self.assertEqual(verify.call_count, 3)
+                self.assertFalse(adapter.recovery_requests)
+                self.assertEqual(record.closure, "recovery_failed")
+                self.assertEqual(record.reason_code, reason)
+                self.assertEqual(
+                    [
+                        (s.recovery_status, s.recovery_reason_code)
+                        for s in record.stages
+                    ],
+                    [
+                        ("blocked", "blocked_by_later_recovery"),
+                        ("blocked", "operation_binding_unverified"),
+                    ],
+                )
+                self.assertNotIn(
+                    "private binding detail", self._terminal_path(reason).read_text()
+                )
+
     def test_retirement_rechecks_authority_after_reading_recovery_bytes(self) -> None:
         spec = self._retirement()
         receipt = self.authority_gate.enforce(
