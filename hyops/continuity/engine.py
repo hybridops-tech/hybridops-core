@@ -486,8 +486,7 @@ class ContinuityEngine:
                 "invalid_evidence_identity",
                 f"stage '{stage.id}' returned invalid evidence",
             ) from exc
-        names: set[str] = set()
-        validated: list[EvidenceIdentity] = []
+        validated: dict[str, EvidenceIdentity] = {}
         for item in identities:
             if not isinstance(item, EvidenceIdentity):
                 raise ContractFailure(
@@ -515,15 +514,24 @@ class ContinuityEngine:
                     "invalid_evidence_identity",
                     f"stage '{stage.id}' returned invalid evidence digest",
                 )
-            if identity.name in names:
+            if identity.name in validated:
                 raise ContractFailure(
                     "duplicate_evidence_identity",
                     f"stage '{stage.id}' returned duplicate evidence "
                     f"'{identity.name}'",
                 )
-            names.add(identity.name)
-            validated.append(identity)
-        return tuple(validated)
+            validated[identity.name] = identity
+        missing = sorted(
+            f"{name}:{role}"
+            for name, role in stage.produced_evidence.items()
+            if name not in validated or validated[name].role != role
+        )
+        if missing:
+            raise ContractFailure(
+                "missing_producer_evidence",
+                f"stage '{stage.id}' did not return declared evidence: {', '.join(missing)}",
+            )
+        return tuple(validated.values())
 
     @staticmethod
     def _require_evidence(

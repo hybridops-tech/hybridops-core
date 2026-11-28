@@ -33,3 +33,20 @@ These functions verify identities; they do not dispatch adapters. The
 controller installation must restrict writes to the record namespace.
 
 Run the API-server checks with `bash tools/ci/check-continuity-api.sh`.
+
+## Recovery evidence
+
+A recovery set declares which stage produces it and the evidence name and
+role to expect. Before the kernel records that stage as successful, the
+adapter must return every declared identity with a valid SHA-256 digest,
+even if no later stage uses the set. This checks the returned identity,
+not the contents of the recovery artifact.
+
+If a consumer requests a different role for the same declared evidence,
+the kernel rejects the contract before admitting any stage.
+
+Run the credential-free check with a new output directory:
+
+```sh
+python3 -m tools.acceptance.continuity_contract.runner --output ./continuity-proof
+```

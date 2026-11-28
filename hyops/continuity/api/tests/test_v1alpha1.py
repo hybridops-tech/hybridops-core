@@ -921,8 +921,15 @@ class V1Alpha1CodecTests(unittest.TestCase):
                 "recoverySets": ["workload-state"],
             }
         )
+        spec = decode(payload).spec
+        self.assertEqual(spec.stages[2].recovery_sets, {"workload-state"})
         self.assertEqual(
-            decode(payload).spec.stages[2].recovery_sets, {"workload-state"}
+            spec.producer_evidence_by_stage(),
+            {
+                "prepare": {"prepared-state": "recovery"},
+                "release": {"prepared-state": "another-role"},
+                "verify": {},
+            },
         )
 
     def test_direct_construction_rejects_mutable_collections(self) -> None:
