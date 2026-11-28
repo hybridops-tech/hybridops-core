@@ -72,6 +72,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Test cluster cleanup
+        shell: bash
+        run: bash tools/ci/tests/check-continuity-cluster-cleanup.sh
+
       - name: Load toolchain pins
         shell: bash
         run: |

@@ -23,17 +23,34 @@ kind version | grep -Fq "kind v${KIND_VERSION} " || {
   exit 2
 }
 
-cluster_name="hyops-continuity-api-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$"
+cluster_name="hyops-continuity-api-$(python3 -c 'from uuid import uuid4; print(uuid4().hex)')"
 runtime_root="$(mktemp -d)"
 export KUBECONFIG="${runtime_root}/kubeconfig"
+cluster_state=unstarted
+original_ca=""
+
+cluster_ca() {
+  kubectl config view --kubeconfig="$1" --raw --minify \
+    --output=jsonpath='{.clusters[0].cluster.certificate-authority-data}'
+}
 
 cleanup() {
-  local rc=$?
+  local rc=$? clusters current
   trap - EXIT
-  if ! kind delete cluster --name "${cluster_name}" >/dev/null 2>&1; then
-    echo "ERR: failed to remove kind cluster: ${cluster_name}" >&2
-    if (( rc == 0 )); then
+  if [[ "${cluster_state}" == created ]]; then
+    if [[ -z "${original_ca}" ]] ||
+      ! current="$(kind get kubeconfig --name "${cluster_name}" | cluster_ca /dev/stdin)" ||
+      [[ "${current}" != "${original_ca}" ]]; then
+      echo "ERR: cannot confirm ownership of kind cluster: ${cluster_name}; not deleting" >&2
       rc=1
+    elif ! kind delete cluster --name "${cluster_name}"; then
+      echo "ERR: failed to remove kind cluster: ${cluster_name}" >&2
+      rc=1
+    fi
+  elif [[ "${cluster_state}" == creating ]]; then
+    # kind rolls back failed creates; a remaining name does not establish ownership.
+    if ! clusters="$(kind get clusters)" || grep -Fxq -- "${cluster_name}" <<<"${clusters}"; then
+      echo "ERR: check kind cluster after failed create: ${cluster_name}; not deleting" >&2
     fi
   fi
   rm -rf "${runtime_root}"
@@ -317,11 +334,20 @@ if ("unknownRoot" in p or p["metadata"]["annotations"].get("verified") != "yes" 
     raise SystemExit("persisted terminal contract became stale or invalid")'
 }
 
+clusters="$(kind get clusters)"
+if grep -Fxq -- "${cluster_name}" <<<"${clusters}"; then
+  echo "ERR: kind cluster already exists: ${cluster_name}" >&2
+  exit 1
+fi
+cluster_state=creating
 kind create cluster \
   --name "${cluster_name}" \
   --image "${KIND_NODE_IMAGE}" \
   --kubeconfig "${KUBECONFIG}" \
   --wait 180s
+cluster_state=created
+original_ca="$(cluster_ca "${KUBECONFIG}")"
+[[ -n "${original_ca}" ]] || exit 1
 
 crd="${HYOPS_REPO_ROOT}/config/crd/bases/continuity.hyopsproject.github.io_continuitycontracts.yaml"
 sample="${HYOPS_REPO_ROOT}/config/samples/continuity_v1alpha1_contract.yaml"
